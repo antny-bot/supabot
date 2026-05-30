@@ -1,18 +1,19 @@
 import os
 import asyncio
+import html as _html
 import json
 import re
 import time
-from datetime import datetime, time as dt_time, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand, BotCommandScopeDefault, BotCommandScopeChat
 from telegram.ext import (
-    ApplicationBuilder, 
-    CommandHandler, 
-    ContextTypes, 
-    CallbackQueryHandler, 
-    ConversationHandler, 
-    MessageHandler, 
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
+    CallbackQueryHandler,
+    ConversationHandler,
+    MessageHandler,
     filters
 )
 
@@ -32,6 +33,28 @@ from core.natural_language import (
 )
 from core.operational_events import append_operational_event, read_recent_operational_events
 from core.secret_crypto import can_decrypt_secrets, has_secret_key
+from core.parsers import (
+    KST,
+    RSI_INTERVAL_ALIASES, RSI_MINUTE_INTERVALS, POLL_INTERVAL_KEYS, ADMIN_ONLY_KEYS,
+    normalize_exchange, is_exchange_token, exchange_display_name,
+    parse_exchange_and_ticker, parse_number, parse_rsi_range, parse_optional_krw,
+    parse_rsi_interval, parse_config_value, validate_max_order, validate_config_update,
+    has_gemini_key, get_user_rsi_interval, is_strategy_order,
+    is_kis_regular_session, next_kis_regular_session, kis_next_check_timestamp,
+    interpolate_range, resolve_linked_rsi_target,
+    _format_seconds,
+)
+from core.formatters import (
+    _b, _i, _code,
+    CMD_HELP,
+    format_optional_krw, format_bool, escape_markdown_text,
+    format_section, format_rsi_interval, format_config_value,
+    format_safety_status, format_api_validation_status, build_secret_security_status,
+    build_config_view, build_diag_view,
+    build_start_menu_message, build_help_message,
+    build_account_summary, build_manual_order_confirm_message,
+    build_grid_preview_lines, build_rsi_preview_lines,
+)
 
 try:
     from build_info import BUILD_DATE, VERSION, GIT_SHA
@@ -52,31 +75,35 @@ exchange_adapter = ExchangeAdapter(user_manager)
 order_manager = OrderManager()
 signal_engine = SignalEngine(user_manager, exchange_adapter)
 _order_wake_event: asyncio.Event = None  # post_init에서 초기화
-KST = timezone(timedelta(hours=9))
 _pending_nl_intents = {}
 _pending_manual_orders = {}
 MANUAL_ORDER_TTL_SECONDS = 600
 RSI_GRID_COMMAND_ALIASES = ("rsigrid", "rsitrade")
 ACCOUNT_COMMAND_ALIASES = ("whomai", "me")
 DEFAULT_BOT_COMMANDS = [
-    ("start", "시스템 접속 및 메뉴 확인"),
-    ("help", "전체 명령어 사용 설명서"),
+    # 시스템
+    ("start", "시스템 접속 및 메뉴"),
+    ("help", "전체 명령어 도움말"),
+    ("info", "버전 및 빌드 정보"),
+    ("whomai", "내 계정 권한 확인"),
+    # 자산
+    ("asset", "통합 자산 현황"),
+    ("price", "실시간 시세 조회"),
+    ("history", "최근 체결 내역"),
+    # 매매
     ("status", "트레이딩 전략 대시보드"),
-    ("asset", "통합 자산 현황 조회"),
-    ("price", "종목 실시간 시세 조회"),
-    ("history", "최근 체결 내역 조회"),
-    ("orders", "추적 중인 미체결 주문"),
-    ("rsitrade", "RSI 순환 매매 전략"),
-    ("grid", "가격 범위 분할 매수"),
-    ("sgrid", "보유 수량 분할 매도"),
+    ("orders", "미체결 주문 목록"),
     ("buy", "단일 지정가 매수"),
     ("sell", "단일 지정가 매도"),
-    ("cancel", "종목 주문 일괄 취소"),
+    ("cancel", "주문 일괄 취소"),
+    ("grid", "가격 범위 분할 매수"),
+    ("sgrid", "수량 분할 매도"),
+    ("rsitrade", "RSI 순환 매매"),
+    # 감시
     ("watch", "RSI 감시 종목 추가"),
-    ("unwatch", "RSI 감시 종목 제거"),
+    ("unwatch", "RSI 감시 제거"),
+    # 설정
     ("config", "거래소, LLM API 설정"),
-    ("info", "봇 버전 및 빌드 정보"),
-    ("whomai", "내 계정 권한과 상태 확인"),
 ]
 ADMIN_BOT_COMMANDS = [
     *DEFAULT_BOT_COMMANDS,
@@ -87,183 +114,12 @@ ADMIN_BOT_COMMANDS = [
 # Conversation States
 SET_EXCHANGE, SET_ACCESS, SET_SECRET, SET_KIS_APP, SET_KIS_SECRET, SET_KIS_ACCOUNT, SET_KIS_PRODUCT, SET_KIS_ENV, SET_GEMINI_KEY = range(9)
 
-# ==========================================
-# 📖 명령어별 상세 도움말 데이터
-# ==========================================
-CMD_HELP = {
-    "start": (
-        "🎁 */start 상세 가이드*\n\n"
-        "**기능:** 봇을 시작하고 시스템에 등록을 요청하거나 메뉴를 불러옵니다.\n"
-        "**사용법:** `/start`만 입력\n\n"
-        "**안내:**\n"
-        "• 처음 사용 시 관리자의 승인이 필요합니다.\n"
-        "• 승인 후에는 언제든지 `/start`로 주요 메뉴를 다시 볼 수 있습니다."
-    ),
-    "config": (
-        "⚙️ */config 상세 가이드*\n\n"
-        "**기능:** 거래소 API 키와 사용자 기본 설정을 관리합니다.\n\n"
-        "**API 키 설정:** `/config` 입력 후 버튼 클릭\n"
-        "1. 거래소 선택 (Upbit, Bithumb, 한국투자증권, Gemini)\n"
-        "2. 거래소별 Key 입력 (메시지 삭제됨)\n"
-        "3. 한국투자증권은 계좌번호, 상품코드, 모의/실전 환경까지 입력\n"
-        "4. 자동 유효성 검증 수행\n\n"
-        "**설정 조회:** `/config -v`\n"
-        "API 키 값은 표시하지 않고 설정 여부만 보여줍니다.\n\n"
-        "**설정 변경:** `/config set [항목] [값]`\n"
-        "• `default_exchange`: upbit, bithumb, kis, 업비트, 빗썸, 한투\n"
-        "• `asset_min_display_krw`: `/asset` 개별 표시 최소 평가액\n"
-        "• `rsi_buy_range`: 예: 25-30\n"
-        "• `rsi_sell_range`: 예: 65-75\n"
-        "• `rsi_order_count`: 예: 5\n"
-        "• `rsi_budget_krw`: 예: 100만 또는 off\n"
-        "• `rsi_interval`: day 또는 1/3/5/10/15/30/60/240\n"
-        "• `signal_alerts`: on/off\n"
-        "• `signal_rsi_threshold`: 예: 30\n"
-        "• `max_order_krw`: 예: 50만 또는 off\n"
-        "• `llm_enabled`: on/off\n"
-        "• `llm_model`: 예: gemini-2.5-flash-lite\n\n"
-        "**폴링 설정 (관리자 전용):**\n"
-        "• `poll_active_interval`: 오더 있을 때 주기 (초, 기본 60)\n"
-        "• `poll_no_order_interval`: 오더 없을 때 fallback 주기 (초, 기본 300)\n"
-        "• `signal_analysis_interval`: 시그널 분석 주기 (초, 기본 300)\n\n"
-        "**예시:**\n"
-        "`/config set asset_min_display_krw 10000`\n"
-        "`/config set rsi_budget_krw 100만`\n"
-        "`/config set rsi_interval day`\n"
-        "`/config set llm_enabled on`\n"
-        "`/config set max_order_krw 50만`\n"
-        "`/config set poll_active_interval 30`\n\n"
-        "⚠️ 보안을 위해 입력한 키 메시지는 즉시 자동 삭제됩니다."
-    ),
-    "asset": (
-        "💰 */asset 상세 가이드*\n\n"
-        "**기능:** 내 거래소 잔고와 총 평가액을 조회합니다.\n"
-        "**구문:** `/asset [거래소]`\n\n"
-        "**옵션:**\n"
-        "• `업비트` 또는 `빗썸`: 특정 거래소만 조회 (생략 시 전체 조회)\n\n"
-        "**예시:**\n"
-        "1. `/asset` (모든 거래소 조회)\n"
-        "2. `/asset 빗썸` (빗썸 잔고만 조회)\n"
-        "⚠️ 설정한 최소 표시 금액 이하의 소액 자산은 '기타'로 합산 표시됩니다."
-    ),
-    "price": (
-        "📊 */price 상세 가이드*\n\n"
-        "**기능:** 특정 종목의 실시간 시세를 조회합니다.\n"
-        "**구문:** `/price [거래소] [종목]`\n\n"
-        "**옵션:**\n"
-        "• `거래소`: 업비트, 빗썸, 한투 (생략 시 기본 거래소 우선)\n"
-        "• `종목`: 암호화폐는 BTC, ETH 등, 한국투자증권은 005930 같은 국내주식 종목코드\n\n"
-        "**예시:**\n"
-        "1. `/p BTC` (업비트 비트코인 시세)\n"
-        "2. `/price 빗썸 ETH` (빗썸 이더리움 시세)\n"
-        "3. `/p KRW-XRP` (심볼 직접 입력)\n"
-        "4. `/price 한투 005930` (한국투자증권 삼성전자 시세)"
-    ),
-    "history": (
-        "📜 */history 상세 가이드*\n\n"
-        "**기능:** 나의 최근 체결(완료)된 주문 내역을 보여줍니다.\n"
-        "**구문:** `/history [거래소] [종목]`\n\n"
-        "**옵션:**\n"
-        "• `거래소`: 업비트, 빗썸\n"
-        "• `종목`: 특정 코인 내역만 필터링 (생략 시 전체)\n\n"
-        "**예시:**\n"
-        "1. `/history` (업비트 전체 최근 내역)\n"
-        "2. `/history 빗썸` (빗썸 전체 최근 내역)\n"
-        "3. `/history BTC` (업비트 비트코인 거래 내역)"
-    ),
-    "buy": (
-        "🛍️ */buy 상세 가이드 (단일 매수)*\n\n"
-        "**기능:** 지정한 거래소에 단일 매수 주문을 즉시 전송합니다.\n"
-        "**구문:** `/buy [거래소] [종목] [가격] [수량]`\n\n"
-        "**예시:**\n"
-        "`/buy 빗썸 BTC 95000000 0.1` (빗썸에서 0.1 BTC를 9500만원에 매수)\n"
-        "`/buy 한투 005930 70000 1` (한국투자증권에서 삼성전자 1주 매수 확인)\n\n"
-        "⚠️ 한국투자증권 주문은 확인 버튼을 거친 뒤 전송됩니다."
-    ),
-    "sell": (
-        "🛍️ */sell 상세 가이드 (단일 매도)*\n\n"
-        "**기능:** 지정한 거래소에 단일 매도 주문을 즉시 전송합니다.\n"
-        "**구문:** `/sell [거래소] [종목] [가격] [수량]`\n\n"
-        "**예시:**\n"
-        "`/sell BTC 120000000 0.5` (업비트에서 0.5 BTC를 1.2억원에 매도)\n\n"
-        "⚠️ 보유 수량이 주문 수량보다 많아야 합니다."
-    ),
-    "grid": (
-        "🕸️ */grid 상세 가이드 (분할 매수)*\n\n"
-        "**기능:** 지정가 범위 내에서 예산을 분할하여 여러 개의 매수 주문을 겁니다.\n"
-        "**구문:** `/grid [거래소] [종목] [시작가] [종료가] [횟수] [총예산]`\n\n"
-        "**사용 예시:**\n"
-        "`/grid BTC 1억 9천 10 100만` (1억~9천 사이 10번 분할 매수)\n\n"
-        "**상세 파라미터:**\n"
-        "• 횟수: 몇 번에 나눠서 주문할지 지정\n"
-        "• 총예산: 전체 주문에 투입할 원화(KRW) 총액"
-    ),
-    "sgrid": (
-        "🕸️ */sgrid 상세 가이드 (분할 매도)*\n\n"
-        "**기능:** 지정가 범위 내에서 보유 수량을 분할하여 여러 개의 매도 주문을 겁니다.\n"
-        "**구문:** `/sgrid [거래소] [종목] [시작가] [종료가] [횟수] [총수량]`\n\n"
-        "**사용 예시:**\n"
-        "`/sgrid 빗썸 ETH 400만 450만 5 0.5` (400~450만 사이 0.5개 분할 매도)\n\n"
-        "**상세 파라미터:**\n"
-        "• 횟수: 몇 번에 나눠서 팔지 지정\n"
-        "• 총수량: 전체 매도할 코인 개수"
-    ),
-    "orders": (
-        "⏳ */orders 상세 가이드*\n\n"
-        "**기능:** 현재 거래소에 걸려있는 미체결 주문 목록을 확인합니다.\n"
-        "**구문:** `/orders [거래소]`\n\n"
-        "**옵션:**\n"
-        "• `업비트` 또는 `빗썸` (생략 시 기본 거래소)\n\n"
-        "**안내:**\n"
-        "봇을 통해 생성한 주문뿐만 아니라 직접 거래소에서 건 미체결 주문도 모두 조회됩니다."
-    ),
-    "cancel": (
-        "🛑 */cancel 상세 가이드*\n\n"
-        "**기능:** 특정 종목의 모든 미체결 주문을 일괄 취소합니다.\n"
-        "**구문:** `/cancel [거래소] [종목]`\n\n"
-        "**예시:**\n"
-        "1. `/cancel BTC` (업비트 비트코인 주문 취소)\n"
-        "2. `/cancel 빗썸 SOL` (빗썸 솔라나 주문 취소)"
-    ),
-    "watch": (
-        "🔔 */watch 상세 가이드*\n\n"
-        "**기능:** 특정 종목의 RSI 지표를 실시간 감시하여 매수 시그널을 알립니다.\n"
-        "**구문:** `/watch [거래소] [종목]`\n\n"
-        "**예시:**\n"
-        "1. `/watch BTC` (업비트 비트코인 감시 시작)\n"
-        "2. `/watch 빗썸 SOL` (빗썸 솔라나 감시 시작)"
-    ),
-    "unwatch": (
-        "🔕 */unwatch 상세 가이드*\n\n"
-        "**기능:** RSI 시그널 감시 목록에서 특정 종목을 제거합니다.\n"
-        "**구문:** `/unwatch [거래소] [종목]`\n\n"
-        "**예시:**\n"
-        "`/unwatch BTC` (비트코인 감시 종료)"
-    ),
-    "rsitrade": (
-        "🤖 */rsitrade 상세 가이드*\n\n"
-        "**기능:** RSI 목표 구간을 기준으로 분할 매수하고, 체결 시 RSI 매도 목표 주문을 예약합니다.\n"
-        "**구문:** `/rsitrade [거래소] [종목] [매수RSI] [매도RSI] [횟수] [예산]`\n\n"
-        "**기본값:** 종목만 입력하면 `/config`에 저장된 매수RSI, 매도RSI, 횟수, 예산을 사용합니다.\n\n"
-        "**예시:**\n"
-        "1. `/rsitrade BTC`\n"
-        "2. `/rsitrade 빗썸 BTC`\n"
-        "3. `/rsitrade BTC 20-30 60-75 7 200만`"
-    ),
-    "info": (
-        "ℹ️ */info 상세 가이드*\n\n"
-        "**기능:** 현재 실행 중인 봇의 버전 및 빌드 정보를 표시합니다.\n"
-        "**사용법:** `/info`만 입력"
-    ),
-}
-
 async def check_details_help(update: Update, command_name: str):
-    """인자값에 -h, -help, --help가 포함되어 있는지 확인하고 상세 도움말을 출력합니다."""
     if update.message and update.message.text:
         text = update.message.text.lower()
         if any(opt in text for opt in [" -h", "-help", "--help"]):
             help_text = CMD_HELP.get(command_name, "해당 명령어에 대한 상세 도움말이 아직 없습니다.")
-            await update.message.reply_text(help_text)
+            await update.message.reply_text(help_text, parse_mode="HTML")
             return True
     return False
 
@@ -291,18 +147,7 @@ def check_auth(func):
 # 🤖 명령어 핸들러
 # ==========================================
 
-def build_start_menu_message(user):
-    return (
-        f"🤖 {BOT_DISPLAY_NAME} 시스템 접속 완료\n\n"
-        f"어서오세요, {user.get('username', '사용자')}님. 현재 정상 이용 가능합니다.\n\n"
-        "주요 명령어\n"
-        "- /asset: 전체 자산 현황 조회\n"
-        "- /orders: 미체결 주문 확인\n"
-        "- /grid: 거미줄 매수 설정\n"
-        "- /config: 거래소, LLM API 설정\n"
-        "- /watch: 시그널 감시 종목 추가\n"
-        "- /help: 전체 명령어 확인"
-    )
+
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await check_details_help(update, "start"): return
@@ -328,8 +173,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif not user["is_active"]:
         await update.message.reply_text("⏳ 현재 승인 대기 중입니다. 잠시만 기다려 주세요!")
     else:
-        msg = build_start_menu_message(user)
-        await update.message.reply_text(msg)
+        await update.message.reply_text(build_start_menu_message(user), parse_mode="HTML")
 
 async def approve_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -345,177 +189,6 @@ async def approve_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=user_id,
             text="🎉 축하합니다! 봇 사용 승인이 완료되었습니다. 이제 /start 명령어로 메뉴를 확인해 보세요!"
         )
-
-def parse_exchange_and_ticker(args, default_exchange):
-    """사용자 입력 args에서 거래소와 종목(Ticker)을 분리하여 반환합니다."""
-    if not args:
-        return default_exchange, None
-    
-    exchange = default_exchange
-    raw_ticker = None
-    
-    arg0_exchange = normalize_exchange(args[0])
-    if arg0_exchange:
-        exchange = arg0_exchange
-        raw_ticker = args[1].upper() if len(args) > 1 else None
-    else:
-        raw_ticker = args[0].upper()
-
-    if raw_ticker:
-        if exchange in ["upbit", "bithumb"] and "-" not in raw_ticker:
-            raw_ticker = f"KRW-{raw_ticker}"
-        elif exchange == "kis":
-            raw_ticker = raw_ticker.replace("KRW-", "")
-            
-    return exchange, raw_ticker
-
-def normalize_exchange(value):
-    text = str(value).strip().lower()
-    if text in ["upbit", "업비트"]:
-        return "upbit"
-    if text in ["bithumb", "빗썸"]:
-        return "bithumb"
-    if text in ["kis", "한투", "한국투자", "한국투자증권"]:
-        return "kis"
-    return None
-
-def is_exchange_token(value, exchange):
-    return normalize_exchange(value) == exchange
-
-def exchange_display_name(exchange):
-    return {
-        "upbit": "UPBIT",
-        "bithumb": "BITHUMB",
-        "kis": "한국투자증권",
-    }.get(exchange, exchange.upper())
-
-def parse_number(value):
-    """텔레그램 입력 숫자와 간단한 한글 단위를 숫자로 변환합니다."""
-    text = str(value).replace(",", "").strip()
-    multipliers = [("억", 100000000), ("만", 10000), ("천", 1000)]
-    for suffix, multiplier in multipliers:
-        if text.endswith(suffix):
-            return float(text[:-len(suffix)]) * multiplier
-    return float(text)
-
-def parse_rsi_range(rsi_range):
-    start, end = map(float, str(rsi_range).split("-"))
-    if not (0 <= start <= 100 and 0 <= end <= 100 and start <= end):
-        raise ValueError("RSI 범위는 0-100 사이의 오름차순이어야 합니다.")
-    return start, end
-
-def parse_optional_krw(value):
-    if str(value).strip().lower() in ["off", "none", "unset", "미설정", "해제", "0"]:
-        return None
-    amount = parse_number(value)
-    if amount <= 0:
-        raise ValueError("금액은 0보다 커야 합니다.")
-    return amount
-
-def format_optional_krw(value):
-    return "미설정" if value is None else f"{float(value):,.0f}원"
-
-def format_bool(value):
-    return "on" if bool(value) else "off"
-
-def escape_markdown_text(value):
-    text = str(value or "")
-    for char in ["\\", "_", "*", "`", "["]:
-        text = text.replace(char, f"\\{char}")
-    return text
-
-def format_section(title, lines):
-    body = [str(line) for line in lines if str(line) != ""]
-    return "\n".join([title, *body])
-
-def format_safety_status(user):
-    prefs = user.get("preferences", {})
-    max_order = prefs.get("max_order_krw")
-    kis_env = user.get("exchanges", {}).get("kis", {}).get("env", "paper")
-    configured = []
-    for exchange in ["upbit", "bithumb", "kis"]:
-        keys = user.get("exchanges", {}).get(exchange, {})
-        if exchange == "kis":
-            is_set = bool(keys.get("app_key") and keys.get("app_secret") and keys.get("account_no"))
-        else:
-            is_set = bool(keys.get("access_key") and keys.get("secret_key"))
-        if is_set:
-            configured.append(exchange_display_name(exchange))
-    lines = [
-        "- 수동 주문: 확인 버튼 필요",
-        f"- max_order_krw: {format_optional_krw(max_order)}" + (" (권장: /config set max_order_krw 50만)" if max_order is None else ""),
-        f"- KIS 환경: {'실전' if kis_env == 'real' else '모의'}" + (" (실전 거래 주의)" if kis_env == "real" else ""),
-        f"- API 키 설정 거래소: {', '.join(configured) if configured else '없음'}",
-    ]
-    return lines
-
-RSI_INTERVAL_ALIASES = {
-    "day": "day",
-    "daily": "day",
-    "d": "day",
-    "1d": "day",
-}
-RSI_MINUTE_INTERVALS = {"1", "3", "5", "10", "15", "30", "60", "240"}
-POLL_INTERVAL_KEYS = {"poll_active_interval", "poll_no_order_interval", "signal_analysis_interval"}
-ADMIN_ONLY_KEYS = POLL_INTERVAL_KEYS
-
-def parse_rsi_interval(value):
-    text = str(value).strip().lower()
-    if text in RSI_INTERVAL_ALIASES:
-        return RSI_INTERVAL_ALIASES[text]
-    if text in RSI_MINUTE_INTERVALS:
-        return text
-    raise ValueError("RSI 캔들 기준은 day 또는 1,3,5,10,15,30,60,240 분봉 중 하나여야 합니다.")
-
-def format_rsi_interval(value):
-    value = parse_rsi_interval(value)
-    if value == "day":
-        return "day (일봉)"
-    return f"{value}분봉"
-
-def has_gemini_key(user):
-    return bool(user.get("llm", {}).get("gemini_api_key"))
-
-def _format_seconds(seconds: int) -> str:
-    seconds = int(seconds)
-    if seconds < 60:
-        return f"{seconds}초"
-    m, s = divmod(seconds, 60)
-    return f"{m}분" if s == 0 else f"{m}분 {s}초"
-
-def _as_kst_now(now=None):
-    if now is None:
-        return datetime.now(KST).replace(tzinfo=None)
-    if getattr(now, "tzinfo", None):
-        return now.astimezone(KST).replace(tzinfo=None)
-    return now
-
-def is_kis_regular_session(now=None):
-    now = _as_kst_now(now)
-    if now.weekday() >= 5:
-        return False
-    start = dt_time(9, 0)
-    end = dt_time(15, 35)
-    return start <= now.time() <= end
-
-def next_kis_regular_session(now=None):
-    now = _as_kst_now(now)
-    next_day = now
-    if now.weekday() < 5 and now.time() < dt_time(9, 0):
-        return now.replace(hour=9, minute=0, second=0, microsecond=0)
-    next_day = now + timedelta(days=1)
-    while next_day.weekday() >= 5:
-        next_day += timedelta(days=1)
-    return next_day.replace(hour=9, minute=0, second=0, microsecond=0)
-
-def kis_next_check_timestamp(now=None):
-    return next_kis_regular_session(now).replace(tzinfo=KST).timestamp()
-
-def is_strategy_order(order):
-    return str(order.get("strategy", "")).startswith("rsitrade") or str(order.get("strategy", "")).startswith("grid")
-
-def get_user_rsi_interval(user):
-    return user.get("preferences", {}).get("rsi_interval", "day")
 
 async def ensure_rsi_supported(update, user, exchange):
     if exchange == "kis" and get_user_rsi_interval(user) != "day":
@@ -669,7 +342,10 @@ async def execute_query_intent(update, context, user, intent):
     if action == "history":
         return await history_command(update, context)
     if action == "config_view":
-        return await update.message.reply_text(build_config_view(user))
+        return await update.message.reply_text(
+            build_config_view(user, active_order_count=len(order_manager.orders)),
+            parse_mode="HTML",
+        )
     if action == "help":
         return await help_command(update, context)
     await update.message.reply_text("⚠️ 자연어 요청을 조회 명령으로 해석하지 못했습니다.")
@@ -772,277 +448,6 @@ async def execute_confirmed_intent(query, context, user, intent):
 
     await query.edit_message_text("⚠️ 이 자연어 요청은 아직 실행할 수 없습니다. /help에서 지원 명령을 확인해 주세요.")
 
-def format_config_value(key, value):
-    if isinstance(value, bool):
-        return format_bool(value)
-    if key == "rsi_interval":
-        return format_rsi_interval(value)
-    if key in ["rsi_budget_krw", "max_order_krw"]:
-        return format_optional_krw(value)
-    if key == "asset_min_display_krw":
-        return f"{float(value):,.0f}원"
-    if key in POLL_INTERVAL_KEYS:
-        return _format_seconds(value)
-    return value
-
-def validate_max_order(user, order_krw):
-    max_order_krw = user.get("preferences", {}).get("max_order_krw")
-    if max_order_krw is None:
-        return True, None
-    if order_krw > float(max_order_krw):
-        return False, f"❌ 단일 주문 금액 {order_krw:,.0f}원이 설정된 최대 주문 금액 {float(max_order_krw):,.0f}원을 초과합니다."
-    return True, None
-
-def validate_config_update(user, key, value):
-    if key == "llm_enabled" and value and not has_gemini_key(user):
-        raise ValueError("Gemini API 키를 먼저 /config에서 설정해야 llm_enabled를 켤 수 있습니다.")
-    return True
-
-def build_secret_security_status(user):
-    if not has_secret_key():
-        return "없음"
-    if not can_decrypt_secrets():
-        return "형식 오류"
-    if user.get("_secret_error"):
-        return "복호화 오류"
-    return "정상"
-
-def format_api_validation_status(user, exchange):
-    validation = user.get("api_validation", {}).get(exchange)
-    if not validation:
-        return "검증 이력 없음"
-    status = "마지막 검증 성공" if validation.get("ok") else "마지막 검증 실패"
-    checked_at = str(validation.get("checked_at") or "").split("+")[0].replace("T", " ")
-    return f"{status} {checked_at}".strip()
-
-def build_config_view(user):
-    preferences = user["preferences"]
-    api_lines = []
-    for exchange in ["upbit", "bithumb", "kis"]:
-        keys = user.get("exchanges", {}).get(exchange, {})
-        if exchange == "kis":
-            is_set = bool(keys.get("app_key") and keys.get("app_secret") and keys.get("account_no"))
-            account = keys.get("account_no", "")
-            masked_account = f"{account[:2]}****{account[-2:]}" if len(account) >= 4 else "미설정"
-            env_name = "실전" if keys.get("env") == "real" else "모의"
-            api_lines.append(f"- {exchange_display_name(exchange)}: {'설정됨' if is_set else '미설정'} / {env_name} / 계좌 {masked_account} / {format_api_validation_status(user, exchange)}")
-        else:
-            is_set = bool(keys.get("access_key") and keys.get("secret_key"))
-            api_lines.append(f"- {exchange_display_name(exchange)}: {'설정됨' if is_set else '미설정'} / {format_api_validation_status(user, exchange)}")
-
-    sections = [
-        "⚙️ 현재 사용자 설정",
-        "",
-        format_section("API 키 상태", api_lines),
-        "",
-        format_section("기본 설정", [
-        f"- default_exchange: {preferences.get('default_exchange')}",
-        f"- asset_min_display_krw: {float(preferences.get('asset_min_display_krw', 10000)):,.0f}원 이하 기타 합산",
-        f"- rsi_interval: {format_rsi_interval(preferences.get('rsi_interval', 'day'))}",
-        f"- rsi_buy_range: {preferences.get('rsi_buy_range')}",
-        f"- rsi_sell_range: {preferences.get('rsi_sell_range')}",
-        f"- rsi_order_count: {preferences.get('rsi_order_count')}",
-        f"- rsi_budget_krw: {format_optional_krw(preferences.get('rsi_budget_krw'))}",
-        f"- signal_alerts: {format_bool(preferences.get('signal_alerts'))}",
-        f"- signal_rsi_threshold: {float(preferences.get('signal_rsi_threshold', 30)):g}",
-        f"- max_order_krw: {format_optional_krw(preferences.get('max_order_krw'))}",
-        ]),
-        "",
-        format_section("LLM 설정", [
-        f"- Gemini: {'설정됨' if has_gemini_key(user) else '미설정'}",
-        f"- llm_enabled: {format_bool(preferences.get('llm_enabled'))}",
-        f"- llm_model: {preferences.get('llm_model', 'gemini-2.5-flash-lite')}",
-        ]),
-        "",
-        format_section("보안 설정", [
-        f"- USER_SECRET_KEY: {build_secret_security_status(user)}",
-        ]),
-        "",
-        format_section("거래 안전 상태", format_safety_status(user)),
-    ]
-    if user.get("is_admin"):
-        active_interval = _format_seconds(preferences.get("poll_active_interval", 60))
-        no_order_interval = _format_seconds(preferences.get("poll_no_order_interval", 300))
-        signal_interval = _format_seconds(preferences.get("signal_analysis_interval", 300))
-        current_interval = active_interval if order_manager.orders else no_order_interval
-        order_count = len(order_manager.orders)
-        current_reason = f"활성 오더 {order_count}건" if order_manager.orders else "오더 없음"
-        sections.extend([
-            "",
-            format_section("폴링 설정 (관리자)", [
-            f"- poll_active_interval: {active_interval}  (오더 있을 때)",
-            f"- poll_no_order_interval: {no_order_interval}  (오더 없을 때 fallback)",
-            f"- signal_analysis_interval: {signal_interval}",
-            f"→ 현재: {current_reason} → {current_interval} 주기 적용 중",
-            ]),
-        ])
-    return "\n".join(sections)
-
-def build_diag_view(user, recent_events=None):
-    prefs = user.get("preferences", {})
-    active_interval = _format_seconds(prefs.get("poll_active_interval", 60))
-    no_order_interval = _format_seconds(prefs.get("poll_no_order_interval", 300))
-    current_interval = active_interval if order_manager.orders else no_order_interval
-    exchange_lines = []
-    for exchange in ["upbit", "bithumb", "kis"]:
-        keys = user.get("exchanges", {}).get(exchange, {})
-        if exchange == "kis":
-            is_set = bool(keys.get("app_key") and keys.get("app_secret") and keys.get("account_no"))
-            env_name = "실전" if keys.get("env") == "real" else "모의"
-            exchange_lines.append(f"- {exchange_display_name(exchange)}: {'설정됨' if is_set else '미설정'} / {env_name} / {format_api_validation_status(user, exchange)}")
-        else:
-            is_set = bool(keys.get("access_key") and keys.get("secret_key"))
-            exchange_lines.append(f"- {exchange_display_name(exchange)}: {'설정됨' if is_set else '미설정'} / {format_api_validation_status(user, exchange)}")
-    if recent_events is None:
-        recent_events = read_recent_operational_events(levels={"warning", "error"}, limit=5)
-    event_lines = [
-        f"- {row.get('ts')} / {row.get('level')} / {row.get('source')}: {row.get('message')}"
-        for row in recent_events
-    ] or ["- 최근 warning/error 없음"]
-    return "\n".join([
-        "🧪 운영 진단",
-        "",
-        format_section("환경", [
-            f"- TELEGRAM_BOT_TOKEN: {'설정됨' if BOT_TOKEN else '없음'}",
-            f"- ADMIN_CHAT_ID: {'설정됨' if ADMIN_CHAT_ID else '없음'}",
-            f"- USER_SECRET_KEY: {build_secret_security_status(user)}",
-        ]),
-        "",
-        format_section("빌드", [
-            f"- 버전: {VERSION}",
-            f"- 빌드: {BUILD_DATE}",
-            f"- 커밋: {GIT_SHA[:7] if GIT_SHA != 'unknown' else 'unknown'}",
-        ]),
-        "",
-        format_section("LLM", [
-            f"- Gemini: {'설정됨' if has_gemini_key(user) else '미설정'}",
-            f"- llm_enabled: {format_bool(prefs.get('llm_enabled'))}",
-            f"- llm_model: {prefs.get('llm_model', 'gemini-2.5-flash-lite')}",
-        ]),
-        "",
-        format_section("거래소", exchange_lines),
-        "",
-        format_section("주문/폴링", [
-            f"- 활성 주문: {len(order_manager.orders)}건",
-            f"- 현재 주기: {current_interval}",
-            f"- poll_active_interval: {active_interval}",
-            f"- poll_no_order_interval: {no_order_interval}",
-            f"- signal_analysis_interval: {_format_seconds(prefs.get('signal_analysis_interval', 300))}",
-        ]),
-        "",
-        format_section("거래 안전 상태", format_safety_status(user)),
-        "",
-        format_section("최근 오류", event_lines),
-    ])
-
-def parse_config_value(key, raw_value):
-    key = key.strip().lower()
-    if key == "default_exchange":
-        exchange = normalize_exchange(raw_value)
-        if not exchange:
-            raise ValueError("기본 거래소는 upbit, bithumb, kis, 업비트, 빗썸, 한투 중 하나여야 합니다.")
-        return exchange
-    if key == "asset_min_display_krw":
-        amount = parse_number(raw_value)
-        if amount < 0:
-            raise ValueError("최소 표시 금액은 0 이상이어야 합니다.")
-        return amount
-    if key in ["rsi_buy_range", "rsi_sell_range"]:
-        parse_rsi_range(raw_value)
-        return str(raw_value)
-    if key == "rsi_interval":
-        return parse_rsi_interval(raw_value)
-    if key == "rsi_order_count":
-        count = int(raw_value)
-        if count <= 0:
-            raise ValueError("분할 주문 수는 1 이상이어야 합니다.")
-        return count
-    if key == "rsi_budget_krw":
-        return parse_optional_krw(raw_value)
-    if key == "signal_alerts":
-        text = str(raw_value).strip().lower()
-        if text in ["on", "true", "1", "yes", "y", "켜기"]:
-            return True
-        if text in ["off", "false", "0", "no", "n", "끄기"]:
-            return False
-        raise ValueError("signal_alerts 값은 on 또는 off여야 합니다.")
-    if key == "llm_enabled":
-        text = str(raw_value).strip().lower()
-        if text in ["on", "true", "1", "yes", "y", "켜기"]:
-            return True
-        if text in ["off", "false", "0", "no", "n", "끄기"]:
-            return False
-        raise ValueError("llm_enabled 값은 on 또는 off여야 합니다.")
-    if key == "llm_model":
-        model = str(raw_value).strip()
-        if not model.startswith("gemini-"):
-            raise ValueError("llm_model은 gemini- 로 시작하는 모델명이어야 합니다.")
-        return model
-    if key == "signal_rsi_threshold":
-        threshold = float(raw_value)
-        if not 0 <= threshold <= 100:
-            raise ValueError("RSI 기준은 0-100 사이여야 합니다.")
-        return threshold
-    if key == "max_order_krw":
-        return parse_optional_krw(raw_value)
-    if key in POLL_INTERVAL_KEYS:
-        try:
-            val = int(raw_value)
-        except (ValueError, TypeError):
-            raise ValueError("폴링 주기는 정수(초)로 입력해야 합니다.")
-        if val < 10:
-            raise ValueError("폴링 주기는 최소 10초 이상이어야 합니다.")
-        return val
-    raise ValueError("지원하지 않는 설정 항목입니다. `/config -h`로 항목 목록을 확인하세요.")
-
-def interpolate_range(start, end, index, count):
-    if count <= 1:
-        return start
-    return start + ((end - start) / (count - 1) * index)
-
-def resolve_linked_rsi_target(linked_to):
-    if linked_to is None:
-        return None
-    text = str(linked_to)
-    if "-" in text:
-        start, _ = parse_rsi_range(text)
-        return start
-    return float(text)
-
-def _volume_unit(ticker):
-    text = str(ticker or "").replace("KRW-", "")
-    return "주" if text.isdigit() else text
-
-def _format_preview_volume(ticker, volume):
-    unit = _volume_unit(ticker)
-    if unit == "주":
-        return f"{int(volume)}주"
-    return f"{volume:.4f} {unit}"
-
-def build_grid_preview_lines(ticker, start_price, end_price, count, budget):
-    per_order_budget = float(budget) / int(count)
-    lines = []
-    for i in range(int(count)):
-        price = float(interpolate_range(float(start_price), float(end_price), i, int(count)))
-        volume = per_order_budget / price
-        lines.append(
-            f"{i + 1}. {price:,.0f}원 / 약 {_format_preview_volume(ticker, volume)} / {per_order_budget:,.0f}원"
-        )
-    return lines
-
-def build_rsi_preview_lines(ticker, rsi_prices, budget, total_count=None):
-    if not rsi_prices:
-        return []
-    per_order_budget = float(budget) / int(total_count or len(rsi_prices))
-    lines = []
-    for i, (target_rsi, price) in enumerate(rsi_prices, start=1):
-        price = float(price)
-        volume = per_order_budget / price
-        lines.append(
-            f"{i}. RSI {float(target_rsi):g} → {price:,.0f}원 / 약 {_format_preview_volume(ticker, volume)} / {per_order_budget:,.0f}원"
-        )
-    return lines
-
 async def build_rsi_price_points(user_id, user, exchange, ticker, buy_rsi_range, count):
     b_start, b_end = parse_rsi_range(buy_rsi_range)
     points = []
@@ -1104,19 +509,19 @@ async def asset_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     
     status_msg = await update.message.reply_text("🔄 자산 정보를 불러오는 중입니다...")
     
-    full_msg = "💰 통합 자산 현황\n\n"
+    full_msg = "💰 <b>통합 자산 현황</b>\n\n"
     total_eval_krw = 0
 
     for ex in exchanges:
         if ex not in ["upbit", "bithumb", "kis"]: continue
-        
+
         balances = await exchange_adapter.get_balances(user_id, ex)
         if balances is None:
-            full_msg += f"❌ {exchange_display_name(ex)}: API 키가 설정되지 않았거나 오류 발생\n\n"
+            full_msg += f"❌ <b>{exchange_display_name(ex)}</b>: API 키가 설정되지 않았거나 오류 발생\n\n"
             continue
-            
+
         if ex == "kis":
-            full_msg += f"🏛️ {exchange_display_name(ex)} ({'실전' if balances.get('env') == 'real' else '모의'})\n"
+            full_msg += f"🏛️ <b>{exchange_display_name(ex)}</b> ({'실전' if balances.get('env') == 'real' else '모의'})\n"
             cash = float(balances.get("cash", 0))
             ex_eval = float(balances.get("total_eval", 0))
             full_msg += f"- 💵 예수금: {cash:,.0f}원\n"
@@ -1138,7 +543,7 @@ async def asset_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
         # 거래소별 현재가 정보 가져오기 (평가액 계산용)
         ticker_prices = await exchange_adapter.get_krw_ticker_prices(ex)
 
-        full_msg += f"🏛️ {ex.upper()}\n"
+        full_msg += f"🏛️ <b>{ex.upper()}</b>\n"
         ex_eval = 0
         others_count = 0
         others_value = 0
@@ -1171,8 +576,8 @@ async def asset_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
         full_msg += f"   └ 거래소 평가액: {ex_eval:,.0f}원\n\n"
         total_eval_krw += ex_eval
 
-    full_msg += f"💳 총 합계 자산: {total_eval_krw:,.0f}원"
-    await status_msg.edit_text(full_msg)
+    full_msg += f"💳 <b>총 합계 자산: {total_eval_krw:,.0f}원</b>"
+    await status_msg.edit_text(full_msg, parse_mode="HTML")
 
 @check_auth
 async def orders_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
@@ -1186,12 +591,12 @@ async def orders_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
         await update.message.reply_text("⏳ 봇이 추적 중인 거래소 미체결 주문은 없습니다.\nRSI/거미줄 전략 대기 상태는 /status에서 확인하세요.")
         return
 
-    msg = "⏳ 현재 추적 중인 미체결 주문\n\n"
+    msg = "⏳ <b>현재 추적 중인 미체결 주문</b>\n\n"
     for ord in orders:
-        msg += f"📌 [{exchange_display_name(ord['exchange'])}] {ord['ticker']}\n"
+        msg += f"📌 <b>[{exchange_display_name(ord['exchange'])}]</b> {ord['ticker']}\n"
         msg += f"   └ 가격: {ord['price']:,.0f}원 | 수량: {ord['volume']:.4f}\n"
-    
-    await update.message.reply_text(msg)
+
+    await update.message.reply_text(msg, parse_mode="HTML")
 
 @check_auth
 async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
@@ -1235,7 +640,10 @@ async def config_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     args = context.args
     if args and args[0].lower() in ["-v", "-view", "--view"]:
-        await update.message.reply_text(build_config_view(user))
+        await update.message.reply_text(
+            build_config_view(user, active_order_count=len(order_manager.orders)),
+            parse_mode="HTML",
+        )
         return ConversationHandler.END
 
     if args and args[0].lower() == "set":
@@ -1649,14 +1057,14 @@ async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     change_emoji = "📈" if change_rate > 0 else "📉" if change_rate < 0 else "➖"
     
     msg = (
-        f"📊 [{exchange_display_name(exchange)}] {ticker} 실시간 시세\n\n"
-        f"현재가: {price:,.0f}원 {change_emoji}\n"
+        f"📊 <b>[{exchange_display_name(exchange)}] {ticker}</b> 실시간 시세\n\n"
+        f"현재가: <b>{price:,.0f}원</b> {change_emoji}\n"
         f"전일대비: {change_rate:+.2f}% ({change_price:,.0f}원)\n"
         f"고가(24H): {high:,.0f}원\n"
         f"저가(24H): {low:,.0f}원\n"
         f"거래대금: {volume/100000000:,.1f}억원"
     )
-    await update.message.reply_text(msg)
+    await update.message.reply_text(msg, parse_mode="HTML")
 
 @check_auth
 async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
@@ -1672,7 +1080,7 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE, us
         return
 
     # 상위 5건만 표시
-    msg = f"📜 [{exchange_display_name(exchange)}] 최근 체결 내역 (최근 5건)\n\n"
+    msg = f"📜 <b>[{exchange_display_name(exchange)}] 최근 체결 내역</b> (최근 5건)\n\n"
     for ord in history[:5]:
         side = "🔴 매수" if ord.get('side', '').lower() in ['bid', 'buy'] else "🔵 매도"
         tk = ord.get('market', ticker)
@@ -1683,25 +1091,7 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE, us
         msg += f"- {date} | {side} | {tk}\n"
         msg += f"  └ {price:,.0f}원 | {vol:.4f}개\n"
 
-    await update.message.reply_text(msg)
-
-def build_manual_order_confirm_message(exchange, ticker, side, price, volume, user):
-    action = "매수" if side == "bid" else "매도"
-    env_notice = ""
-    if exchange == "kis":
-        env = user.get("exchanges", {}).get("kis", {}).get("env", "paper")
-        env_notice = f" ({'실전' if env == 'real' else '모의'})"
-        volume_text = f"{float(volume):,.0f}주"
-    else:
-        volume_text = f"{float(volume):.8f}".rstrip("0").rstrip(".")
-    return (
-        f"{'📈' if side == 'bid' else '📉'} {exchange_display_name(exchange)} {action} 주문 확인{env_notice}\n\n"
-        f"- 종목: {ticker}\n"
-        f"- 가격: {float(price):,.0f}원\n"
-        f"- 수량: {volume_text}\n"
-        f"- 주문금액: {float(price) * float(volume):,.0f}원\n\n"
-        "위 내용으로 주문을 전송할까요?"
-    )
+    await update.message.reply_text(msg, parse_mode="HTML")
 
 def create_manual_order_token(user_id, exchange, side, ticker, price, volume):
     token = str(len(_pending_manual_orders) + 1)
@@ -2009,27 +1399,22 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
         ex_orders = [o for o in orders if o['exchange'] == ex]
         if not ex_orders: continue
         
-        msg += f"🏛️ {ex.upper()}\n"
-        
-        # 전략별 그룹화 (종목별)
+        msg += f"🏛️ <b>{ex.upper()}</b>\n"
+
         tickers = sorted(list(set([o['ticker'] for o in ex_orders])))
         for tk in tickers:
             tk_orders = [o for o in ex_orders if o['ticker'] == tk]
-            # 진행률 계산
             total = len(tk_orders)
-            filled = len([o for o in tk_orders if o['status'] == 'done']) # 실제로는 done이면 삭제되므로 현재 추적 중인 개수 위주
-            
-            # rsitrade와 일반 grid 구분
+            filled = len([o for o in tk_orders if o['status'] == 'done'])
+
             is_rsi = any(o['strategy'].startswith('rsitrade') for o in tk_orders)
             strategy_name = "RSI 순환 매매" if is_rsi else "거미줄 분할 매매"
-            
-            prog_total = total # 현재 추적 중인 주문 수
-            prog_bar = "🔵" * filled + "⚪" * (prog_total - filled)
-            
-            msg += f"• {tk} {strategy_name}\n"
-            msg += f"  └ 상태: {prog_bar} ({prog_total}건 추적 중)\n"
-            
-            # 상세 주문 (최대 3건)
+
+            prog_bar = "🔵" * filled + "⚪" * (total - filled)
+
+            msg += f"• <b>{tk}</b> {strategy_name}\n"
+            msg += f"  └ 상태: {prog_bar} ({total}건 추적 중)\n"
+
             for i, o in enumerate(tk_orders[:3]):
                 side_str = "매수" if o['side'] == 'bid' else "매도"
                 target = f"RSI {o['target_rsi']}" if o['target_rsi'] else f"{o['price']:,.0f}원"
@@ -2039,7 +1424,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
         msg += "\n"
 
     msg += "ℹ️ 체결 및 외부 취소 시 실시간 알림이 전송됩니다."
-    await update.message.reply_text(msg)
+    await update.message.reply_text(msg, parse_mode="HTML")
 
 @check_auth
 async def rsitrade_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
@@ -2209,23 +1594,6 @@ def _get_admin_prefs() -> dict:
             return {**UserManager.DEFAULT_PREFERENCES, **user.get("preferences", {})}
     return dict(UserManager.DEFAULT_PREFERENCES)
 
-def build_account_summary(user_id, user):
-    prefs = user.get("preferences", {})
-    role = "관리자" if user.get("is_admin") else "일반 사용자"
-    active = "활성" if user.get("is_active") else "승인 대기"
-    llm = "on" if prefs.get("llm_enabled") else "off"
-    default_exchange = prefs.get("default_exchange", "upbit")
-    secret_status = "\n보안 키: 복호화 오류" if user.get("_secret_error") else ""
-    return (
-        "👤 내 계정\n\n"
-        f"ID: {user_id}\n"
-        f"권한: {role}\n"
-        f"상태: {active}\n"
-        f"기본 거래소: {default_exchange}\n"
-        f"자연어: {llm}"
-        f"{secret_status}"
-    )
-
 async def _interruptible_sleep(seconds: float):
     try:
         await asyncio.wait_for(_order_wake_event.wait(), timeout=seconds)
@@ -2335,73 +1703,45 @@ async def global_debug_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         print(f"📡 [GLOBAL DEBUG] 메시지 수신 from={update.effective_user.id}, length={len(update.message.text)}")
     return
 
-def build_help_message(user):
-    admin_lines = ["- /nlstats: 자연어 전처리 후보 통계 (관리자 전용)", "- /diag: 운영 진단 (관리자 전용)"] if user.get("is_admin") else []
-    sections = [
-        f"📖 {BOT_DISPLAY_NAME} 사용 설명서",
-        "상세 가이드: /[명령어] -h  예: /rsitrade -h",
-        "",
-        format_section("기본 및 설정", [
-            "- /start: 시스템 접속 및 메뉴 확인",
-            "- /status: 가동 중인 트레이딩 전략 대시보드",
-            "- /config: 거래소, LLM API 설정",
-            "- /info: 봇 버전 및 빌드 정보 확인",
-            "- /whomai: 내 계정 권한과 상태 확인 (/me 가능)",
-            *admin_lines,
-            "- /help: 명령어 도움말 확인",
-        ]),
-        "",
-        format_section("자산 및 시세 조회", [
-            "- /asset: 통합 자산 및 소액 자산 요약 조회",
-            "- /price [종목]: 실시간 시세 및 변동률 (단축: /p)",
-            "- /history [종목]: 최근 체결 내역 확인 (5건)",
-        ]),
-        "",
-        format_section("자동 거래 및 순환 매매", [
-            "- /rsitrade [종목] [매수RSI] [매도RSI] [횟수] [예산]",
-            "  예: /rsitrade BTC 25-30 65-75 5 200만",
-            "- /grid [종목] [시작가] [종료가] [횟수] [예산]: 분할 매수",
-            "- /sgrid [종목] [시작가] [종료가] [횟수] [수량]: 분할 매도",
-            "- /orders: 미체결 주문 및 추적 목록",
-            "- /cancel [종목]: 해당 종목 주문 일괄 취소",
-        ]),
-        "",
-        format_section("시그널 감시", [
-            "- /watch [종목]: RSI 매수 시그널 실시간 감시",
-            "- /unwatch [종목]: 감시 목록에서 제거",
-        ]),
-        "",
-        "주의: 모든 주문은 거래소 앱과 실시간 동기화됩니다.",
-    ]
-    return "\n".join(sections)
-
 @check_auth
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
-    await update.message.reply_text(build_help_message(user))
+    await update.message.reply_text(build_help_message(user), parse_mode="HTML")
 
 @check_auth
 async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     if await check_details_help(update, "info"): return
     short_sha = GIT_SHA[:7] if GIT_SHA != "unknown" else "unknown"
     msg = (
-        f"ℹ️ {BOT_DISPLAY_NAME} 빌드 정보\n\n"
-        f"- 버전: {VERSION}\n"
-        f"- 빌드: {BUILD_DATE}\n"
-        f"- 커밋: {short_sha}"
+        f"ℹ️ <b>{_html.escape(BOT_DISPLAY_NAME)} 빌드 정보</b>\n\n"
+        f"- 버전: {_html.escape(VERSION)}\n"
+        f"- 빌드: {_html.escape(BUILD_DATE)}\n"
+        f"- 커밋: <code>{_html.escape(short_sha)}</code>"
     )
-    await update.message.reply_text(msg)
+    await update.message.reply_text(msg, parse_mode="HTML")
 
 @check_auth
 async def diag_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     if not user.get("is_admin"):
         await update.message.reply_text("운영 진단은 관리자만 조회할 수 있습니다.")
         return
-    await update.message.reply_text(build_diag_view(user))
+    recent_events = read_recent_operational_events(levels={"warning", "error"}, limit=5)
+    env_info = {
+        "bot_token_set": bool(BOT_TOKEN),
+        "admin_chat_id_set": bool(ADMIN_CHAT_ID),
+        "version": VERSION,
+        "build_date": BUILD_DATE,
+        "git_sha": GIT_SHA[:7] if GIT_SHA != "unknown" else "unknown",
+        "order_count": len(order_manager.orders),
+    }
+    await update.message.reply_text(
+        build_diag_view(user, env_info=env_info, recent_events=recent_events),
+        parse_mode="HTML",
+    )
 
 @check_auth
 async def whoami_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     user_id = str(update.effective_chat.id)
-    await update.message.reply_text(build_account_summary(user_id, user))
+    await update.message.reply_text(build_account_summary(user_id, user), parse_mode="HTML")
 
 def recommend_nl_preprocess_action(text_norm):
     text = str(text_norm or "").lower()

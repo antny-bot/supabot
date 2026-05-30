@@ -81,7 +81,7 @@ def test_nlstats_is_registered_in_bot_command_menu():
 def test_whomai_is_registered_and_me_is_alias():
     commands = dict(main.DEFAULT_BOT_COMMANDS)
 
-    assert commands["whomai"] == "내 계정 권한과 상태 확인"
+    assert commands["whomai"] == "내 계정 권한 확인"
     assert "me" in main.ACCOUNT_COMMAND_ALIASES
     assert "me" not in commands
 
@@ -109,9 +109,9 @@ def test_help_message_uses_readable_plain_sections():
 
     message = main.build_help_message(user)
 
-    assert "기본 및 설정" in message
-    assert "- /config: 거래소, LLM API 설정" in message
-    assert "- /nlstats: 자연어 전처리 후보 통계 (관리자 전용)" in message
+    assert "⚙️ 시스템" in message
+    assert "<code>/config</code> — 거래소, LLM API 설정" in message
+    assert "<code>/nlstats</code> — 자연어 전처리 후보 통계 (관리자 전용)" in message
     assert "*" not in message
     assert "`" not in message
 
