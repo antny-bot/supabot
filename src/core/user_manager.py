@@ -1,7 +1,17 @@
 import json
 import os
+from copy import deepcopy
+
+from core.secret_crypto import decrypt_secret, encrypt_secret, has_secret_key, is_encrypted_secret
 
 class UserManager:
+    SECRET_EXCHANGE_FIELDS = {
+        "upbit": ("access_key", "secret_key"),
+        "bithumb": ("access_key", "secret_key"),
+        "kis": ("app_key", "app_secret", "account_no"),
+    }
+    SECRET_LLM_FIELDS = ("gemini_api_key",)
+
     DEFAULT_PREFERENCES = {
         "default_exchange": "upbit",
         "asset_min_display_krw": 10000,
@@ -46,15 +56,16 @@ class UserManager:
             print(f"Error saving users: {e}")
 
     def get_user(self, user_id):
-        user = self.users.get(str(user_id))
-        if user and self._ensure_user_defaults(user):
+        stored_user = self.users.get(str(user_id))
+        if stored_user and self._ensure_user_defaults(stored_user):
             self.save_users()
-        return user
+        return self._decrypt_user_copy(stored_user) if stored_user else None
 
     def _ensure_all_user_defaults(self):
         changed = False
         for user in self.users.values():
             changed = self._ensure_user_defaults(user) or changed
+            changed = self._migrate_user_secrets(user) or changed
         return changed
 
     def _ensure_user_defaults(self, user):
@@ -92,6 +103,46 @@ class UserManager:
                         changed = True
         return changed
 
+    def _migrate_user_secrets(self, user):
+        if not has_secret_key():
+            return False
+        changed = False
+        for exchange, fields in self.SECRET_EXCHANGE_FIELDS.items():
+            exchange_data = user.get("exchanges", {}).get(exchange, {})
+            for field in fields:
+                value = exchange_data.get(field, "")
+                if value and not is_encrypted_secret(value):
+                    exchange_data[field] = encrypt_secret(value)
+                    changed = True
+        llm = user.get("llm", {})
+        for field in self.SECRET_LLM_FIELDS:
+            value = llm.get(field, "")
+            if value and not is_encrypted_secret(value):
+                llm[field] = encrypt_secret(value)
+                changed = True
+        return changed
+
+    def _decrypt_user_copy(self, user):
+        user_copy = deepcopy(user)
+        for exchange, fields in self.SECRET_EXCHANGE_FIELDS.items():
+            exchange_data = user_copy.get("exchanges", {}).get(exchange, {})
+            for field in fields:
+                if field in exchange_data:
+                    exchange_data[field] = decrypt_secret(exchange_data[field])
+        llm = user_copy.get("llm", {})
+        for field in self.SECRET_LLM_FIELDS:
+            if field in llm:
+                llm[field] = decrypt_secret(llm[field])
+        return user_copy
+
+    def _encrypt_secret_for_storage(self, value):
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        if not has_secret_key() and not is_encrypted_secret(text):
+            raise ValueError("USER_SECRET_KEY is required to store user secrets")
+        return encrypt_secret(text)
+
     def add_user(self, user_id, username, is_admin=False):
         user_id_str = str(user_id)
         if user_id_str not in self.users:
@@ -119,7 +170,7 @@ class UserManager:
         return False
 
     def update_preference(self, user_id, key, value):
-        user = self.get_user(user_id)
+        user = self.users.get(str(user_id))
         if not user:
             return False
         user["preferences"][key] = value
@@ -127,28 +178,28 @@ class UserManager:
         return True
 
     def update_gemini_api_key(self, user_id, api_key):
-        user = self.get_user(user_id)
+        user = self.users.get(str(user_id))
         if not user:
             return False
-        user.setdefault("llm", {})["gemini_api_key"] = str(api_key or "").strip()
+        user.setdefault("llm", {})["gemini_api_key"] = self._encrypt_secret_for_storage(api_key)
         self.save_users()
         return True
 
     def update_exchange_keys(self, user_id, exchange, access_key, secret_key):
-        user = self.get_user(user_id)
+        user = self.users.get(str(user_id))
         if user and exchange in user["exchanges"]:
-            user["exchanges"][exchange]["access_key"] = access_key
-            user["exchanges"][exchange]["secret_key"] = secret_key
+            user["exchanges"][exchange]["access_key"] = self._encrypt_secret_for_storage(access_key)
+            user["exchanges"][exchange]["secret_key"] = self._encrypt_secret_for_storage(secret_key)
             self.save_users()
             return True
         return False
 
     def update_kis_keys(self, user_id, app_key, app_secret, account_no, product_code="01", env="paper"):
-        user = self.get_user(user_id)
+        user = self.users.get(str(user_id))
         if user and "kis" in user["exchanges"]:
-            user["exchanges"]["kis"]["app_key"] = app_key
-            user["exchanges"]["kis"]["app_secret"] = app_secret
-            user["exchanges"]["kis"]["account_no"] = account_no
+            user["exchanges"]["kis"]["app_key"] = self._encrypt_secret_for_storage(app_key)
+            user["exchanges"]["kis"]["app_secret"] = self._encrypt_secret_for_storage(app_secret)
+            user["exchanges"]["kis"]["account_no"] = self._encrypt_secret_for_storage(account_no)
             user["exchanges"]["kis"]["product_code"] = product_code
             user["exchanges"]["kis"]["env"] = env
             self.save_users()
@@ -156,7 +207,7 @@ class UserManager:
         return False
 
     def set_active(self, user_id, status=True):
-        user = self.get_user(user_id)
+        user = self.users.get(str(user_id))
         if user:
             user["is_active"] = status
             self.save_users()
@@ -164,7 +215,7 @@ class UserManager:
         return False
 
     def add_watchlist(self, user_id, exchange, ticker):
-        user = self.get_user(user_id)
+        user = self.users.get(str(user_id))
         if user and exchange in user["exchanges"]:
             if ticker not in user["exchanges"][exchange]["watchlist"]:
                 user["exchanges"][exchange]["watchlist"].append(ticker.upper())
@@ -173,7 +224,7 @@ class UserManager:
         return False
 
     def remove_watchlist(self, user_id, exchange, ticker):
-        user = self.get_user(user_id)
+        user = self.users.get(str(user_id))
         if user and exchange in user["exchanges"]:
             if ticker.upper() in user["exchanges"][exchange]["watchlist"]:
                 user["exchanges"][exchange]["watchlist"].remove(ticker.upper())

@@ -29,6 +29,8 @@
 `취소`, `중지`, `매수`, `매도`, `사줘`, `설정해`, `변경`, `켜줘`, `꺼줘` 같은 변경성 표현은 전처리하지 않는다. 해당 문장은 Gemini와 확인 버튼 흐름으로 넘긴다.
 
 전처리로 처리된 문장은 Gemini를 호출하지 않고 로그에도 남기지 않는다.
+다만 action 단위 hit 카운터는 `data/nl_preprocess_hits.json`에 저장한다. 원문, 종목, 거래소명은 저장하지 않는다.
+`비트 봐줘`처럼 종목은 있으나 조회 의도가 불명확한 문장은 Gemini 호출 전에 시세/자산/전략 상태 중 무엇을 볼지 되묻는다.
 
 ## Gemini 프롬프트 구조
 
@@ -135,7 +137,13 @@ natural_language_confirm_callback():
 - 6자리 숫자 → `<STOCK>`
 - 일반 숫자/소수 → `<NUMBER>`
 
-최근 500줄만 유지한다. 관리자는 `/nlstats` 명령으로 상위 패턴과 LLM/final action 집계를 조회할 수 있다.
+최근 500줄만 유지한다. 관리자는 다음 명령으로 운영 통계를 확인한다.
+
+- `/nlstats`: 상위 미처리 패턴과 전처리 hit 요약
+- `/nlstats export [N]`: 최근 익명 로그 N개 표시 (기본 20, 최대 50)
+- `/nlstats hits`: 전처리 action 카운트 표시
+- `/nlstats clear`: 초기화 안내
+- `/nlstats clear confirm`: 미처리 로그와 hit 카운터 초기화
 
 ## 오류 처리
 

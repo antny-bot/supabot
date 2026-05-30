@@ -181,6 +181,13 @@ chmod 700 ~/supabot/config ~/supabot/data
 ```env
 TELEGRAM_BOT_TOKEN=your_bot_token
 ADMIN_CHAT_ID=your_admin_chat_id
+USER_SECRET_KEY=your_fernet_master_key
+```
+
+`USER_SECRET_KEY`는 `data/users.json`에 저장되는 사용자별 거래소/Gemini 키를 암호화하는 마스터키입니다. 다음 명령으로 생성할 수 있으며, GitHub나 채팅에 공유하지 마세요.
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
 파일 권한도 제한하세요.
@@ -264,6 +271,6 @@ docker compose logs -f --tail=100
 
 ## 6. 운영 시 주의사항
 
-- Supabot은 현재 실행 중 `data/users.json`에 거래소 API 키를 저장합니다. 파일 권한을 엄격히 제한하고, 다중 사용자 노출은 피하세요.
+- Supabot은 현재 실행 중 `data/users.json`에 사용자별 거래소/Gemini 키를 저장합니다. `USER_SECRET_KEY`가 설정되어 있으면 `enc:v1:` 형식으로 암호화 저장되지만, `.env`와 `users.json`을 모두 읽을 수 있으면 복호화할 수 있으므로 파일 권한을 엄격히 제한하세요.
 - 자동화 테스트는 실거래 주문 엔드포인트를 호출하지 않도록 반드시 mock 기반으로 돌리세요.
 - 실거래 봇이므로 인바운드 포트는 최소화하고, 공인 IP가 바뀌면 SSH 허용 IP도 같이 갱신하세요.

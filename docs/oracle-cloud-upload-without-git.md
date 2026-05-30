@@ -100,7 +100,7 @@ cd ~/supabot
 
 이유:
 - `.env`에는 Telegram 토큰이 들어감
-- `users.json`에는 런타임 중 거래소 API 키가 저장될 수 있음
+- `users.json`에는 런타임 중 거래소/Gemini API 키가 저장될 수 있음 (`USER_SECRET_KEY` 설정 시 암호화 저장)
 
 권장 방식:
 - 코드만 업로드
@@ -121,6 +121,13 @@ chmod 600 ~/supabot/config/.env
 ```env
 TELEGRAM_BOT_TOKEN=...
 ADMIN_CHAT_ID=...
+USER_SECRET_KEY=...
+```
+
+`USER_SECRET_KEY`는 거래소/Gemini 키 암호화용 Fernet 마스터키입니다. 서버에서 직접 생성해 `config/.env`에 넣고, 배포 압축본이나 GitHub에는 포함하지 마세요.
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
 ## 6. 업로드 후 배포

@@ -70,9 +70,36 @@ def test_help_intent_runs_immediately():
 
 
 def test_nlstats_is_registered_in_bot_command_menu():
-    commands = dict(main.BOT_COMMANDS)
+    commands = dict(main.ADMIN_BOT_COMMANDS)
 
     assert commands["nlstats"] == "관리자 전용 자연어 패턴 통계"
+    assert "nlstats" not in dict(main.DEFAULT_BOT_COMMANDS)
+
+
+def test_whomai_is_registered_and_me_is_alias():
+    commands = dict(main.DEFAULT_BOT_COMMANDS)
+
+    assert commands["whomai"] == "내 계정 권한과 상태 확인"
+    assert "me" in main.ACCOUNT_COMMAND_ALIASES
+    assert "me" not in commands
+
+
+def test_account_summary_does_not_include_secrets():
+    user = {
+        "is_admin": True,
+        "is_active": True,
+        "preferences": {"default_exchange": "bithumb", "llm_enabled": True},
+        "exchanges": {"upbit": {"access_key": "secret-access", "secret_key": "secret-key"}},
+        "llm": {"gemini_api_key": "gemini-secret"},
+    }
+
+    summary = main.build_account_summary("123", user)
+
+    assert "권한: 관리자" in summary
+    assert "기본 거래소: bithumb" in summary
+    assert "자연어: on" in summary
+    assert "secret-access" not in summary
+    assert "gemini-secret" not in summary
 
 
 def test_natural_language_rsi_grid_phrase_normalizes_to_rsitrade():

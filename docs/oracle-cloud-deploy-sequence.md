@@ -110,6 +110,13 @@ nano ~/supabot/config/.env
 ```env
 TELEGRAM_BOT_TOKEN=...
 ADMIN_CHAT_ID=...
+USER_SECRET_KEY=...
+```
+
+`USER_SECRET_KEY`는 사용자별 거래소/Gemini 키를 `data/users.json`에 암호화 저장하기 위한 Fernet 마스터키입니다. VM의 `config/.env`에만 보관하고 GitHub에 올리지 않습니다.
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
 파일 권한도 제한합니다.
@@ -196,7 +203,7 @@ docker compose up -d --build
 ## 13. 주의사항
 
 - 이 봇은 실거래 경로를 포함하므로, 테스트 중에도 실주문이 나가지 않게 특히 주의해야 합니다.
-- 거래소 API 키는 현재 런타임에 `data/users.json`에 저장될 수 있으므로 파일 접근 권한을 엄격히 제한해야 합니다.
+- 거래소/Gemini API 키는 런타임에 `data/users.json`에 저장됩니다. `USER_SECRET_KEY`가 설정되어 있으면 암호화 저장되지만, `.env`와 `users.json`을 모두 읽을 수 있으면 복호화할 수 있으므로 파일 접근 권한을 엄격히 제한해야 합니다.
 - **데이터 백업:** `data/users.json`은 봇 운영에 가장 중요한 파일입니다. 정기적으로 로컬 PC에 백업하거나, 서버 내 다른 경로로 복사해두는 것을 권장합니다.
 - 공인 IP가 바뀌면 `ufw` 및 OCI NSG의 SSH 허용 IP도 같이 갱신해야 합니다.
 - 임시 퍼블릭 IP는 시간 기준으로 자동 만료되지는 않지만, 인스턴스 종료나 VNIC/프라이빗 IP 삭제 시 함께 사라질 수 있습니다.

@@ -23,6 +23,7 @@ KST = timezone(timedelta(hours=9))
 | /help, /commands | `help_command` | 전체 커맨드 메뉴 |
 | /info | `info_command` | build_info.py의 버전/빌드 정보 |
 | /config | `config_command` (ConversationHandler) | 다단계 키 설정 |
+| /whomai, /me | `whoami_command` | 내 ID, 권한, 활성 상태 확인 |
 | /nlstats | `nlstats_command` | 관리자 전용 자연어 전처리 후보 통계 |
 | /asset | `asset_command` | 포트폴리오 전체 잔고 |
 | /price, /p | `price_command` | 실시간 시세 |
@@ -68,8 +69,9 @@ API 키 포함 메시지는 캡처 즉시 삭제됨 (`delete_message`).
 - `_order_wake_event` 로 새 주문 시 즉시 깨어남
 
 ### Telegram 명령어 메뉴
-- `post_init`에서 `application.bot.set_my_commands(BOT_COMMANDS)`를 호출해 Telegram slash command 메뉴를 갱신한다.
-- `/nlstats`도 `BOT_COMMANDS`와 `CommandHandler("nlstats", nlstats_command)` 양쪽에 등록되어야 Telegram 메뉴와 실제 실행이 일치한다.
+- `post_init`에서 `application.bot.set_my_commands(DEFAULT_BOT_COMMANDS, BotCommandScopeDefault())`를 호출해 일반 Telegram slash command 메뉴를 갱신한다.
+- 관리자 chat에는 `BotCommandScopeChat`으로 `ADMIN_BOT_COMMANDS`를 별도 등록하며, 이 목록에만 `/nlstats`를 포함한다.
+- `/me`는 숨은 alias라 메뉴에는 표시하지 않고 `CommandHandler("me", whoami_command)`로만 등록한다.
 - 메뉴 갱신 실패는 봇 시작 실패로 처리하지 않고 경고 로그만 남긴다.
 
 ### signal_analysis_loop
@@ -91,16 +93,27 @@ API 키 포함 메시지는 캡처 즉시 삭제됨 (`delete_message`).
 2. `preprocess_natural_language_intent(text, user)` 로 안전한 조회 표현을 먼저 처리
    - 조회 action만 허용: `asset`, `price`, `orders`, `status`, `history`, `config_view`, `help`
    - 매수/매도/취소/설정 변경성 표현은 전처리하지 않음
-   - 전처리 성공 시 Gemini를 호출하지 않고 로그도 남기지 않음
+   - 전처리 성공 시 Gemini를 호출하지 않고 원문 로그도 남기지 않음
 3. 전처리 실패 시 `parse_natural_language_intent(text, user)` → Gemini API → JSON intent
 4. `normalize_natural_language_intent(text, intent, user)` 로 서버 후처리 보정
    - `주문대기`, `예약 주문`, `추적 중인 전략 주문` → `status`
    - `미체결`, `오픈오더`, `거래소에 걸린 주문` → `orders`
-5. 전처리 실패로 Gemini까지 간 문장은 `append_natural_language_log()` 로 `data/nl_unmatched.jsonl`에 익명 기록
-6. **읽기 액션** (`asset`, `price`, `orders`, `status`, `history`, `config_view`, `help`): `execute_query_intent` 즉시 실행
-7. **쓰기 액션** (buy, sell, grid, rsitrade 등): 확인 버튼 표시 → 클릭 시 `execute_confirmed_intent`
+5. 전처리 성공은 `data/nl_preprocess_hits.json`에 action 카운트만 기록하고, 원문은 저장하지 않음
+6. 전처리 실패로 Gemini까지 간 문장은 `append_natural_language_log()` 로 `data/nl_unmatched.jsonl`에 익명 기록
+7. **읽기 액션** (`asset`, `price`, `orders`, `status`, `history`, `config_view`, `help`): `execute_query_intent` 즉시 실행
+8. **쓰기 액션** (buy, sell, grid, rsitrade 등): 확인 버튼 표시 → 클릭 시 `execute_confirmed_intent`
 
-관리자는 `/nlstats`로 `data/nl_unmatched.jsonl`의 상위 미처리 패턴, LLM action, 최종 action 집계를 확인할 수 있다. 로그에는 chat_id/user_id를 저장하지 않고 숫자, 6자리 주식코드, 긴 토큰을 마스킹한다.
+관리자는 `/nlstats`, `/nlstats export [N]`, `/nlstats hits`, `/nlstats clear confirm`으로 `data/nl_unmatched.jsonl`과 `data/nl_preprocess_hits.json`을 조회/정리할 수 있다. 로그에는 chat_id/user_id를 저장하지 않고 숫자, 6자리 주식코드, 긴 토큰을 마스킹한다.
+
+## 사용자 Secret 암호화
+
+`UserManager`는 `USER_SECRET_KEY`가 설정되어 있으면 거래소/Gemini 키를 `enc:v1:<ciphertext>` 형식으로 `data/users.json`에 저장한다.
+
+- 암호화 대상: Upbit/Bithumb `access_key`, `secret_key`; KIS `app_key`, `app_secret`, `account_no`; Gemini `gemini_api_key`
+- `get_user()`는 런타임 사용을 위해 복호화된 copy를 반환한다.
+- 내부 `user_manager.users`와 파일에는 암호문을 유지한다.
+- 기존 평문 secret은 봇 시작 시 자동 마이그레이션한다.
+- `USER_SECRET_KEY`가 없으면 기존 평문 읽기는 유지하지만 새 secret 저장은 실패한다.
 
 상세 Intent 스키마 및 흐름: `docs/detail/gemini_intent.md`
 
@@ -114,7 +127,7 @@ kis_next_check_timestamp(now=None) → float   # Unix timestamp
 
 상세: `docs/detail/kis_market_policy.md`
 
-## 유틸리티 함수 (main.py)
+## 주요 유틸리티 함수
 
 ```python
 parse_exchange_and_ticker(args, default_exchange)  # args → (exchange, ticker)
@@ -125,7 +138,8 @@ interpolate_range(start, end, i, count)  # i번째 균등 분할값
 validate_max_order(user, order_krw)      # max_order_krw 제한 확인
 parse_config_value(key, raw_value)       # /config set 타입 검증·변환
 validate_config_update(user, key, value) # 제약 위반 시 ValueError
-preprocess_natural_language_intent(text, user) # 조회성 자연어 전처리
-append_natural_language_log(text, llm_intent, final_intent) # 익명 JSONL 로그 저장
-read_natural_language_log_stats(path, limit) # /nlstats 집계
+preprocess_natural_language_intent(text, user) # core.natural_language, 조회성 자연어 전처리
+append_natural_language_log(text, llm_intent, final_intent) # core.natural_language, 익명 JSONL 로그 저장
+read_natural_language_log_stats(path, limit) # core.natural_language, /nlstats 집계
+build_account_summary(user_id, user) # main.py, /whomai 응답 생성
 ```
