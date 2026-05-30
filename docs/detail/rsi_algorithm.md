@@ -9,47 +9,28 @@ RS  = AvgGain / AvgLoss  (period 기간)
 
 순방향 RSI는 `ta.momentum.RSIIndicator` 사용.
 
-## 역산에서 사용하는 Wilder's Smoothing 근사
+## 역산 방식
 
-`signal_engine.get_price_by_rsi()` 는 EMA 대신 **단순 rolling mean** 근사 사용:
+`signal_engine.get_price_by_rsi()` 는 현재 RSI를 계산할 때와 동일하게
+`ta.momentum.RSIIndicator` 를 사용한다.
+
+역산은 닫힌 수식을 쓰지 않고, 다음 캔들의 종가를 가정한 뒤
+`close_series + [next_close]` 에 대해 RSI를 다시 계산하는 방식이다.
+
+- 매수(`bid`): 후보 가격을 낮춰 가며 목표 RSI 이하가 되는 지점을 탐색
+- 매도(`ask`): 후보 가격을 높여 가며 목표 RSI 이상이 되는 지점을 탐색
+
+이 방식은 현재 RSI 표시값과 주문 미리보기 계산이 같은 모델을 쓰도록 맞춰,
+`현재 RSI > 목표 RSI` 인데도 목표 매수가가 현재가보다 높게 나오는 불일치를 방지한다.
+
+## 탐색 개요
 
 ```python
-diff     = pd.Series(close_prices).diff()
-gain     = diff.where(diff > 0, 0)
-loss     = -diff.where(diff < 0, 0)
-avg_gain = gain.rolling(window=period).mean().iloc[-1]
-avg_loss = loss.rolling(window=period).mean().iloc[-1]
+candidate_rsi = RSIIndicator(close=close_series + [next_close], window=period).rsi().iloc[-1]
 ```
 
-이 근사는 의도적 선택: closed-form 역산을 단순화. 결과 가격은 정확한 EMA Wilder RSI 예측과 약간 다르지만 지정가 선주문 용도로는 충분히 근접.
-
-## 매수 역산 (bid — 가격 하락 가정)
-
-다음 캔들을 하락 캔들로 가정 (currentGain=0, currentLoss>0).
-
-```
-target_rs = target_rsi / (100 - target_rsi)
-
-# period-step 업데이트 규칙 (단순 평균 근사):
-# new_avg_gain = (avg_gain * (period-1) + 0) / period
-# new_avg_loss = (avg_loss * (period-1) + needed_loss) / period
-#
-# new_avg_gain / new_avg_loss = target_rs 로 놓고 needed_loss 해석:
-
-needed_loss = (avg_gain * (period - 1) / target_rs) - (avg_loss * (period - 1))
-target_price = prev_close - needed_loss
-```
-
-**엣지 케이스**: `avg_loss == 0` (모두 상승, RSI≈100) → `avg_loss = 1e-9` 으로 대체.
-
-## 매도 역산 (ask — 가격 상승 가정)
-
-다음 캔들을 상승 캔들로 가정 (currentLoss=0, currentGain>0).
-
-```
-needed_gain = (target_rs * avg_loss * (period - 1)) - (avg_gain * (period - 1))
-target_price = prev_close + needed_gain
-```
+- `bid`: `next_close` 를 현재가 아래에서 이분 탐색
+- `ask`: `next_close` 를 현재가 위에서 이분 탐색
 
 ## 수수료 버퍼 적용
 

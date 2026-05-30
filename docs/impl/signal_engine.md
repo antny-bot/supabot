@@ -1,11 +1,11 @@
 # signal_engine.md
 
-**파일**: `src/core/signal_engine.py` (98줄)
+**파일**: `src/core/signal_engine.py`
 
 ## 역할
-1. RSI 계산 (pandas-ta 사용)
-2. 목표 RSI → 목표가 역산 (Wilder's Smoothing 근사, `/rsitrade` 전략용)
-3. 감시 목록 백그라운드 스캔
+1. RSI 계산 (`ta.momentum.RSIIndicator`)
+2. 목표 RSI에 대응하는 다음 캔들 예상 가격 계산 (`/rsitrade`)
+3. 관심 종목 RSI 감시 및 알림 발송
 
 ## 공개 인터페이스
 
@@ -15,45 +15,42 @@ engine = SignalEngine(user_manager, exchange_adapter)
 rsi, df = await engine.get_rsi(
     exchange, ticker, interval="day", period=14, user_id=None
 )
-# rsi: float (최신 RSI) | None
-# df:  pandas DataFrame, 컬럼: close, open, high, low, candle_date_time_kst
 
 price = await engine.get_price_by_rsi(
     exchange, ticker, target_rsi, side="bid",
     interval="day", period=14, user_id=None
 )
-# price: 틱 반올림된 float | None
 
 await engine.analyze_watchlist(application)
-# 모든 활성 유저의 감시 종목 스캔, 시그널 시 텔레그램 알림
 ```
 
-## RSI 계산 상세
+## RSI 계산
 
-- 라이브러리: `ta.momentum.RSIIndicator(close=df['close'], window=period).rsi()`
-- 캔들: `exchange_adapter.get_candles()` 로 `count = period + 50` 조회
-- 정렬: `candle_date_time_kst` 기준 오름차순 정렬 후 계산
+- 캔들 조회: `exchange_adapter.get_candles()`
+- 조회 개수: `period + 50`
+- 정렬 기준: `candle_date_time_kst`
+- 계산기: `ta.momentum.RSIIndicator(close=df["close"], window=period).rsi()`
 
-## 역산 알고리즘 요약
+## 목표 RSI 가격 계산
 
-목표 RSI에 도달하는 가격을 역산:
-- Wilder's Smoothing을 단순 이동평균으로 근사 (`rolling(period).mean()`)
-- 매수(`bid`): 다음 캔들이 하락 가정 (currentGain=0)
-- 매도(`ask`): 다음 캔들이 상승 가정 (currentLoss=0)
-- 수수료 버퍼: bid → `×0.999`, ask → `×1.001`
-- 틱 조정: `exchange_adapter.adjust_price_to_tick()` 최종 적용
+현재 RSI 표시와 주문 미리보기가 같은 모델을 쓰도록,
+역산도 `ta.momentum.RSIIndicator` 기반으로 처리한다.
 
-**수학 공식 전체**: `docs/detail/rsi_algorithm.md`
+방식:
+- 과거 종가 배열을 준비
+- `가상의 다음 종가 1개`를 붙여 RSI를 다시 계산
+- 매수(`bid`)는 현재가 아래에서 목표 RSI 이하가 되는 가격을 탐색
+- 매도(`ask`)는 현재가 위에서 목표 RSI 이상이 되는 가격을 탐색
+- 마지막에 수수료 버퍼와 거래소 호가 단위를 적용
 
-## 감시 목록 스캔 루프
+## 감시 루프
 
-`analyze_watchlist(application)` — `signal_analysis_loop()` 에서 `signal_analysis_interval` (기본 300초) 마다 호출.
+`analyze_watchlist(application)` 는 각 활성 사용자와 관심 종목에 대해:
+1. 사용자 `rsi_interval` 기준 RSI 조회
+2. `rsi <= signal_rsi_threshold` 이면 텔레그램 알림 발송
+3. 빠른 진입용 버튼 `grid_quick_{exchange}_{ticker}` 포함
+4. 종목별 `0.5초` 대기
 
-각 활성 유저 × 각 거래소 × 각 감시 종목:
-1. `rsi_interval` 기준 RSI 조회
-2. `rsi <= signal_rsi_threshold` (기본 30) 이면 텔레그램 알림 발송
-3. 알림에 "거미줄 셋팅하기" 인라인 버튼 포함 (`grid_quick_{exchange}_{ticker}`)
-4. 종목 간 0.5초 대기 (API Rate Limit 보호)
+## 참고
 
-## 참조
-- 역산 수식 상세: `docs/detail/rsi_algorithm.md`
+- 수식/탐색 설명: `docs/detail/rsi_algorithm.md`
