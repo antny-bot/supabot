@@ -2052,6 +2052,7 @@ def build_account_summary(user_id, user):
     active = "활성" if user.get("is_active") else "승인 대기"
     llm = "on" if prefs.get("llm_enabled") else "off"
     default_exchange = prefs.get("default_exchange", "upbit")
+    secret_status = "\n보안 키: 복호화 오류" if user.get("_secret_error") else ""
     return (
         "👤 *내 계정*\n\n"
         f"ID: `{user_id}`\n"
@@ -2059,6 +2060,7 @@ def build_account_summary(user_id, user):
         f"상태: {active}\n"
         f"기본 거래소: {default_exchange}\n"
         f"자연어: {llm}"
+        f"{secret_status}"
     )
 
 async def _interruptible_sleep(seconds: float):

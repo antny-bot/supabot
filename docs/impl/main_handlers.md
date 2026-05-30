@@ -113,7 +113,8 @@ API 키 포함 메시지는 캡처 즉시 삭제됨 (`delete_message`).
 - `get_user()`는 런타임 사용을 위해 복호화된 copy를 반환한다.
 - 내부 `user_manager.users`와 파일에는 암호문을 유지한다.
 - 기존 평문 secret은 봇 시작 시 자동 마이그레이션한다.
-- `USER_SECRET_KEY`가 없으면 기존 평문 읽기는 유지하지만 새 secret 저장은 실패한다.
+- `USER_SECRET_KEY`가 없거나 Fernet 형식이 아니면 기존 평문 읽기는 유지하지만 새 secret 저장은 실패한다.
+- 이미 암호화된 값은 같은 `USER_SECRET_KEY`로만 복호화된다. 다른 키가 들어오면 `get_user()`는 secret 필드를 빈 값으로 반환하고 `_secret_error`를 표시해서 `/start` 같은 기본 명령이 죽지 않게 한다.
 
 상세 Intent 스키마 및 흐름: `docs/detail/gemini_intent.md`
 

@@ -2,7 +2,7 @@ import json
 import os
 from copy import deepcopy
 
-from core.secret_crypto import decrypt_secret, encrypt_secret, has_secret_key, is_encrypted_secret
+from core.secret_crypto import can_decrypt_secrets, decrypt_secret, encrypt_secret, has_secret_key, is_encrypted_secret
 
 class UserManager:
     SECRET_EXCHANGE_FIELDS = {
@@ -104,7 +104,7 @@ class UserManager:
         return changed
 
     def _migrate_user_secrets(self, user):
-        if not has_secret_key():
+        if not has_secret_key() or not can_decrypt_secrets():
             return False
         changed = False
         for exchange, fields in self.SECRET_EXCHANGE_FIELDS.items():
@@ -124,15 +124,26 @@ class UserManager:
 
     def _decrypt_user_copy(self, user):
         user_copy = deepcopy(user)
+        secret_error = False
         for exchange, fields in self.SECRET_EXCHANGE_FIELDS.items():
             exchange_data = user_copy.get("exchanges", {}).get(exchange, {})
             for field in fields:
                 if field in exchange_data:
-                    exchange_data[field] = decrypt_secret(exchange_data[field])
+                    try:
+                        exchange_data[field] = decrypt_secret(exchange_data[field])
+                    except ValueError:
+                        exchange_data[field] = ""
+                        secret_error = True
         llm = user_copy.get("llm", {})
         for field in self.SECRET_LLM_FIELDS:
             if field in llm:
-                llm[field] = decrypt_secret(llm[field])
+                try:
+                    llm[field] = decrypt_secret(llm[field])
+                except ValueError:
+                    llm[field] = ""
+                    secret_error = True
+        if secret_error:
+            user_copy["_secret_error"] = "USER_SECRET_KEY cannot decrypt one or more stored secrets"
         return user_copy
 
     def _encrypt_secret_for_storage(self, value):

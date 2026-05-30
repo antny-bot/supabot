@@ -69,7 +69,7 @@ USER_SECRET_KEY=Fernet_마스터키
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-이미 평문으로 저장된 키가 있더라도 `USER_SECRET_KEY`를 설정한 뒤 봇을 재시작하면 `enc:v1:<ciphertext>` 형식으로 자동 마이그레이션됩니다. `USER_SECRET_KEY`가 없으면 기존 평문 키 읽기는 유지되지만 새 API 키 저장은 거부됩니다.
+이미 평문으로 저장된 키가 있더라도 `USER_SECRET_KEY`를 설정한 뒤 봇을 재시작하면 `enc:v1:<ciphertext>` 형식으로 자동 마이그레이션됩니다. `USER_SECRET_KEY`가 없거나 Fernet 형식이 아니면 기존 평문 키 읽기는 유지되지만 새 API 키 저장은 거부됩니다. 이미 암호화된 값은 반드시 암호화할 때 사용한 같은 `USER_SECRET_KEY`가 있어야 복호화됩니다. 다른 키를 넣으면 봇은 기동되지만 `/whomai`에 `보안 키: 복호화 오류`가 표시되고 거래소/Gemini 키는 사용할 수 없습니다.
 
 ### 2. 거래소 API 키 발급
 
