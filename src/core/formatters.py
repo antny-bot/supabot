@@ -1,0 +1,551 @@
+import html as _html
+
+from core.parsers import (
+    exchange_display_name,
+    has_gemini_key,
+    interpolate_range,
+    _format_preview_volume,
+    POLL_INTERVAL_KEYS,
+    parse_rsi_interval,
+    _format_seconds,
+)
+from core.secret_crypto import can_decrypt_secrets, has_secret_key
+
+BOT_DISPLAY_NAME = "TTBot"
+
+
+# ── HTML helpers ──────────────────────────────────────────────────────────────
+
+def _b(s):
+    return f"<b>{_html.escape(str(s))}</b>"
+
+
+def _i(s):
+    return f"<i>{_html.escape(str(s))}</i>"
+
+
+def _code(s):
+    return f"<code>{_html.escape(str(s))}</code>"
+
+
+# ── 명령어별 상세 도움말 ────────────────────────────────────────────────────────
+
+CMD_HELP = {
+    "start": (
+        f"🎁 <b>/start 상세 가이드</b>\n\n"
+        "<b>기능:</b> 봇을 시작하고 시스템에 등록을 요청하거나 메뉴를 불러옵니다.\n"
+        "<b>사용법:</b> <code>/start</code>만 입력\n\n"
+        "<b>안내:</b>\n"
+        "• 처음 사용 시 관리자의 승인이 필요합니다.\n"
+        "• 승인 후에는 언제든지 <code>/start</code>로 주요 메뉴를 다시 볼 수 있습니다."
+    ),
+    "config": (
+        "⚙️ <b>/config 상세 가이드</b>\n\n"
+        "<b>기능:</b> 거래소 API 키와 사용자 기본 설정을 관리합니다.\n\n"
+        "<b>API 키 설정:</b> <code>/config</code> 입력 후 버튼 클릭\n"
+        "1. 거래소 선택 (Upbit, Bithumb, 한국투자증권, Gemini)\n"
+        "2. 거래소별 Key 입력 (메시지 삭제됨)\n"
+        "3. 한국투자증권은 계좌번호, 상품코드, 모의/실전 환경까지 입력\n"
+        "4. 자동 유효성 검증 수행\n\n"
+        "<b>설정 조회:</b> <code>/config -v</code>\n"
+        "API 키 값은 표시하지 않고 설정 여부만 보여줍니다.\n\n"
+        "<b>설정 변경:</b> <code>/config set [항목] [값]</code>\n"
+        "• <code>default_exchange</code>: upbit, bithumb, kis, 업비트, 빗썸, 한투\n"
+        "• <code>asset_min_display_krw</code>: <code>/asset</code> 개별 표시 최소 평가액\n"
+        "• <code>rsi_buy_range</code>: 예: 25-30\n"
+        "• <code>rsi_sell_range</code>: 예: 65-75\n"
+        "• <code>rsi_order_count</code>: 예: 5\n"
+        "• <code>rsi_budget_krw</code>: 예: 100만 또는 off\n"
+        "• <code>rsi_interval</code>: day 또는 1/3/5/10/15/30/60/240\n"
+        "• <code>signal_alerts</code>: on/off\n"
+        "• <code>signal_rsi_threshold</code>: 예: 30\n"
+        "• <code>max_order_krw</code>: 예: 50만 또는 off\n"
+        "• <code>llm_enabled</code>: on/off\n"
+        "• <code>llm_model</code>: 예: gemini-2.5-flash-lite\n\n"
+        "<b>폴링 설정 (관리자 전용):</b>\n"
+        "• <code>poll_active_interval</code>: 오더 있을 때 주기 (초, 기본 60)\n"
+        "• <code>poll_no_order_interval</code>: 오더 없을 때 fallback 주기 (초, 기본 300)\n"
+        "• <code>signal_analysis_interval</code>: 시그널 분석 주기 (초, 기본 300)\n\n"
+        "<b>예시:</b>\n"
+        "<code>/config set asset_min_display_krw 10000</code>\n"
+        "<code>/config set rsi_budget_krw 100만</code>\n"
+        "<code>/config set rsi_interval day</code>\n"
+        "<code>/config set llm_enabled on</code>\n"
+        "<code>/config set max_order_krw 50만</code>\n"
+        "<code>/config set poll_active_interval 30</code>\n\n"
+        "⚠️ 보안을 위해 입력한 키 메시지는 즉시 자동 삭제됩니다."
+    ),
+    "asset": (
+        "💰 <b>/asset 상세 가이드</b>\n\n"
+        "<b>기능:</b> 내 거래소 잔고와 총 평가액을 조회합니다.\n"
+        "<b>구문:</b> <code>/asset [거래소]</code>\n\n"
+        "<b>옵션:</b>\n"
+        "• <code>업비트</code> 또는 <code>빗썸</code>: 특정 거래소만 조회 (생략 시 전체 조회)\n\n"
+        "<b>예시:</b>\n"
+        "1. <code>/asset</code> (모든 거래소 조회)\n"
+        "2. <code>/asset 빗썸</code> (빗썸 잔고만 조회)\n"
+        "⚠️ 설정한 최소 표시 금액 이하의 소액 자산은 '기타'로 합산 표시됩니다."
+    ),
+    "price": (
+        "📊 <b>/price 상세 가이드</b>\n\n"
+        "<b>기능:</b> 특정 종목의 실시간 시세를 조회합니다.\n"
+        "<b>구문:</b> <code>/price [거래소] [종목]</code>\n\n"
+        "<b>옵션:</b>\n"
+        "• <code>거래소</code>: 업비트, 빗썸, 한투 (생략 시 기본 거래소 우선)\n"
+        "• <code>종목</code>: 암호화폐는 BTC, ETH 등, 한국투자증권은 005930 같은 국내주식 종목코드\n\n"
+        "<b>예시:</b>\n"
+        "1. <code>/p BTC</code> (업비트 비트코인 시세)\n"
+        "2. <code>/price 빗썸 ETH</code> (빗썸 이더리움 시세)\n"
+        "3. <code>/p KRW-XRP</code> (심볼 직접 입력)\n"
+        "4. <code>/price 한투 005930</code> (한국투자증권 삼성전자 시세)"
+    ),
+    "history": (
+        "📜 <b>/history 상세 가이드</b>\n\n"
+        "<b>기능:</b> 나의 최근 체결(완료)된 주문 내역을 보여줍니다.\n"
+        "<b>구문:</b> <code>/history [거래소] [종목]</code>\n\n"
+        "<b>옵션:</b>\n"
+        "• <code>거래소</code>: 업비트, 빗썸\n"
+        "• <code>종목</code>: 특정 코인 내역만 필터링 (생략 시 전체)\n\n"
+        "<b>예시:</b>\n"
+        "1. <code>/history</code> (업비트 전체 최근 내역)\n"
+        "2. <code>/history 빗썸</code> (빗썸 전체 최근 내역)\n"
+        "3. <code>/history BTC</code> (업비트 비트코인 거래 내역)"
+    ),
+    "buy": (
+        "🛍️ <b>/buy 상세 가이드 (단일 매수)</b>\n\n"
+        "<b>기능:</b> 지정한 거래소에 단일 매수 주문을 즉시 전송합니다.\n"
+        "<b>구문:</b> <code>/buy [거래소] [종목] [가격] [수량]</code>\n\n"
+        "<b>예시:</b>\n"
+        "<code>/buy 빗썸 BTC 95000000 0.1</code> (빗썸에서 0.1 BTC를 9500만원에 매수)\n"
+        "<code>/buy 한투 005930 70000 1</code> (한국투자증권에서 삼성전자 1주 매수 확인)\n\n"
+        "⚠️ 한국투자증권 주문은 확인 버튼을 거친 뒤 전송됩니다."
+    ),
+    "sell": (
+        "🛍️ <b>/sell 상세 가이드 (단일 매도)</b>\n\n"
+        "<b>기능:</b> 지정한 거래소에 단일 매도 주문을 즉시 전송합니다.\n"
+        "<b>구문:</b> <code>/sell [거래소] [종목] [가격] [수량]</code>\n\n"
+        "<b>예시:</b>\n"
+        "<code>/sell BTC 120000000 0.5</code> (업비트에서 0.5 BTC를 1.2억원에 매도)\n\n"
+        "⚠️ 보유 수량이 주문 수량보다 많아야 합니다."
+    ),
+    "grid": (
+        "🕸️ <b>/grid 상세 가이드 (분할 매수)</b>\n\n"
+        "<b>기능:</b> 지정가 범위 내에서 예산을 분할하여 여러 개의 매수 주문을 겁니다.\n"
+        "<b>구문:</b> <code>/grid [거래소] [종목] [시작가] [종료가] [횟수] [총예산]</code>\n\n"
+        "<b>예시:</b>\n"
+        "<code>/grid BTC 1억 9천 10 100만</code> (1억~9천 사이 10번 분할 매수)\n\n"
+        "<b>파라미터:</b>\n"
+        "• 횟수: 몇 번에 나눠서 주문할지 지정\n"
+        "• 총예산: 전체 주문에 투입할 원화(KRW) 총액"
+    ),
+    "sgrid": (
+        "🕸️ <b>/sgrid 상세 가이드 (분할 매도)</b>\n\n"
+        "<b>기능:</b> 지정가 범위 내에서 보유 수량을 분할하여 여러 개의 매도 주문을 겁니다.\n"
+        "<b>구문:</b> <code>/sgrid [거래소] [종목] [시작가] [종료가] [횟수] [총수량]</code>\n\n"
+        "<b>예시:</b>\n"
+        "<code>/sgrid 빗썸 ETH 400만 450만 5 0.5</code> (400~450만 사이 0.5개 분할 매도)\n\n"
+        "<b>파라미터:</b>\n"
+        "• 횟수: 몇 번에 나눠서 팔지 지정\n"
+        "• 총수량: 전체 매도할 코인 개수"
+    ),
+    "orders": (
+        "⏳ <b>/orders 상세 가이드</b>\n\n"
+        "<b>기능:</b> 현재 거래소에 걸려있는 미체결 주문 목록을 확인합니다.\n"
+        "<b>구문:</b> <code>/orders [거래소]</code>\n\n"
+        "<b>옵션:</b>\n"
+        "• <code>업비트</code> 또는 <code>빗썸</code> (생략 시 기본 거래소)\n\n"
+        "<b>안내:</b>\n"
+        "봇을 통해 생성한 주문뿐만 아니라 직접 거래소에서 건 미체결 주문도 모두 조회됩니다."
+    ),
+    "cancel": (
+        "🛑 <b>/cancel 상세 가이드</b>\n\n"
+        "<b>기능:</b> 특정 종목의 모든 미체결 주문을 일괄 취소합니다.\n"
+        "<b>구문:</b> <code>/cancel [거래소] [종목]</code>\n\n"
+        "<b>예시:</b>\n"
+        "1. <code>/cancel BTC</code> (업비트 비트코인 주문 취소)\n"
+        "2. <code>/cancel 빗썸 SOL</code> (빗썸 솔라나 주문 취소)"
+    ),
+    "watch": (
+        "🔔 <b>/watch 상세 가이드</b>\n\n"
+        "<b>기능:</b> 특정 종목의 RSI 지표를 실시간 감시하여 매수 시그널을 알립니다.\n"
+        "<b>구문:</b> <code>/watch [거래소] [종목]</code>\n\n"
+        "<b>예시:</b>\n"
+        "1. <code>/watch BTC</code> (업비트 비트코인 감시 시작)\n"
+        "2. <code>/watch 빗썸 SOL</code> (빗썸 솔라나 감시 시작)"
+    ),
+    "unwatch": (
+        "🔕 <b>/unwatch 상세 가이드</b>\n\n"
+        "<b>기능:</b> RSI 시그널 감시 목록에서 특정 종목을 제거합니다.\n"
+        "<b>구문:</b> <code>/unwatch [거래소] [종목]</code>\n\n"
+        "<b>예시:</b>\n"
+        "<code>/unwatch BTC</code> (비트코인 감시 종료)"
+    ),
+    "rsitrade": (
+        "🤖 <b>/rsitrade 상세 가이드</b>\n\n"
+        "<b>기능:</b> RSI 목표 구간을 기준으로 분할 매수하고, 체결 시 RSI 매도 목표 주문을 예약합니다.\n"
+        "<b>구문:</b> <code>/rsitrade [거래소] [종목] [매수RSI] [매도RSI] [횟수] [예산]</code>\n\n"
+        "<b>기본값:</b> 종목만 입력하면 <code>/config</code>에 저장된 매수RSI, 매도RSI, 횟수, 예산을 사용합니다.\n\n"
+        "<b>예시:</b>\n"
+        "1. <code>/rsitrade BTC</code>\n"
+        "2. <code>/rsitrade 빗썸 BTC</code>\n"
+        "3. <code>/rsitrade BTC 20-30 60-75 7 200만</code>"
+    ),
+    "info": (
+        "ℹ️ <b>/info 상세 가이드</b>\n\n"
+        "<b>기능:</b> 현재 실행 중인 봇의 버전 및 빌드 정보를 표시합니다.\n"
+        "<b>사용법:</b> <code>/info</code>만 입력"
+    ),
+}
+
+
+# ── 기본 포맷 유틸 ─────────────────────────────────────────────────────────────
+
+def format_optional_krw(value):
+    return "미설정" if value is None else f"{float(value):,.0f}원"
+
+
+def format_bool(value):
+    return "on" if bool(value) else "off"
+
+
+def escape_markdown_text(value):
+    text = str(value or "")
+    for char in ["\\", "_", "*", "`", "["]:
+        text = text.replace(char, f"\\{char}")
+    return text
+
+
+def format_section(title, lines):
+    body = [str(line) for line in lines if str(line) != ""]
+    return "\n".join([f"<b>{title}</b>", *body])
+
+
+def format_rsi_interval(value):
+    value = parse_rsi_interval(value)
+    if value == "day":
+        return "day (일봉)"
+    return f"{value}분봉"
+
+
+def format_config_value(key, value):
+    if isinstance(value, bool):
+        return format_bool(value)
+    if key == "rsi_interval":
+        return format_rsi_interval(value)
+    if key in ["rsi_budget_krw", "max_order_krw"]:
+        return format_optional_krw(value)
+    if key == "asset_min_display_krw":
+        return f"{float(value):,.0f}원"
+    if key in POLL_INTERVAL_KEYS:
+        return _format_seconds(value)
+    return value
+
+
+def format_safety_status(user):
+    prefs = user.get("preferences", {})
+    max_order = prefs.get("max_order_krw")
+    kis_env = user.get("exchanges", {}).get("kis", {}).get("env", "paper")
+    configured = []
+    for exchange in ["upbit", "bithumb", "kis"]:
+        keys = user.get("exchanges", {}).get(exchange, {})
+        if exchange == "kis":
+            is_set = bool(keys.get("app_key") and keys.get("app_secret") and keys.get("account_no"))
+        else:
+            is_set = bool(keys.get("access_key") and keys.get("secret_key"))
+        if is_set:
+            configured.append(exchange_display_name(exchange))
+    return [
+        "- 수동 주문: 확인 버튼 필요",
+        f"- max_order_krw: {format_optional_krw(max_order)}"
+        + (" (권장: /config set max_order_krw 50만)" if max_order is None else ""),
+        f"- KIS 환경: {'실전' if kis_env == 'real' else '모의'}"
+        + (" (실전 거래 주의)" if kis_env == "real" else ""),
+        f"- API 키 설정 거래소: {', '.join(configured) if configured else '없음'}",
+    ]
+
+
+def format_api_validation_status(user, exchange):
+    validation = user.get("api_validation", {}).get(exchange)
+    if not validation:
+        return "검증 이력 없음"
+    status = "마지막 검증 성공" if validation.get("ok") else "마지막 검증 실패"
+    checked_at = str(validation.get("checked_at") or "").split("+")[0].replace("T", " ")
+    return f"{status} {checked_at}".strip()
+
+
+def build_secret_security_status(user):
+    if not has_secret_key():
+        return "없음"
+    if not can_decrypt_secrets():
+        return "형식 오류"
+    if user.get("_secret_error"):
+        return "복호화 오류"
+    return "정상"
+
+
+# ── 메시지 빌더 ────────────────────────────────────────────────────────────────
+
+def build_start_menu_message(user, bot_name=BOT_DISPLAY_NAME):
+    username = _html.escape(user.get("username", "사용자"))
+    return (
+        f"🤖 <b>{bot_name} 시스템 접속 완료</b>\n\n"
+        f"어서오세요, <b>{username}</b>님.\n\n"
+        "<b>💼 자산 조회</b>\n"
+        "/asset · /price · /history\n\n"
+        "<b>📈 자동 매매</b>\n"
+        "/status · /orders · /rsitrade · /grid · /sgrid\n\n"
+        "<b>🔔 시그널 감시</b>\n"
+        "/watch · /unwatch\n\n"
+        "<b>⚙️ 설정 및 도움말</b>\n"
+        "/config · /help"
+    )
+
+
+def build_help_message(user, bot_name=BOT_DISPLAY_NAME):
+    admin_lines = [
+        f"<code>/nlstats</code> — 자연어 전처리 후보 통계 (관리자 전용)",
+        f"<code>/diag</code> — 운영 진단 (관리자 전용)",
+    ] if user.get("is_admin") else []
+
+    system_lines = [
+        f"<code>/start</code> — 시스템 접속 및 메뉴 확인",
+        f"<code>/status</code> — 가동 중인 트레이딩 전략 대시보드",
+        f"<code>/config</code> — 거래소, LLM API 설정",
+        f"<code>/info</code> — 봇 버전 및 빌드 정보 확인",
+        f"<code>/whoami</code> — 내 계정 권한과 상태 확인",
+        *admin_lines,
+        f"<code>/help</code> — 명령어 도움말 확인",
+    ]
+    sections = [
+        f"📖 <b>{bot_name} 사용 설명서</b>",
+        f"상세 가이드: <code>/[명령어] -h</code>  예: <code>/rsitrade -h</code>",
+        "",
+        format_section("⚙️ 시스템", system_lines),
+        "",
+        format_section("💼 자산 및 시세 조회", [
+            f"<code>/asset</code> — 통합 자산 및 소액 자산 요약 조회",
+            f"<code>/price</code> [종목] — 실시간 시세 및 변동률 <i>(/p 단축)</i>",
+            f"<code>/history</code> [종목] — 최근 체결 내역 확인 (5건)",
+        ]),
+        "",
+        format_section("📈 자동 거래 및 순환 매매", [
+            f"<code>/rsitrade</code> [종목] [매수RSI] [매도RSI] [횟수] [예산]",
+            f"<code>/grid</code> [종목] [시작가] [종료가] [횟수] [예산] — 분할 매수",
+            f"<code>/sgrid</code> [종목] [시작가] [종료가] [횟수] [수량] — 분할 매도",
+            f"<code>/buy</code> / <code>/sell</code> [종목] [가격] [수량] — 단일 지정가 주문",
+            f"<code>/orders</code> — 미체결 주문 및 추적 목록",
+            f"<code>/cancel</code> [종목] — 해당 종목 주문 일괄 취소",
+        ]),
+        "",
+        format_section("🔔 시그널 감시", [
+            f"<code>/watch</code> [종목] — RSI 매수 시그널 실시간 감시",
+            f"<code>/unwatch</code> [종목] — 감시 목록에서 제거",
+        ]),
+        "",
+        "⚠️ 모든 주문은 거래소 앱과 실시간 동기화됩니다.",
+    ]
+    return "\n".join(sections)
+
+
+def build_config_view(user, active_order_count=0):
+    preferences = user["preferences"]
+    api_lines = []
+    for exchange in ["upbit", "bithumb", "kis"]:
+        keys = user.get("exchanges", {}).get(exchange, {})
+        if exchange == "kis":
+            is_set = bool(keys.get("app_key") and keys.get("app_secret") and keys.get("account_no"))
+            account = keys.get("account_no", "")
+            masked_account = f"{account[:2]}****{account[-2:]}" if len(account) >= 4 else "미설정"
+            env_name = "실전" if keys.get("env") == "real" else "모의"
+            api_lines.append(
+                f"- {exchange_display_name(exchange)}: {'설정됨' if is_set else '미설정'}"
+                f" / {env_name} / 계좌 {masked_account}"
+                f" / {format_api_validation_status(user, exchange)}"
+            )
+        else:
+            is_set = bool(keys.get("access_key") and keys.get("secret_key"))
+            api_lines.append(
+                f"- {exchange_display_name(exchange)}: {'설정됨' if is_set else '미설정'}"
+                f" / {format_api_validation_status(user, exchange)}"
+            )
+
+    sections = [
+        "⚙️ <b>현재 사용자 설정</b>",
+        "",
+        format_section("API 키 상태", api_lines),
+        "",
+        format_section("기본 설정", [
+            f"- default_exchange: {preferences.get('default_exchange')}",
+            f"- asset_min_display_krw: {float(preferences.get('asset_min_display_krw', 10000)):,.0f}원 이하 기타 합산",
+            f"- rsi_interval: {format_rsi_interval(preferences.get('rsi_interval', 'day'))}",
+            f"- rsi_buy_range: {preferences.get('rsi_buy_range')}",
+            f"- rsi_sell_range: {preferences.get('rsi_sell_range')}",
+            f"- rsi_order_count: {preferences.get('rsi_order_count')}",
+            f"- rsi_budget_krw: {format_optional_krw(preferences.get('rsi_budget_krw'))}",
+            f"- signal_alerts: {format_bool(preferences.get('signal_alerts'))}",
+            f"- signal_rsi_threshold: {float(preferences.get('signal_rsi_threshold', 30)):g}",
+            f"- max_order_krw: {format_optional_krw(preferences.get('max_order_krw'))}",
+        ]),
+        "",
+        format_section("LLM 설정", [
+            f"- Gemini: {'설정됨' if has_gemini_key(user) else '미설정'}",
+            f"- llm_enabled: {format_bool(preferences.get('llm_enabled'))}",
+            f"- llm_model: {preferences.get('llm_model', 'gemini-2.5-flash-lite')}",
+        ]),
+        "",
+        format_section("보안 설정", [
+            f"- USER_SECRET_KEY: {build_secret_security_status(user)}",
+        ]),
+        "",
+        format_section("거래 안전 상태", format_safety_status(user)),
+    ]
+    if user.get("is_admin"):
+        active_interval = _format_seconds(preferences.get("poll_active_interval", 60))
+        no_order_interval = _format_seconds(preferences.get("poll_no_order_interval", 300))
+        signal_interval = _format_seconds(preferences.get("signal_analysis_interval", 300))
+        current_interval = active_interval if active_order_count > 0 else no_order_interval
+        current_reason = f"활성 오더 {active_order_count}건" if active_order_count > 0 else "오더 없음"
+        sections.extend([
+            "",
+            format_section("폴링 설정 (관리자)", [
+                f"- poll_active_interval: {active_interval}  (오더 있을 때)",
+                f"- poll_no_order_interval: {no_order_interval}  (오더 없을 때 fallback)",
+                f"- signal_analysis_interval: {signal_interval}",
+                f"→ 현재: {current_reason} → {current_interval} 주기 적용 중",
+            ]),
+        ])
+    return "\n".join(sections)
+
+
+def build_diag_view(user, env_info=None, recent_events=None):
+    if env_info is None:
+        env_info = {}
+    prefs = user.get("preferences", {})
+    active_interval = _format_seconds(prefs.get("poll_active_interval", 60))
+    no_order_interval = _format_seconds(prefs.get("poll_no_order_interval", 300))
+    order_count = env_info.get("order_count", 0)
+    current_interval = active_interval if order_count > 0 else no_order_interval
+
+    exchange_lines = []
+    for exchange in ["upbit", "bithumb", "kis"]:
+        keys = user.get("exchanges", {}).get(exchange, {})
+        if exchange == "kis":
+            is_set = bool(keys.get("app_key") and keys.get("app_secret") and keys.get("account_no"))
+            env_name = "실전" if keys.get("env") == "real" else "모의"
+            exchange_lines.append(
+                f"- {exchange_display_name(exchange)}: {'설정됨' if is_set else '미설정'}"
+                f" / {env_name} / {format_api_validation_status(user, exchange)}"
+            )
+        else:
+            is_set = bool(keys.get("access_key") and keys.get("secret_key"))
+            exchange_lines.append(
+                f"- {exchange_display_name(exchange)}: {'설정됨' if is_set else '미설정'}"
+                f" / {format_api_validation_status(user, exchange)}"
+            )
+
+    if recent_events is None:
+        recent_events = []
+    event_lines = [
+        f"- {row.get('ts')} / {row.get('level')} / {row.get('source')}: {row.get('message')}"
+        for row in recent_events
+    ] or ["- 최근 warning/error 없음"]
+
+    git_sha = env_info.get("git_sha", "unknown")
+    return "\n".join([
+        "🧪 <b>운영 진단</b>",
+        "",
+        format_section("환경", [
+            f"- TELEGRAM_BOT_TOKEN: {'설정됨' if env_info.get('bot_token_set') else '없음'}",
+            f"- ADMIN_CHAT_ID: {'설정됨' if env_info.get('admin_chat_id_set') else '없음'}",
+            f"- USER_SECRET_KEY: {build_secret_security_status(user)}",
+        ]),
+        "",
+        format_section("빌드", [
+            f"- 버전: {env_info.get('version', 'unknown')}",
+            f"- 빌드: {env_info.get('build_date', 'unknown')}",
+            f"- 커밋: {git_sha}",
+        ]),
+        "",
+        format_section("LLM", [
+            f"- Gemini: {'설정됨' if has_gemini_key(user) else '미설정'}",
+            f"- llm_enabled: {format_bool(prefs.get('llm_enabled'))}",
+            f"- llm_model: {prefs.get('llm_model', 'gemini-2.5-flash-lite')}",
+        ]),
+        "",
+        format_section("거래소", exchange_lines),
+        "",
+        format_section("주문/폴링", [
+            f"- 활성 주문: {order_count}건",
+            f"- 현재 주기: {current_interval}",
+            f"- poll_active_interval: {active_interval}",
+            f"- poll_no_order_interval: {no_order_interval}",
+            f"- signal_analysis_interval: {_format_seconds(prefs.get('signal_analysis_interval', 300))}",
+        ]),
+        "",
+        format_section("거래 안전 상태", format_safety_status(user)),
+        "",
+        format_section("최근 오류", event_lines),
+    ])
+
+
+def build_account_summary(user_id, user):
+    prefs = user.get("preferences", {})
+    role = "관리자" if user.get("is_admin") else "일반 사용자"
+    active = "활성" if user.get("is_active") else "승인 대기"
+    llm = "on" if prefs.get("llm_enabled") else "off"
+    default_exchange = prefs.get("default_exchange", "upbit")
+    secret_status = "\n보안 키: 복호화 오류" if user.get("_secret_error") else ""
+    return (
+        "👤 <b>내 계정</b>\n\n"
+        f"ID: {_html.escape(str(user_id))}\n"
+        f"권한: {role}\n"
+        f"상태: {active}\n"
+        f"기본 거래소: {default_exchange}\n"
+        f"자연어: {llm}"
+        f"{secret_status}"
+    )
+
+
+def build_manual_order_confirm_message(exchange, ticker, side, price, volume, user):
+    action = "매수" if side == "bid" else "매도"
+    env_notice = ""
+    if exchange == "kis":
+        env = user.get("exchanges", {}).get("kis", {}).get("env", "paper")
+        env_notice = f" ({'실전' if env == 'real' else '모의'})"
+        volume_text = f"{float(volume):,.0f}주"
+    else:
+        volume_text = f"{float(volume):.8f}".rstrip("0").rstrip(".")
+    return (
+        f"{'📈' if side == 'bid' else '📉'} <b>{exchange_display_name(exchange)} {action} 주문 확인</b>{env_notice}\n\n"
+        f"- 종목: {ticker}\n"
+        f"- 가격: {float(price):,.0f}원\n"
+        f"- 수량: {volume_text}\n"
+        f"- 주문금액: {float(price) * float(volume):,.0f}원\n\n"
+        "위 내용으로 주문을 전송할까요?"
+    )
+
+
+def build_grid_preview_lines(ticker, start_price, end_price, count, budget):
+    per_order_budget = float(budget) / int(count)
+    lines = []
+    for i in range(int(count)):
+        price = float(interpolate_range(float(start_price), float(end_price), i, int(count)))
+        volume = per_order_budget / price
+        lines.append(
+            f"{i + 1}. {price:,.0f}원 / 약 {_format_preview_volume(ticker, volume)} / {per_order_budget:,.0f}원"
+        )
+    return lines
+
+
+def build_rsi_preview_lines(ticker, rsi_prices, budget, total_count=None):
+    if not rsi_prices:
+        return []
+    per_order_budget = float(budget) / int(total_count or len(rsi_prices))
+    lines = []
+    for i, (target_rsi, price) in enumerate(rsi_prices, start=1):
+        price = float(price)
+        volume = per_order_budget / price
+        lines.append(
+            f"{i}. RSI {float(target_rsi):g} → {price:,.0f}원 / 약 {_format_preview_volume(ticker, volume)} / {per_order_budget:,.0f}원"
+        )
+    return lines
