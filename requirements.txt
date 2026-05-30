@@ -1,0 +1,7 @@
+aiohttp
+PyJWT
+python-telegram-bot
+python-dotenv
+pandas
+ta
+google-genai

@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "@upbit-official/upbit-cli": "^0.9.1"
+  }
+}

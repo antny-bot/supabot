@@ -1,0 +1,21 @@
+# Local secrets and runtime state
+config/.env
+data/*.json
+
+# Python runtime artifacts
+__pycache__/
+*.py[cod]
+
+# Node/vendor artifacts
+node_modules/
+
+# Local environment and logs
+.venv/
+*.log
+ssh/
+
+# Oracle Cloud temporary SSH keys
+tmp_oracle_supabot_key
+tmp_oracle_supabot_key.pub
+tmp_oracle_console_rsa
+tmp_oracle_console_rsa.pub

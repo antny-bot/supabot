@@ -1,0 +1,269 @@
+# Supabot용 Oracle Cloud VM 설정 가이드
+
+이 문서는 Oracle Cloud VM 한 대에 Docker와 Supabot을 올리고, Telegram long polling 방식으로 운영하는 구성을 기준으로 합니다.
+
+## 1. OCI 콘솔 체크리스트
+
+배포 전에 Oracle Cloud 콘솔에서 아래 항목을 먼저 확인하세요.
+
+### 인스턴스
+- Shape: `VM.Standard.E2.1.Micro`
+- OS Image: `Canonical Ubuntu 24.04`
+- Public IP: 가능하면 생성 시 활성화, 안 되면 생성 후 VNIC에서 할당
+- Boot volume backup policy: 활성화
+- SSH key login: 활성화
+- Password login: 의존하지 않는 편이 안전
+
+### VCN / 서브넷
+- SSH로 직접 붙을 계획이면 public subnet에 연결합니다.
+- 서브넷 전체 규칙보다, 이 VM 전용 `NSG`를 따로 두는 편이 안전합니다.
+- Oracle 생성 위저드에서 `Public IP`가 비활성화되면, 대부분 현재 선택한 서브넷이 public subnet이 아닌 상태입니다.
+- 생성 위저드에서 `새 가상 클라우드 네트워크 생성` + `새 퍼블릭 서브넷 생성` 조합을 먼저 맞춘 뒤 `자동으로 퍼블릭 IPv4 주소 지정`을 선택하세요.
+
+### NSG 인바운드 규칙
+- `TCP 22`만 열고, 출발지(source)는 본인 공인 IP 또는 집/회사 CIDR로 제한합니다.
+- 나중에 webhook이나 reverse proxy를 추가하지 않는 이상 `80`, `443`은 열지 마세요.
+- Supabot은 기본적으로 외부에서 봇으로 들어오는 거래 API 포트가 필요 없습니다.
+
+### NSG 아웃바운드 규칙
+- Telegram 및 거래소 API로 나갈 수 있도록 HTTPS 아웃바운드는 허용합니다.
+
+### Oracle 측 백업
+- Boot volume backup policy를 켭니다.
+- 나중에 부트 디스크 밖에 중요한 데이터를 저장하면 그 저장소는 별도로 백업해야 합니다.
+
+참고 문서:
+- OCI Network Security Groups: <https://docs.oracle.com/iaas/Content/Network/Concepts/networksecuritygroups.htm>
+- OCI Security Lists: <https://docs.oracle.com/iaas/Content/Network/Concepts/securitylists.htm>
+- OCI Boot Volume Backups: <https://docs.oracle.com/iaas/Content/Block/Concepts/bootvolumebackups.htm>
+
+## 2. VM 초기 설정
+
+### 이번 프로젝트에서 실제로 확인한 OCI 생성값
+
+실제 생성 과정에서 아래 조합으로 동작을 확인했습니다.
+
+- 인스턴스 이름: `supabot-vm-new`
+- Shape: `VM.Standard.E2.1.Micro`
+- OS Image: `Canonical Ubuntu 24.04`
+- 사용자명: `ubuntu`
+- VCN: `supabot-vcn`
+- 서브넷: `supabot-public-subnet`
+- 서브넷 CIDR: `10.0.0.0/24`
+- SSH 키: 자동 생성 대신 퍼블릭 키 붙여넣기 방식도 정상 동작
+
+주의:
+
+- Oracle 위저드에서 `새 퍼블릭 서브넷 생성`을 골라도, 실제 검토 화면에서 `퍼블릭 IPv4 주소`가 `아니오`로 남는 경우가 있었습니다.
+- 이 경우 생성 자체를 막을 필요는 없고, 인스턴스 생성 후 `연결된 VNIC > IP 관리 > 편집 > 임시 퍼블릭 IP`로 공인 IP를 사후 할당할 수 있습니다.
+
+### Public IP 비활성화 문제 해결
+
+Oracle Cloud 생성 화면에서 `Public IP`가 회색으로 비활성화되는 가장 흔한 원인은 서브넷 선택입니다.
+
+확인 순서:
+
+1. `기본 네트워크`에서 `새 가상 클라우드 네트워크 생성` 또는 public subnet이 붙은 기존 VCN을 선택합니다.
+2. `서브넷`에서 `새 퍼블릭 서브넷 생성` 또는 기존 public subnet을 선택합니다.
+3. 그다음 `퍼블릭 IPv4 주소 지정`에서 `자동으로 퍼블릭 IPv4 주소 지정`을 선택합니다.
+
+계속 비활성화되면 아래 순서로 우회하는 편이 더 안정적입니다.
+
+1. 우선 인스턴스를 생성합니다.
+2. 인스턴스 상세 화면으로 이동합니다.
+3. `네트워킹` 탭에서 연결된 VNIC를 엽니다.
+4. `IP 관리` 탭으로 이동합니다.
+5. 기본 프라이빗 IP 행의 `작업 > 편집`을 누릅니다.
+6. `퍼블릭 IP 유형`에서 `임시 퍼블릭 IP`를 선택합니다.
+7. `업데이트`를 눌러 반영합니다.
+
+실제 확인 기준:
+
+- 공인 IP는 생성 후에도 정상적으로 붙일 수 있었습니다.
+- 이 프로젝트에서 실제로 확인한 예시처럼 임시 퍼블릭 IP가 할당되는 방식이었습니다.
+
+아래 명령은 Ubuntu 기준입니다. SSH 접속 후 순서대로 실행하면 됩니다.
+
+스크립트로 한 번에 진행하려면 레포의 [scripts/setup_oracle_vm.sh](E:\apps\supabot\scripts\setup_oracle_vm.sh) 를 사용할 수 있습니다.
+
+예시:
+
+```bash
+MY_PUBLIC_IP=203.0.113.10 bash scripts/setup_oracle_vm.sh
+```
+
+옵션 환경변수:
+- `APP_DIR`: 기본값 `~/supabot`
+- `SWAP_SIZE_GB`: 기본값 `2`
+- `ENABLE_UFW`: 기본값 `true`
+- `ENABLE_FAIL2BAN`: 기본값 `true`
+
+### 기본 패키지 설치
+
+```bash
+sudo apt update
+sudo apt install -y ca-certificates curl gnupg ufw fail2ban
+
+# 호스트 OS 타임존 설정 (한국 시간)
+sudo timedatectl set-timezone Asia/Seoul
+```
+
+### Micro shape용 스왑 생성
+
+`VM.Standard.E2.1.Micro`는 메모리가 작아서 스왑을 잡아두는 편이 안정적입니다.
+
+```bash
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+free -h
+```
+
+### 기본 방화벽 설정
+
+`YOUR_PUBLIC_IP`는 현재 접속 중인 본인 공인 IP로 바꿔 넣으세요.
+
+예를 들어 Oracle 생성 직후 접속에 사용했던 공인 IP가 `34.64.82.68`이었다면 `34.64.82.68/32`만 SSH에 허용하는 식으로 최소화하세요.
+
+```bash
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow from YOUR_PUBLIC_IP to any port 22 proto tcp
+sudo ufw enable
+sudo ufw status verbose
+```
+
+### SSH 보안 강화
+
+`/etc/ssh/sshd_config`를 열어서 아래 값이 적용되어 있는지 확인하세요.
+
+```text
+PasswordAuthentication no
+PermitRootLogin no
+PubkeyAuthentication yes
+```
+
+적용 후 SSH를 다시 읽게 합니다.
+
+```bash
+sudo systemctl reload ssh
+```
+
+### Docker 설치
+
+```bash
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+sudo usermod -aG docker $USER
+```
+
+`docker` 그룹 반영을 위해 한 번 로그아웃 후 다시 접속하세요.
+
+### 앱 디렉터리 준비
+
+```bash
+mkdir -p ~/supabot/config ~/supabot/data
+chmod 700 ~/supabot/config ~/supabot/data
+```
+
+`~/supabot/config/.env` 파일을 만듭니다.
+
+```env
+TELEGRAM_BOT_TOKEN=your_bot_token
+ADMIN_CHAT_ID=your_admin_chat_id
+```
+
+파일 권한도 제한하세요.
+
+```bash
+chmod 600 ~/supabot/config/.env
+```
+
+## 3. 이 레포용 Docker Compose
+
+레포의 `docker-compose.yml`을 그대로 써도 되고, VM에서 아래와 같은 동등한 파일을 써도 됩니다.
+
+```yaml
+version: "3.8"
+
+services:
+  supabot:
+    image: ghcr.io/antny-bot/supabot:latest
+    container_name: supabot
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Seoul
+    volumes:
+      - ./config/.env:/app/config/.env:ro
+      - ./data:/app/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+```
+
+레지스트리 이미지를 pull 하지 않고, VM에서 직접 소스 빌드할 계획이면 아래 변형을 사용하면 됩니다.
+
+```yaml
+version: "3.8"
+
+services:
+  supabot:
+    build: .
+    container_name: supabot
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Seoul
+    volumes:
+      - ./config/.env:/app/config/.env:ro
+      - ./data:/app/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+```
+
+## 4. 배포 및 확인
+
+```bash
+docker compose pull
+docker compose up -d
+docker compose ps
+docker compose logs -f --tail=100
+```
+
+확인할 항목:
+- `docker compose up -d` 후 컨테이너가 바로 죽지 않고 유지되는지
+- Telegram에서 `/start`가 정상 동작하는지
+- `data/users.json`이 생성되고, 소유자 외에는 읽기 어렵게 권한이 유지되는지
+- Oracle 콘솔의 인스턴스 상세에서 `사용자 이름`이 `ubuntu`로 표시되는지
+- 인스턴스 액세스 항목에 공인 IP가 실제로 붙어 있는지
+
+## 5. Oracle 콘솔 후처리 체크리스트
+
+인스턴스 생성 직후 Oracle 콘솔에서 아래를 다시 확인하세요.
+
+1. 인스턴스가 `실행 중`인지 확인
+2. `네트워킹` 탭에서 공인 IP가 붙어 있는지 확인
+3. 공인 IP가 없으면 `연결된 VNIC > IP 관리 > 편집 > 임시 퍼블릭 IP`로 할당
+4. 서브넷 보안 목록 또는 NSG에서 `22/tcp`만 본인 공인 IP `/32`로 제한
+5. `80`, `443`은 reverse proxy나 webhook 계획이 없으면 열지 않음
+6. Boot volume backup policy가 켜져 있는지 확인
+
+## 6. 운영 시 주의사항
+
+- Supabot은 현재 실행 중 `data/users.json`에 거래소 API 키를 저장합니다. 파일 권한을 엄격히 제한하고, 다중 사용자 노출은 피하세요.
+- 자동화 테스트는 실거래 주문 엔드포인트를 호출하지 않도록 반드시 mock 기반으로 돌리세요.
+- 실거래 봇이므로 인바운드 포트는 최소화하고, 공인 IP가 바뀌면 SSH 허용 IP도 같이 갱신하세요.
