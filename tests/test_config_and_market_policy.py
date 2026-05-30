@@ -171,9 +171,14 @@ def test_markdown_escape_helper_handles_problem_characters():
 
 
 def test_telegram_responses_do_not_use_markdown_parse_mode():
-    source = open(os.path.join(SRC, "main.py"), encoding="utf-8").read()
+    sources = []
+    for root, _, files in os.walk(SRC):
+        for filename in files:
+            if filename.endswith(".py"):
+                with open(os.path.join(root, filename), encoding="utf-8") as f:
+                    sources.append(f.read())
 
-    assert 'parse_mode="Markdown"' not in source
+    assert 'parse_mode="Markdown"' not in "\n".join(sources)
 
 
 def test_natural_language_rsi_grid_phrase_normalizes_to_rsitrade():

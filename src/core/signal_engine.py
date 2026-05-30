@@ -130,10 +130,10 @@ class SignalEngine:
                         threshold = float(user_data["preferences"].get("signal_rsi_threshold", 30))
                         if rsi <= threshold:
                             msg = (
-                                f"🔔 *[매수 시그널 포착]*\n\n"
-                                f"- 거래소: `{exchange.upper()}`\n"
-                                f"- 종목: `{ticker}`\n"
-                                f"- 현재 RSI: `{rsi:.2f}` (기준 {threshold:g} 이하)\n\n"
+                                f"🔔 매수 시그널 포착\n\n"
+                                f"- 거래소: {exchange.upper()}\n"
+                                f"- 종목: {ticker}\n"
+                                f"- 현재 RSI: {rsi:.2f} (기준 {threshold:g} 이하)\n\n"
                                 "현재 가격대에서 진입을 고려해 보세요!"
                             )
                             keyboard = [[InlineKeyboardButton("🕸️ 거미줄 셋팅하기", callback_data=f"grid_quick_{exchange}_{ticker}")]]
@@ -142,7 +142,6 @@ class SignalEngine:
                                 chat_id=user_id,
                                 text=msg,
                                 reply_markup=reply_markup,
-                                parse_mode="Markdown",
                             )
 
                     await asyncio.sleep(0.5)
