@@ -1,8 +1,12 @@
 import json
 import os
 from copy import deepcopy
+from datetime import datetime, timedelta, timezone
 
 from core.secret_crypto import can_decrypt_secrets, decrypt_secret, encrypt_secret, has_secret_key, is_encrypted_secret
+
+
+KST = timezone(timedelta(hours=9))
 
 class UserManager:
     SECRET_EXCHANGE_FIELDS = {
@@ -79,6 +83,9 @@ class UserManager:
         llm = user.setdefault("llm", {})
         if "gemini_api_key" not in llm:
             llm["gemini_api_key"] = ""
+            changed = True
+        if "api_validation" not in user:
+            user["api_validation"] = {}
             changed = True
         defaults = {
             "upbit": {"access_key": "", "secret_key": "", "watchlist": []},
@@ -174,7 +181,8 @@ class UserManager:
                         "watchlist": [],
                     },
                 },
-                "llm": {"gemini_api_key": ""}
+                "llm": {"gemini_api_key": ""},
+                "api_validation": {},
             }
             self.save_users()
             return True
@@ -204,6 +212,18 @@ class UserManager:
             self.save_users()
             return True
         return False
+
+    def update_api_validation_status(self, user_id, exchange, is_valid, message=""):
+        user = self.users.get(str(user_id))
+        if not user:
+            return False
+        user.setdefault("api_validation", {})[exchange] = {
+            "ok": bool(is_valid),
+            "checked_at": datetime.now(KST).isoformat(timespec="seconds"),
+            "message": str(message or ""),
+        }
+        self.save_users()
+        return True
 
     def update_kis_keys(self, user_id, app_key, app_secret, account_no, product_code="01", env="paper"):
         user = self.users.get(str(user_id))

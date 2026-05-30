@@ -152,7 +152,15 @@ def _intent_with_optional_exchange(action, text):
 
 def preprocess_natural_language_intent(text, user):
     compact = _compact_text(text)
-    if not compact or _has_order_change_hint(text):
+    if not compact:
+        return None
+    if ("자연어" in compact or "llm" in compact) and any(hint in compact for hint in ("켜", "온", "on")):
+        return {"action": "config_set", "config_key": "llm_enabled", "config_value": "on"}
+    if ("자연어" in compact or "llm" in compact) and any(hint in compact for hint in ("꺼", "오프", "off")):
+        return {"action": "config_set", "config_key": "llm_enabled", "config_value": "off"}
+    if ("gemini" in compact or "모델" in compact or "llm" in compact) and any(hint in compact for hint in ("뭐", "확인", "보여", "알려")):
+        return {"action": "config_view"}
+    if _has_order_change_hint(text):
         return None
 
     if _contains_any(compact, HELP_HINTS):

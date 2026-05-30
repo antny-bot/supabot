@@ -29,6 +29,7 @@ from core.natural_language import (
     read_preprocess_hit_stats,
     read_recent_natural_language_logs,
 )
+from core.secret_crypto import can_decrypt_secrets, has_secret_key
 
 try:
     from build_info import BUILD_DATE, VERSION, GIT_SHA
@@ -69,13 +70,14 @@ DEFAULT_BOT_COMMANDS = [
     ("cancel", "종목 주문 일괄 취소"),
     ("watch", "RSI 감시 종목 추가"),
     ("unwatch", "RSI 감시 종목 제거"),
-    ("config", "거래소 API 및 사용자 설정"),
+    ("config", "거래소, LLM API 설정"),
     ("info", "봇 버전 및 빌드 정보"),
     ("whomai", "내 계정 권한과 상태 확인"),
 ]
 ADMIN_BOT_COMMANDS = [
     *DEFAULT_BOT_COMMANDS,
     ("nlstats", "관리자 전용 자연어 패턴 통계"),
+    ("diag", "관리자 운영 진단"),
 ]
 
 # Conversation States
@@ -657,6 +659,9 @@ async def execute_confirmed_intent(query, context, user, intent):
     if action == "config_set":
         key = str(intent.get("config_key") or "").strip().lower()
         raw_value = str(intent.get("config_value") or "").strip()
+        if key in ADMIN_ONLY_KEYS and not user.get("is_admin"):
+            await query.edit_message_text("❌ 이 설정은 관리자만 변경할 수 있습니다.")
+            return
         value = parse_config_value(key, raw_value)
         validate_config_update(user, key, value)
         user_manager.update_preference(user_id, key, value)
@@ -767,6 +772,23 @@ def validate_config_update(user, key, value):
         raise ValueError("Gemini API 키를 먼저 /config에서 설정해야 llm_enabled를 켤 수 있습니다.")
     return True
 
+def build_secret_security_status(user):
+    if not has_secret_key():
+        return "없음"
+    if not can_decrypt_secrets():
+        return "형식 오류"
+    if user.get("_secret_error"):
+        return "복호화 오류"
+    return "정상"
+
+def format_api_validation_status(user, exchange):
+    validation = user.get("api_validation", {}).get(exchange)
+    if not validation:
+        return "검증 이력 없음"
+    status = "마지막 검증 성공" if validation.get("ok") else "마지막 검증 실패"
+    checked_at = str(validation.get("checked_at") or "").split("+")[0].replace("T", " ")
+    return f"{status} {checked_at}".strip()
+
 def build_config_view(user):
     preferences = user["preferences"]
     api_lines = []
@@ -777,10 +799,10 @@ def build_config_view(user):
             account = keys.get("account_no", "")
             masked_account = f"{account[:2]}****{account[-2:]}" if len(account) >= 4 else "미설정"
             env_name = "실전" if keys.get("env") == "real" else "모의"
-            api_lines.append(f"- {exchange_display_name(exchange)}: {'설정됨' if is_set else '미설정'} / {env_name} / 계좌 {masked_account}")
+            api_lines.append(f"- {exchange_display_name(exchange)}: {'설정됨' if is_set else '미설정'} / {env_name} / 계좌 {masked_account} / {format_api_validation_status(user, exchange)}")
         else:
             is_set = bool(keys.get("access_key") and keys.get("secret_key"))
-            api_lines.append(f"- {exchange_display_name(exchange)}: {'설정됨' if is_set else '미설정'}")
+            api_lines.append(f"- {exchange_display_name(exchange)}: {'설정됨' if is_set else '미설정'} / {format_api_validation_status(user, exchange)}")
 
     sections = [
         "⚙️ 현재 사용자 설정",
@@ -805,6 +827,10 @@ def build_config_view(user):
         f"- llm_enabled: {format_bool(preferences.get('llm_enabled'))}",
         f"- llm_model: {preferences.get('llm_model', 'gemini-2.5-flash-lite')}",
         ]),
+        "",
+        format_section("보안 설정", [
+        f"- USER_SECRET_KEY: {build_secret_security_status(user)}",
+        ]),
     ]
     if user.get("is_admin"):
         active_interval = _format_seconds(preferences.get("poll_active_interval", 60))
@@ -823,6 +849,53 @@ def build_config_view(user):
             ]),
         ])
     return "\n".join(sections)
+
+def build_diag_view(user):
+    prefs = user.get("preferences", {})
+    active_interval = _format_seconds(prefs.get("poll_active_interval", 60))
+    no_order_interval = _format_seconds(prefs.get("poll_no_order_interval", 300))
+    current_interval = active_interval if order_manager.orders else no_order_interval
+    exchange_lines = []
+    for exchange in ["upbit", "bithumb", "kis"]:
+        keys = user.get("exchanges", {}).get(exchange, {})
+        if exchange == "kis":
+            is_set = bool(keys.get("app_key") and keys.get("app_secret") and keys.get("account_no"))
+            env_name = "실전" if keys.get("env") == "real" else "모의"
+            exchange_lines.append(f"- {exchange_display_name(exchange)}: {'설정됨' if is_set else '미설정'} / {env_name} / {format_api_validation_status(user, exchange)}")
+        else:
+            is_set = bool(keys.get("access_key") and keys.get("secret_key"))
+            exchange_lines.append(f"- {exchange_display_name(exchange)}: {'설정됨' if is_set else '미설정'} / {format_api_validation_status(user, exchange)}")
+    return "\n".join([
+        "🧪 운영 진단",
+        "",
+        format_section("환경", [
+            f"- TELEGRAM_BOT_TOKEN: {'설정됨' if BOT_TOKEN else '없음'}",
+            f"- ADMIN_CHAT_ID: {'설정됨' if ADMIN_CHAT_ID else '없음'}",
+            f"- USER_SECRET_KEY: {build_secret_security_status(user)}",
+        ]),
+        "",
+        format_section("빌드", [
+            f"- 버전: {VERSION}",
+            f"- 빌드: {BUILD_DATE}",
+            f"- 커밋: {GIT_SHA[:7] if GIT_SHA != 'unknown' else 'unknown'}",
+        ]),
+        "",
+        format_section("LLM", [
+            f"- Gemini: {'설정됨' if has_gemini_key(user) else '미설정'}",
+            f"- llm_enabled: {format_bool(prefs.get('llm_enabled'))}",
+            f"- llm_model: {prefs.get('llm_model', 'gemini-2.5-flash-lite')}",
+        ]),
+        "",
+        format_section("거래소", exchange_lines),
+        "",
+        format_section("주문/폴링", [
+            f"- 활성 주문: {len(order_manager.orders)}건",
+            f"- 현재 주기: {current_interval}",
+            f"- poll_active_interval: {active_interval}",
+            f"- poll_no_order_interval: {no_order_interval}",
+            f"- signal_analysis_interval: {_format_seconds(prefs.get('signal_analysis_interval', 300))}",
+        ]),
+    ])
 
 def parse_config_value(key, raw_value):
     key = key.strip().lower()
@@ -1226,6 +1299,7 @@ async def set_secret_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_msg = await update.message.reply_text(f"⏳ {exchange.upper()} API 키 유효성을 검증하는 중...")
     
     is_valid = await exchange_adapter.validate_api_keys(user_id, exchange)
+    user_manager.update_api_validation_status(user_id, exchange, is_valid)
     if is_valid:
         await status_msg.edit_text(f"✅ {exchange.upper()} API 키 설정이 완료되었습니다!")
     else:
@@ -1290,6 +1364,7 @@ async def set_kis_env(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     status_msg = await update.message.reply_text("⏳ 한국투자증권 API 설정을 검증하는 중...")
     is_valid = await exchange_adapter.validate_api_keys(user_id, "kis")
+    user_manager.update_api_validation_status(user_id, "kis", is_valid)
     env_name = "실전" if env == "real" else "모의"
     if is_valid:
         await status_msg.edit_text(f"✅ 한국투자증권 API 설정이 완료되었습니다. ({env_name})")
@@ -1570,6 +1645,24 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE, us
 
     await update.message.reply_text(msg)
 
+def build_manual_order_confirm_message(exchange, ticker, side, price, volume, user):
+    action = "매수" if side == "bid" else "매도"
+    env_notice = ""
+    if exchange == "kis":
+        env = user.get("exchanges", {}).get("kis", {}).get("env", "paper")
+        env_notice = f" ({'실전' if env == 'real' else '모의'})"
+        volume_text = f"{float(volume):,.0f}주"
+    else:
+        volume_text = f"{float(volume):.8f}".rstrip("0").rstrip(".")
+    return (
+        f"{'📈' if side == 'bid' else '📉'} {exchange_display_name(exchange)} {action} 주문 확인{env_notice}\n\n"
+        f"- 종목: {ticker}\n"
+        f"- 가격: {float(price):,.0f}원\n"
+        f"- 수량: {volume_text}\n"
+        f"- 주문금액: {float(price) * float(volume):,.0f}원\n\n"
+        "위 내용으로 주문을 전송할까요?"
+    )
+
 @check_auth
 async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     if await check_details_help(update, "buy"): return
@@ -1596,32 +1689,13 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
         await update.message.reply_text(error_msg)
         return
 
-    env_notice = ""
-    if exchange == "kis":
-        env = user.get("exchanges", {}).get("kis", {}).get("env", "paper")
-        env_notice = f" ({'실전' if env == 'real' else '모의'})"
-        confirm_data = f"kisrun|bid|{ticker}|{price}|{volume}"
-        keyboard = [[InlineKeyboardButton("✅ 매수 실행", callback_data=confirm_data),
-                     InlineKeyboardButton("❌ 취소", callback_data="grid_cancel")]]
-        await update.message.reply_text(
-            f"📈 한국투자증권 매수 주문 확인{env_notice}\n\n"
-            f"- 종목: {ticker}\n"
-            f"- 가격: {price:,.0f}원\n"
-            f"- 수량: {volume:,.0f}주\n"
-            f"- 주문금액: {price * volume:,.0f}원\n\n"
-            "위 내용으로 주문을 전송할까요?",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-        )
-        return
-
-    status_msg = await update.message.reply_text(f"🚀 {exchange_display_name(exchange)} {ticker} 매수 주문 전송 중{env_notice}...")
-    res = await exchange_adapter.create_order(user_id, exchange, ticker, "bid", price, volume)
-    
-    if res and 'uuid' in res:
-        order_manager.add_order(user_id, exchange, ticker, res['uuid'], price, volume, side="bid", strategy="manual")
-        await status_msg.edit_text(f"✅ {exchange_display_name(exchange)} {ticker} 매수 완료{env_notice}!\n주문ID: {res['uuid']}")
-    else:
-        await status_msg.edit_text(f"❌ 주문 실패: {res}")
+    confirm_data = f"manualrun|{exchange}|bid|{ticker}|{price}|{volume}"
+    keyboard = [[InlineKeyboardButton("✅ 매수 실행", callback_data=confirm_data),
+                 InlineKeyboardButton("❌ 취소", callback_data="manual_cancel")]]
+    await update.message.reply_text(
+        build_manual_order_confirm_message(exchange, ticker, "bid", price, volume, user),
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
 
 @check_auth
 async def sell_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
@@ -1644,37 +1718,22 @@ async def sell_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
         await update.message.reply_text("⚠️ 가격과 수량은 숫자여야 합니다.")
         return
 
-    env_notice = ""
-    if exchange == "kis":
-        env = user.get("exchanges", {}).get("kis", {}).get("env", "paper")
-        env_notice = f" ({'실전' if env == 'real' else '모의'})"
-        confirm_data = f"kisrun|ask|{ticker}|{price}|{volume}"
-        keyboard = [[InlineKeyboardButton("✅ 매도 실행", callback_data=confirm_data),
-                     InlineKeyboardButton("❌ 취소", callback_data="grid_cancel")]]
-        await update.message.reply_text(
-            f"📉 한국투자증권 매도 주문 확인{env_notice}\n\n"
-            f"- 종목: {ticker}\n"
-            f"- 가격: {price:,.0f}원\n"
-            f"- 수량: {volume:,.0f}주\n\n"
-            "위 내용으로 주문을 전송할까요?",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-        )
-        return
+    confirm_data = f"manualrun|{exchange}|ask|{ticker}|{price}|{volume}"
+    keyboard = [[InlineKeyboardButton("✅ 매도 실행", callback_data=confirm_data),
+                 InlineKeyboardButton("❌ 취소", callback_data="manual_cancel")]]
+    await update.message.reply_text(
+        build_manual_order_confirm_message(exchange, ticker, "ask", price, volume, user),
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
 
-    status_msg = await update.message.reply_text(f"🚀 {exchange_display_name(exchange)} {ticker} 매도 주문 전송 중{env_notice}...")
-    res = await exchange_adapter.create_order(user_id, exchange, ticker, "ask", price, volume)
-    
-    if res and 'uuid' in res:
-        order_manager.add_order(user_id, exchange, ticker, res['uuid'], price, volume, side="ask", strategy="manual")
-        await status_msg.edit_text(f"✅ {exchange_display_name(exchange)} {ticker} 매도 완료{env_notice}!\n주문ID: {res['uuid']}")
-    else:
-        await status_msg.edit_text(f"❌ 주문 실패: {res}")
-
-async def kis_order_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def manual_order_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    if query.data == "manual_cancel":
+        await query.edit_message_text("❌ 주문이 취소되었습니다.")
+        return
 
-    _, side, ticker, price, volume = query.data.split("|")
+    _, exchange, side, ticker, price, volume = query.data.split("|")
     user_id = str(query.from_user.id)
     user = user_manager.get_user(user_id)
     if not user:
@@ -1689,17 +1748,19 @@ async def kis_order_confirm_callback(update: Update, context: ContextTypes.DEFAU
             await query.edit_message_text(error_msg)
             return
 
-    env = user.get("exchanges", {}).get("kis", {}).get("env", "paper")
-    env_notice = f" ({'실전' if env == 'real' else '모의'})"
+    env_notice = ""
+    if exchange == "kis":
+        env = user.get("exchanges", {}).get("kis", {}).get("env", "paper")
+        env_notice = f" ({'실전' if env == 'real' else '모의'})"
     action = "매수" if side == "bid" else "매도"
-    await query.edit_message_text(f"🚀 한국투자증권 {ticker} {action} 주문 전송 중{env_notice}...")
+    await query.edit_message_text(f"🚀 {exchange_display_name(exchange)} {ticker} {action} 주문 전송 중{env_notice}...")
 
-    res = await exchange_adapter.create_order(user_id, "kis", ticker, side, price, volume)
+    res = await exchange_adapter.create_order(user_id, exchange, ticker, side, price, volume)
     if res and "uuid" in res:
-        order_manager.add_order(user_id, "kis", ticker, res["uuid"], price, volume, side=side, strategy="manual")
+        order_manager.add_order(user_id, exchange, ticker, res["uuid"], price, volume, side=side, strategy="manual")
         await context.bot.send_message(
             chat_id=user_id,
-            text=f"✅ 한국투자증권 {ticker} {action} 주문 완료{env_notice}!\n주문ID: {res['uuid']}",
+            text=f"✅ {exchange_display_name(exchange)} {ticker} {action} 주문 완료{env_notice}!\n주문ID: {res['uuid']}",
         )
     else:
         await context.bot.send_message(chat_id=user_id, text=f"❌ 주문 실패: {res}")
@@ -2043,7 +2104,19 @@ async def rsitrade_confirm_callback(update: Update, context: ContextTypes.DEFAUL
             success += 1
         await asyncio.sleep(0.2)
     
-    await context.bot.send_message(chat_id=user_id, text=f"✅ `{tk}` 전략 가동 완료! ({success}/{ct}건 예약됨)")
+    await context.bot.send_message(chat_id=user_id, text=f"✅ {tk} 전략 가동 완료! ({success}/{ct}건 예약됨)")
+
+async def grid_quick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    _, _, exchange, ticker = query.data.split("_", 3)
+    await query.edit_message_text(
+        f"🕸️ 거미줄 설정 안내\n\n"
+        f"- 거래소: {exchange_display_name(exchange)}\n"
+        f"- 종목: {ticker}\n\n"
+        f"예: /grid {exchange} {ticker} [시작가] [종료가] [횟수] [예산]\n"
+        f"또는 RSI 전략은 /rsitrade {exchange} {ticker} [매수RSI] [매도RSI] [횟수] [예산]"
+    )
 
 # --- 백그라운드 루프 엔진 ---
 def _get_admin_prefs() -> dict:
@@ -2155,7 +2228,7 @@ async def global_debug_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     return
 
 def build_help_message(user):
-    admin_lines = ["- /nlstats: 자연어 전처리 후보 통계 (관리자 전용)"] if user.get("is_admin") else []
+    admin_lines = ["- /nlstats: 자연어 전처리 후보 통계 (관리자 전용)", "- /diag: 운영 진단 (관리자 전용)"] if user.get("is_admin") else []
     sections = [
         f"📖 {BOT_DISPLAY_NAME} 사용 설명서",
         "상세 가이드: /[명령어] -h  예: /rsitrade -h",
@@ -2211,9 +2284,33 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
     await update.message.reply_text(msg)
 
 @check_auth
+async def diag_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
+    if not user.get("is_admin"):
+        await update.message.reply_text("운영 진단은 관리자만 조회할 수 있습니다.")
+        return
+    await update.message.reply_text(build_diag_view(user))
+
+@check_auth
 async def whoami_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     user_id = str(update.effective_chat.id)
     await update.message.reply_text(build_account_summary(user_id, user))
+
+def recommend_nl_preprocess_action(text_norm):
+    text = str(text_norm or "").lower()
+    compact = re.sub(r"\s+", "", text)
+    if any(hint in compact for hint in ["주문대기", "예약주문", "추적중", "전략주문"]):
+        return "status"
+    if any(hint in compact for hint in ["미체결", "오픈오더", "openorder"]):
+        return "orders"
+    if any(hint in compact for hint in ["잔고", "자산", "계좌현황"]):
+        return "asset"
+    if any(hint in compact for hint in ["시세", "가격", "현재가"]):
+        return "price"
+    if any(hint in compact for hint in ["설정", "api등록", "gemini", "llm"]):
+        return "config_view"
+    if any(hint in compact for hint in ["체결내역", "거래내역", "최근체결"]):
+        return "history"
+    return None
 
 @check_auth
 async def nlstats_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
@@ -2273,6 +2370,14 @@ async def nlstats_command(update: Update, context: ContextTypes.DEFAULT_TYPE, us
     if hits:
         hit_text = ", ".join(f"{action}:{count}" for action, count in sorted(hits.items()))
         lines.append(f"\n전처리 hit: {hit_text}")
+    recommendations = []
+    for row in rows[:5]:
+        action = recommend_nl_preprocess_action(row.get("text_norm"))
+        if action:
+            recommendations.append(f"- {row.get('text_norm')} → {action}")
+    if recommendations:
+        lines.append("\n추천 전처리 후보")
+        lines.extend(recommendations)
     await update.message.reply_text("\n".join(lines))
 
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2288,9 +2393,6 @@ async def natural_language_command(update: Update, context: ContextTypes.DEFAULT
     if not text or text.startswith("/"):
         return
     prefs = user.get("preferences", {})
-    if not prefs.get("llm_enabled") or not has_gemini_key(user):
-        await update.message.reply_text("💬 자연어 명령을 사용하려면 /config에서 Gemini API 키를 저장한 뒤 /config set llm_enabled on을 실행해 주세요.")
-        return
 
     preprocessed = preprocess_natural_language_intent(text, user)
     if preprocessed:
@@ -2298,7 +2400,20 @@ async def natural_language_command(update: Update, context: ContextTypes.DEFAULT
         if preprocessed.get("action") == "clarify":
             await update.message.reply_text(preprocessed.get("question") or _clarify_message(text, preprocessed))
             return
-        await execute_query_intent(update, context, user, preprocessed)
+        if _is_immediate_intent(preprocessed.get("action")):
+            await execute_query_intent(update, context, user, preprocessed)
+            return
+        intent = normalize_natural_language_intent(text, preprocessed, user)
+        confirm_text = f"🧠 자연어 요청 확인\n\n{_intent_summary(intent)}\n\n위 내용으로 실행할까요?"
+        token = str(len(_pending_nl_intents) + 1)
+        _pending_nl_intents[token] = {"user_id": str(update.effective_chat.id), "intent": intent}
+        keyboard = [[InlineKeyboardButton("✅ 실행", callback_data=f"nlrun|{token}"),
+                     InlineKeyboardButton("❌ 취소", callback_data=f"nlcancel|{token}")]]
+        await update.message.reply_text(confirm_text, reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    if not prefs.get("llm_enabled") or not has_gemini_key(user):
+        await update.message.reply_text("💬 자연어 명령을 사용하려면 /config에서 Gemini API 키를 저장한 뒤 /config set llm_enabled on을 실행해 주세요.")
         return
 
     llm_intent = await parse_natural_language_intent(text, user)
@@ -2400,6 +2515,7 @@ def main():
     for command_name in ACCOUNT_COMMAND_ALIASES:
         application.add_handler(CommandHandler(command_name, whoami_command))
     application.add_handler(CommandHandler("nlstats", nlstats_command))
+    application.add_handler(CommandHandler("diag", diag_command))
     application.add_handler(CommandHandler("asset", asset_command))
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("price", price_command))
@@ -2416,9 +2532,10 @@ def main():
     application.add_handler(CommandHandler("watch", watch_command))
     application.add_handler(CommandHandler("unwatch", unwatch_command))
     application.add_handler(CallbackQueryHandler(approve_callback, pattern="^approve_"))
+    application.add_handler(CallbackQueryHandler(grid_quick_callback, pattern="^grid_quick_"))
     application.add_handler(CallbackQueryHandler(grid_confirm_callback, pattern="^(gridrun|sgridrun|grid_cancel)"))
     application.add_handler(CallbackQueryHandler(rsitrade_confirm_callback, pattern="^rsitrun"))
-    application.add_handler(CallbackQueryHandler(kis_order_confirm_callback, pattern="^kisrun"))
+    application.add_handler(CallbackQueryHandler(manual_order_confirm_callback, pattern="^(manualrun|manual_cancel)"))
     application.add_handler(CallbackQueryHandler(natural_language_confirm_callback, pattern="^nl(run|cancel)\\|"))
     
     # [중요] 알 수 없는 명령어 처리 (가장 마지막에 등록)

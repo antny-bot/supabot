@@ -73,7 +73,9 @@ def test_nlstats_is_registered_in_bot_command_menu():
     commands = dict(main.ADMIN_BOT_COMMANDS)
 
     assert commands["nlstats"] == "관리자 전용 자연어 패턴 통계"
+    assert commands["diag"] == "관리자 운영 진단"
     assert "nlstats" not in dict(main.DEFAULT_BOT_COMMANDS)
+    assert "diag" not in dict(main.DEFAULT_BOT_COMMANDS)
 
 
 def test_whomai_is_registered_and_me_is_alias():
@@ -129,6 +131,7 @@ def test_config_view_splits_basic_and_llm_sections():
             "kis": {"app_key": "a", "app_secret": "s", "account_no": "81234569", "env": "real"},
         },
         "llm": {"gemini_api_key": "gemini-secret"},
+        "api_validation": {"upbit": {"ok": True, "checked_at": "2026-05-30T22:10:00+09:00"}},
     }
 
     message = main.build_config_view(user)
@@ -139,6 +142,9 @@ def test_config_view_splits_basic_and_llm_sections():
     assert "- Gemini: 설정됨" in message
     assert "- llm_enabled: on" in message
     assert "계좌 81****69" in message
+    assert "보안 설정" in message
+    assert "USER_SECRET_KEY:" in message
+    assert "마지막 검증 성공 2026-05-30 22:10:00" in message
     assert "gemini-secret" not in message
 
 
@@ -179,6 +185,50 @@ def test_telegram_responses_do_not_use_markdown_parse_mode():
                     sources.append(f.read())
 
     assert 'parse_mode="Markdown"' not in "\n".join(sources)
+
+
+def test_diag_view_shows_operational_state_without_secret_values():
+    user = {
+        "is_admin": True,
+        "preferences": {**UserManager.DEFAULT_PREFERENCES, "llm_enabled": True},
+        "exchanges": {
+            "upbit": {"access_key": "secret-access", "secret_key": "secret-key"},
+            "bithumb": {"access_key": "", "secret_key": ""},
+            "kis": {"app_key": "", "app_secret": "", "account_no": "", "env": "paper"},
+        },
+        "llm": {"gemini_api_key": "gemini-secret"},
+        "api_validation": {"upbit": {"ok": False, "checked_at": "2026-05-30T22:11:00+09:00"}},
+    }
+
+    message = main.build_diag_view(user)
+
+    assert "운영 진단" in message
+    assert "TELEGRAM_BOT_TOKEN:" in message
+    assert "마지막 검증 실패 2026-05-30 22:11:00" in message
+    assert "secret-access" not in message
+    assert "gemini-secret" not in message
+
+
+def test_manual_order_confirm_message_is_plain_and_requires_confirmation():
+    user = {"exchanges": {"kis": {"env": "real"}}}
+
+    message = main.build_manual_order_confirm_message("upbit", "KRW-BTC", "bid", 100000, 0.01, user)
+
+    assert "UPBIT 매수 주문 확인" in message
+    assert "위 내용으로 주문을 전송할까요?" in message
+    assert "`" not in message
+    assert "*" not in message
+
+
+def test_preprocess_natural_language_llm_setting_requests_confirmation():
+    intent = main.preprocess_natural_language_intent("자연어 꺼줘", {"preferences": {}})
+
+    assert intent == {"action": "config_set", "config_key": "llm_enabled", "config_value": "off"}
+
+
+def test_nlstats_recommends_candidate_action():
+    assert main.recommend_nl_preprocess_action("주문대기중인것은?") == "status"
+    assert main.recommend_nl_preprocess_action("잔고 좀 보여줘") == "asset"
 
 
 def test_natural_language_rsi_grid_phrase_normalizes_to_rsitrade():

@@ -95,6 +95,21 @@ def test_user_manager_keeps_empty_secrets_empty(tmp_path, monkeypatch):
     assert stored["1"]["exchanges"]["upbit"]["secret_key"] == ""
 
 
+def test_user_manager_stores_api_validation_status(tmp_path, monkeypatch):
+    monkeypatch.setenv("USER_SECRET_KEY", Fernet.generate_key().decode())
+    path = tmp_path / "users.json"
+    manager = UserManager(str(path))
+    manager.add_user("1", "alice", is_admin=True)
+
+    assert manager.update_api_validation_status("1", "upbit", False, "invalid")
+
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    status = stored["1"]["api_validation"]["upbit"]
+    assert status["ok"] is False
+    assert status["message"] == "invalid"
+    assert "checked_at" in status
+
+
 def test_user_manager_rejects_new_secret_without_master_key(tmp_path, monkeypatch):
     monkeypatch.delenv("USER_SECRET_KEY", raising=False)
     path = tmp_path / "users.json"

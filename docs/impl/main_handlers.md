@@ -25,13 +25,14 @@ KST = timezone(timedelta(hours=9))
 | /config | `config_command` (ConversationHandler) | 다단계 키 설정 |
 | /whomai, /me | `whoami_command` | 내 ID, 권한, 활성 상태 확인 |
 | /nlstats | `nlstats_command` | 관리자 전용 자연어 전처리 후보 통계 |
+| /diag | `diag_command` | 관리자 전용 운영 진단 |
 | /asset | `asset_command` | 포트폴리오 전체 잔고 |
 | /price, /p | `price_command` | 실시간 시세 |
 | /history | `history_command` | 최근 체결 내역 |
 | /orders | `orders_command` | 추적 중 미체결 주문 목록 |
 | /status | `status_command` | 전략 대시보드 |
-| /buy | `buy_command` | 단일 지정가 매수; KIS는 확인 필요 |
-| /sell | `sell_command` | 단일 지정가 매도; KIS는 확인 필요 |
+| /buy | `buy_command` | 단일 지정가 매수 확인 후 전송 |
+| /sell | `sell_command` | 단일 지정가 매도 확인 후 전송 |
 | /grid | `grid_command` | 가격 범위 → N개 분할 매수 |
 | /sgrid | `sgrid_command` | 보유 수량 기반 분할 매도 |
 | /rsitrade | `rsitrade_command` | RSI 역산 분할 전략 |
@@ -70,7 +71,7 @@ API 키 포함 메시지는 캡처 즉시 삭제됨 (`delete_message`).
 
 ### Telegram 명령어 메뉴
 - `post_init`에서 `application.bot.set_my_commands(DEFAULT_BOT_COMMANDS, BotCommandScopeDefault())`를 호출해 일반 Telegram slash command 메뉴를 갱신한다.
-- 관리자 chat에는 `BotCommandScopeChat`으로 `ADMIN_BOT_COMMANDS`를 별도 등록하며, 이 목록에만 `/nlstats`를 포함한다.
+- 관리자 chat에는 `BotCommandScopeChat`으로 `ADMIN_BOT_COMMANDS`를 별도 등록하며, 이 목록에만 `/nlstats`, `/diag`를 포함한다.
 - `/me`는 숨은 alias라 메뉴에는 표시하지 않고 `CommandHandler("me", whoami_command)`로만 등록한다.
 - 메뉴 갱신 실패는 봇 시작 실패로 처리하지 않고 경고 로그만 남긴다.
 
@@ -103,7 +104,7 @@ API 키 포함 메시지는 캡처 즉시 삭제됨 (`delete_message`).
 7. **읽기 액션** (`asset`, `price`, `orders`, `status`, `history`, `config_view`, `help`): `execute_query_intent` 즉시 실행
 8. **쓰기 액션** (buy, sell, grid, rsitrade 등): 확인 버튼 표시 → 클릭 시 `execute_confirmed_intent`
 
-관리자는 `/nlstats`, `/nlstats export [N]`, `/nlstats hits`, `/nlstats clear confirm`으로 `data/nl_unmatched.jsonl`과 `data/nl_preprocess_hits.json`을 조회/정리할 수 있다. 로그에는 chat_id/user_id를 저장하지 않고 숫자, 6자리 주식코드, 긴 토큰을 마스킹한다.
+관리자는 `/nlstats`, `/nlstats export [N]`, `/nlstats hits`, `/nlstats clear confirm`으로 `data/nl_unmatched.jsonl`과 `data/nl_preprocess_hits.json`을 조회/정리할 수 있다. 기본 화면은 미처리 문장에 대한 추천 전처리 action도 표시한다. 로그에는 chat_id/user_id를 저장하지 않고 숫자, 6자리 주식코드, 긴 토큰을 마스킹한다.
 
 ## 사용자 Secret 암호화
 
@@ -115,6 +116,7 @@ API 키 포함 메시지는 캡처 즉시 삭제됨 (`delete_message`).
 - 기존 평문 secret은 봇 시작 시 자동 마이그레이션한다.
 - `USER_SECRET_KEY`가 없거나 Fernet 형식이 아니면 기존 평문 읽기는 유지하지만 새 secret 저장은 실패한다.
 - 이미 암호화된 값은 같은 `USER_SECRET_KEY`로만 복호화된다. 다른 키가 들어오면 `get_user()`는 secret 필드를 빈 값으로 반환하고 `_secret_error`를 표시해서 `/start` 같은 기본 명령이 죽지 않게 한다.
+- 거래소 API 키 저장 직후 검증 결과는 `api_validation`에 캐시하며, `/config -v`와 `/diag`에서 마지막 성공/실패 시각을 표시한다. 조회 시점에 라이브 API를 새로 호출하지 않는다.
 
 상세 Intent 스키마 및 흐름: `docs/detail/gemini_intent.md`
 
