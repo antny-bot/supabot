@@ -2,13 +2,33 @@
 
 ## 개요
 
-`llm_enabled=True` 이고 일반 텍스트 메시지가 오면, 봇이 Google Gemini API로 전송해 JSON intent로 변환. 사용자가 "비트코인 시세 알려줘" 처럼 자연어 입력 가능.
+`llm_enabled=True` 이고 일반 텍스트 메시지가 오면, 봇이 먼저 안전한 조회 표현을 룰 기반으로 전처리한다. 전처리로 처리하지 못한 문장만 Google Gemini API로 전송해 JSON intent로 변환한다. 사용자가 "비트코인 시세 알려줘" 처럼 자연어 입력 가능.
 
 ## 사전 조건
 
 - `users.json → llm.gemini_api_key` 설정 필요
 - `llm_enabled=True` 필요
 - `validate_config_update`: `llm_enabled=True` + 빈 API 키 조합 → `ValueError`
+
+## 룰 기반 전처리
+
+`preprocess_natural_language_intent(text, user)` 가 Gemini 호출 전에 실행된다.
+
+전처리 대상은 조회성 action만 허용한다.
+
+| action | 예시 표현 | 처리 |
+|--------|-----------|------|
+| `status` | `주문대기중인것은?`, `예약 주문 보여줘`, `전략 상태 알려줘` | 전략 대시보드 즉시 조회 |
+| `orders` | `미체결 주문 뭐 있어?`, `오픈오더`, `거래소에 걸린 주문` | 봇이 추적 중인 미체결 주문 즉시 조회 |
+| `asset` | `잔고 보여줘`, `보유 자산`, `빗썸 잔고` | 자산 조회 |
+| `price` | `BTC 시세`, `비트 얼마야`, `삼성전자 가격` | 종목 추출 가능할 때 시세 조회 |
+| `history` | `최근 체결`, `거래 내역`, `BTC 거래내역` | 최근 체결 내역 조회 |
+| `config_view` | `현재 설정 보여줘`, `API 등록 상태` | 설정 조회 |
+| `help` | `사용법`, `명령어 알려줘`, `도움말` | 도움말 조회 |
+
+`취소`, `중지`, `매수`, `매도`, `사줘`, `설정해`, `변경`, `켜줘`, `꺼줘` 같은 변경성 표현은 전처리하지 않는다. 해당 문장은 Gemini와 확인 버튼 흐름으로 넘긴다.
+
+전처리로 처리된 문장은 Gemini를 호출하지 않고 로그에도 남기지 않는다.
 
 ## Gemini 프롬프트 구조
 
@@ -19,6 +39,7 @@ You parse Korean Telegram trading bot messages into one JSON object only.
 Do not execute anything. Use null for unknown fields.
 Supported actions: asset, price, orders, status, config_view, history,
   buy, sell, grid, sgrid, rsitrade, watch, unwatch, config_set, cancel, help, clarify.
+Pending/reserved/tracked strategy orders => status. Real open/unfilled exchange orders => orders.
 Schema: { "action": str, "exchange": str|null, "ticker": str|null,
           "price": num|null, "volume": num|null, "amount_krw": num|null,
           "start_price": num|null, "end_price": num|null, "count": int|null,
@@ -56,20 +77,24 @@ temperature=0.1, `response_mime_type="application/json"`.
 `_is_immediate_intent(action)` 으로 즉시 실행 여부 판별:
 
 ```python
-IMMEDIATE = {"asset", "price", "orders", "status", "config_view", "history"}
+IMMEDIATE = {"asset", "price", "orders", "status", "config_view", "history", "help"}
 ```
 
 | 구분 | 액션 목록 | 처리 |
 |------|-----------|------|
-| **읽기 (즉시)** | asset, price, orders, status, config_view, history | `execute_query_intent` |
-| **쓰기 (확인)** | buy, sell, grid, sgrid, rsitrade, watch, unwatch, config_set, cancel, help | 확인 버튼 표시 후 실행 |
+| **읽기 (즉시)** | asset, price, orders, status, config_view, history, help | `execute_query_intent` |
+| **쓰기 (확인)** | buy, sell, grid, sgrid, rsitrade, watch, unwatch, config_set, cancel | 확인 버튼 표시 후 실행 |
 
 ## 확인 플로우
 
 ```
 일반 텍스트 메시지
       │
+preprocess_natural_language_intent() → 조회성 intent면 즉시 실행
+      │
 parse_natural_language_intent() → JSON intent
+      │
+normalize_natural_language_intent() → 서버 후처리 보정
       │
 action == "clarify" 또는 None? → 질문/오류 응답 반환
       │
@@ -87,6 +112,30 @@ natural_language_confirm_callback():
 ```
 
 `execute_confirmed_intent` 는 일반 커맨드 핸들러와 동일한 내부 함수 호출 (거래소 어댑터, 검증 동일 적용).
+
+## 미처리 자연어 로그
+
+전처리로 처리하지 못해 Gemini까지 간 문장은 `append_natural_language_log()` 로 `data/nl_unmatched.jsonl`에 기록한다.
+
+기록 항목:
+
+```json
+{"ts":"2026-05-30T16:20:00+09:00","text_norm":"BTC <NUMBER>원 주문?","llm_action":"clarify","final_action":"clarify"}
+```
+
+로그는 패턴 분석용이며 다음 정보를 저장하지 않는다.
+
+- chat_id / user_id
+- 주문 ID, 거래소 응답 원문
+- API 키 또는 긴 토큰 원문
+
+마스킹 규칙:
+
+- 긴 영숫자 토큰 → `<TOKEN>`
+- 6자리 숫자 → `<STOCK>`
+- 일반 숫자/소수 → `<NUMBER>`
+
+최근 500줄만 유지한다. 관리자는 `/nlstats` 명령으로 상위 패턴과 LLM/final action 집계를 조회할 수 있다.
 
 ## 오류 처리
 

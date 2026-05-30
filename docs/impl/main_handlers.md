@@ -1,6 +1,6 @@
 # main_handlers.md
 
-**파일**: `src/main.py` (2124줄)
+**파일**: `src/main.py` (2500줄대)
 
 ## 모듈 전역 객체
 
@@ -11,6 +11,7 @@ order_manager    = OrderManager()
 signal_engine    = SignalEngine(user_manager, exchange_adapter)
 _order_wake_event: asyncio.Event    # 새 주문 시 sync 루프 즉시 깨움
 _pending_nl_intents: dict           # token → {user_id, intent} (Gemini 확인 대기)
+NL_UNMATCHED_LOG_PATH: str          # 전처리 미처리 자연어 익명 로그
 KST = timezone(timedelta(hours=9))
 ```
 
@@ -22,6 +23,7 @@ KST = timezone(timedelta(hours=9))
 | /help, /commands | `help_command` | 전체 커맨드 메뉴 |
 | /info | `info_command` | build_info.py의 버전/빌드 정보 |
 | /config | `config_command` (ConversationHandler) | 다단계 키 설정 |
+| /nlstats | `nlstats_command` | 관리자 전용 자연어 전처리 후보 통계 |
 | /asset | `asset_command` | 포트폴리오 전체 잔고 |
 | /price, /p | `price_command` | 실시간 시세 |
 | /history | `history_command` | 최근 체결 내역 |
@@ -81,9 +83,19 @@ API 키 포함 메시지는 캡처 즉시 삭제됨 (`delete_message`).
 ## Gemini 자연어 흐름 (요약)
 
 1. 일반 텍스트 → `natural_language_command` (`llm_enabled` 시)
-2. `parse_natural_language_intent(text, user)` → Gemini API → JSON intent
-3. **읽기 액션** (`asset`, `price`, `orders`, `status`, `history`, `config_view`): `execute_query_intent` 즉시 실행
-4. **쓰기 액션** (buy, sell, grid, rsitrade 등): 확인 버튼 표시 → 클릭 시 `execute_confirmed_intent`
+2. `preprocess_natural_language_intent(text, user)` 로 안전한 조회 표현을 먼저 처리
+   - 조회 action만 허용: `asset`, `price`, `orders`, `status`, `history`, `config_view`, `help`
+   - 매수/매도/취소/설정 변경성 표현은 전처리하지 않음
+   - 전처리 성공 시 Gemini를 호출하지 않고 로그도 남기지 않음
+3. 전처리 실패 시 `parse_natural_language_intent(text, user)` → Gemini API → JSON intent
+4. `normalize_natural_language_intent(text, intent, user)` 로 서버 후처리 보정
+   - `주문대기`, `예약 주문`, `추적 중인 전략 주문` → `status`
+   - `미체결`, `오픈오더`, `거래소에 걸린 주문` → `orders`
+5. 전처리 실패로 Gemini까지 간 문장은 `append_natural_language_log()` 로 `data/nl_unmatched.jsonl`에 익명 기록
+6. **읽기 액션** (`asset`, `price`, `orders`, `status`, `history`, `config_view`, `help`): `execute_query_intent` 즉시 실행
+7. **쓰기 액션** (buy, sell, grid, rsitrade 등): 확인 버튼 표시 → 클릭 시 `execute_confirmed_intent`
+
+관리자는 `/nlstats`로 `data/nl_unmatched.jsonl`의 상위 미처리 패턴, LLM action, 최종 action 집계를 확인할 수 있다. 로그에는 chat_id/user_id를 저장하지 않고 숫자, 6자리 주식코드, 긴 토큰을 마스킹한다.
 
 상세 Intent 스키마 및 흐름: `docs/detail/gemini_intent.md`
 
@@ -108,4 +120,7 @@ interpolate_range(start, end, i, count)  # i번째 균등 분할값
 validate_max_order(user, order_krw)      # max_order_krw 제한 확인
 parse_config_value(key, raw_value)       # /config set 타입 검증·변환
 validate_config_update(user, key, value) # 제약 위반 시 ValueError
+preprocess_natural_language_intent(text, user) # 조회성 자연어 전처리
+append_natural_language_log(text, llm_intent, final_intent) # 익명 JSONL 로그 저장
+read_natural_language_log_stats(path, limit) # /nlstats 집계
 ```

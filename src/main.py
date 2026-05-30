@@ -2,6 +2,7 @@ import os
 import asyncio
 import json
 import re
+from collections import Counter
 from datetime import datetime, time as dt_time, timedelta, timezone
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -42,6 +43,8 @@ _order_wake_event: asyncio.Event = None  # post_init에서 초기화
 KST = timezone(timedelta(hours=9))
 _pending_nl_intents = {}
 RSI_GRID_COMMAND_ALIASES = ("rsigrid", "rsitrade")
+NL_UNMATCHED_LOG_PATH = os.getenv("NL_UNMATCHED_LOG_PATH", "data/nl_unmatched.jsonl")
+NL_UNMATCHED_LOG_MAX_LINES = 500
 
 # Conversation States
 SET_EXCHANGE, SET_ACCESS, SET_SECRET, SET_KIS_APP, SET_KIS_SECRET, SET_KIS_ACCOUNT, SET_KIS_PRODUCT, SET_KIS_ENV, SET_GEMINI_KEY = range(9)
@@ -469,6 +472,47 @@ LLM_COMMAND_CATALOG = "\n".join([
 ])
 
 RSI_SPLIT_HINTS = ("거미줄", "분할", "나눠", "나누", "쪼개")
+ORDER_STATUS_HINTS = (
+    "주문대기",
+    "대기중인주문",
+    "대기중주문",
+    "대기주문",
+    "예약된주문",
+    "예약주문",
+    "추적중인주문",
+    "추적중주문",
+    "전략주문",
+    "걸어둔주문",
+)
+OPEN_ORDER_HINTS = ("미체결", "오픈오더", "openorder", "openorders")
+ORDER_CHANGE_HINTS = (
+    "취소",
+    "중지",
+    "없애",
+    "삭제",
+    "사줘",
+    "매수",
+    "팔아",
+    "매도",
+    "설정해",
+    "변경",
+    "바꿔",
+    "켜줘",
+    "꺼줘",
+)
+ASSET_HINTS = ("잔고", "보유자산", "자산", "평가금액", "계좌현황")
+PRICE_HINTS = ("시세", "가격", "현재가", "얼마")
+HISTORY_HINTS = ("최근체결", "체결내역", "거래내역", "매매기록", "거래기록")
+CONFIG_VIEW_HINTS = ("설정보여", "현재설정", "설정확인", "api등록상태", "자연어켜져")
+HELP_HINTS = ("뭐할수", "사용법", "명령어", "도움말", "help")
+TICKER_ALIASES = {
+    "비트": "BTC",
+    "비트코인": "BTC",
+    "이더": "ETH",
+    "이더리움": "ETH",
+    "리플": "XRP",
+    "삼성전자": "005930",
+}
 
 def _extract_rsi_range_from_text(text):
     match = re.search(r"rsi\s*(\d+(?:\.\d+)?)\s*(?:~|-|부터|에서|to)\s*(\d+(?:\.\d+)?)", text, re.IGNORECASE)
@@ -518,6 +562,10 @@ def _extract_ticker_from_text(text):
     stock_match = re.search(r"\b(\d{6})\b", text)
     if stock_match:
         return stock_match.group(1)
+    compact = _compact_text(text)
+    for label, ticker in TICKER_ALIASES.items():
+        if label in compact:
+            return ticker
     for match in re.finditer(r"[A-Za-z]{2,10}", text):
         token = match.group(0).upper()
         if token not in {"RSI", "KRW", "UPBIT", "BITHUMB", "KIS"}:
@@ -528,8 +576,135 @@ def _looks_like_rsi_split_request(text):
     lowered = text.lower()
     return "rsi" in lowered and any(hint in text for hint in RSI_SPLIT_HINTS)
 
+def _compact_text(text):
+    return re.sub(r"\s+", "", str(text).lower())
+
+def _looks_like_strategy_status_request(text):
+    compact = _compact_text(text)
+    if any(hint in compact for hint in OPEN_ORDER_HINTS):
+        return False
+    return any(hint in compact for hint in ORDER_STATUS_HINTS)
+
+def _contains_any(compact_text, hints):
+    return any(hint in compact_text for hint in hints)
+
+def _has_order_change_hint(text):
+    return _contains_any(_compact_text(text), ORDER_CHANGE_HINTS)
+
+def _intent_with_optional_exchange(action, text):
+    intent = {"action": action}
+    exchange = _extract_exchange_from_text(text)
+    if exchange:
+        intent["exchange"] = exchange
+    return intent
+
+def preprocess_natural_language_intent(text, user):
+    compact = _compact_text(text)
+    if not compact or _has_order_change_hint(text):
+        return None
+
+    if _contains_any(compact, HELP_HINTS):
+        return {"action": "help"}
+    if _contains_any(compact, CONFIG_VIEW_HINTS):
+        return {"action": "config_view"}
+    if _looks_like_strategy_status_request(text) or "자동매매상태" in compact or "전략상태" in compact:
+        return _intent_with_optional_exchange("status", text)
+    if _contains_any(compact, OPEN_ORDER_HINTS) or "실제걸린주문" in compact or "거래소에걸" in compact:
+        return _intent_with_optional_exchange("orders", text)
+    if _contains_any(compact, ASSET_HINTS):
+        return _intent_with_optional_exchange("asset", text)
+    if _contains_any(compact, HISTORY_HINTS):
+        intent = _intent_with_optional_exchange("history", text)
+        ticker = _extract_ticker_from_text(text)
+        if ticker:
+            intent["ticker"] = ticker
+        return intent
+    if _contains_any(compact, PRICE_HINTS):
+        ticker = _extract_ticker_from_text(text)
+        if ticker:
+            intent = _intent_with_optional_exchange("price", text)
+            intent["ticker"] = ticker
+            return intent
+    return None
+
+def sanitize_natural_language_log_text(text):
+    cleaned = re.sub(r"\s+", " ", str(text)).strip()
+    cleaned = re.sub(r"[A-Za-z0-9_-]{20,}", "<TOKEN>", cleaned)
+    cleaned = re.sub(r"(?<!\d)\d{6}(?!\d)", "<STOCK>", cleaned)
+    cleaned = re.sub(r"(?<![\w.])\d+(?:\.\d+)?(?![\w.])", "<NUMBER>", cleaned)
+    return cleaned[:160]
+
+def _trim_jsonl_file(path, max_lines):
+    if max_lines <= 0 or not os.path.exists(path):
+        return
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        if len(lines) > max_lines:
+            with open(path, "w", encoding="utf-8") as f:
+                f.writelines(lines[-max_lines:])
+    except Exception as e:
+        print(f"NL log trim error: {e}")
+
+def append_natural_language_log(text, llm_intent, final_intent, path=NL_UNMATCHED_LOG_PATH):
+    row = {
+        "ts": datetime.now(KST).isoformat(timespec="seconds"),
+        "text_norm": sanitize_natural_language_log_text(text),
+        "llm_action": (llm_intent or {}).get("action"),
+        "final_action": (final_intent or {}).get("action"),
+    }
+    try:
+        dir_name = os.path.dirname(path)
+        if dir_name:
+            os.makedirs(dir_name, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        os.chmod(path, 0o600)
+        _trim_jsonl_file(path, NL_UNMATCHED_LOG_MAX_LINES)
+    except Exception as e:
+        print(f"NL log append error: {e}")
+
+def _counter_dict(counter):
+    return dict(sorted(counter.items(), key=lambda item: (-item[1], str(item[0]))))
+
+def read_natural_language_log_stats(path=NL_UNMATCHED_LOG_PATH, limit=10):
+    grouped = {}
+    if not os.path.exists(path):
+        return []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            text_norm = row.get("text_norm")
+            if not text_norm:
+                continue
+            bucket = grouped.setdefault(
+                text_norm,
+                {"count": 0, "llm_actions": Counter(), "final_actions": Counter()},
+            )
+            bucket["count"] += 1
+            bucket["llm_actions"][str(row.get("llm_action"))] += 1
+            bucket["final_actions"][str(row.get("final_action"))] += 1
+
+    rows = []
+    for text_norm, bucket in grouped.items():
+        rows.append(
+            {
+                "text_norm": text_norm,
+                "count": bucket["count"],
+                "llm_actions": _counter_dict(bucket["llm_actions"]),
+                "final_actions": _counter_dict(bucket["final_actions"]),
+            }
+        )
+    return sorted(rows, key=lambda row: (-row["count"], row["text_norm"]))[:limit]
+
 def normalize_natural_language_intent(text, intent, user):
     intent = dict(intent or {})
+    if _looks_like_strategy_status_request(text):
+        return {**intent, "action": "status", "question": None}
+
     rsi_range = intent.get("buy_rsi_range") or _extract_rsi_range_from_text(text)
     amount = intent.get("amount_krw") or _extract_krw_amount_from_text(text)
     count = intent.get("count") or _extract_split_count_from_text(text)
@@ -564,6 +739,7 @@ def _build_llm_prompt(user_text, user):
         "Use help only for usage/capability questions.\n"
         "Missing required fields => clarify.\n"
         "Orders/cancel/config/watch need user confirm.\n"
+        "Pending/reserved/tracked strategy orders => status. Real open/unfilled exchange orders => orders.\n"
         "RSI + split/grid/거미줄 + budget => rsitrade.\n"
         "grid is price-range only, not RSI.\n"
         "Missing sell_rsi_range => null; server uses default.\n"
@@ -2204,6 +2380,26 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
 
+@check_auth
+async def nlstats_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
+    if not user.get("is_admin"):
+        await update.message.reply_text("자연어 로그 통계는 관리자만 조회할 수 있습니다.")
+        return
+    rows = read_natural_language_log_stats()
+    if not rows:
+        await update.message.reply_text("아직 전처리 미처리 자연어 로그가 없습니다.")
+        return
+
+    lines = ["자연어 전처리 후보 상위 패턴"]
+    for i, row in enumerate(rows, start=1):
+        llm_actions = ", ".join(f"{k}:{v}" for k, v in row["llm_actions"].items())
+        final_actions = ", ".join(f"{k}:{v}" for k, v in row["final_actions"].items())
+        lines.append(
+            f"{i}. {row['text_norm']} ({row['count']}회)\n"
+            f"   LLM: {llm_actions} / Final: {final_actions}"
+        )
+    await update.message.reply_text("\n".join(lines))
+
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """등록되지 않은 명령어가 입력되었을 때 호출됩니다."""
     await update.message.reply_text(
@@ -2222,8 +2418,14 @@ async def natural_language_command(update: Update, context: ContextTypes.DEFAULT
         await update.message.reply_text("💬 자연어 명령을 사용하려면 `/config`에서 Gemini API 키를 저장한 뒤 `/config set llm_enabled on`을 실행해 주세요.", parse_mode="Markdown")
         return
 
-    intent = await parse_natural_language_intent(text, user)
-    intent = normalize_natural_language_intent(text, intent, user)
+    preprocessed = preprocess_natural_language_intent(text, user)
+    if preprocessed:
+        await execute_query_intent(update, context, user, preprocessed)
+        return
+
+    llm_intent = await parse_natural_language_intent(text, user)
+    intent = normalize_natural_language_intent(text, llm_intent, user)
+    append_natural_language_log(text, llm_intent, intent)
     if not intent or intent.get("action") in [None, "clarify"]:
         question = intent.get("question") if isinstance(intent, dict) else None
         await update.message.reply_text(question or _clarify_message(text, intent))
@@ -2318,6 +2520,7 @@ def main():
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("commands", help_command))
     application.add_handler(CommandHandler("info", info_command))
+    application.add_handler(CommandHandler("nlstats", nlstats_command))
     application.add_handler(CommandHandler("asset", asset_command))
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("price", price_command))

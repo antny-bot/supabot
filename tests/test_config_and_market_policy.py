@@ -103,6 +103,109 @@ def test_natural_language_price_grid_intent_is_not_rewritten_to_rsitrade():
     assert normalized["action"] == "grid"
 
 
+def test_natural_language_pending_order_phrase_routes_to_status():
+    user = {"preferences": {"default_exchange": "bithumb"}}
+
+    normalized = main.normalize_natural_language_intent(
+        "주문대기중인것은?",
+        {"action": "orders"},
+        user,
+    )
+
+    assert normalized["action"] == "status"
+
+
+def test_natural_language_tracked_strategy_order_phrase_routes_to_status():
+    user = {"preferences": {"default_exchange": "bithumb"}}
+
+    normalized = main.normalize_natural_language_intent(
+        "예약된 주문이나 추적 중인 전략 주문 있어?",
+        {"action": "orders"},
+        user,
+    )
+
+    assert normalized["action"] == "status"
+
+
+def test_natural_language_open_order_phrase_stays_orders():
+    user = {"preferences": {"default_exchange": "bithumb"}}
+
+    normalized = main.normalize_natural_language_intent(
+        "미체결 주문 뭐가 있지?",
+        {"action": "orders"},
+        user,
+    )
+
+    assert normalized["action"] == "orders"
+
+
+def test_preprocess_natural_language_routes_safe_status_without_llm():
+    user = {"preferences": {"default_exchange": "bithumb"}}
+
+    intent = main.preprocess_natural_language_intent("주문대기중인것은?", user)
+
+    assert intent == {"action": "status"}
+
+
+def test_preprocess_natural_language_routes_safe_asset_with_exchange():
+    user = {"preferences": {"default_exchange": "upbit"}}
+
+    intent = main.preprocess_natural_language_intent("빗썸 잔고 보여줘", user)
+
+    assert intent == {"action": "asset", "exchange": "bithumb"}
+
+
+def test_preprocess_natural_language_routes_safe_price_with_ticker():
+    user = {"preferences": {"default_exchange": "upbit"}}
+
+    intent = main.preprocess_natural_language_intent("BTC 시세 알려줘", user)
+
+    assert intent == {"action": "price", "ticker": "BTC"}
+
+
+def test_preprocess_natural_language_routes_safe_config_view():
+    user = {"preferences": {"default_exchange": "upbit"}}
+
+    intent = main.preprocess_natural_language_intent("현재 설정 보여줘", user)
+
+    assert intent == {"action": "config_view"}
+
+
+def test_preprocess_natural_language_ignores_order_change_requests():
+    user = {"preferences": {"default_exchange": "upbit"}}
+
+    assert main.preprocess_natural_language_intent("BTC 주문 취소해", user) is None
+    assert main.preprocess_natural_language_intent("비트 100만원어치 사줘", user) is None
+
+
+def test_natural_language_log_anonymizes_and_summarizes(tmp_path):
+    log_path = tmp_path / "nl_unmatched.jsonl"
+
+    main.append_natural_language_log(
+        "BTC 123456원 TOKENabcdef1234567890abcdef 주문?",
+        {"action": "clarify"},
+        {"action": "clarify"},
+        path=str(log_path),
+    )
+    main.append_natural_language_log(
+        "BTC 999999원 TOKENabcdef1234567890abcdef 주문?",
+        {"action": "clarify"},
+        {"action": "clarify"},
+        path=str(log_path),
+    )
+
+    rows = main.read_natural_language_log_stats(path=str(log_path), limit=5)
+
+    assert rows == [
+        {
+            "text_norm": "BTC <STOCK>원 <TOKEN> 주문?",
+            "count": 2,
+            "llm_actions": {"clarify": 2},
+            "final_actions": {"clarify": 2},
+        }
+    ]
+
+
 def test_rsitrade_intent_summary_is_user_friendly():
     intent = {
         "action": "rsitrade",
