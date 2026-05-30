@@ -31,8 +31,8 @@ KST = timezone(timedelta(hours=9))
 | /history | `history_command` | 최근 체결 내역 |
 | /orders | `orders_command` | 추적 중 미체결 주문 목록 |
 | /status | `status_command` | 전략 대시보드 |
-| /buy | `buy_command` | 단일 지정가 매수 확인 후 전송 |
-| /sell | `sell_command` | 단일 지정가 매도 확인 후 전송 |
+| /buy | `buy_command` | 단일 지정가 매수 확인 후 전송; 확인 요청 10분 만료 |
+| /sell | `sell_command` | 단일 지정가 매도 확인 후 전송; 확인 요청 10분 만료 |
 | /grid | `grid_command` | 가격 범위 → N개 분할 매수 |
 | /sgrid | `sgrid_command` | 보유 수량 기반 분할 매도 |
 | /rsitrade | `rsitrade_command` | RSI 역산 분할 전략 |
@@ -117,6 +117,18 @@ API 키 포함 메시지는 캡처 즉시 삭제됨 (`delete_message`).
 - `USER_SECRET_KEY`가 없거나 Fernet 형식이 아니면 기존 평문 읽기는 유지하지만 새 secret 저장은 실패한다.
 - 이미 암호화된 값은 같은 `USER_SECRET_KEY`로만 복호화된다. 다른 키가 들어오면 `get_user()`는 secret 필드를 빈 값으로 반환하고 `_secret_error`를 표시해서 `/start` 같은 기본 명령이 죽지 않게 한다.
 - 거래소 API 키 저장 직후 검증 결과는 `api_validation`에 캐시하며, `/config -v`와 `/diag`에서 마지막 성공/실패 시각을 표시한다. 조회 시점에 라이브 API를 새로 호출하지 않는다.
+
+## 운영 진단과 이벤트 로그
+
+`/diag`는 관리자 전용이며 라이브 거래소 API를 호출하지 않는다. 환경 설정, 빌드 정보, LLM 상태, 거래소 키 설정 여부, API 검증 캐시, 주문/폴링 상태, 거래 안전 상태, 최근 warning/error를 표시한다.
+
+운영 이벤트는 `data/bot_events.jsonl`에 저장한다.
+
+- 기록 대상: 백그라운드 루프 예외, Telegram 메뉴/시작 알림 실패, secret key 이상, API 검증 실패, 주문 실패, 주문 확인 만료
+- 최근 300줄만 유지하고 파일 권한은 `0600`
+- API 키, secret, 긴 토큰, 계좌성 숫자는 마스킹
+
+수동 `/buy`, `/sell`은 callback_data에 주문값을 넣지 않고 `_pending_manual_orders` 서버 측 토큰을 사용한다. 토큰은 10분 후 만료되며 실행 직전 `max_order_krw`를 다시 검증한다.
 
 상세 Intent 스키마 및 흐름: `docs/detail/gemini_intent.md`
 

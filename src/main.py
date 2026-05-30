@@ -2,6 +2,7 @@ import os
 import asyncio
 import json
 import re
+import time
 from datetime import datetime, time as dt_time, timedelta, timezone
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand, BotCommandScopeDefault, BotCommandScopeChat
@@ -29,6 +30,7 @@ from core.natural_language import (
     read_preprocess_hit_stats,
     read_recent_natural_language_logs,
 )
+from core.operational_events import append_operational_event, read_recent_operational_events
 from core.secret_crypto import can_decrypt_secrets, has_secret_key
 
 try:
@@ -52,6 +54,8 @@ signal_engine = SignalEngine(user_manager, exchange_adapter)
 _order_wake_event: asyncio.Event = None  # post_init에서 초기화
 KST = timezone(timedelta(hours=9))
 _pending_nl_intents = {}
+_pending_manual_orders = {}
+MANUAL_ORDER_TTL_SECONDS = 600
 RSI_GRID_COMMAND_ALIASES = ("rsigrid", "rsitrade")
 ACCOUNT_COMMAND_ALIASES = ("whomai", "me")
 DEFAULT_BOT_COMMANDS = [
@@ -424,6 +428,27 @@ def format_section(title, lines):
     body = [str(line) for line in lines if str(line) != ""]
     return "\n".join([title, *body])
 
+def format_safety_status(user):
+    prefs = user.get("preferences", {})
+    max_order = prefs.get("max_order_krw")
+    kis_env = user.get("exchanges", {}).get("kis", {}).get("env", "paper")
+    configured = []
+    for exchange in ["upbit", "bithumb", "kis"]:
+        keys = user.get("exchanges", {}).get(exchange, {})
+        if exchange == "kis":
+            is_set = bool(keys.get("app_key") and keys.get("app_secret") and keys.get("account_no"))
+        else:
+            is_set = bool(keys.get("access_key") and keys.get("secret_key"))
+        if is_set:
+            configured.append(exchange_display_name(exchange))
+    lines = [
+        "- 수동 주문: 확인 버튼 필요",
+        f"- max_order_krw: {format_optional_krw(max_order)}" + (" (권장: /config set max_order_krw 50만)" if max_order is None else ""),
+        f"- KIS 환경: {'실전' if kis_env == 'real' else '모의'}" + (" (실전 거래 주의)" if kis_env == "real" else ""),
+        f"- API 키 설정 거래소: {', '.join(configured) if configured else '없음'}",
+    ]
+    return lines
+
 RSI_INTERVAL_ALIASES = {
     "day": "day",
     "daily": "day",
@@ -706,6 +731,7 @@ async def execute_confirmed_intent(query, context, user, intent):
             order_manager.add_order(user_id, exchange, ticker, res["uuid"], price, volume, side=side, strategy="manual")
             await query.edit_message_text(f"✅ {exchange_display_name(exchange)} {ticker} {'매수' if side == 'bid' else '매도'} 주문 완료\n주문ID: {res['uuid']}")
         else:
+            append_operational_event("error", "natural_language_order", "order failed", f"{exchange} {ticker} {side}")
             await query.edit_message_text(f"❌ 주문 실패: {res}")
         return
 
@@ -831,6 +857,8 @@ def build_config_view(user):
         format_section("보안 설정", [
         f"- USER_SECRET_KEY: {build_secret_security_status(user)}",
         ]),
+        "",
+        format_section("거래 안전 상태", format_safety_status(user)),
     ]
     if user.get("is_admin"):
         active_interval = _format_seconds(preferences.get("poll_active_interval", 60))
@@ -850,7 +878,7 @@ def build_config_view(user):
         ])
     return "\n".join(sections)
 
-def build_diag_view(user):
+def build_diag_view(user, recent_events=None):
     prefs = user.get("preferences", {})
     active_interval = _format_seconds(prefs.get("poll_active_interval", 60))
     no_order_interval = _format_seconds(prefs.get("poll_no_order_interval", 300))
@@ -865,6 +893,12 @@ def build_diag_view(user):
         else:
             is_set = bool(keys.get("access_key") and keys.get("secret_key"))
             exchange_lines.append(f"- {exchange_display_name(exchange)}: {'설정됨' if is_set else '미설정'} / {format_api_validation_status(user, exchange)}")
+    if recent_events is None:
+        recent_events = read_recent_operational_events(levels={"warning", "error"}, limit=5)
+    event_lines = [
+        f"- {row.get('ts')} / {row.get('level')} / {row.get('source')}: {row.get('message')}"
+        for row in recent_events
+    ] or ["- 최근 warning/error 없음"]
     return "\n".join([
         "🧪 운영 진단",
         "",
@@ -895,6 +929,10 @@ def build_diag_view(user):
             f"- poll_no_order_interval: {no_order_interval}",
             f"- signal_analysis_interval: {_format_seconds(prefs.get('signal_analysis_interval', 300))}",
         ]),
+        "",
+        format_section("거래 안전 상태", format_safety_status(user)),
+        "",
+        format_section("최근 오류", event_lines),
     ])
 
 def parse_config_value(key, raw_value):
@@ -1145,7 +1183,7 @@ async def orders_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
     
     orders = order_manager.get_user_orders(user_id, exchange)
     if not orders:
-        await update.message.reply_text("⏳ 현재 봇이 추적 중인 미체결 주문이 없습니다.")
+        await update.message.reply_text("⏳ 봇이 추적 중인 거래소 미체결 주문은 없습니다.\nRSI/거미줄 전략 대기 상태는 /status에서 확인하세요.")
         return
 
     msg = "⏳ 현재 추적 중인 미체결 주문\n\n"
@@ -1303,6 +1341,7 @@ async def set_secret_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_valid:
         await status_msg.edit_text(f"✅ {exchange.upper()} API 키 설정이 완료되었습니다!")
     else:
+        append_operational_event("warning", "api_validation", "API key validation failed", exchange)
         await status_msg.edit_text(f"⚠️ {exchange.upper()} API 키 검증에 실패했습니다. 키를 다시 확인해 주세요.")
     
     return ConversationHandler.END
@@ -1369,6 +1408,7 @@ async def set_kis_env(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_valid:
         await status_msg.edit_text(f"✅ 한국투자증권 API 설정이 완료되었습니다. ({env_name})")
     else:
+        append_operational_event("warning", "api_validation", "KIS API validation failed", env_name)
         await status_msg.edit_text("⚠️ 한국투자증권 API 검증에 실패했습니다. App Key, App Secret, 계좌번호, 환경을 확인해 주세요.")
 
     for key in ["temp_kis_app", "temp_kis_secret", "temp_kis_account", "temp_kis_product"]:
@@ -1663,6 +1703,35 @@ def build_manual_order_confirm_message(exchange, ticker, side, price, volume, us
         "위 내용으로 주문을 전송할까요?"
     )
 
+def create_manual_order_token(user_id, exchange, side, ticker, price, volume):
+    token = str(len(_pending_manual_orders) + 1)
+    while token in _pending_manual_orders:
+        token = str(int(token) + 1)
+    _pending_manual_orders[token] = {
+        "user_id": str(user_id),
+        "exchange": exchange,
+        "side": side,
+        "ticker": ticker,
+        "price": float(price),
+        "volume": float(volume),
+        "created_at": time.time(),
+    }
+    return token
+
+def pop_valid_manual_order(token, user_id):
+    token = str(token)
+    pending = _pending_manual_orders.get(token)
+    if not pending:
+        return None, "만료되었거나 찾을 수 없는 주문 확인 요청입니다. 다시 입력해 주세요."
+    if pending.get("user_id") != str(user_id):
+        return None, "다른 사용자의 주문 확인 요청은 실행할 수 없습니다."
+    if time.time() - float(pending.get("created_at", 0)) > MANUAL_ORDER_TTL_SECONDS:
+        _pending_manual_orders.pop(token, None)
+        append_operational_event("warning", "manual_order", "manual order confirmation expired", pending.get("ticker"))
+        return None, "주문 확인 요청이 만료되었습니다. 다시 입력해 주세요."
+    _pending_manual_orders.pop(token, None)
+    return pending, None
+
 @check_auth
 async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     if await check_details_help(update, "buy"): return
@@ -1689,9 +1758,10 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
         await update.message.reply_text(error_msg)
         return
 
-    confirm_data = f"manualrun|{exchange}|bid|{ticker}|{price}|{volume}"
+    token = create_manual_order_token(user_id, exchange, "bid", ticker, price, volume)
+    confirm_data = f"manualrun|{token}"
     keyboard = [[InlineKeyboardButton("✅ 매수 실행", callback_data=confirm_data),
-                 InlineKeyboardButton("❌ 취소", callback_data="manual_cancel")]]
+                 InlineKeyboardButton("❌ 취소", callback_data=f"manualcancel|{token}")]]
     await update.message.reply_text(
         build_manual_order_confirm_message(exchange, ticker, "bid", price, volume, user),
         reply_markup=InlineKeyboardMarkup(keyboard),
@@ -1718,9 +1788,10 @@ async def sell_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
         await update.message.reply_text("⚠️ 가격과 수량은 숫자여야 합니다.")
         return
 
-    confirm_data = f"manualrun|{exchange}|ask|{ticker}|{price}|{volume}"
+    token = create_manual_order_token(user_id, exchange, "ask", ticker, price, volume)
+    confirm_data = f"manualrun|{token}"
     keyboard = [[InlineKeyboardButton("✅ 매도 실행", callback_data=confirm_data),
-                 InlineKeyboardButton("❌ 취소", callback_data="manual_cancel")]]
+                 InlineKeyboardButton("❌ 취소", callback_data=f"manualcancel|{token}")]]
     await update.message.reply_text(
         build_manual_order_confirm_message(exchange, ticker, "ask", price, volume, user),
         reply_markup=InlineKeyboardMarkup(keyboard),
@@ -1729,19 +1800,30 @@ async def sell_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
 async def manual_order_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    if query.data == "manual_cancel":
+    action, token = query.data.split("|", 1)
+    if action == "manualcancel":
+        _pending_manual_orders.pop(token, None)
         await query.edit_message_text("❌ 주문이 취소되었습니다.")
         return
 
-    _, exchange, side, ticker, price, volume = query.data.split("|")
     user_id = str(query.from_user.id)
     user = user_manager.get_user(user_id)
     if not user:
         await query.edit_message_text("❌ 사용자 설정을 찾을 수 없어 주문을 중단합니다.")
         return
+    if not user.get("is_active"):
+        await query.edit_message_text("❌ 사용자 인증을 확인할 수 없습니다.")
+        return
 
-    price = float(price)
-    volume = float(volume)
+    pending, error = pop_valid_manual_order(token, user_id)
+    if error:
+        await query.edit_message_text(f"⚠️ {error}")
+        return
+    exchange = pending["exchange"]
+    side = pending["side"]
+    ticker = pending["ticker"]
+    price = float(pending["price"])
+    volume = float(pending["volume"])
     if side == "bid":
         ok, error_msg = validate_max_order(user, price * volume)
         if not ok:
@@ -1763,6 +1845,7 @@ async def manual_order_confirm_callback(update: Update, context: ContextTypes.DE
             text=f"✅ {exchange_display_name(exchange)} {ticker} {action} 주문 완료{env_notice}!\n주문ID: {res['uuid']}",
         )
     else:
+        append_operational_event("error", "manual_order", "manual order failed", f"{exchange} {ticker} {side}")
         await context.bot.send_message(chat_id=user_id, text=f"❌ 주문 실패: {res}")
 
 # --- 주문 동기화 및 자동 대응 엔진 ---
@@ -1799,6 +1882,7 @@ async def sync_orders(application):
                 )
             else:
                 order_manager.update_next_check_at(ord["uuid"], kis_next_check_timestamp())
+                append_operational_event("warning", "sync_orders", "KIS strategy reorder failed", ticker)
                 await application.bot.send_message(
                     chat_id=user_id,
                     text=f"⚠️ [한국투자증권] {ticker} 전략 주문 재주문 실패\n다음 정규장 체크 때 다시 시도합니다.",
@@ -1907,7 +1991,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
     orders = order_manager.get_user_orders(user_id)
     
     if not orders:
-        await update.message.reply_text("📊 현재 가동 중인 트레이딩 전략이 없습니다.")
+        await update.message.reply_text("📊 현재 가동 중인 트레이딩 전략이 없습니다.\n거래소 실제 미체결 주문은 /orders에서 확인하세요.")
         return
 
     msg = "📊 트레이딩 전략 통합 대시보드\n\n"
@@ -2160,6 +2244,7 @@ async def order_sync_loop(application):
             await _interruptible_sleep(interval)
         except Exception as e:
             print(f"⚠️ 오더 동기화 루프 에러: {e}")
+            append_operational_event("error", "order_sync_loop", "order sync loop error", e)
             await _interruptible_sleep(60)
 
 async def signal_analysis_loop(application):
@@ -2172,6 +2257,7 @@ async def signal_analysis_loop(application):
             await asyncio.sleep(prefs["signal_analysis_interval"])
         except Exception as e:
             print(f"⚠️ 시그널 분석 루프 에러: {e}")
+            append_operational_event("error", "signal_analysis_loop", "signal analysis loop error", e)
             await asyncio.sleep(300)
 
 # --- 자동 복구 및 초기화 로직 ---
@@ -2195,6 +2281,26 @@ async def startup_recovery(application):
     if recovered_count > 0:
         print(f"✅ {recovered_count}건의 전략 주문이 복구 프로세스에 편입되었습니다.")
 
+async def notify_admin_security_status(application):
+    if not ADMIN_CHAT_ID:
+        return
+    admin = user_manager.get_user(str(ADMIN_CHAT_ID))
+    if not admin:
+        return
+    status = build_secret_security_status(admin)
+    if status == "정상":
+        return
+    message = (
+        "⚠️ 보안 키 상태 확인 필요\n\n"
+        f"- USER_SECRET_KEY: {status}\n"
+        "- /diag 또는 /config -v에서 상태를 확인하세요."
+    )
+    append_operational_event("warning", "security", "USER_SECRET_KEY status requires attention", status)
+    try:
+        await application.bot.send_message(chat_id=ADMIN_CHAT_ID, text=message)
+    except Exception as e:
+        append_operational_event("warning", "security", "failed to notify admin security status", e)
+
 async def post_init(application):
     """봇 초기화 후 백그라운드 태스크 실행"""
     global _order_wake_event
@@ -2213,6 +2319,8 @@ async def post_init(application):
                 )
     except Exception as e:
         print(f"⚠️ Telegram command menu update failed: {e}")
+        append_operational_event("warning", "post_init", "Telegram command menu update failed", e)
+    await notify_admin_security_status(application)
     await startup_recovery(application)
     asyncio.create_task(order_sync_loop(application))
     asyncio.create_task(signal_analysis_loop(application))
@@ -2535,7 +2643,7 @@ def main():
     application.add_handler(CallbackQueryHandler(grid_quick_callback, pattern="^grid_quick_"))
     application.add_handler(CallbackQueryHandler(grid_confirm_callback, pattern="^(gridrun|sgridrun|grid_cancel)"))
     application.add_handler(CallbackQueryHandler(rsitrade_confirm_callback, pattern="^rsitrun"))
-    application.add_handler(CallbackQueryHandler(manual_order_confirm_callback, pattern="^(manualrun|manual_cancel)"))
+    application.add_handler(CallbackQueryHandler(manual_order_confirm_callback, pattern="^(manualrun|manualcancel)\\|"))
     application.add_handler(CallbackQueryHandler(natural_language_confirm_callback, pattern="^nl(run|cancel)\\|"))
     
     # [중요] 알 수 없는 명령어 처리 (가장 마지막에 등록)

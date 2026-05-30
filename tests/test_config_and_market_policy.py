@@ -200,11 +200,17 @@ def test_diag_view_shows_operational_state_without_secret_values():
         "api_validation": {"upbit": {"ok": False, "checked_at": "2026-05-30T22:11:00+09:00"}},
     }
 
-    message = main.build_diag_view(user)
+    message = main.build_diag_view(
+        user,
+        recent_events=[{"ts": "2026-05-30T22:12:00+09:00", "level": "error", "source": "test", "message": "masked failure"}],
+    )
 
     assert "운영 진단" in message
     assert "TELEGRAM_BOT_TOKEN:" in message
     assert "마지막 검증 실패 2026-05-30 22:11:00" in message
+    assert "거래 안전 상태" in message
+    assert "최근 오류" in message
+    assert "masked failure" in message
     assert "secret-access" not in message
     assert "gemini-secret" not in message
 
@@ -218,6 +224,29 @@ def test_manual_order_confirm_message_is_plain_and_requires_confirmation():
     assert "위 내용으로 주문을 전송할까요?" in message
     assert "`" not in message
     assert "*" not in message
+
+
+def test_manual_order_tokens_do_not_expose_order_details():
+    main._pending_manual_orders.clear()
+
+    token = main.create_manual_order_token("123", "upbit", "bid", "KRW-BTC", 100000, 0.01)
+    pending, error = main.pop_valid_manual_order(token, "123")
+
+    assert token == "1"
+    assert error is None
+    assert pending["ticker"] == "KRW-BTC"
+    assert pending["price"] == 100000
+
+
+def test_manual_order_token_rejects_other_user():
+    main._pending_manual_orders.clear()
+
+    token = main.create_manual_order_token("123", "upbit", "bid", "KRW-BTC", 100000, 0.01)
+    pending, error = main.pop_valid_manual_order(token, "456")
+
+    assert pending is None
+    assert "다른 사용자" in error
+    assert token in main._pending_manual_orders
 
 
 def test_preprocess_natural_language_llm_setting_requests_confirmation():
