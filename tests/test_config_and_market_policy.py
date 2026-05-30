@@ -69,6 +69,12 @@ def test_help_intent_runs_immediately():
     assert main._is_immediate_intent("help") is True
 
 
+def test_nlstats_is_registered_in_bot_command_menu():
+    commands = dict(main.BOT_COMMANDS)
+
+    assert commands["nlstats"] == "관리자 전용 자연어 패턴 통계"
+
+
 def test_natural_language_rsi_grid_phrase_normalizes_to_rsitrade():
     user = {"preferences": {"default_exchange": "upbit"}}
     text = "빗썸에 BTC를 거미줄 매매방식으로 RSI 20~30 기준으로 100만원을 5개로 나눠 주문해"

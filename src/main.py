@@ -5,7 +5,7 @@ import re
 from collections import Counter
 from datetime import datetime, time as dt_time, timedelta, timezone
 from dotenv import load_dotenv
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import (
     ApplicationBuilder, 
     CommandHandler, 
@@ -45,6 +45,26 @@ _pending_nl_intents = {}
 RSI_GRID_COMMAND_ALIASES = ("rsigrid", "rsitrade")
 NL_UNMATCHED_LOG_PATH = os.getenv("NL_UNMATCHED_LOG_PATH", "data/nl_unmatched.jsonl")
 NL_UNMATCHED_LOG_MAX_LINES = 500
+BOT_COMMANDS = [
+    ("start", "시스템 접속 및 메뉴 확인"),
+    ("help", "전체 명령어 사용 설명서"),
+    ("status", "트레이딩 전략 대시보드"),
+    ("asset", "통합 자산 현황 조회"),
+    ("price", "종목 실시간 시세 조회"),
+    ("history", "최근 체결 내역 조회"),
+    ("orders", "추적 중인 미체결 주문"),
+    ("rsitrade", "RSI 순환 매매 전략"),
+    ("grid", "가격 범위 분할 매수"),
+    ("sgrid", "보유 수량 분할 매도"),
+    ("buy", "단일 지정가 매수"),
+    ("sell", "단일 지정가 매도"),
+    ("cancel", "종목 주문 일괄 취소"),
+    ("watch", "RSI 감시 종목 추가"),
+    ("unwatch", "RSI 감시 종목 제거"),
+    ("config", "거래소 API 및 사용자 설정"),
+    ("info", "봇 버전 및 빌드 정보"),
+    ("nlstats", "관리자 전용 자연어 패턴 통계"),
+]
 
 # Conversation States
 SET_EXCHANGE, SET_ACCESS, SET_SECRET, SET_KIS_APP, SET_KIS_SECRET, SET_KIS_ACCOUNT, SET_KIS_PRODUCT, SET_KIS_ENV, SET_GEMINI_KEY = range(9)
@@ -2320,6 +2340,10 @@ async def post_init(application):
     global _order_wake_event
     _order_wake_event = asyncio.Event()
     order_manager.on_order_added = lambda: _order_wake_event.set()
+    try:
+        await application.bot.set_my_commands([BotCommand(cmd, desc) for cmd, desc in BOT_COMMANDS])
+    except Exception as e:
+        print(f"⚠️ Telegram command menu update failed: {e}")
     await startup_recovery(application)
     asyncio.create_task(order_sync_loop(application))
     asyncio.create_task(signal_analysis_loop(application))
@@ -2345,6 +2369,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
         "• /status - 가동 중인 트레이딩 전략 대시보드\n"
         "• /config - 거래소 API 키 설정 (Upbit, Bithumb, 한국투자증권)\n"
         "• /info - 봇 버전 및 빌드 정보 확인\n"
+        "• /nlstats - 자연어 전처리 후보 통계 (관리자 전용)\n"
         "• /help - 명령어 도움말 확인\n\n"
         
         "💰 *2. 자산 및 시세 조회*\n"

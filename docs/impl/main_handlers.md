@@ -67,6 +67,11 @@ API 키 포함 메시지는 캡처 즉시 삭제됨 (`delete_message`).
 - 간격: 주문 있을 때 `poll_active_interval` (60초) / 없을 때 `poll_no_order_interval` (300초)
 - `_order_wake_event` 로 새 주문 시 즉시 깨어남
 
+### Telegram 명령어 메뉴
+- `post_init`에서 `application.bot.set_my_commands(BOT_COMMANDS)`를 호출해 Telegram slash command 메뉴를 갱신한다.
+- `/nlstats`도 `BOT_COMMANDS`와 `CommandHandler("nlstats", nlstats_command)` 양쪽에 등록되어야 Telegram 메뉴와 실제 실행이 일치한다.
+- 메뉴 갱신 실패는 봇 시작 실패로 처리하지 않고 경고 로그만 남긴다.
+
 ### signal_analysis_loop
 - `signal_engine.analyze_watchlist(application)` 반복 호출
 - 간격: `signal_analysis_interval` (300초)
