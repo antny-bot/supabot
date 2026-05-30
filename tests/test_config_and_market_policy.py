@@ -102,6 +102,80 @@ def test_account_summary_does_not_include_secrets():
     assert "gemini-secret" not in summary
 
 
+def test_help_message_uses_readable_plain_sections():
+    user = {"is_admin": True}
+
+    message = main.build_help_message(user)
+
+    assert "기본 및 설정" in message
+    assert "- /config: 거래소, LLM API 설정" in message
+    assert "- /nlstats: 자연어 전처리 후보 통계 (관리자 전용)" in message
+    assert "*" not in message
+    assert "`" not in message
+
+
+def test_config_view_splits_basic_and_llm_sections():
+    user = {
+        "is_admin": True,
+        "preferences": {
+            **UserManager.DEFAULT_PREFERENCES,
+            "default_exchange": "upbit",
+            "llm_enabled": True,
+            "llm_model": "gemini-2.5-flash-lite",
+        },
+        "exchanges": {
+            "upbit": {"access_key": "a", "secret_key": "s"},
+            "bithumb": {"access_key": "", "secret_key": ""},
+            "kis": {"app_key": "a", "app_secret": "s", "account_no": "81234569", "env": "real"},
+        },
+        "llm": {"gemini_api_key": "gemini-secret"},
+    }
+
+    message = main.build_config_view(user)
+
+    assert message.index("API 키 상태") < message.index("기본 설정")
+    assert message.index("기본 설정") < message.index("LLM 설정")
+    assert message.index("LLM 설정") < message.index("폴링 설정 (관리자)")
+    assert "- Gemini: 설정됨" in message
+    assert "- llm_enabled: on" in message
+    assert "계좌 81****69" in message
+    assert "gemini-secret" not in message
+
+
+def test_config_view_hides_admin_polling_for_regular_user():
+    user = {
+        "is_admin": False,
+        "preferences": dict(UserManager.DEFAULT_PREFERENCES),
+        "exchanges": {
+            "upbit": {"access_key": "", "secret_key": ""},
+            "bithumb": {"access_key": "", "secret_key": ""},
+            "kis": {"app_key": "", "app_secret": "", "account_no": "", "env": "paper"},
+        },
+        "llm": {"gemini_api_key": ""},
+    }
+
+    message = main.build_config_view(user)
+
+    assert "LLM 설정" in message
+    assert "폴링 설정" not in message
+
+
+def test_markdown_escape_helper_handles_problem_characters():
+    text = main.escape_markdown_text(r"KRW_BTC*[abc]`id`\path")
+
+    assert r"\_" in text
+    assert r"\*" in text
+    assert r"\[" in text
+    assert r"\`" in text
+    assert r"\\" in text
+
+
+def test_telegram_responses_do_not_use_markdown_parse_mode():
+    source = open(os.path.join(SRC, "main.py"), encoding="utf-8").read()
+
+    assert 'parse_mode="Markdown"' not in source
+
+
 def test_natural_language_rsi_grid_phrase_normalizes_to_rsitrade():
     user = {"preferences": {"default_exchange": "upbit"}}
     text = "빗썸에 BTC를 거미줄 매매방식으로 RSI 20~30 기준으로 100만원을 5개로 나눠 주문해"

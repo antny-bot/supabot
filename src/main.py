@@ -257,7 +257,7 @@ async def check_details_help(update: Update, command_name: str):
         text = update.message.text.lower()
         if any(opt in text for opt in [" -h", "-help", "--help"]):
             help_text = CMD_HELP.get(command_name, "해당 명령어에 대한 상세 도움말이 아직 없습니다.")
-            await update.message.reply_text(help_text, parse_mode="Markdown")
+            await update.message.reply_text(help_text)
             return True
     return False
 
@@ -285,6 +285,19 @@ def check_auth(func):
 # 🤖 명령어 핸들러
 # ==========================================
 
+def build_start_menu_message(user):
+    return (
+        f"🤖 {BOT_DISPLAY_NAME} 시스템 접속 완료\n\n"
+        f"어서오세요, {user.get('username', '사용자')}님. 현재 정상 이용 가능합니다.\n\n"
+        "주요 명령어\n"
+        "- /asset: 전체 자산 현황 조회\n"
+        "- /orders: 미체결 주문 확인\n"
+        "- /grid: 거미줄 매수 설정\n"
+        "- /config: 거래소, LLM API 설정\n"
+        "- /watch: 시그널 감시 종목 추가\n"
+        "- /help: 전체 명령어 확인"
+    )
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await check_details_help(update, "start"): return
     user_id = str(update.effective_chat.id)
@@ -296,32 +309,21 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"🎁 반갑습니다, {username}님!\n\n"
             "봇 사용 등록이 요청되었습니다. 관리자 승인 후 모든 기능을 사용하실 수 있습니다.\n"
-            f"(내 ID: `{user_id}`)",
-            parse_mode="Markdown"
+            f"내 ID: {user_id}"
         )
         if ADMIN_CHAT_ID:
             keyboard = [[InlineKeyboardButton("✅ 승인하기", callback_data=f"approve_{user_id}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await context.bot.send_message(
                 chat_id=ADMIN_CHAT_ID,
-                text=f"🔔 *신규 유저 등록 요청*\n- 이름: {username}\n- ID: `{user_id}`",
+                text=f"🔔 신규 유저 등록 요청\n\n- 이름: {username}\n- ID: {user_id}",
                 reply_markup=reply_markup,
-                parse_mode="Markdown"
             )
     elif not user["is_active"]:
         await update.message.reply_text("⏳ 현재 승인 대기 중입니다. 잠시만 기다려 주세요!")
     else:
-        msg = (
-            f"🤖 *{BOT_DISPLAY_NAME} 시스템 접속 완료*\n\n"
-            f"어서오세요, {user['username']}님! 현재 정상 이용 가능합니다.\n\n"
-            "📜 *주요 명령어*\n"
-            "💰 /asset - 전체 자산 현황 조회\n"
-            "⏳ /orders - 미체결 주문 확인\n"
-            "🕸️ /grid - 거미줄 매수 셋팅\n"
-            "⚙️ /config - API 키 설정 및 관리\n"
-            "📈 /watch - 시그널 감시 종목 추가"
-        )
-        await update.message.reply_text(msg, parse_mode="Markdown")
+        msg = build_start_menu_message(user)
+        await update.message.reply_text(msg)
 
 async def approve_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -410,6 +412,16 @@ def format_optional_krw(value):
 def format_bool(value):
     return "on" if bool(value) else "off"
 
+def escape_markdown_text(value):
+    text = str(value or "")
+    for char in ["\\", "_", "*", "`", "["]:
+        text = text.replace(char, f"\\{char}")
+    return text
+
+def format_section(title, lines):
+    body = [str(line) for line in lines if str(line) != ""]
+    return "\n".join([title, *body])
+
 RSI_INTERVAL_ALIASES = {
     "day": "day",
     "daily": "day",
@@ -480,7 +492,7 @@ def get_user_rsi_interval(user):
 
 async def ensure_rsi_supported(update, user, exchange):
     if exchange == "kis" and get_user_rsi_interval(user) != "day":
-        await update.message.reply_text("⚠️ 한국투자증권 RSI는 일봉만 지원합니다. `/config set rsi_interval day` 후 다시 시도하세요.", parse_mode="Markdown")
+        await update.message.reply_text("⚠️ 한국투자증권 RSI는 일봉만 지원합니다. /config set rsi_interval day 후 다시 시도하세요.")
         return False
     return True
 
@@ -653,7 +665,7 @@ async def execute_confirmed_intent(query, context, user, intent):
 
     if action in ["watch", "unwatch"]:
         if exchange == "kis" and get_user_rsi_interval(user) != "day":
-            await query.edit_message_text("⚠️ 한국투자증권 RSI는 일봉만 지원합니다. `/config set rsi_interval day` 후 다시 시도하세요.", parse_mode="Markdown")
+            await query.edit_message_text("⚠️ 한국투자증권 RSI는 일봉만 지원합니다. /config set rsi_interval day 후 다시 시도하세요.")
             return
         changed = user_manager.add_watchlist(user_id, exchange, ticker) if action == "watch" else user_manager.remove_watchlist(user_id, exchange, ticker)
         label = "등록" if action == "watch" else "삭제"
@@ -681,20 +693,20 @@ async def execute_confirmed_intent(query, context, user, intent):
             return
         ok, error_msg = validate_max_order(user, price * volume)
         if not ok:
-            await query.edit_message_text(error_msg, parse_mode="Markdown")
+            await query.edit_message_text(error_msg)
             return
         side = "bid" if action == "buy" else "ask"
         res = await exchange_adapter.create_order(user_id, exchange, ticker, side, price, volume)
         if res and "uuid" in res:
             order_manager.add_order(user_id, exchange, ticker, res["uuid"], price, volume, side=side, strategy="manual")
-            await query.edit_message_text(f"✅ {exchange_display_name(exchange)} {ticker} {'매수' if side == 'bid' else '매도'} 주문 완료\n주문ID: `{res['uuid']}`", parse_mode="Markdown")
+            await query.edit_message_text(f"✅ {exchange_display_name(exchange)} {ticker} {'매수' if side == 'bid' else '매도'} 주문 완료\n주문ID: {res['uuid']}")
         else:
             await query.edit_message_text(f"❌ 주문 실패: {res}")
         return
 
     if action == "rsitrade":
         if exchange == "kis" and get_user_rsi_interval(user) != "day":
-            await query.edit_message_text("⚠️ 한국투자증권 RSI는 일봉만 지원합니다. `/config set rsi_interval day` 후 다시 시도하세요.", parse_mode="Markdown")
+            await query.edit_message_text("⚠️ 한국투자증권 RSI는 일봉만 지원합니다. /config set rsi_interval day 후 다시 시도하세요.")
             return
         buy_range = intent.get("buy_rsi_range") or user["preferences"].get("rsi_buy_range", "25-30")
         sell_range = intent.get("sell_rsi_range") or user["preferences"].get("rsi_sell_range", "65-75")
@@ -747,7 +759,7 @@ def validate_max_order(user, order_krw):
     if max_order_krw is None:
         return True, None
     if order_krw > float(max_order_krw):
-        return False, f"❌ 단일 주문 금액 `{order_krw:,.0f}원`이 설정된 최대 주문 금액 `{float(max_order_krw):,.0f}원`을 초과합니다."
+        return False, f"❌ 단일 주문 금액 {order_krw:,.0f}원이 설정된 최대 주문 금액 {float(max_order_krw):,.0f}원을 초과합니다."
     return True, None
 
 def validate_config_update(user, key, value):
@@ -757,11 +769,7 @@ def validate_config_update(user, key, value):
 
 def build_config_view(user):
     preferences = user["preferences"]
-    lines = [
-        "⚙️ 현재 사용자 설정",
-        "",
-        "API 키 상태",
-    ]
+    api_lines = []
     for exchange in ["upbit", "bithumb", "kis"]:
         keys = user.get("exchanges", {}).get(exchange, {})
         if exchange == "kis":
@@ -769,14 +777,17 @@ def build_config_view(user):
             account = keys.get("account_no", "")
             masked_account = f"{account[:2]}****{account[-2:]}" if len(account) >= 4 else "미설정"
             env_name = "실전" if keys.get("env") == "real" else "모의"
-            lines.append(f"- {exchange_display_name(exchange)}: {'설정됨' if is_set else '미설정'} / {env_name} / 계좌 {masked_account}")
+            api_lines.append(f"- {exchange_display_name(exchange)}: {'설정됨' if is_set else '미설정'} / {env_name} / 계좌 {masked_account}")
         else:
             is_set = bool(keys.get("access_key") and keys.get("secret_key"))
-            lines.append(f"- {exchange_display_name(exchange)}: {'설정됨' if is_set else '미설정'}")
+            api_lines.append(f"- {exchange_display_name(exchange)}: {'설정됨' if is_set else '미설정'}")
 
-    lines.extend([
+    sections = [
+        "⚙️ 현재 사용자 설정",
         "",
-        "기본 설정",
+        format_section("API 키 상태", api_lines),
+        "",
+        format_section("기본 설정", [
         f"- default_exchange: {preferences.get('default_exchange')}",
         f"- asset_min_display_krw: {float(preferences.get('asset_min_display_krw', 10000)):,.0f}원 이하 기타 합산",
         f"- rsi_interval: {format_rsi_interval(preferences.get('rsi_interval', 'day'))}",
@@ -787,10 +798,14 @@ def build_config_view(user):
         f"- signal_alerts: {format_bool(preferences.get('signal_alerts'))}",
         f"- signal_rsi_threshold: {float(preferences.get('signal_rsi_threshold', 30)):g}",
         f"- max_order_krw: {format_optional_krw(preferences.get('max_order_krw'))}",
+        ]),
+        "",
+        format_section("LLM 설정", [
         f"- Gemini: {'설정됨' if has_gemini_key(user) else '미설정'}",
         f"- llm_enabled: {format_bool(preferences.get('llm_enabled'))}",
         f"- llm_model: {preferences.get('llm_model', 'gemini-2.5-flash-lite')}",
-    ])
+        ]),
+    ]
     if user.get("is_admin"):
         active_interval = _format_seconds(preferences.get("poll_active_interval", 60))
         no_order_interval = _format_seconds(preferences.get("poll_no_order_interval", 300))
@@ -798,15 +813,16 @@ def build_config_view(user):
         current_interval = active_interval if order_manager.orders else no_order_interval
         order_count = len(order_manager.orders)
         current_reason = f"활성 오더 {order_count}건" if order_manager.orders else "오더 없음"
-        lines.extend([
+        sections.extend([
             "",
-            "폴링 설정 (관리자)",
+            format_section("폴링 설정 (관리자)", [
             f"- poll_active_interval: {active_interval}  (오더 있을 때)",
             f"- poll_no_order_interval: {no_order_interval}  (오더 없을 때 fallback)",
             f"- signal_analysis_interval: {signal_interval}",
             f"→ 현재: {current_reason} → {current_interval} 주기 적용 중",
+            ]),
         ])
-    return "\n".join(lines)
+    return "\n".join(sections)
 
 def parse_config_value(key, raw_value):
     key = key.strip().lower()
@@ -948,15 +964,16 @@ async def build_rsigrid_confirm_summary(user_id, user, intent):
         return None
     preview_text = "\n".join(build_rsi_preview_lines(ticker, rsi_prices, budget, count))
     return (
-        f"🤖 *RSI 거미줄 전략 확인*\n\n"
-        f"- 거래소: `{exchange_display_name(exchange)}`\n"
-        f"- 종목: `{ticker}`\n"
-        f"- 매수 RSI: `{buy_range}`\n"
-        f"- 매도 RSI: `{sell_range}`\n"
-        f"- 총예산: `{budget:,.0f}원`\n"
-        f"- 분할: `{count}개`\n\n"
-        f"*예상 주문*\n{preview_text}\n\n"
-        f"_실행 시점에 가격은 다시 계산될 수 있습니다._\n"
+        f"🤖 RSI 거미줄 전략 확인\n\n"
+        f"전략 설정\n"
+        f"- 거래소: {exchange_display_name(exchange)}\n"
+        f"- 종목: {ticker}\n"
+        f"- 매수 RSI: {buy_range}\n"
+        f"- 매도 RSI: {sell_range}\n"
+        f"- 총예산: {budget:,.0f}원\n"
+        f"- 분할: {count}개\n\n"
+        f"예상 주문\n{preview_text}\n\n"
+        f"실행 시점에 가격은 다시 계산될 수 있습니다.\n"
         f"위 내용으로 실행할까요?"
     )
 
@@ -967,7 +984,7 @@ async def asset_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     if context.args:
         exchange = normalize_exchange(context.args[0])
         if not exchange:
-            await update.message.reply_text("⚠️ 거래소는 `업비트`, `빗썸`, `한투` 중 하나로 입력해 주세요.", parse_mode="Markdown")
+            await update.message.reply_text("⚠️ 거래소는 업비트, 빗썸, 한투 중 하나로 입력해 주세요.")
             return
         exchanges = [exchange]
     else:
@@ -976,7 +993,7 @@ async def asset_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     
     status_msg = await update.message.reply_text("🔄 자산 정보를 불러오는 중입니다...")
     
-    full_msg = "💰 *통합 자산 현황*\n\n"
+    full_msg = "💰 통합 자산 현황\n\n"
     total_eval_krw = 0
 
     for ex in exchanges:
@@ -984,11 +1001,11 @@ async def asset_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
         
         balances = await exchange_adapter.get_balances(user_id, ex)
         if balances is None:
-            full_msg += f"❌ *{exchange_display_name(ex)}*: API 키가 설정되지 않았거나 오류 발생\n\n"
+            full_msg += f"❌ {exchange_display_name(ex)}: API 키가 설정되지 않았거나 오류 발생\n\n"
             continue
             
         if ex == "kis":
-            full_msg += f"🏛️ *{exchange_display_name(ex)}* ({'실전' if balances.get('env') == 'real' else '모의'})\n"
+            full_msg += f"🏛️ {exchange_display_name(ex)} ({'실전' if balances.get('env') == 'real' else '모의'})\n"
             cash = float(balances.get("cash", 0))
             ex_eval = float(balances.get("total_eval", 0))
             full_msg += f"- 💵 예수금: {cash:,.0f}원\n"
@@ -1010,7 +1027,7 @@ async def asset_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
         # 거래소별 현재가 정보 가져오기 (평가액 계산용)
         ticker_prices = await exchange_adapter.get_krw_ticker_prices(ex)
 
-        full_msg += f"🏛️ *{ex.upper()}*\n"
+        full_msg += f"🏛️ {ex.upper()}\n"
         ex_eval = 0
         others_count = 0
         others_value = 0
@@ -1043,8 +1060,8 @@ async def asset_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
         full_msg += f"   └ 거래소 평가액: {ex_eval:,.0f}원\n\n"
         total_eval_krw += ex_eval
 
-    full_msg += f"💳 *총 합계 자산:* {total_eval_krw:,.0f}원"
-    await status_msg.edit_text(full_msg, parse_mode="Markdown")
+    full_msg += f"💳 총 합계 자산: {total_eval_krw:,.0f}원"
+    await status_msg.edit_text(full_msg)
 
 @check_auth
 async def orders_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
@@ -1058,12 +1075,12 @@ async def orders_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
         await update.message.reply_text("⏳ 현재 봇이 추적 중인 미체결 주문이 없습니다.")
         return
 
-    msg = "⏳ *현재 추적 중인 미체결 주문*\n\n"
+    msg = "⏳ 현재 추적 중인 미체결 주문\n\n"
     for ord in orders:
-        msg += f"📌 *[{exchange_display_name(ord['exchange'])}] {ord['ticker']}*\n"
+        msg += f"📌 [{exchange_display_name(ord['exchange'])}] {ord['ticker']}\n"
         msg += f"   └ 가격: {ord['price']:,.0f}원 | 수량: {ord['volume']:.4f}\n"
     
-    await update.message.reply_text(msg, parse_mode="Markdown")
+    await update.message.reply_text(msg)
 
 @check_auth
 async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
@@ -1164,9 +1181,9 @@ async def config_exchange_callback(update: Update, context: ContextTypes.DEFAULT
         return SET_GEMINI_KEY
     context.user_data["temp_exchange"] = exchange
     if exchange == "kis":
-        await query.edit_message_text("🔑 한국투자증권 `App Key`를 입력해 주세요.", parse_mode="Markdown")
+        await query.edit_message_text("🔑 한국투자증권 App Key를 입력해 주세요.")
         return SET_KIS_APP
-    await query.edit_message_text(f"🔑 *{exchange.upper()}*의 `Access Key`를 입력해 주세요.", parse_mode="Markdown")
+    await query.edit_message_text(f"🔑 {exchange.upper()}의 Access Key를 입력해 주세요.")
     return SET_ACCESS
 
 async def set_gemini_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1182,14 +1199,14 @@ async def set_gemini_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError as e:
         await update.message.reply_text(f"❌ 보안 키 설정 오류: {e}")
         return ConversationHandler.END
-    await update.message.reply_text("✅ Gemini API 키를 저장했습니다. `/config set llm_enabled on`으로 자연어 기능을 켤 수 있습니다.", parse_mode="Markdown")
+    await update.message.reply_text("✅ Gemini API 키를 저장했습니다. /config set llm_enabled on으로 자연어 기능을 켤 수 있습니다.")
     return ConversationHandler.END
 
 async def set_access_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["temp_access"] = update.message.text
     try: await update.message.delete()
     except: pass
-    await update.message.reply_text("🔒 이제 `Secret Key`를 입력해 주세요.")
+    await update.message.reply_text("🔒 이제 Secret Key를 입력해 주세요.")
     return SET_SECRET
 
 async def set_secret_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1220,7 +1237,7 @@ async def set_kis_app_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["temp_kis_app"] = update.message.text.strip()
     try: await update.message.delete()
     except: pass
-    await update.message.reply_text("🔒 한국투자증권 `App Secret`을 입력해 주세요.", parse_mode="Markdown")
+    await update.message.reply_text("🔒 한국투자증권 App Secret을 입력해 주세요.")
     return SET_KIS_SECRET
 
 async def set_kis_secret_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1247,7 +1264,7 @@ async def set_kis_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ 계좌상품코드는 숫자 2자리여야 합니다. 예: 01")
         return SET_KIS_PRODUCT
     context.user_data["temp_kis_product"] = product_code
-    await update.message.reply_text("🧪 투자 환경을 입력해 주세요: `paper`(모의) 또는 `real`(실전)", parse_mode="Markdown")
+    await update.message.reply_text("🧪 투자 환경을 입력해 주세요: paper(모의) 또는 real(실전)")
     return SET_KIS_ENV
 
 async def set_kis_env(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1294,8 +1311,7 @@ async def grid_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
     args = context.args
     if len(args) < 5:
         await update.message.reply_text(
-            "⚠️ *사용법 부족*\n구문: `/grid [거래소] [종목] [시작가] [종료가] [개수] [총예산]`",
-            parse_mode="Markdown"
+            "⚠️ 사용법 부족\n구문: /grid [거래소] [종목] [시작가] [종료가] [개수] [총예산]"
         )
         return
 
@@ -1319,7 +1335,7 @@ async def grid_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
 
     ok, error_msg = validate_max_order(user, budget / count)
     if not ok:
-        await update.message.reply_text(error_msg, parse_mode="Markdown")
+        await update.message.reply_text(error_msg)
         return
 
     confirm_data = f"gridrun|{exchange}|{ticker}|{start_p}|{end_p}|{count}|{budget}"
@@ -1331,16 +1347,17 @@ async def grid_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
     
     preview_text = "\n".join(build_grid_preview_lines(ticker, start_p, end_p, count, budget))
     summary = (
-        f"🕸️ *거미줄 매수 주문 확인*\n\n"
-        f"- 거래소: `{exchange.upper()}`\n"
-        f"- 종목: `{ticker}`\n"
-        f"- 가격 범위: `{start_p:,.0f} ~ {end_p:,.0f}`\n"
-        f"- 주문 개수: `{count}회`\n"
-        f"- 총 예산: `{budget:,.0f}원`\n\n"
+        f"🕸️ 거미줄 매수 주문 확인\n\n"
+        f"주문 설정\n"
+        f"- 거래소: {exchange.upper()}\n"
+        f"- 종목: {ticker}\n"
+        f"- 가격 범위: {start_p:,.0f} ~ {end_p:,.0f}\n"
+        f"- 주문 개수: {count}회\n"
+        f"- 총 예산: {budget:,.0f}원\n\n"
         "위 내용으로 주문을 진행할까요?"
     )
-    summary += f"\n\n*예상 주문*\n{preview_text}"
-    await update.message.reply_text(summary, reply_markup=reply_markup, parse_mode="Markdown")
+    summary += f"\n\n예상 주문\n{preview_text}"
+    await update.message.reply_text(summary, reply_markup=reply_markup)
 
 @check_auth
 async def sgrid_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
@@ -1348,8 +1365,7 @@ async def sgrid_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     args = context.args
     if len(args) < 5:
         await update.message.reply_text(
-            "⚠️ *사용법 부족*\n구문: `/sgrid [거래소] [종목] [시작가] [종료가] [개수] [총수량]`",
-            parse_mode="Markdown"
+            "⚠️ 사용법 부족\n구문: /sgrid [거래소] [종목] [시작가] [종료가] [개수] [총수량]"
         )
         return
 
@@ -1376,15 +1392,16 @@ async def sgrid_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     summary = (
-        f"🕸️ *거미줄 매도 주문 확인*\n\n"
-        f"- 거래소: `{exchange.upper()}`\n"
-        f"- 종목: `{ticker}`\n"
-        f"- 가격 범위: `{start_p:,.0f} ~ {end_p:,.0f}`\n"
-        f"- 주문 개수: `{count}회`\n"
-        f"- 총 수량: `{total_vol:.4f}개`\n\n"
+        f"🕸️ 거미줄 매도 주문 확인\n\n"
+        f"주문 설정\n"
+        f"- 거래소: {exchange.upper()}\n"
+        f"- 종목: {ticker}\n"
+        f"- 가격 범위: {start_p:,.0f} ~ {end_p:,.0f}\n"
+        f"- 주문 개수: {count}회\n"
+        f"- 총 수량: {total_vol:.4f}개\n\n"
         "위 내용으로 분할 매도를 진행할까요?"
     )
-    await update.message.reply_text(summary, reply_markup=reply_markup, parse_mode="Markdown")
+    await update.message.reply_text(summary, reply_markup=reply_markup)
 
 async def grid_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1406,11 +1423,11 @@ async def grid_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TY
         if not is_sell:
             ok, error_msg = validate_max_order(user, val / ct)
             if not ok:
-                await query.edit_message_text(error_msg, parse_mode="Markdown")
+                await query.edit_message_text(error_msg)
                 return
         
         action_name = "매도" if is_sell else "매수"
-        await query.edit_message_text(f"🚀 `{ex.upper()}` 에 거미줄 {action_name} 주문 전송을 시작합니다...", parse_mode="Markdown")
+        await query.edit_message_text(f"🚀 {ex.upper()}에 거미줄 {action_name} 주문 전송을 시작합니다...")
         
         price_step = (e_p - s_p) / (ct - 1) if ct > 1 else 0
         success_count = 0
@@ -1495,7 +1512,7 @@ async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     user_id = str(update.effective_chat.id)
     args = context.args
     if not args:
-        await update.message.reply_text("⚠️ 종목을 입력하세요. 예: `/price KRW-BTC` 또는 `/p KRW-ETH`", parse_mode="Markdown")
+        await update.message.reply_text("⚠️ 종목을 입력하세요. 예: /price KRW-BTC 또는 /p KRW-ETH")
         return
 
     default_exchange = user["preferences"].get("default_exchange", "upbit")
@@ -1517,14 +1534,14 @@ async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     change_emoji = "📈" if change_rate > 0 else "📉" if change_rate < 0 else "➖"
     
     msg = (
-        f"📊 *[{exchange_display_name(exchange)}] {ticker} 실시간 시세*\n\n"
-        f"현재가: `{price:,.0f}원` {change_emoji}\n"
-        f"전일대비: `{change_rate:+.2f}%` ({change_price:,.0f}원)\n"
-        f"고가(24H): `{high:,.0f}원`\n"
-        f"저가(24H): `{low:,.0f}원`\n"
-        f"거래대금: `{volume/100000000:,.1f}억원`"
+        f"📊 [{exchange_display_name(exchange)}] {ticker} 실시간 시세\n\n"
+        f"현재가: {price:,.0f}원 {change_emoji}\n"
+        f"전일대비: {change_rate:+.2f}% ({change_price:,.0f}원)\n"
+        f"고가(24H): {high:,.0f}원\n"
+        f"저가(24H): {low:,.0f}원\n"
+        f"거래대금: {volume/100000000:,.1f}억원"
     )
-    await update.message.reply_text(msg, parse_mode="Markdown")
+    await update.message.reply_text(msg)
 
 @check_auth
 async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
@@ -1540,7 +1557,7 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE, us
         return
 
     # 상위 5건만 표시
-    msg = f"📜 *[{exchange_display_name(exchange)}] 최근 체결 내역 (최근 5건)*\n\n"
+    msg = f"📜 [{exchange_display_name(exchange)}] 최근 체결 내역 (최근 5건)\n\n"
     for ord in history[:5]:
         side = "🔴 매수" if ord.get('side', '').lower() in ['bid', 'buy'] else "🔵 매도"
         tk = ord.get('market', ticker)
@@ -1549,9 +1566,9 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE, us
         date = ord.get('created_at', '').split('T')[0]
 
         msg += f"- {date} | {side} | {tk}\n"
-        msg += f"  └ `{price:,.0f}원` | `{vol:.4f}개`\n"
+        msg += f"  └ {price:,.0f}원 | {vol:.4f}개\n"
 
-    await update.message.reply_text(msg, parse_mode="Markdown")
+    await update.message.reply_text(msg)
 
 @check_auth
 async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
@@ -1559,7 +1576,7 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     user_id = str(update.effective_chat.id)
     args = context.args
     if len(args) < 3:
-        await update.message.reply_text("⚠️ 사용법: `/buy [거래소] [종목] [가격] [수량]` (거래소 생략 시 업비트)")
+        await update.message.reply_text("⚠️ 사용법: /buy [거래소] [종목] [가격] [수량] (거래소 생략 시 업비트)")
         return
 
     default_exchange = user["preferences"].get("default_exchange", "upbit")
@@ -1576,7 +1593,7 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
 
     ok, error_msg = validate_max_order(user, price * volume)
     if not ok:
-        await update.message.reply_text(error_msg, parse_mode="Markdown")
+        await update.message.reply_text(error_msg)
         return
 
     env_notice = ""
@@ -1587,14 +1604,13 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
         keyboard = [[InlineKeyboardButton("✅ 매수 실행", callback_data=confirm_data),
                      InlineKeyboardButton("❌ 취소", callback_data="grid_cancel")]]
         await update.message.reply_text(
-            f"📈 *한국투자증권 매수 주문 확인{env_notice}*\n\n"
-            f"- 종목: `{ticker}`\n"
-            f"- 가격: `{price:,.0f}원`\n"
-            f"- 수량: `{volume:,.0f}주`\n"
-            f"- 주문금액: `{price * volume:,.0f}원`\n\n"
+            f"📈 한국투자증권 매수 주문 확인{env_notice}\n\n"
+            f"- 종목: {ticker}\n"
+            f"- 가격: {price:,.0f}원\n"
+            f"- 수량: {volume:,.0f}주\n"
+            f"- 주문금액: {price * volume:,.0f}원\n\n"
             "위 내용으로 주문을 전송할까요?",
             reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown",
         )
         return
 
@@ -1603,7 +1619,7 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     
     if res and 'uuid' in res:
         order_manager.add_order(user_id, exchange, ticker, res['uuid'], price, volume, side="bid", strategy="manual")
-        await status_msg.edit_text(f"✅ {exchange_display_name(exchange)} {ticker} 매수 완료{env_notice}!\n주문ID: `{res['uuid']}`", parse_mode="Markdown")
+        await status_msg.edit_text(f"✅ {exchange_display_name(exchange)} {ticker} 매수 완료{env_notice}!\n주문ID: {res['uuid']}")
     else:
         await status_msg.edit_text(f"❌ 주문 실패: {res}")
 
@@ -1613,7 +1629,7 @@ async def sell_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
     user_id = str(update.effective_chat.id)
     args = context.args
     if len(args) < 3:
-        await update.message.reply_text("⚠️ 사용법: `/sell [거래소] [종목] [가격] [수량]` (거래소 생략 시 업비트)")
+        await update.message.reply_text("⚠️ 사용법: /sell [거래소] [종목] [가격] [수량] (거래소 생략 시 업비트)")
         return
 
     default_exchange = user["preferences"].get("default_exchange", "upbit")
@@ -1636,13 +1652,12 @@ async def sell_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
         keyboard = [[InlineKeyboardButton("✅ 매도 실행", callback_data=confirm_data),
                      InlineKeyboardButton("❌ 취소", callback_data="grid_cancel")]]
         await update.message.reply_text(
-            f"📉 *한국투자증권 매도 주문 확인{env_notice}*\n\n"
-            f"- 종목: `{ticker}`\n"
-            f"- 가격: `{price:,.0f}원`\n"
-            f"- 수량: `{volume:,.0f}주`\n\n"
+            f"📉 한국투자증권 매도 주문 확인{env_notice}\n\n"
+            f"- 종목: {ticker}\n"
+            f"- 가격: {price:,.0f}원\n"
+            f"- 수량: {volume:,.0f}주\n\n"
             "위 내용으로 주문을 전송할까요?",
             reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown",
         )
         return
 
@@ -1651,7 +1666,7 @@ async def sell_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
     
     if res and 'uuid' in res:
         order_manager.add_order(user_id, exchange, ticker, res['uuid'], price, volume, side="ask", strategy="manual")
-        await status_msg.edit_text(f"✅ {exchange_display_name(exchange)} {ticker} 매도 완료{env_notice}!\n주문ID: `{res['uuid']}`", parse_mode="Markdown")
+        await status_msg.edit_text(f"✅ {exchange_display_name(exchange)} {ticker} 매도 완료{env_notice}!\n주문ID: {res['uuid']}")
     else:
         await status_msg.edit_text(f"❌ 주문 실패: {res}")
 
@@ -1671,7 +1686,7 @@ async def kis_order_confirm_callback(update: Update, context: ContextTypes.DEFAU
     if side == "bid":
         ok, error_msg = validate_max_order(user, price * volume)
         if not ok:
-            await query.edit_message_text(error_msg, parse_mode="Markdown")
+            await query.edit_message_text(error_msg)
             return
 
     env = user.get("exchanges", {}).get("kis", {}).get("env", "paper")
@@ -1684,8 +1699,7 @@ async def kis_order_confirm_callback(update: Update, context: ContextTypes.DEFAU
         order_manager.add_order(user_id, "kis", ticker, res["uuid"], price, volume, side=side, strategy="manual")
         await context.bot.send_message(
             chat_id=user_id,
-            text=f"✅ 한국투자증권 {ticker} {action} 주문 완료{env_notice}!\n주문ID: `{res['uuid']}`",
-            parse_mode="Markdown",
+            text=f"✅ 한국투자증권 {ticker} {action} 주문 완료{env_notice}!\n주문ID: {res['uuid']}",
         )
     else:
         await context.bot.send_message(chat_id=user_id, text=f"❌ 주문 실패: {res}")
@@ -1717,18 +1731,16 @@ async def sync_orders(application):
                 order_manager.replace_order_uuid(old_uuid, res["uuid"])
                 await application.bot.send_message(
                     chat_id=user_id,
-                    text=f"✅ *[한국투자증권] {ticker} 전략 주문 재주문 완료*\n"
-                         f"• 가격: `{float(ord.get('price', 0)):,.0f}원`\n"
-                         f"• 잔량: `{remaining:,.0f}주`\n"
-                         f"• 새 주문ID: `{res['uuid']}`",
-                    parse_mode="Markdown",
+                    text=f"✅ [한국투자증권] {ticker} 전략 주문 재주문 완료\n"
+                         f"• 가격: {float(ord.get('price', 0)):,.0f}원\n"
+                         f"• 잔량: {remaining:,.0f}주\n"
+                         f"• 새 주문ID: {res['uuid']}",
                 )
             else:
                 order_manager.update_next_check_at(ord["uuid"], kis_next_check_timestamp())
                 await application.bot.send_message(
                     chat_id=user_id,
-                    text=f"⚠️ *[한국투자증권] {ticker} 전략 주문 재주문 실패*\n다음 정규장 체크 때 다시 시도합니다.",
-                    parse_mode="Markdown",
+                    text=f"⚠️ [한국투자증권] {ticker} 전략 주문 재주문 실패\n다음 정규장 체크 때 다시 시도합니다.",
                 )
             await asyncio.sleep(0.2)
             continue
@@ -1739,15 +1751,13 @@ async def sync_orders(application):
                 order_manager.mark_reorder_pending(ord["uuid"], kis_next_check_timestamp())
                 await application.bot.send_message(
                     chat_id=user_id,
-                    text=f"⏳ *[한국투자증권] {ticker} 전략 주문 확인이 불가하여 다음 정규장 재주문 대기로 전환합니다.*",
-                    parse_mode="Markdown",
+                    text=f"⏳ [한국투자증권] {ticker} 전략 주문 확인이 불가하여 다음 정규장 재주문 대기로 전환합니다.",
                 )
             elif exchange == "kis":
                 order_manager.remove_order(ord["uuid"])
                 await application.bot.send_message(
                     chat_id=user_id,
-                    text=f"🛑 *[한국투자증권] {ticker} 수동 주문 확인이 불가하여 추적을 종료합니다.*\n자동 재주문은 하지 않습니다.",
-                    parse_mode="Markdown",
+                    text=f"🛑 [한국투자증권] {ticker} 수동 주문 확인이 불가하여 추적을 종료합니다.\n자동 재주문은 하지 않습니다.",
                 )
             continue
         state = res['state']
@@ -1787,10 +1797,9 @@ async def sync_orders(application):
                         order_manager.update_order_fill(ord['uuid'], exec_vol, state)
                         await application.bot.send_message(
                             chat_id=user_id,
-                            text=f"✅ *[{ticker}] 매수 체결 및 익절 예약 완료*\n"
-                                 f"• 체결: `{newly_filled:.4f}개`\n"
-                                 f"• 익절가: `{sell_price:,.0f}원` (RSI {target_rsi} 목표)",
-                            parse_mode="Markdown"
+                            text=f"✅ [{ticker}] 매수 체결 및 익절 예약 완료\n"
+                                 f"• 체결: {newly_filled:.4f}개\n"
+                                 f"• 익절가: {sell_price:,.0f}원 (RSI {target_rsi} 목표)",
                         )
                     else:
                         keep_order_for_retry = True
@@ -1803,9 +1812,8 @@ async def sync_orders(application):
                 if state == "done":
                     await application.bot.send_message(
                         chat_id=user_id,
-                        text=f"✅ *[{exchange.upper()}] {ticker} 주문 완료*\n"
+                        text=f"✅ [{exchange.upper()}] {ticker} 주문 완료\n"
                              f"• {'매수' if ord['side']=='bid' else '매도'} 전량 체결되었습니다.",
-                        parse_mode="Markdown"
                     )
 
         # 2. 주문 종료 처리 (체결 완료 또는 취소)
@@ -1816,16 +1824,14 @@ async def sync_orders(application):
                     order_manager.mark_reorder_pending(ord['uuid'], next_check)
                     await application.bot.send_message(
                         chat_id=user_id,
-                        text=f"⏳ *[한국투자증권] {ticker} 전략 주문이 만료/취소되어 다음 정규장 재주문 예정입니다.*",
-                        parse_mode="Markdown",
+                        text=f"⏳ [한국투자증권] {ticker} 전략 주문이 만료/취소되어 다음 정규장 재주문 예정입니다.",
                     )
                     await asyncio.sleep(0.2)
                     continue
                 await application.bot.send_message(
                     chat_id=user_id,
-                    text=f"🛑 *[{exchange.upper()}] {ticker} 외부 개입 감지*\n"
+                    text=f"🛑 [{exchange.upper()}] {ticker} 외부 개입 감지\n"
                          f"• 주문이 거래소에서 취소되었습니다. 추적을 중단합니다.",
-                    parse_mode="Markdown"
                 )
             order_manager.remove_order(ord['uuid'])
         elif state != ord.get("status"):
@@ -1840,10 +1846,10 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
     orders = order_manager.get_user_orders(user_id)
     
     if not orders:
-        await update.message.reply_text("📊 *현재 가동 중인 트레이딩 전략이 없습니다.*", parse_mode="Markdown")
+        await update.message.reply_text("📊 현재 가동 중인 트레이딩 전략이 없습니다.")
         return
 
-    msg = "📊 *트레이딩 전략 통합 대시보드*\n\n"
+    msg = "📊 트레이딩 전략 통합 대시보드\n\n"
     
     # 거래소별 그룹화
     status_names = {
@@ -1858,7 +1864,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
         ex_orders = [o for o in orders if o['exchange'] == ex]
         if not ex_orders: continue
         
-        msg += f"🏛️ *{ex.upper()}*\n"
+        msg += f"🏛️ {ex.upper()}\n"
         
         # 전략별 그룹화 (종목별)
         tickers = sorted(list(set([o['ticker'] for o in ex_orders])))
@@ -1875,8 +1881,8 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
             prog_total = total # 현재 추적 중인 주문 수
             prog_bar = "🔵" * filled + "⚪" * (prog_total - filled)
             
-            msg += f"• *{tk}* {strategy_name}\n"
-            msg += f"  └ 상태: `{prog_bar}` ({prog_total}건 추적 중)\n"
+            msg += f"• {tk} {strategy_name}\n"
+            msg += f"  └ 상태: {prog_bar} ({prog_total}건 추적 중)\n"
             
             # 상세 주문 (최대 3건)
             for i, o in enumerate(tk_orders[:3]):
@@ -1887,8 +1893,8 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
             if len(tk_orders) > 3: msg += "    - ... 그 외 생략\n"
         msg += "\n"
 
-    msg += "ℹ️ _체결 및 외부 취소 시 실시간 알림이 전송됩니다._"
-    await update.message.reply_text(msg, parse_mode="Markdown")
+    msg += "ℹ️ 체결 및 외부 취소 시 실시간 알림이 전송됩니다."
+    await update.message.reply_text(msg)
 
 @check_auth
 async def rsitrade_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
@@ -1896,14 +1902,14 @@ async def rsitrade_command(update: Update, context: ContextTypes.DEFAULT_TYPE, u
     if await check_details_help(update, "rsitrade"): return
     args = context.args
     if not args:
-        await update.message.reply_text("⚠️ 사용법: `/rsitrade [거래소] [종목] [매수RSI구간] [매도RSI구간] [횟수] [예산]`\n예: `/rsitrade BTC 25-30 65-75 5 100만`")
+        await update.message.reply_text("⚠️ 사용법: /rsitrade [거래소] [종목] [매수RSI구간] [매도RSI구간] [횟수] [예산]\n예: /rsitrade BTC 25-30 65-75 5 100만")
         return
 
     user_id = str(update.effective_chat.id)
     default_exchange = user["preferences"].get("default_exchange", "upbit")
     exchange, ticker = parse_exchange_and_ticker(args, default_exchange)
     if not ticker:
-        await update.message.reply_text("⚠️ 종목은 반드시 입력해야 합니다. 예: `/rsitrade BTC`", parse_mode="Markdown")
+        await update.message.reply_text("⚠️ 종목은 반드시 입력해야 합니다. 예: /rsitrade BTC")
         return
     if not await ensure_rsi_supported(update, user, exchange):
         return
@@ -1918,8 +1924,7 @@ async def rsitrade_command(update: Update, context: ContextTypes.DEFAULT_TYPE, u
         budget = parse_number(args[offset+3]) if len(args) > offset + 3 else preferences.get("rsi_budget_krw")
         if budget is None:
             await update.message.reply_text(
-                "⚠️ RSI 전략 예산이 필요합니다. 명령어에 예산을 입력하거나 `/config set rsi_budget_krw 100만`으로 기본 예산을 저장하세요.",
-                parse_mode="Markdown"
+                "⚠️ RSI 전략 예산이 필요합니다. 명령어에 예산을 입력하거나 /config set rsi_budget_krw 100만으로 기본 예산을 저장하세요."
             )
             return
         budget = float(budget)
@@ -1934,13 +1939,13 @@ async def rsitrade_command(update: Update, context: ContextTypes.DEFAULT_TYPE, u
 
     ok, error_msg = validate_max_order(user, budget / count)
     if not ok:
-        await update.message.reply_text(error_msg, parse_mode="Markdown")
+        await update.message.reply_text(error_msg)
         return
 
     # 1. 거래소 최소 주문 금액 검증
     min_amt = exchange_adapter.get_min_order_amount(exchange)
     if (budget / count) < min_amt:
-        await update.message.reply_text(f"❌ 예산이 너무 적습니다. 건당 최소 `{min_amt:,.0f}원` 이상이어야 합니다.")
+        await update.message.reply_text(f"❌ 예산이 너무 적습니다. 건당 최소 {min_amt:,.0f}원 이상이어야 합니다.")
         return
 
     status_msg = await update.message.reply_text(f"🔍 {ticker} RSI 가격 분석 중...")
@@ -1971,16 +1976,17 @@ async def rsitrade_command(update: Update, context: ContextTypes.DEFAULT_TYPE, u
     
     preview_text = "\n".join(build_rsi_preview_lines(ticker, buy_prices, budget, count))
     summary = (
-        f"🤖 *RSI 순환 매매 전략 확인*\n\n"
-        f"- 거래소: `{exchange.upper()}`\n"
-        f"- 종목: `{ticker}`\n"
-        f"- 매집(RSI): `{buy_rsi_range}` ({buy_prices[0][1]:,.0f} ~ {buy_prices[-1][1]:,.0f}원)\n"
-        f"- 익절(RSI): `{sell_rsi_range}` 목표\n"
-        f"- 분할: `{count}회` | 총예산: `{budget:,.0f}원`\n\n"
+        f"🤖 RSI 순환 매매 전략 확인\n\n"
+        f"전략 설정\n"
+        f"- 거래소: {exchange.upper()}\n"
+        f"- 종목: {ticker}\n"
+        f"- 매집(RSI): {buy_rsi_range} ({buy_prices[0][1]:,.0f} ~ {buy_prices[-1][1]:,.0f}원)\n"
+        f"- 익절(RSI): {sell_rsi_range} 목표\n"
+        f"- 분할: {count}회 | 총예산: {budget:,.0f}원\n\n"
         "체결 시 자동으로 익절 주문이 예약됩니다. 시작할까요?"
     )
-    summary += f"\n\n*예상 주문*\n{preview_text}\n\n_실행 시점에 가격은 다시 계산될 수 있습니다._"
-    await status_msg.edit_text(summary, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    summary += f"\n\n예상 주문\n{preview_text}\n\n실행 시점에 가격은 다시 계산될 수 있습니다."
+    await status_msg.edit_text(summary, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def rsitrade_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1994,14 +2000,14 @@ async def rsitrade_confirm_callback(update: Update, context: ContextTypes.DEFAUL
         await query.edit_message_text("❌ 사용자 설정을 찾을 수 없어 주문을 중단합니다.")
         return
     if ex == "kis" and get_user_rsi_interval(user) != "day":
-        await query.edit_message_text("⚠️ 한국투자증권 RSI는 일봉만 지원합니다. `/config set rsi_interval day` 후 다시 시도하세요.", parse_mode="Markdown")
+        await query.edit_message_text("⚠️ 한국투자증권 RSI는 일봉만 지원합니다. /config set rsi_interval day 후 다시 시도하세요.")
         return
     ok, error_msg = validate_max_order(user, bg / ct)
     if not ok:
-        await query.edit_message_text(error_msg, parse_mode="Markdown")
+        await query.edit_message_text(error_msg)
         return
     
-    await query.edit_message_text(f"🚀 `{tk}` RSI 순환 매매를 시작합니다. 매수 주문 전송 중...")
+    await query.edit_message_text(f"🚀 {tk} RSI 순환 매매를 시작합니다. 매수 주문 전송 중...")
     
     b_start, b_end = parse_rsi_range(b_rsi)
     s_start, s_end = parse_rsi_range(s_rsi)
@@ -2054,8 +2060,8 @@ def build_account_summary(user_id, user):
     default_exchange = prefs.get("default_exchange", "upbit")
     secret_status = "\n보안 키: 복호화 오류" if user.get("_secret_error") else ""
     return (
-        "👤 *내 계정*\n\n"
-        f"ID: `{user_id}`\n"
+        "👤 내 계정\n\n"
+        f"ID: {user_id}\n"
         f"권한: {role}\n"
         f"상태: {active}\n"
         f"기본 거래소: {default_exchange}\n"
@@ -2148,59 +2154,66 @@ async def global_debug_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         print(f"📡 [GLOBAL DEBUG] 메시지 수신 from={update.effective_user.id}, length={len(update.message.text)}")
     return
 
+def build_help_message(user):
+    admin_lines = ["- /nlstats: 자연어 전처리 후보 통계 (관리자 전용)"] if user.get("is_admin") else []
+    sections = [
+        f"📖 {BOT_DISPLAY_NAME} 사용 설명서",
+        "상세 가이드: /[명령어] -h  예: /rsitrade -h",
+        "",
+        format_section("기본 및 설정", [
+            "- /start: 시스템 접속 및 메뉴 확인",
+            "- /status: 가동 중인 트레이딩 전략 대시보드",
+            "- /config: 거래소, LLM API 설정",
+            "- /info: 봇 버전 및 빌드 정보 확인",
+            "- /whomai: 내 계정 권한과 상태 확인 (/me 가능)",
+            *admin_lines,
+            "- /help: 명령어 도움말 확인",
+        ]),
+        "",
+        format_section("자산 및 시세 조회", [
+            "- /asset: 통합 자산 및 소액 자산 요약 조회",
+            "- /price [종목]: 실시간 시세 및 변동률 (단축: /p)",
+            "- /history [종목]: 최근 체결 내역 확인 (5건)",
+        ]),
+        "",
+        format_section("자동 거래 및 순환 매매", [
+            "- /rsitrade [종목] [매수RSI] [매도RSI] [횟수] [예산]",
+            "  예: /rsitrade BTC 25-30 65-75 5 200만",
+            "- /grid [종목] [시작가] [종료가] [횟수] [예산]: 분할 매수",
+            "- /sgrid [종목] [시작가] [종료가] [횟수] [수량]: 분할 매도",
+            "- /orders: 미체결 주문 및 추적 목록",
+            "- /cancel [종목]: 해당 종목 주문 일괄 취소",
+        ]),
+        "",
+        format_section("시그널 감시", [
+            "- /watch [종목]: RSI 매수 시그널 실시간 감시",
+            "- /unwatch [종목]: 감시 목록에서 제거",
+        ]),
+        "",
+        "주의: 모든 주문은 거래소 앱과 실시간 동기화됩니다.",
+    ]
+    return "\n".join(sections)
+
 @check_auth
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
-    admin_help_line = "• /nlstats - 자연어 전처리 후보 통계 (관리자 전용)\n" if user.get("is_admin") else ""
-    msg = (
-        f"📖 *{BOT_DISPLAY_NAME} 사용 설명서*\n"
-        "💡 _상세 가이드는 `/[명령어] -h`를 입력하세요 (예: `/rsitrade -h`)_\n\n"
-        
-        "💡 *1. 기본 및 설정*\n"
-        "• /start - 시스템 접속 및 메뉴 확인\n"
-        "• /status - 가동 중인 트레이딩 전략 대시보드\n"
-        "• /config - 거래소 API 키 설정 (Upbit, Bithumb, 한국투자증권)\n"
-        "• /info - 봇 버전 및 빌드 정보 확인\n"
-        "• /whomai - 내 계정 권한과 상태 확인 (`/me` 가능)\n"
-        f"{admin_help_line}"
-        "• /help - 명령어 도움말 확인\n\n"
-        
-        "💰 *2. 자산 및 시세 조회*\n"
-        "• /asset - 통합 자산 및 소액 자산 요약 조회\n"
-        "• /price [종목] - 실시간 시세 및 변동률 (단축: `/p`)\n"
-        "• /history [종목] - 최근 체결 내역 확인 (5건)\n\n"
-        
-        "🕸️ *3. 자동 거래 및 순환 매매*\n"
-        "• /rsitrade [종목] [매수RSI] [매도RSI] [횟수] [예산]\n"
-        "  └ 예: `/rsitrade BTC 25-30 65-75 5 200만` (최강 추천!)\n"
-        "• /grid [종목] [시작가] [종료가] [횟수] [예산] - 분할 매수\n"
-        "• /sgrid [종목] [시작가] [종료가] [횟수] [수량] - 분할 매도\n"
-        "• /orders - 미체결 주문 및 추적 목록\n"
-        "• /cancel [종목] - 해당 종목 주문 일괄 취소\n\n"
-        
-        "🔔 *4. 시그널 감시*\n"
-        "• /watch [종목] - RSI 매수 시그널 실시간 감시\n"
-        "• /unwatch [종목] - 감시 목록에서 제거\n\n"
-        
-        "⚠️ _모든 주문은 거래소 앱과 실시간 동기화됩니다._"
-    )
-    await update.message.reply_text(msg, parse_mode="Markdown")
+    await update.message.reply_text(build_help_message(user))
 
 @check_auth
 async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     if await check_details_help(update, "info"): return
     short_sha = GIT_SHA[:7] if GIT_SHA != "unknown" else "unknown"
     msg = (
-        f"ℹ️ *{BOT_DISPLAY_NAME} 빌드 정보*\n\n"
-        f"• 버전: `{VERSION}`\n"
-        f"• 빌드: `{BUILD_DATE}`\n"
-        f"• 커밋: `{short_sha}`"
+        f"ℹ️ {BOT_DISPLAY_NAME} 빌드 정보\n\n"
+        f"- 버전: {VERSION}\n"
+        f"- 빌드: {BUILD_DATE}\n"
+        f"- 커밋: {short_sha}"
     )
-    await update.message.reply_text(msg, parse_mode="Markdown")
+    await update.message.reply_text(msg)
 
 @check_auth
 async def whoami_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     user_id = str(update.effective_chat.id)
-    await update.message.reply_text(build_account_summary(user_id, user), parse_mode="Markdown")
+    await update.message.reply_text(build_account_summary(user_id, user))
 
 @check_auth
 async def nlstats_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
@@ -2234,7 +2247,7 @@ async def nlstats_command(update: Update, context: ContextTypes.DEFAULT_TYPE, us
         return
     if args[:1] == ["clear"]:
         if args[1:2] != ["confirm"]:
-            await update.message.reply_text("자연어 로그와 hit 통계를 초기화하려면 `/nlstats clear confirm`을 입력하세요.", parse_mode="Markdown")
+            await update.message.reply_text("자연어 로그와 hit 통계를 초기화하려면 /nlstats clear confirm을 입력하세요.")
             return
         clear_natural_language_logs()
         await update.message.reply_text("자연어 로그와 hit 통계를 초기화했습니다.")
@@ -2265,9 +2278,8 @@ async def nlstats_command(update: Update, context: ContextTypes.DEFAULT_TYPE, us
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """등록되지 않은 명령어가 입력되었을 때 호출됩니다."""
     await update.message.reply_text(
-        "❓ *알 수 없는 명령어입니다.*\n\n"
-        "사용 가능한 명령어 목록은 `/help` 를 입력하여 확인해 주세요.",
-        parse_mode="Markdown"
+        "❓ 알 수 없는 명령어입니다.\n\n"
+        "사용 가능한 명령어 목록은 /help 를 입력하여 확인해 주세요."
     )
 
 @check_auth
@@ -2277,14 +2289,14 @@ async def natural_language_command(update: Update, context: ContextTypes.DEFAULT
         return
     prefs = user.get("preferences", {})
     if not prefs.get("llm_enabled") or not has_gemini_key(user):
-        await update.message.reply_text("💬 자연어 명령을 사용하려면 `/config`에서 Gemini API 키를 저장한 뒤 `/config set llm_enabled on`을 실행해 주세요.", parse_mode="Markdown")
+        await update.message.reply_text("💬 자연어 명령을 사용하려면 /config에서 Gemini API 키를 저장한 뒤 /config set llm_enabled on을 실행해 주세요.")
         return
 
     preprocessed = preprocess_natural_language_intent(text, user)
     if preprocessed:
         append_preprocess_hit(preprocessed)
         if preprocessed.get("action") == "clarify":
-            await update.message.reply_text(preprocessed.get("question") or _clarify_message(text, preprocessed), parse_mode="Markdown")
+            await update.message.reply_text(preprocessed.get("question") or _clarify_message(text, preprocessed))
             return
         await execute_query_intent(update, context, user, preprocessed)
         return
@@ -2302,7 +2314,7 @@ async def natural_language_command(update: Update, context: ContextTypes.DEFAULT
         await execute_query_intent(update, context, user, intent)
         return
 
-    confirm_text = f"🧠 *자연어 요청 확인*\n\n{_intent_summary(intent)}\n\n위 내용으로 실행할까요?"
+    confirm_text = f"🧠 자연어 요청 확인\n\n{_intent_summary(intent)}\n\n위 내용으로 실행할까요?"
     if action == "rsitrade":
         status_msg = await update.message.reply_text(f"🔍 RSI 가격 분석 중...")
         confirm_text = await build_rsigrid_confirm_summary(str(update.effective_chat.id), user, intent)
@@ -2315,12 +2327,11 @@ async def natural_language_command(update: Update, context: ContextTypes.DEFAULT
     keyboard = [[InlineKeyboardButton("✅ 실행", callback_data=f"nlrun|{token}"),
                  InlineKeyboardButton("❌ 취소", callback_data=f"nlcancel|{token}")]]
     if action == "rsitrade":
-        await status_msg.edit_text(confirm_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await status_msg.edit_text(confirm_text, reply_markup=InlineKeyboardMarkup(keyboard))
     else:
         await update.message.reply_text(
             confirm_text,
             reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown",
         )
 
 async def natural_language_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
