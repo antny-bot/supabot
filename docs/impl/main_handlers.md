@@ -1,6 +1,6 @@
 # main_handlers.md
 
-**파일**: `src/main.py` (2500줄대)
+**파일**: `src/main.py` (약 2134줄)
 
 ## 모듈 전역 객체
 
@@ -9,11 +9,13 @@ user_manager     = UserManager()
 exchange_adapter = ExchangeAdapter(user_manager)
 order_manager    = OrderManager()
 signal_engine    = SignalEngine(user_manager, exchange_adapter)
+metrics          # core.metrics — 인메모리 운영 지표 (주문 성공률, 레이턴시, 루프 타임스탬프)
 _order_wake_event: asyncio.Event    # 새 주문 시 sync 루프 즉시 깨움
 _pending_nl_intents: dict           # token → {user_id, intent} (Gemini 확인 대기)
-NL_UNMATCHED_LOG_PATH: str          # 전처리 미처리 자연어 익명 로그
 KST = timezone(timedelta(hours=9))
 ```
+
+데이터 영속화는 `core.db`(Supabase REST 클라이언트)를 통한 DB-우선 + `data/*.json` 파일 폴백 구조다. `user_manager`/`order_manager`는 DB-우선, `trade_log`/`operational_events`는 DB + 파일 이중 쓰기를 한다.
 
 ## 커맨드 맵
 
@@ -22,13 +24,13 @@ KST = timezone(timedelta(hours=9))
 | /start | `start_command` | 유저 등록; 관리자 승인 요청 |
 | /help, /commands | `help_command` | 전체 커맨드 메뉴 |
 | /info | `info_command` | build_info.py의 버전/빌드 정보 |
-| /config | `config_command` (ConversationHandler) | 다단계 키 설정 |
+| /config, /cfg | `config_command` (ConversationHandler) | 다단계 키 설정 |
 | /whomai, /me | `whoami_command` | 내 ID, 권한, 활성 상태 확인 |
-| /nlstats | `nlstats_command` | 관리자 전용 자연어 전처리 후보 통계 |
-| /diag | `diag_command` | 관리자 전용 운영 진단 |
 | /asset | `asset_command` | 포트폴리오 전체 잔고 |
 | /price, /p | `price_command` | 실시간 시세 |
+| /indicators, /ind | `indicators_command` | RSI/MACD/BB/Stoch 멀티지표 |
 | /history | `history_command` | 최근 체결 내역 |
+| /report | `report_command` | 기간별 수익률 리포트 |
 | /orders | `orders_command` | 추적 중 미체결 주문 목록 |
 | /status | `status_command` | 전략 대시보드 |
 | /buy | `buy_command` | 단일 지정가 매수 확인 후 전송; 확인 요청 10분 만료 |
@@ -67,18 +69,20 @@ API 키 포함 메시지는 캡처 즉시 삭제됨 (`delete_message`).
 ### order_sync_loop
 - `sync_orders(application)` 반복 호출
 - 간격: 주문 있을 때 `poll_active_interval` (60초) / 없을 때 `poll_no_order_interval` (300초)
+- 간격은 `_get_admin_prefs()`로 결정 — `is_db_available()`이면 `system_config` 테이블의 `poll_active_interval`/`poll_no_order_interval`/`signal_analysis_interval`을 **먼저** 읽고, 실패 시 관리자 유저 preferences로 폴백한다.
 - `_order_wake_event` 로 새 주문 시 즉시 깨어남
+- `metrics.record_poll_ok()`로 루프 성공 타임스탬프 기록
 
 ### Telegram 명령어 메뉴
 - `post_init`에서 `application.bot.set_my_commands(DEFAULT_BOT_COMMANDS, BotCommandScopeDefault())`를 호출해 일반 Telegram slash command 메뉴를 갱신한다.
-- 관리자 chat에는 `BotCommandScopeChat`으로 `ADMIN_BOT_COMMANDS`를 별도 등록하며, 이 목록에만 `/nlstats`, `/diag`를 포함한다.
-- `/me`는 숨은 alias라 메뉴에는 표시하지 않고 `CommandHandler("me", whoami_command)`로만 등록한다.
-- 메뉴 갱신 실패는 봇 시작 실패로 처리하지 않고 경고 로그만 남긴다.
+- 관리자 chat에도 `BotCommandScopeChat`으로 동일 목록을 등록한다 — `ADMIN_BOT_COMMANDS == DEFAULT_BOT_COMMANDS`이며 관리자 전용 메뉴 항목은 더 이상 없다.
+- `/me`, `/p`, `/ind`, `/cfg`, `/rsigrid` 등은 숨은 alias라 메뉴에는 표시하지 않고 `CommandHandler`로만 등록한다.
+- 메뉴 갱신 실패는 봇 시작 실패로 처리하지 않고 경고 로그를 남기고 `append_operational_event`로 기록한다.
 
 ### signal_analysis_loop
 - `signal_engine.analyze_watchlist(application)` 반복 호출
-- 간격: `signal_analysis_interval` (300초)
-- **관리자 preferences가 두 루프 간격 결정**
+- 간격: `signal_analysis_interval` (300초), `_get_admin_prefs()` 사용
+- **`system_config` 테이블이 세 루프 간격을 우선 결정**하고, DB 미사용 시 관리자 preferences로 폴백
 
 ### sync_orders 핵심 로직
 각 추적 주문에 대해:
@@ -104,7 +108,7 @@ API 키 포함 메시지는 캡처 즉시 삭제됨 (`delete_message`).
 7. **읽기 액션** (`asset`, `price`, `orders`, `status`, `history`, `config_view`, `help`): `execute_query_intent` 즉시 실행
 8. **쓰기 액션** (buy, sell, grid, rsitrade 등): 확인 버튼 표시 → 클릭 시 `execute_confirmed_intent`
 
-관리자는 `/nlstats`, `/nlstats export [N]`, `/nlstats hits`, `/nlstats clear confirm`으로 `data/nl_unmatched.jsonl`과 `data/nl_preprocess_hits.json`을 조회/정리할 수 있다. 기본 화면은 미처리 문장에 대한 추천 전처리 action도 표시한다. 로그에는 chat_id/user_id를 저장하지 않고 숫자, 6자리 주식코드, 긴 토큰을 마스킹한다.
+자연어 전처리/미처리 로그는 `core.natural_language`가 관리하며 `nl_logs` 테이블(및 파일 폴백)에 기록한다. 로그에는 chat_id/user_id를 저장하지 않고 숫자, 6자리 주식코드, 긴 토큰을 마스킹한다. (`/nlstats` 명령은 제거됨.)
 
 ## 사용자 Secret 암호화
 
@@ -116,16 +120,14 @@ API 키 포함 메시지는 캡처 즉시 삭제됨 (`delete_message`).
 - 기존 평문 secret은 봇 시작 시 자동 마이그레이션한다.
 - `USER_SECRET_KEY`가 없거나 Fernet 형식이 아니면 기존 평문 읽기는 유지하지만 새 secret 저장은 실패한다.
 - 이미 암호화된 값은 같은 `USER_SECRET_KEY`로만 복호화된다. 다른 키가 들어오면 `get_user()`는 secret 필드를 빈 값으로 반환하고 `_secret_error`를 표시해서 `/start` 같은 기본 명령이 죽지 않게 한다.
-- 거래소 API 키 저장 직후 검증 결과는 `api_validation`에 캐시하며, `/config -v`와 `/diag`에서 마지막 성공/실패 시각을 표시한다. 조회 시점에 라이브 API를 새로 호출하지 않는다.
+- 거래소 API 키 저장 직후 검증 결과는 `api_validation`에 캐시하며, `/config -v`에서 마지막 성공/실패 시각을 표시한다. 조회 시점에 라이브 API를 새로 호출하지 않는다.
+- 암호화/복호화 로직은 `core.secret_crypto`로 분리됨 (`encrypt_secret`/`decrypt_secret`, `enc:v1:` 포맷).
 
-## 운영 진단과 이벤트 로그
+## 이벤트 로그
 
-`/diag`는 관리자 전용이며 라이브 거래소 API를 호출하지 않는다. 환경 설정, 빌드 정보, LLM 상태, 거래소 키 설정 여부, API 검증 캐시, 주문/폴링 상태, 거래 안전 상태, 최근 warning/error를 표시한다.
-
-운영 이벤트는 `data/bot_events.jsonl`에 저장한다.
+운영 이벤트는 `core.operational_events`가 `operational_events` 테이블 + 파일 이중 쓰기(DB + file dual write)로 기록한다.
 
 - 기록 대상: 백그라운드 루프 예외, Telegram 메뉴/시작 알림 실패, secret key 이상, API 검증 실패, 주문 실패, 주문 확인 만료
-- 최근 300줄만 유지하고 파일 권한은 `0600`
 - API 키, secret, 긴 토큰, 계좌성 숫자는 마스킹
 
 수동 `/buy`, `/sell`은 callback_data에 주문값을 넣지 않고 `_pending_manual_orders` 서버 측 토큰을 사용한다. 토큰은 10분 후 만료되며 실행 직전 `max_order_krw`를 다시 검증한다.
@@ -144,7 +146,10 @@ kis_next_check_timestamp(now=None) → float   # Unix timestamp
 
 ## 주요 유틸리티 함수
 
+대부분의 파싱·검증 유틸은 `core.parsers`, 메시지 포맷팅 유틸은 `core.formatters`로 분리되어 main.py가 import 한다.
+
 ```python
+# core.parsers
 parse_exchange_and_ticker(args, default_exchange)  # args → (exchange, ticker)
 normalize_exchange(value)          # "빗썸" → "bithumb", "한투" → "kis" 등
 parse_number(value)                # "100만" → 1000000.0
@@ -153,8 +158,12 @@ interpolate_range(start, end, i, count)  # i번째 균등 분할값
 validate_max_order(user, order_krw)      # max_order_krw 제한 확인
 parse_config_value(key, raw_value)       # /config set 타입 검증·변환
 validate_config_update(user, key, value) # 제약 위반 시 ValueError
-preprocess_natural_language_intent(text, user) # core.natural_language, 조회성 자연어 전처리
-append_natural_language_log(text, llm_intent, final_intent) # core.natural_language, 익명 JSONL 로그 저장
-read_natural_language_log_stats(path, limit) # core.natural_language, /nlstats 집계
-build_account_summary(user_id, user) # main.py, /whomai 응답 생성
+is_kis_regular_session/next_kis_regular_session/kis_next_check_timestamp  # KIS 정규장 판정
+
+# core.natural_language
+preprocess_natural_language_intent(text, user)  # 조회성 자연어 전처리
+append_natural_language_log(text, llm_intent, final_intent)  # 익명 로그 저장 (nl_logs)
+
+# core.formatters
+build_account_summary(user_id, user)  # /whomai 응답 생성
 ```

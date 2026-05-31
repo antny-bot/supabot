@@ -117,7 +117,8 @@ natural_language_confirm_callback():
 
 ## 미처리 자연어 로그
 
-전처리로 처리하지 못해 Gemini까지 간 문장은 `append_natural_language_log()` 로 `data/nl_unmatched.jsonl`에 기록한다.
+전처리로 처리하지 못해 Gemini까지 간 문장은 `append_natural_language_log()` 로 `data/nl_unmatched.jsonl`에 기록하며,
+동시에 Supabase `nl_logs` 테이블에도 적재한다.
 
 기록 항목:
 
@@ -137,13 +138,11 @@ natural_language_confirm_callback():
 - 6자리 숫자 → `<STOCK>`
 - 일반 숫자/소수 → `<NUMBER>`
 
-최근 500줄만 유지한다. 관리자는 다음 명령으로 운영 통계를 확인한다.
+`data/nl_unmatched.jsonl`은 최근 500줄만 유지한다.
 
-- `/nlstats`: 상위 미처리 패턴과 전처리 hit 요약
-- `/nlstats export [N]`: 최근 익명 로그 N개 표시 (기본 20, 최대 50)
-- `/nlstats hits`: 전처리 action 카운트 표시
-- `/nlstats clear`: 초기화 안내
-- `/nlstats clear confirm`: 미처리 로그와 hit 카운터 초기화
+미처리 자연어 로그는 패턴 분석(전처리 규칙 보강용)을 위한 데이터일 뿐, 봇 내부에서 통계를 조회하는 명령은 더 이상 없다.
+과거의 `/nlstats`(admin) 명령은 봇 경량화 단계(Phase A)에서 제거되었다.
+누적된 익명 로그는 `data/nl_unmatched.jsonl` 파일과 Supabase `nl_logs` 테이블에서 직접 확인한다.
 
 ## 오류 처리
 

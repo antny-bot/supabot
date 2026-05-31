@@ -2,39 +2,26 @@
 
 이 문서는 현재 `supabot` 저장소의 GitHub Actions 배포 방식이 언제 트리거되는지, 지금 Oracle VM 상태에서 어떤 지점이 실패할 수 있는지, 그리고 권장 배포 방식을 정리한 메모입니다.
 
-## 현재 GitHub Actions 트리거 조건
+## 현재 GitHub Actions 워크플로
 
-현재 워크플로 파일은 [docker-publish.yml](/E:/apps/supabot/.github/workflows/docker-publish.yml) 하나입니다.
+> 과거의 단일 `docker-publish.yml`은 더 이상 사용하지 않으며, `build-bot.yml`로 대체되었습니다. 모든 이미지는 Docker Hub가 아니라 **GHCR(GitHub Container Registry)** 에 push 됩니다.
 
-트리거 조건:
+현재 `.github/workflows/`에는 워크플로 파일이 세 개 있습니다.
 
-- `release` 이벤트
-- 그중 `published` 타입만 대상
+### `build-bot.yml` — bot 이미지 빌드 + (release 시) 자동배포
 
-즉, 다음은 **트리거되지 않습니다**.
+트리거:
 
-- 일반 `git push`
-- `main` 브랜치 업데이트
-- 태그만 생성하고 release를 publish하지 않은 경우
+- `main` 브랜치 push 중 다음 경로가 변경된 경우: `src/**`, `scripts/**`, `requirements.txt`, `Dockerfile`, `docker-compose.yml`
+- 또는 태그 접두사가 `bot-`인 `release`
 
-즉, 현재 기준으로는 **GitHub Release를 publish해야만** Action이 실행됩니다.
+동작:
 
-## 현재 워크플로 동작 방식
-
-워크플로는 두 단계로 동작합니다.
-
-### 1. `build-and-push`
-
-- 소스 체크아웃
-- GHCR 로그인
-- Docker 이미지 빌드
-- GHCR에 아래 태그로 push
-  - `ghcr.io/antny-bot/supabot:latest`
-  - `ghcr.io/antny-bot/supabot:${release_tag}`
-
-### 2. `deploy`
-
-`appleboy/ssh-action`으로 Oracle VM에 SSH 접속한 뒤 아래를 실행합니다.
+- 소스 체크아웃 → GHCR 로그인 → Docker 이미지 빌드
+- `ghcr.io/antny-bot/supabot` 로 push
+- 추가로, `bot-*` release일 때만 `appleboy/ssh-action`으로 Oracle VM에 SSH 접속하여 자동 배포합니다.
+  - 사용 시크릿: `OCI_HOST`, `OCI_USER`, `OCI_SSH_PRIVATE_KEY`, `OCI_SSH_PORT`, `OCI_DEPLOY_PATH`
+  - 배포 단계는 서버에서 GHCR 이미지를 `pull`만 하고 재빌드하지 않습니다.
 
 ```bash
 cd "${{ secrets.OCI_DEPLOY_PATH }}"
@@ -43,11 +30,30 @@ docker compose up -d
 docker image prune -f
 ```
 
-즉, 현재 배포 전략은:
+즉, `main` push로 경로가 바뀌면 **이미지 빌드/푸시까지만** 일어나고, **자동 배포는 `bot-*` 태그로 release를 publish할 때만** 수행됩니다.
 
-- 서버에서 다시 빌드하지 않음
-- 서버는 GHCR 이미지를 pull만 함
-- 서버 코드도 `git pull` 하지 않음
+### `build-manager.yml` — manager 이미지 빌드
+
+트리거:
+
+- `main` 브랜치 push 중 `manager/**` 경로가 변경된 경우
+- 또는 태그 접두사가 `manager-`인 `release`
+
+동작:
+
+- Docker 이미지 빌드 후 `ghcr.io/antny-bot/supabot-manager` 로 push
+- manager는 Synology에서 수동으로 pull 하여 운영하므로, 이 워크플로에는 **자동 배포 단계가 없습니다.**
+
+### `ci-test.yml` — 테스트
+
+트리거:
+
+- `main` 또는 `claude/**` 브랜치 push
+- `main`으로 향하는 PR
+
+동작:
+
+- `pytest tests/ -v` 실행
 
 ## 현재 상태에서 자동배포가 실패할 가능성이 높은 지점
 
@@ -203,5 +209,7 @@ GitHub Actions는 GHCR 이미지만 만들고, Oracle 배포는 수동으로 진
 
 ## 참고 파일
 
-- 워크플로: [docker-publish.yml](/E:/apps/supabot/.github/workflows/docker-publish.yml)
+- 워크플로(bot): [build-bot.yml](/E:/apps/supabot/.github/workflows/build-bot.yml)
+- 워크플로(manager): [build-manager.yml](/E:/apps/supabot/.github/workflows/build-manager.yml)
+- 워크플로(test): [ci-test.yml](/E:/apps/supabot/.github/workflows/ci-test.yml)
 - SSH/직렬 콘솔 복구 기록: [oracle-cloud-ssh-recovery-success.md](/E:/apps/supabot/docs/oracle-cloud-ssh-recovery-success.md)

@@ -1,11 +1,14 @@
 # signal_engine.md
 
-**파일**: `src/core/signal_engine.py`
+**파일**: `src/core/signal_engine.py` (207줄)
 
 ## 역할
 1. RSI 계산 (`ta.momentum.RSIIndicator`)
 2. 목표 RSI에 대응하는 다음 캔들 예상 가격 계산 (`/rsitrade`)
-3. 관심 종목 RSI 감시 및 알림 발송
+3. 관심 종목 RSI/볼린저 감시 및 알림 발송
+4. RSI/MACD/BB/Stoch 멀티지표 조회 (`get_indicators()`, `/indicators` 명령이 노출)
+
+지표 계산 자체(RSI/MACD/BB/Stoch)는 `core.indicators`(`ta` 라이브러리 래퍼)로 분리되어 있고, `signal_engine`은 이를 import 해 사용한다.
 
 ## 공개 인터페이스
 
@@ -20,6 +23,10 @@ price = await engine.get_price_by_rsi(
     exchange, ticker, target_rsi, side="bid",
     interval="day", period=14, user_id=None
 )
+
+indicators = await engine.get_indicators(
+    exchange, ticker, interval="day", user_id=None
+)   # RSI/MACD/BB/Stoch dict; /indicators 명령이 노출
 
 await engine.analyze_watchlist(application)
 ```

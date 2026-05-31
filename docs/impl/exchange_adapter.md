@@ -1,9 +1,11 @@
 # exchange_adapter.md
 
-**파일**: `src/core/exchange_adapter.py` (730줄)
+**파일**: `src/core/exchange_adapter.py` (767줄)
 
 ## 역할
 Upbit(CLI), Bithumb(REST+JWT), KIS(OAuth2) 세 거래소를 단일 async 인터페이스로 추상화.
+
+`get_candles()`는 `(exchange, ticker, interval, count)` 키로 인메모리 TTL 캐시(`_candle_cache`)를 적용한다. interval별 TTL은 `_CANDLE_TTL`로 정의하며, 캐시가 유효하면 거래소 호출 없이 캐시된 캔들을 반환한다.
 
 ## 공개 인터페이스
 

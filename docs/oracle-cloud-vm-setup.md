@@ -23,7 +23,16 @@
 ### NSG 인바운드 규칙
 - `TCP 22`만 열고, 출발지(source)는 본인 공인 IP 또는 집/회사 CIDR로 제한합니다.
 - 나중에 webhook이나 reverse proxy를 추가하지 않는 이상 `80`, `443`은 열지 마세요.
-- Supabot은 기본적으로 외부에서 봇으로 들어오는 거래 API 포트가 필요 없습니다.
+- Supabot bot 자체는 거래 API용 인바운드 포트가 필요 없습니다. 다만 manager → bot 알림 채널을 쓰는 경우 아래 `TCP 8765` 규칙이 추가로 필요합니다.
+
+### manager → bot notify 채널 (TCP 8765)
+- Synology에서 운영하는 manager가 bot의 `/internal/notify` 엔드포인트(기본 포트 `8765`, 환경변수 `INTERNAL_PORT`)를 호출합니다.
+- 따라서 보안 목록 또는 NSG에 인바운드 규칙을 하나 더 추가합니다.
+  - 프로토콜: `TCP`
+  - 출발지(source): Synology의 공인 IP `/32`만 허용
+  - 목적지 포트: `8765` (또는 `INTERNAL_PORT`로 바꾼 값)
+- 추가 방어선으로 `MANAGER_API_KEY`를 설정하면 manager 요청이 `X-API-Key` 헤더로 검증됩니다. 보안 목록 IP 제한과 함께 두 겹으로 보호하는 것을 권장합니다.
+- `docker-compose.yml`이 `network_mode: host`로 동작하므로 컨테이너 포트 매핑 없이 호스트의 `8765`가 바로 노출됩니다. UFW를 쓰는 경우 호스트 방화벽에도 Synology IP `/32` → `8765` 허용 규칙이 필요합니다.
 
 ### NSG 아웃바운드 규칙
 - Telegram 및 거래소 API로 나갈 수 있도록 HTTPS 아웃바운드는 허용합니다.
@@ -182,7 +191,14 @@ chmod 700 ~/supabot/config ~/supabot/data
 TELEGRAM_BOT_TOKEN=your_bot_token
 ADMIN_CHAT_ID=your_admin_chat_id
 USER_SECRET_KEY=your_fernet_master_key
+SUPABASE_URL=your_supabase_url
+SUPABASE_SERVICE_KEY=your_supabase_service_key
+# 선택 (manager → bot notify 채널용)
+MANAGER_API_KEY=your_manager_api_key
+INTERNAL_PORT=8765
 ```
+
+`SUPABASE_URL`, `SUPABASE_SERVICE_KEY`는 bot/manager가 공유하는 Supabase Postgres 접속용 값입니다. `MANAGER_API_KEY`는 manager가 bot의 `/internal/notify`를 호출할 때 `X-API-Key` 헤더로 검증되는 키이고, `INTERNAL_PORT`는 해당 엔드포인트 포트(기본 `8765`)입니다.
 
 `USER_SECRET_KEY`는 `data/users.json`에 저장되는 사용자별 거래소/Gemini 키를 암호화하는 마스터키입니다. 다음 명령으로 생성할 수 있으며, GitHub나 채팅에 공유하지 마세요.
 

@@ -4,6 +4,19 @@
 Synology Docker에 배포한다. 봇과 직접 의존하지 않으며, Telegram 알림이 필요할 때만
 봇의 `/internal/notify`(포트 8765)를 단방향 호출한다.
 
+## 라우터 / 라우트
+
+`manager/backend/routers/` 6개 라우터로 구성된다.
+
+| 라우터 | 라우트 |
+|--------|--------|
+| `dashboard` | `GET /admin/dashboard` |
+| `users` | `GET /admin/users`, `POST /admin/users/{id}/approve`, `POST /admin/users/{id}/deactivate`, `POST /admin/users/{id}/activate`, `POST /admin/users/{id}/block`, `DELETE /admin/users/{id}` |
+| `orders` | `GET /admin/orders` |
+| `trades` | `GET /admin/trades` |
+| `events` | `GET /admin/events` |
+| `sysconfig` | `GET /admin/config`, `POST /admin/config` |
+
 ## Synology 배포 순서
 
 1. **이미지 빌드** — `manager/**` 변경이 `main`에 머지되면 GitHub Actions가
