@@ -6,6 +6,7 @@ pandas
 ta
 google-genai
 cryptography
+websockets>=13.1,<16
 supabase
 pytest
 pytest-asyncio
