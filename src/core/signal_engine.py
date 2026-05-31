@@ -3,7 +3,10 @@ import asyncio
 import pandas as pd
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
+from core.bot_logger import get_logger
 from core.indicators import RSIIndicator
+
+_log = get_logger("signal_engine")
 
 
 class SignalEngine:
@@ -42,7 +45,7 @@ class SignalEngine:
             rsi_value = RSIIndicator(period=period).compute(closes)
             return rsi_value, df
         except Exception as e:
-            print(f"❌ [{exchange.upper()}] {ticker} RSI 계산 오류: {e}")
+            _log.error("RSI calculation error", exc_info=e, extra={"event": "rsi_error", "exchange": exchange, "ticker": ticker})
             return None, None
 
     @staticmethod

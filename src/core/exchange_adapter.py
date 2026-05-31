@@ -7,6 +7,11 @@ import hashlib
 import urllib.parse
 import time
 
+from core.bot_logger import get_logger
+
+_log = get_logger("exchange_adapter")
+
+
 class ExchangeAdapter:
     _CANDLE_TTL = {"day": 300, "default": 60}  # 일봉 5분, 분봉 1분
 
@@ -59,12 +64,12 @@ class ExchangeAdapter:
             stdout, stderr = await process.communicate()
             
             if process.returncode != 0:
-                print(f"❌ Upbit CLI Error: {stderr.decode().strip()}")
+                _log.error("Upbit CLI error", extra={"event": "upbit_cli_error", "msg": stderr.decode().strip()})
                 return None
-            
+
             return json.loads(stdout.decode())
         except Exception as e:
-            print(f"❌ Upbit CLI Exception: {e}")
+            _log.error("Upbit CLI exception", exc_info=e, extra={"event": "upbit_cli_exception"})
             return None
 
     def _get_bithumb_jwt(self, keys, query_string=None):
@@ -116,7 +121,7 @@ class ExchangeAdapter:
                 async with session.get(url, headers=headers) as resp:
                     return await resp.json()
         except Exception as e:
-            print(f"❌ Bithumb API Exception ({path}): {e}")
+            _log.error("Bithumb API exception", exc_info=e, extra={"event": "bithumb_api_exception", "path": path})
             return None
 
     def _get_client(self, user_id, exchange):
@@ -167,12 +172,12 @@ class ExchangeAdapter:
             async with session.post(f"{base_url}/oauth2/tokenP", json=body) as resp:
                 res = await resp.json()
         except Exception as e:
-            print(f"❌ KIS token exception: {e}")
+            _log.error("KIS token exception", exc_info=e, extra={"event": "kis_token_exception"})
             return None
 
         token = res.get("access_token") if isinstance(res, dict) else None
         if not token:
-            print(f"❌ KIS token error: {res}")
+            _log.error("KIS token error: no access_token in response", extra={"event": "kis_token_error"})
             return None
 
         expires_in = int(res.get("expires_in", 86400))
@@ -206,7 +211,7 @@ class ExchangeAdapter:
             async with session.get(f"{base_url}{path}", params=params, headers=headers) as resp:
                 return await resp.json()
         except Exception as e:
-            print(f"❌ KIS API exception ({path}): {e}")
+            _log.error("KIS API exception", exc_info=e, extra={"event": "kis_api_exception", "path": path})
             return None
 
     async def get_balances(self, user_id, exchange):

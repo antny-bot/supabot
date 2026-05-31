@@ -3,7 +3,10 @@ import os
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 
+from core.bot_logger import get_logger
 from core.secret_crypto import can_decrypt_secrets, decrypt_secret, encrypt_secret, has_secret_key, is_encrypted_secret
+
+_log = get_logger("user_manager")
 
 
 KST = timezone(timedelta(hours=9))
@@ -48,7 +51,7 @@ class UserManager:
             with open(self.file_path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
-            print(f"Error loading users: {e}")
+            _log.error("Failed to load users", exc_info=e, extra={"event": "users_load_error"})
             return {}
 
     def save_users(self):
@@ -58,7 +61,7 @@ class UserManager:
                 json.dump(self.users, f, indent=2, ensure_ascii=False)
             os.chmod(self.file_path, 0o600)
         except Exception as e:
-            print(f"Error saving users: {e}")
+            _log.error("Failed to save users", exc_info=e, extra={"event": "users_save_error"})
 
     def get_user(self, user_id):
         stored_user = self.users.get(str(user_id))
@@ -271,6 +274,6 @@ class UserManager:
         
         admin_id_str = str(admin_chat_id)
         if admin_id_str not in self.users:
-            print(f"⚙️ 초기 관리자 등록 중... (ID: {admin_id_str})")
+            _log.info("Registering initial admin", extra={"event": "admin_init", "user_id": admin_id_str})
             return self.add_user(admin_id_str, "SystemAdmin", is_admin=True)
         return True

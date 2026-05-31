@@ -2,6 +2,11 @@ import json
 import os
 import time
 
+from core.bot_logger import get_logger
+
+_log = get_logger("order_manager")
+
+
 class OrderManager:
     def __init__(self, file_path="data/orders.json"):
         self.file_path = file_path
@@ -15,7 +20,7 @@ class OrderManager:
             with open(self.file_path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
-            print(f"Error loading orders: {e}")
+            _log.error("Failed to load orders", exc_info=e, extra={"event": "orders_load_error"})
             return []
 
     def save_orders(self):
@@ -25,7 +30,7 @@ class OrderManager:
                 json.dump(self.orders, f, indent=2, ensure_ascii=False)
             os.chmod(self.file_path, 0o600)
         except Exception as e:
-            print(f"Error saving orders: {e}")
+            _log.error("Failed to save orders", exc_info=e, extra={"event": "orders_save_error"})
 
     def add_order(self, user_id, exchange, ticker, uuid, price, volume, side="bid", strategy="manual", target_rsi=None, linked_to=None, status="wait", stop_price=None):
         """주문 추가 (전략 및 연동 정보 포함)"""

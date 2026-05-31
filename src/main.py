@@ -56,6 +56,9 @@ from core.formatters import (
     build_account_summary, build_manual_order_confirm_message,
     build_grid_preview_lines, build_rsi_preview_lines,
 )
+from core.bot_logger import get_logger
+
+_log = get_logger("main")
 
 try:
     from build_info import BUILD_DATE, VERSION, GIT_SHA
@@ -137,12 +140,12 @@ def _validate_env():
     if not os.getenv("USER_SECRET_KEY", "").strip():
         missing.append("USER_SECRET_KEY")
     if missing:
-        print(f"❌ 필수 환경변수가 누락되었습니다: {', '.join(missing)}")
-        print("config/.env 파일을 확인하고 config/.env.template을 참고하세요.")
+        _log.critical("Missing required env vars: %s", ", ".join(missing), extra={"event": "env_missing", "vars": missing})
+        _log.critical("Check config/.env — see config/.env.template for reference.")
         sys.exit(1)
     if not can_decrypt_secrets():
-        print("❌ USER_SECRET_KEY가 유효하지 않습니다.")
-        print('python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" 로 재발급하세요.')
+        _log.critical("USER_SECRET_KEY is invalid", extra={"event": "env_invalid_key"})
+        _log.critical('Regenerate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"')
         sys.exit(1)
 
 
@@ -292,7 +295,7 @@ async def parse_natural_language_intent(text, user):
         )
         return json.loads(response.text)
     except Exception as e:
-        print(f"⚠️ Gemini intent parse error: {e}")
+        _log.warning("Gemini intent parse error", exc_info=e, extra={"event": "gemini_parse_error"})
         return None
 
 def _intent_args(intent, user):
@@ -1677,7 +1680,7 @@ async def _interruptible_sleep(seconds: float):
         pass
 
 async def order_sync_loop(application):
-    print("📦 오더 동기화 루프 가동")
+    _log.info("Order sync loop started", extra={"event": "order_sync_loop_start"})
     while True:
         _order_wake_event.clear()
         _write_heartbeat()
@@ -1688,12 +1691,12 @@ async def order_sync_loop(application):
                        else prefs["poll_no_order_interval"]
             await _interruptible_sleep(interval)
         except Exception as e:
-            print(f"⚠️ 오더 동기화 루프 에러: {e}")
+            _log.error("Order sync loop error", exc_info=e, extra={"event": "order_sync_loop_error"})
             append_operational_event("error", "order_sync_loop", "order sync loop error", e)
             await _interruptible_sleep(60)
 
 async def signal_analysis_loop(application):
-    print("📡 시그널 분석 루프 가동")
+    _log.info("Signal analysis loop started", extra={"event": "signal_analysis_loop_start"})
     await asyncio.sleep(5)
     while True:
         try:
@@ -1701,14 +1704,14 @@ async def signal_analysis_loop(application):
             await signal_engine.analyze_watchlist(application)
             await asyncio.sleep(prefs["signal_analysis_interval"])
         except Exception as e:
-            print(f"⚠️ 시그널 분석 루프 에러: {e}")
+            _log.error("Signal analysis loop error", exc_info=e, extra={"event": "signal_analysis_loop_error"})
             append_operational_event("error", "signal_analysis_loop", "signal analysis loop error", e)
             await asyncio.sleep(300)
 
 # --- 자동 복구 및 초기화 로직 ---
 async def startup_recovery(application):
     """봇 시작 시 미완료된 전략 주문들을 점검하고 복구"""
-    print("🛠️ 시스템 자동 복구 프로세스 가동...")
+    _log.info("Startup recovery started", extra={"event": "startup_recovery_start"})
     all_orders = list(order_manager.orders)
     recovered_count = 0
     
@@ -1724,7 +1727,7 @@ async def startup_recovery(application):
                 # 자연스럽게 sync_orders에서 처리됩니다.
     
     if recovered_count > 0:
-        print(f"✅ {recovered_count}건의 전략 주문이 복구 프로세스에 편입되었습니다.")
+        _log.info("Startup recovery complete", extra={"event": "startup_recovery_done", "recovered": recovered_count})
 
 async def notify_admin_security_status(application):
     if not ADMIN_CHAT_ID:
@@ -1763,7 +1766,7 @@ async def post_init(application):
                     scope=BotCommandScopeChat(chat_id=int(user_id)),
                 )
     except Exception as e:
-        print(f"⚠️ Telegram command menu update failed: {e}")
+        _log.warning("Telegram command menu update failed", exc_info=e, extra={"event": "command_menu_update_failed"})
         append_operational_event("warning", "post_init", "Telegram command menu update failed", e)
     await notify_admin_security_status(application)
     await startup_recovery(application)
@@ -1777,7 +1780,7 @@ async def post_shutdown(application):
 # --- 디버그용 글로벌 메시지 핸들러 ---
 async def global_debug_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message and update.message.text:
-        print(f"📡 [GLOBAL DEBUG] 메시지 수신 from={update.effective_user.id}, length={len(update.message.text)}")
+        _log.debug("Telegram message received", extra={"event": "debug_message", "user_id": str(update.effective_user.id), "length": len(update.message.text)})
     return
 
 @check_auth
@@ -2065,7 +2068,7 @@ def main():
     application.add_handler(MessageHandler(filters.COMMAND, unknown_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, natural_language_command))
 
-    print(f"🚀 {BOT_DISPLAY_NAME} 가동 중...")
+    _log.info(f"{BOT_DISPLAY_NAME} starting", extra={"event": "bot_start", "version": VERSION})
     
     # 동기식으로 실행 (자체 이벤트 루프를 안전하게 생성합니다)
     application.run_polling()
