@@ -27,6 +27,7 @@ class UserManager:
         "signal_rsi_threshold": 30,
         "rsi_interval": "day",
         "max_order_krw": None,
+        "stop_loss_pct": None,
         "llm_enabled": False,
         "llm_model": "gemini-2.5-flash-lite",
         "poll_active_interval": 60,

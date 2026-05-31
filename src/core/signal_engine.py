@@ -1,8 +1,9 @@
 import asyncio
 
 import pandas as pd
-import ta
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+from core.indicators import RSIIndicator
 
 
 class SignalEngine:
@@ -34,17 +35,16 @@ class SignalEngine:
             if "candle_date_time_kst" in df.columns:
                 df = df.sort_values("candle_date_time_kst")
 
-            rsi_series = ta.momentum.RSIIndicator(close=df["close"], window=period).rsi()
-            return rsi_series.iloc[-1], df
+            closes = df["close"].astype(float).reset_index(drop=True)
+            rsi_value = RSIIndicator(period=period).compute(closes)
+            return rsi_value, df
         except Exception as e:
             print(f"❌ [{exchange.upper()}] {ticker} RSI 계산 오류: {e}")
             return None, None
 
     @staticmethod
     def _calculate_rsi_for_next_close(close_series, next_close, period):
-        simulated = pd.concat([close_series, pd.Series([float(next_close)])], ignore_index=True)
-        rsi_series = ta.momentum.RSIIndicator(close=simulated, window=period).rsi()
-        return float(rsi_series.iloc[-1])
+        return RSIIndicator(period=period).compute_with_next(close_series, next_close)
 
     def _search_price_for_target_rsi(self, close_series, current_price, current_rsi, target_rsi, side, period):
         if side == "bid":

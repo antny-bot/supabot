@@ -2,6 +2,8 @@ import os
 import sys
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SRC = os.path.join(ROOT, "src")
 if SRC not in sys.path:
@@ -111,3 +113,96 @@ async def test_rsitrade_buy_fill_creates_linked_sell_order(tmp_path, monkeypatch
     app.bot.send_message.assert_called_once()
     sent_text = app.bot.send_message.call_args.kwargs.get("text", "")
     assert "익절 예약 완료" in sent_text
+
+
+# T4: RSITrade 매수 체결 → stop_loss_pct 설정 시 stop_price 계산
+async def test_rsitrade_buy_fill_sets_stop_price_when_configured(tmp_path, monkeypatch):
+    om = _make_order_manager(tmp_path)
+    om.add_order(
+        "111", "upbit", "KRW-BTC", "buy-uuid2", 50_000_000, 0.001,
+        side="bid", strategy="rsitrade", linked_to="65-75",
+    )
+    monkeypatch.setattr(main, "order_manager", om)
+
+    user = _default_user()
+    user["preferences"]["stop_loss_pct"] = 5.0  # 5% 손절 설정
+
+    mock_adapter = MagicMock()
+    mock_adapter.get_order_status = AsyncMock(return_value={"state": "done", "executed_volume": 0.001})
+    mock_adapter.create_order = AsyncMock(return_value={"uuid": "sell-uuid-2"})
+    mock_adapter.adjust_price_to_tick = MagicMock(side_effect=lambda p: int(p))
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    mock_engine = MagicMock()
+    mock_engine.get_price_by_rsi = AsyncMock(return_value=60_000_000)
+    monkeypatch.setattr(main, "signal_engine", mock_engine)
+
+    mock_um = MagicMock()
+    mock_um.get_user = MagicMock(return_value=user)
+    monkeypatch.setattr(main, "user_manager", mock_um)
+
+    app = _make_app()
+    await main.sync_orders(app)
+
+    sell_orders = [o for o in om.orders if o["uuid"] == "sell-uuid-2"]
+    assert len(sell_orders) == 1
+    # stop_price = buy_price * (1 - 5/100) = 50_000_000 * 0.95 = 47_500_000
+    assert sell_orders[0]["stop_price"] == pytest.approx(47_500_000, rel=0.01)
+
+
+# T5: rsitrade_sell 포지션 stop-loss 발동 → 손절 주문 제출
+async def test_stoploss_triggers_when_price_below_stop_price(tmp_path, monkeypatch):
+    om = _make_order_manager(tmp_path)
+    om.add_order(
+        "222", "upbit", "KRW-ETH", "sell-uuid3", 4_000_000, 0.1,
+        side="ask", strategy="rsitrade_sell", stop_price=3_000_000,
+    )
+    monkeypatch.setattr(main, "order_manager", om)
+
+    mock_adapter = MagicMock()
+    mock_adapter.get_order_status = AsyncMock(return_value={"state": "wait", "executed_volume": 0.0})
+    mock_adapter.get_ticker = AsyncMock(return_value={"trade_price": 2_500_000})  # 손절 기준가 미만
+    mock_adapter.cancel_order = AsyncMock(return_value=True)
+    mock_adapter.create_order = AsyncMock(return_value={"uuid": "sl-uuid"})
+    mock_adapter.adjust_price_to_tick = MagicMock(side_effect=lambda p: int(p))
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    app = _make_app()
+    await main.sync_orders(app)
+
+    # 기존 rsitrade_sell 제거
+    assert not any(o["uuid"] == "sell-uuid3" for o in om.orders)
+    # 손절 주문 추가
+    sl_orders = [o for o in om.orders if o["strategy"] == "stoploss"]
+    assert len(sl_orders) == 1
+
+    mock_adapter.cancel_order.assert_called_once()
+    mock_adapter.create_order.assert_called_once()
+
+    app.bot.send_message.assert_called_once()
+    sent_text = app.bot.send_message.call_args.kwargs.get("text", "")
+    assert "손절 실행" in sent_text
+
+
+# T6: rsitrade_sell 포지션 — 현재가가 stop_price 이상이면 손절 미발동
+async def test_stoploss_does_not_trigger_when_price_above_stop_price(tmp_path, monkeypatch):
+    om = _make_order_manager(tmp_path)
+    om.add_order(
+        "333", "upbit", "KRW-ETH", "sell-uuid4", 4_000_000, 0.1,
+        side="ask", strategy="rsitrade_sell", stop_price=3_000_000,
+    )
+    monkeypatch.setattr(main, "order_manager", om)
+
+    mock_adapter = MagicMock()
+    mock_adapter.get_order_status = AsyncMock(return_value={"state": "wait", "executed_volume": 0.0})
+    mock_adapter.get_ticker = AsyncMock(return_value={"trade_price": 3_500_000})  # 손절 기준가 이상
+    mock_adapter.cancel_order = AsyncMock()
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    app = _make_app()
+    await main.sync_orders(app)
+
+    # 손절 미발동 → 원래 주문 유지
+    assert any(o["uuid"] == "sell-uuid4" for o in om.orders)
+    mock_adapter.cancel_order.assert_not_called()
+    app.bot.send_message.assert_not_called()

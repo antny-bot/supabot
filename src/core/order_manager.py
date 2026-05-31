@@ -27,7 +27,7 @@ class OrderManager:
         except Exception as e:
             print(f"Error saving orders: {e}")
 
-    def add_order(self, user_id, exchange, ticker, uuid, price, volume, side="bid", strategy="manual", target_rsi=None, linked_to=None, status="wait"):
+    def add_order(self, user_id, exchange, ticker, uuid, price, volume, side="bid", strategy="manual", target_rsi=None, linked_to=None, status="wait", stop_price=None):
         """주문 추가 (전략 및 연동 정보 포함)"""
         self.remove_order(uuid, save=False)
         self.orders.append({
@@ -39,13 +39,14 @@ class OrderManager:
             "volume": float(volume),
             "filled_volume": 0.0,    # 부분 체결 추적용
             "side": side,            # bid(매수), ask(매도)
-            "strategy": strategy,    # manual, grid, rsitrade
+            "strategy": strategy,    # manual, grid, rsitrade, stoploss
             "target_rsi": target_rsi,# RSI 전략용 목표 수치
             "linked_to": linked_to,   # 연동된 주문 정보 (매수-매도 쌍)
             "status": status,        # wait, partial, done, cancel
             "created_at": time.time(),
             "next_check_at": 0.0,
             "reorder_of": None,
+            "stop_price": float(stop_price) if stop_price is not None else None,
         })
         self.save_orders()
         if self.on_order_added:

@@ -1242,6 +1242,7 @@ async def manual_order_confirm_callback(update: Update, context: ContextTypes.DE
 async def sync_orders(application):
     """현재 추적 중인 주문들의 상태를 거래소와 동기화하고 자동 대응 수행"""
     all_orders = list(order_manager.orders)
+    _price_cache = {}  # 동일 sync 사이클 내 중복 API 호출 방지: {(exchange, ticker): price}
     for ord in all_orders:
         user_id = ord['user_id']
         exchange = ord['exchange']
@@ -1298,7 +1299,42 @@ async def sync_orders(application):
         state = res['state']
         exec_vol = res['executed_volume']
         keep_order_for_retry = False
-        
+
+        # 손절(Stop-Loss) 조건 평가 — rsitrade_sell 포지션이 stop_price 미만으로 하락 시
+        if (
+            ord.get("strategy") == "rsitrade_sell"
+            and ord.get("stop_price")
+            and state == "wait"
+        ):
+            cache_key = (exchange, ticker)
+            if cache_key not in _price_cache:
+                tkr = await exchange_adapter.get_ticker(exchange, ticker, user_id)
+                _price_cache[cache_key] = float(tkr.get("trade_price", 0)) if tkr else 0.0
+            current_price = _price_cache.get(cache_key, 0.0)
+            if current_price and current_price < float(ord["stop_price"]):
+                cancel_ok = await exchange_adapter.cancel_order(user_id, exchange, ord["uuid"], ticker)
+                if cancel_ok:
+                    remaining = float(ord["volume"]) - float(ord["filled_volume"])
+                    sl_price = ExchangeAdapter.adjust_price_to_tick(current_price * 0.999)
+                    sl_res = await exchange_adapter.create_order(
+                        user_id, exchange, ticker, "ask", sl_price, remaining
+                    )
+                    order_manager.remove_order(ord["uuid"])
+                    if sl_res and "uuid" in sl_res:
+                        order_manager.add_order(
+                            user_id, exchange, ticker, sl_res["uuid"],
+                            sl_price, remaining, side="ask", strategy="stoploss",
+                        )
+                    await application.bot.send_message(
+                        chat_id=user_id,
+                        text=f"🛑 [{ticker}] 손절 실행\n"
+                             f"• 현재가: {current_price:,.0f}원\n"
+                             f"• 손절 기준가: {float(ord['stop_price']):,.0f}원\n"
+                             f"• 손절 주문이 제출되었습니다.",
+                    )
+                await asyncio.sleep(0.2)
+                continue
+
         # 1. 부분 체결 또는 전량 체결 발생 시
         if exec_vol > ord['filled_volume']:
             newly_filled = exec_vol - ord['filled_volume']
@@ -1327,8 +1363,14 @@ async def sync_orders(application):
                     # 매도 주문 전송
                     s_res = await exchange_adapter.create_order(user_id, exchange, ticker, "ask", sell_price, sell_volume)
                     if s_res and 'uuid' in s_res:
-                        order_manager.add_order(user_id, exchange, ticker, s_res['uuid'], sell_price, sell_volume, 
-                                             side="ask", strategy="rsitrade_sell", target_rsi=target_rsi)
+                        stop_loss_pct = float(user.get("preferences", {}).get("stop_loss_pct", 0) or 0)
+                        stop_price = (
+                            ExchangeAdapter.adjust_price_to_tick(ord["price"] * (1 - stop_loss_pct / 100))
+                            if stop_loss_pct > 0 else None
+                        )
+                        order_manager.add_order(user_id, exchange, ticker, s_res['uuid'], sell_price, sell_volume,
+                                             side="ask", strategy="rsitrade_sell", target_rsi=target_rsi,
+                                             stop_price=stop_price)
                         order_manager.update_order_fill(ord['uuid'], exec_vol, state)
                         await application.bot.send_message(
                             chat_id=user_id,
