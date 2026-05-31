@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h5 class="fw-bold mb-0">거래 내역</h5>
+  <div class="d-flex gap-2">
+    {% set periods = [("1d","1일"),("7d","7일"),("30d","30일"),("all","전체")] %}
+    {% for key, label in periods %}
+    <a href="/admin/trades?period={{ key }}"
+       class="btn btn-sm {% if period == key %}btn-dark{% else %}btn-outline-secondary{% endif %}">{{ label }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm text-center"><div class="card-body py-3">
+      <div class="text-muted small">총 거래</div>
+      <div class="fs-4 fw-bold">{{ summary.total }}</div>
+    </div></div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm text-center"><div class="card-body py-3">
+      <div class="text-muted small">매수</div>
+      <div class="fs-4 fw-bold text-danger">{{ summary.buy }}</div>
+    </div></div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm text-center"><div class="card-body py-3">
+      <div class="text-muted small">매도</div>
+      <div class="fs-4 fw-bold text-primary">{{ summary.sell }}</div>
+    </div></div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm text-center"><div class="card-body py-3">
+      <div class="text-muted small">거래대금</div>
+      <div class="fs-5 fw-bold">{{ "{:,.0f}".format(summary.volume_krw) }}</div>
+    </div></div>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-6">
+    <div class="card shadow-sm">
+      <div class="card-header bg-white fw-semibold">거래소별</div>
+      <table class="table table-sm mb-0">
+        <thead class="table-light"><tr><th>거래소</th><th class="text-end">건수</th><th class="text-end">대금</th></tr></thead>
+        <tbody>
+          {% for r in by_exchange %}
+          <tr><td class="text-uppercase">{{ r.name }}</td><td class="text-end">{{ r.count }}</td>
+              <td class="text-end font-monospace small">{{ "{:,.0f}".format(r.krw) }}</td></tr>
+          {% else %}<tr><td colspan="3" class="text-center text-muted py-2">—</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card shadow-sm">
+      <div class="card-header bg-white fw-semibold">전략별</div>
+      <table class="table table-sm mb-0">
+        <thead class="table-light"><tr><th>전략</th><th class="text-end">건수</th><th class="text-end">대금</th></tr></thead>
+        <tbody>
+          {% for r in by_strategy %}
+          <tr><td>{{ r.name }}</td><td class="text-end">{{ r.count }}</td>
+              <td class="text-end font-monospace small">{{ "{:,.0f}".format(r.krw) }}</td></tr>
+          {% else %}<tr><td colspan="3" class="text-center text-muted py-2">—</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-header bg-white fw-semibold">상세 내역</div>
+  <div class="table-responsive">
+    <table class="table table-hover table-sm mb-0 align-middle">
+      <thead class="table-light">
+        <tr><th>시각</th><th>거래소</th><th>종목</th><th>구분</th><th>전략</th>
+            <th class="text-end">가격</th><th class="text-end">수량</th><th class="text-end">대금</th></tr>
+      </thead>
+      <tbody>
+        {% for t in trades %}
+        <tr>
+          <td class="small text-muted">{{ t.executed_fmt }}</td>
+          <td class="text-uppercase small">{{ t.get("exchange") }}</td>
+          <td class="font-monospace small">{{ t.get("ticker") }}</td>
+          <td>
+            {% if t.get("side") == "bid" %}<span class="badge bg-danger">매수</span>
+            {% else %}<span class="badge bg-primary">매도</span>{% endif %}
+          </td>
+          <td class="small">{{ t.get("strategy") }}</td>
+          <td class="text-end font-monospace small">{{ "{:,.0f}".format(t.get("price") or 0) }}</td>
+          <td class="text-end font-monospace small">{{ "%.4f"|format(t.get("volume") or 0) }}</td>
+          <td class="text-end font-monospace small">{{ "{:,.0f}".format(t.krw) }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-muted py-4">거래 내역 없음</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

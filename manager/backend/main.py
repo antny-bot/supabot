@@ -10,7 +10,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from .auth import supabase_sign_in
-from .routers import sysconfig, users
+from .routers import dashboard, events, orders, sysconfig, trades, users
 
 app = FastAPI(title="supabot manager")
 
@@ -22,6 +22,10 @@ app.add_middleware(
 
 templates = Jinja2Templates(directory="frontend/templates")
 
+app.include_router(dashboard.router)
+app.include_router(orders.router)
+app.include_router(trades.router)
+app.include_router(events.router)
 app.include_router(users.router)
 app.include_router(sysconfig.router)
 
@@ -30,13 +34,13 @@ app.include_router(sysconfig.router)
 async def root(request: Request):
     if not request.session.get("user_email"):
         return RedirectResponse("/login", status_code=303)
-    return RedirectResponse("/admin/users", status_code=303)
+    return RedirectResponse("/admin/dashboard", status_code=303)
 
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     if request.session.get("user_email"):
-        return RedirectResponse("/admin/users", status_code=303)
+        return RedirectResponse("/admin/dashboard", status_code=303)
     return templates.TemplateResponse(request, "login.html", {"error": None})
 
 
@@ -46,7 +50,7 @@ async def login_submit(request: Request, email: str = Form(...), password: str =
     if result and result.get("access_token"):
         request.session["user_email"] = email
         request.session["access_token"] = result["access_token"]
-        return RedirectResponse("/admin/users", status_code=303)
+        return RedirectResponse("/admin/dashboard", status_code=303)
     return templates.TemplateResponse(
         request,
         "login.html",

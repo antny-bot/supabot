@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h5 class="fw-bold mb-0">운영 이벤트 로그</h5>
+  <div class="d-flex gap-2">
+    <a href="/admin/events" class="btn btn-sm {% if not level_filter %}btn-dark{% else %}btn-outline-dark{% endif %}">전체</a>
+    {% for lv in levels %}
+    <a href="/admin/events?level={{ lv }}"
+       class="btn btn-sm {% if level_filter == lv %}btn-dark{% else %}btn-outline-secondary{% endif %}">{{ lv }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+<div class="card shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-hover table-sm mb-0 align-middle">
+      <thead class="table-light">
+        <tr><th>시각</th><th>레벨</th><th>소스</th><th>메시지</th><th>상세</th></tr>
+      </thead>
+      <tbody>
+        {% for e in events %}
+        <tr>
+          <td class="small text-muted text-nowrap">{{ (e.get("created_at") or "")[:19] }}</td>
+          <td>
+            {% if e.get("level") == "error" %}<span class="badge bg-danger">error</span>
+            {% elif e.get("level") == "warning" %}<span class="badge bg-warning text-dark">warning</span>
+            {% else %}<span class="badge bg-secondary">{{ e.get("level") }}</span>{% endif %}
+          </td>
+          <td class="small">{{ e.get("source") }}</td>
+          <td class="small">{{ e.get("message") }}</td>
+          <td class="small text-muted">{{ e.get("details") }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="text-center text-muted py-4">이벤트 없음</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
