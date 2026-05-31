@@ -1,4 +1,5 @@
 import os
+import sys
 import asyncio
 import html as _html
 import json
@@ -122,6 +123,37 @@ async def check_details_help(update: Update, command_name: str):
             await update.message.reply_text(help_text, parse_mode="HTML")
             return True
     return False
+
+# ==========================================
+# 🔍 환경변수 검증
+# ==========================================
+
+def _validate_env():
+    missing = []
+    if not BOT_TOKEN:
+        missing.append("TELEGRAM_BOT_TOKEN")
+    if not ADMIN_CHAT_ID:
+        missing.append("ADMIN_CHAT_ID")
+    if not os.getenv("USER_SECRET_KEY", "").strip():
+        missing.append("USER_SECRET_KEY")
+    if missing:
+        print(f"❌ 필수 환경변수가 누락되었습니다: {', '.join(missing)}")
+        print("config/.env 파일을 확인하고 config/.env.template을 참고하세요.")
+        sys.exit(1)
+    if not can_decrypt_secrets():
+        print("❌ USER_SECRET_KEY가 유효하지 않습니다.")
+        print('python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" 로 재발급하세요.')
+        sys.exit(1)
+
+
+def _write_heartbeat():
+    try:
+        os.makedirs("data", exist_ok=True)
+        with open("data/health.json", "w") as f:
+            json.dump({"ts": time.time()}, f)
+    except Exception:
+        pass
+
 
 # ==========================================
 # 🔒 권한 검증 미들웨어
@@ -1648,6 +1680,7 @@ async def order_sync_loop(application):
     print("📦 오더 동기화 루프 가동")
     while True:
         _order_wake_event.clear()
+        _write_heartbeat()
         try:
             prefs = _get_admin_prefs()
             await sync_orders(application)
@@ -1969,9 +2002,7 @@ async def natural_language_confirm_callback(update: Update, context: ContextType
 # 🚀 메인 실행부
 # ==========================================
 def main():
-    if not BOT_TOKEN:
-        print("❌ TELEGRAM_BOT_TOKEN 누락")
-        return
+    _validate_env()
 
     # post_init을 통해 백그라운드 태스크를 봇 생명주기에 안전하게 편입시킵니다.
     application = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).post_shutdown(post_shutdown).build()
