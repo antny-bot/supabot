@@ -5,6 +5,7 @@ import html as _html
 import json
 import re
 import time
+from aiohttp import web as _web
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand, BotCommandScopeDefault, BotCommandScopeChat
@@ -26,18 +27,14 @@ from core.signal_engine import SignalEngine
 from core.natural_language import (
     append_natural_language_log,
     append_preprocess_hit,
-    clear_natural_language_logs,
     normalize_natural_language_intent,
     preprocess_natural_language_intent,
-    read_natural_language_log_stats,
-    read_preprocess_hit_stats,
-    read_recent_natural_language_logs,
 )
-from core.operational_events import append_operational_event, read_recent_operational_events
+from core.operational_events import append_operational_event
 from core.secret_crypto import can_decrypt_secrets, has_secret_key
 from core.parsers import (
     KST,
-    RSI_INTERVAL_ALIASES, RSI_MINUTE_INTERVALS, POLL_INTERVAL_KEYS, ADMIN_ONLY_KEYS,
+    RSI_INTERVAL_ALIASES, RSI_MINUTE_INTERVALS, POLL_INTERVAL_KEYS,
     normalize_exchange, is_exchange_token, exchange_display_name,
     parse_exchange_and_ticker, parse_number, parse_rsi_range, parse_optional_krw,
     parse_rsi_interval, parse_config_value, validate_max_order, validate_config_update,
@@ -52,7 +49,7 @@ from core.formatters import (
     format_optional_krw, format_bool, escape_markdown_text,
     format_section, format_rsi_interval, format_config_value,
     format_safety_status, format_api_validation_status, build_secret_security_status,
-    build_config_view, build_diag_view, build_report_view,
+    build_config_view, build_report_view,
     build_start_menu_message, build_help_message,
     build_account_summary, build_manual_order_confirm_message,
     build_grid_preview_lines, build_rsi_preview_lines,
@@ -113,11 +110,7 @@ DEFAULT_BOT_COMMANDS = [
     # 설정
     ("config", "거래소, LLM API 설정"),
 ]
-ADMIN_BOT_COMMANDS = [
-    *DEFAULT_BOT_COMMANDS,
-    ("nlstats", "관리자 전용 자연어 패턴 통계"),
-    ("diag", "관리자 운영 진단"),
-]
+ADMIN_BOT_COMMANDS = DEFAULT_BOT_COMMANDS
 
 # Conversation States
 SET_EXCHANGE, SET_ACCESS, SET_SECRET, SET_KIS_APP, SET_KIS_SECRET, SET_KIS_ACCOUNT, SET_KIS_PRODUCT, SET_KIS_ENV, SET_GEMINI_KEY = range(9)
@@ -202,32 +195,15 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"내 ID: {user_id}"
         )
         if ADMIN_CHAT_ID:
-            keyboard = [[InlineKeyboardButton("✅ 승인하기", callback_data=f"approve_{user_id}")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
             await context.bot.send_message(
                 chat_id=ADMIN_CHAT_ID,
-                text=f"🔔 신규 유저 등록 요청\n\n- 이름: {username}\n- ID: {user_id}",
-                reply_markup=reply_markup,
+                text=f"🔔 신규 유저 등록 요청\n\n- 이름: {username}\n- ID: {user_id}\n\n승인하려면 서버에서 직접 처리해주세요.",
             )
     elif not user["is_active"]:
         await update.message.reply_text("⏳ 현재 승인 대기 중입니다. 잠시만 기다려 주세요!")
     else:
         await update.message.reply_text(build_start_menu_message(user), parse_mode="HTML")
 
-async def approve_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    if str(query.from_user.id) != str(ADMIN_CHAT_ID):
-        return
-
-    user_id = query.data.split("_")[1]
-    if user_manager.set_active(user_id, True):
-        await query.edit_message_text(text=f"✅ 유저(ID: {user_id}) 승인이 완료되었습니다.")
-        await context.bot.send_message(
-            chat_id=user_id,
-            text="🎉 축하합니다! 봇 사용 승인이 완료되었습니다. 이제 /start 명령어로 메뉴를 확인해 보세요!"
-        )
 
 _KIS_RSI_MINUTE_ERROR = "⚠️ 한국투자증권 RSI는 일봉만 지원합니다. /config set rsi_interval day 후 다시 시도하세요."
 
@@ -403,8 +379,8 @@ async def execute_confirmed_intent(query, context, user, intent):
     if action == "config_set":
         key = str(intent.get("config_key") or "").strip().lower()
         raw_value = str(intent.get("config_value") or "").strip()
-        if key in ADMIN_ONLY_KEYS and not user.get("is_admin"):
-            await query.edit_message_text("❌ 이 설정은 관리자만 변경할 수 있습니다.")
+        if key in POLL_INTERVAL_KEYS:
+            await query.edit_message_text("❌ 폴링 설정은 config/.env에서 직접 변경 후 재시작해주세요.")
             return
         value = parse_config_value(key, raw_value)
         validate_config_update(user, key, value)
@@ -700,8 +676,8 @@ async def config_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return ConversationHandler.END
         key = args[1].strip().lower()
         raw_value = " ".join(args[2:]).strip()
-        if key in ADMIN_ONLY_KEYS and not user.get("is_admin"):
-            await update.message.reply_text("❌ 폴링 설정은 관리자만 변경할 수 있습니다.")
+        if key in POLL_INTERVAL_KEYS:
+            await update.message.reply_text("❌ 폴링 설정은 config/.env에서 직접 변경 후 재시작해주세요.")
             return ConversationHandler.END
         try:
             value = parse_config_value(key, raw_value)
@@ -709,17 +685,6 @@ async def config_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except (ValueError, TypeError) as e:
             await update.message.reply_text(f"❌ 설정 저장 실패: {e}")
             return ConversationHandler.END
-        prefs = user.get("preferences", {})
-        if key == "poll_active_interval":
-            no_order = prefs.get("poll_no_order_interval", 300)
-            if value > no_order:
-                await update.message.reply_text(f"❌ poll_active_interval({value}초)은 poll_no_order_interval({no_order}초)보다 클 수 없습니다.")
-                return ConversationHandler.END
-        if key == "poll_no_order_interval":
-            active = prefs.get("poll_active_interval", 60)
-            if value < active:
-                await update.message.reply_text(f"❌ poll_no_order_interval({value}초)은 poll_active_interval({active}초)보다 작을 수 없습니다.")
-                return ConversationHandler.END
         user_manager.update_preference(user_id, key, value)
         formatted = format_config_value(key, value)
         await update.message.reply_text(f"✅ {key} 설정을 {formatted}(으)로 저장했습니다.")
@@ -1887,7 +1852,7 @@ async def notify_admin_security_status(application):
     message = (
         "⚠️ 보안 키 상태 확인 필요\n\n"
         f"- USER_SECRET_KEY: {status}\n"
-        "- /diag 또는 /config -v에서 상태를 확인하세요."
+        "- /config -v에서 상태를 확인하세요."
     )
     append_operational_event("warning", "security", "USER_SECRET_KEY status requires attention", status)
     try:
@@ -1895,9 +1860,28 @@ async def notify_admin_security_status(application):
     except Exception as e:
         append_operational_event("warning", "security", "failed to notify admin security status", e)
 
+_notify_runner: "_web.AppRunner | None" = None
+
+async def _internal_notify_handler(request: _web.Request) -> _web.Response:
+    api_key = os.environ.get("MANAGER_API_KEY", "")
+    if not api_key or request.headers.get("X-API-Key") != api_key:
+        return _web.Response(status=401)
+    try:
+        data = await request.json()
+        app = request.app["bot_application"]
+        await app.bot.send_message(
+            chat_id=data["chat_id"],
+            text=data["text"],
+            parse_mode=data.get("parse_mode", "HTML"),
+        )
+    except Exception as e:
+        _log.warning("internal notify failed", exc_info=e, extra={"event": "notify_error"})
+        return _web.Response(status=500, text=str(e))
+    return _web.Response(text="ok")
+
 async def post_init(application):
     """봇 초기화 후 백그라운드 태스크 실행"""
-    global _order_wake_event
+    global _order_wake_event, _notify_runner
     _order_wake_event = asyncio.Event()
     order_manager.on_order_added = lambda: _order_wake_event.set()
     try:
@@ -1918,9 +1902,23 @@ async def post_init(application):
     await startup_recovery(application)
     asyncio.create_task(order_sync_loop(application))
     asyncio.create_task(signal_analysis_loop(application))
+    if os.environ.get("MANAGER_API_KEY"):
+        notify_app = _web.Application()
+        notify_app["bot_application"] = application
+        notify_app.router.add_post("/internal/notify", _internal_notify_handler)
+        _notify_runner = _web.AppRunner(notify_app)
+        await _notify_runner.setup()
+        port = int(os.environ.get("INTERNAL_PORT", 8765))
+        site = _web.TCPSite(_notify_runner, "0.0.0.0", port)
+        await site.start()
+        _log.info(f"Internal notify server started on port {port}", extra={"event": "notify_server_start"})
 
 async def post_shutdown(application):
     """봇 종료 시 외부 연결을 정리합니다."""
+    global _notify_runner
+    if _notify_runner:
+        await _notify_runner.cleanup()
+        _notify_runner = None
     await exchange_adapter.close()
 
 # --- 디버그용 글로벌 메시지 핸들러 ---
@@ -1946,114 +1944,9 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
     await update.message.reply_text(msg, parse_mode="HTML")
 
 @check_auth
-async def diag_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
-    if not user.get("is_admin"):
-        await update.message.reply_text("운영 진단은 관리자만 조회할 수 있습니다.")
-        return
-    recent_events = read_recent_operational_events(levels={"warning", "error"}, limit=5)
-    env_info = {
-        "bot_token_set": bool(BOT_TOKEN),
-        "admin_chat_id_set": bool(ADMIN_CHAT_ID),
-        "version": VERSION,
-        "build_date": BUILD_DATE,
-        "git_sha": GIT_SHA[:7] if GIT_SHA != "unknown" else "unknown",
-        "order_count": len(order_manager.orders),
-    }
-    await update.message.reply_text(
-        build_diag_view(user, env_info=env_info, recent_events=recent_events,
-                        metrics_snapshot=metrics.snapshot()),
-        parse_mode="HTML",
-    )
-
-@check_auth
 async def whoami_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     user_id = str(update.effective_chat.id)
     await update.message.reply_text(build_account_summary(user_id, user), parse_mode="HTML")
-
-def recommend_nl_preprocess_action(text_norm):
-    text = str(text_norm or "").lower()
-    compact = re.sub(r"\s+", "", text)
-    if any(hint in compact for hint in ["주문대기", "예약주문", "추적중", "전략주문"]):
-        return "status"
-    if any(hint in compact for hint in ["미체결", "오픈오더", "openorder"]):
-        return "orders"
-    if any(hint in compact for hint in ["잔고", "자산", "계좌현황"]):
-        return "asset"
-    if any(hint in compact for hint in ["시세", "가격", "현재가"]):
-        return "price"
-    if any(hint in compact for hint in ["설정", "api등록", "gemini", "llm"]):
-        return "config_view"
-    if any(hint in compact for hint in ["체결내역", "거래내역", "최근체결"]):
-        return "history"
-    return None
-
-@check_auth
-async def nlstats_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
-    if not user.get("is_admin"):
-        await update.message.reply_text("자연어 로그 통계는 관리자만 조회할 수 있습니다.")
-        return
-    args = [str(arg).lower() for arg in context.args]
-    if args[:1] == ["export"]:
-        try:
-            limit = int(args[1]) if len(args) > 1 else 20
-        except ValueError:
-            limit = 20
-        rows = read_recent_natural_language_logs(limit=limit)
-        if not rows:
-            await update.message.reply_text("내보낼 자연어 로그가 없습니다.")
-            return
-        lines = [f"최근 익명 자연어 로그 {len(rows)}건"]
-        for row in rows:
-            lines.append(f"- {row.get('text_norm')} / LLM:{row.get('llm_action')} / Final:{row.get('final_action')}")
-        await update.message.reply_text("\n".join(lines))
-        return
-    if args[:1] == ["hits"]:
-        hits = read_preprocess_hit_stats()
-        if not hits:
-            await update.message.reply_text("아직 자연어 전처리 hit 통계가 없습니다.")
-            return
-        lines = ["자연어 전처리 hit 통계"]
-        for action, count in sorted(hits.items(), key=lambda item: (-item[1], item[0])):
-            lines.append(f"- {action}: {count}")
-        await update.message.reply_text("\n".join(lines))
-        return
-    if args[:1] == ["clear"]:
-        if args[1:2] != ["confirm"]:
-            await update.message.reply_text("자연어 로그와 hit 통계를 초기화하려면 /nlstats clear confirm을 입력하세요.")
-            return
-        clear_natural_language_logs()
-        await update.message.reply_text("자연어 로그와 hit 통계를 초기화했습니다.")
-        return
-
-    rows = read_natural_language_log_stats()
-    hits = read_preprocess_hit_stats()
-    if not rows and not hits:
-        await update.message.reply_text("아직 자연어 통계가 없습니다.")
-        return
-
-    lines = ["자연어 전처리 후보 상위 패턴"]
-    if rows:
-        for i, row in enumerate(rows, start=1):
-            llm_actions = ", ".join(f"{k}:{v}" for k, v in row["llm_actions"].items())
-            final_actions = ", ".join(f"{k}:{v}" for k, v in row["final_actions"].items())
-            lines.append(
-                f"{i}. {row['text_norm']} ({row['count']}회)\n"
-                f"   LLM: {llm_actions} / Final: {final_actions}"
-            )
-    else:
-        lines.append("- 미처리 패턴 없음")
-    if hits:
-        hit_text = ", ".join(f"{action}:{count}" for action, count in sorted(hits.items()))
-        lines.append(f"\n전처리 hit: {hit_text}")
-    recommendations = []
-    for row in rows[:5]:
-        action = recommend_nl_preprocess_action(row.get("text_norm"))
-        if action:
-            recommendations.append(f"- {row.get('text_norm')} → {action}")
-    if recommendations:
-        lines.append("\n추천 전처리 후보")
-        lines.extend(recommendations)
-    await update.message.reply_text("\n".join(lines))
 
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """등록되지 않은 명령어가 입력되었을 때 호출됩니다."""
@@ -2187,8 +2080,6 @@ def main():
     application.add_handler(CommandHandler("info", info_command))
     for command_name in ACCOUNT_COMMAND_ALIASES:
         application.add_handler(CommandHandler(command_name, whoami_command))
-    application.add_handler(CommandHandler("nlstats", nlstats_command))
-    application.add_handler(CommandHandler("diag", diag_command))
     application.add_handler(CommandHandler("asset", asset_command))
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("price", price_command))
@@ -2207,7 +2098,6 @@ def main():
         application.add_handler(CommandHandler(command_name, rsitrade_command))
     application.add_handler(CommandHandler("watch", watch_command))
     application.add_handler(CommandHandler("unwatch", unwatch_command))
-    application.add_handler(CallbackQueryHandler(approve_callback, pattern="^approve_"))
     application.add_handler(CallbackQueryHandler(grid_quick_callback, pattern="^grid_quick_"))
     application.add_handler(CallbackQueryHandler(grid_confirm_callback, pattern="^(gridrun|sgridrun|grid_cancel)"))
     application.add_handler(CallbackQueryHandler(rsitrade_confirm_callback, pattern="^rsitrun"))
