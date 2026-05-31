@@ -8,6 +8,7 @@ import urllib.parse
 import time
 
 from core.bot_logger import get_logger
+from core.metrics import metrics
 
 _log = get_logger("exchange_adapter")
 
@@ -56,13 +57,15 @@ class ExchangeAdapter:
                 cmd.extend(["--access-key", access, "--secret-key", secret])
 
         try:
+            _t0 = time.monotonic()
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
             stdout, stderr = await process.communicate()
-            
+            metrics.record_latency("upbit", (time.monotonic() - _t0) * 1000)
+
             if process.returncode != 0:
                 _log.error("Upbit CLI error", extra={"event": "upbit_cli_error", "msg": stderr.decode().strip()})
                 return None
@@ -111,15 +114,18 @@ class ExchangeAdapter:
 
         try:
             session = await self._get_bithumb_session()
+            _t0 = time.monotonic()
             if method.upper() == "POST":
                 async with session.post(url, json=body, headers=headers) as resp:
-                    return await resp.json()
+                    result = await resp.json()
             elif method.upper() == "DELETE":
                 async with session.delete(url, headers=headers) as resp:
-                    return await resp.json()
+                    result = await resp.json()
             else:
                 async with session.get(url, headers=headers) as resp:
-                    return await resp.json()
+                    result = await resp.json()
+            metrics.record_latency("bithumb", (time.monotonic() - _t0) * 1000)
+            return result
         except Exception as e:
             _log.error("Bithumb API exception", exc_info=e, extra={"event": "bithumb_api_exception", "path": path})
             return None
@@ -205,11 +211,15 @@ class ExchangeAdapter:
 
         try:
             session = await self._get_kis_session()
+            _t0 = time.monotonic()
             if method.upper() == "POST":
                 async with session.post(f"{base_url}{path}", json=body, headers=headers) as resp:
-                    return await resp.json()
-            async with session.get(f"{base_url}{path}", params=params, headers=headers) as resp:
-                return await resp.json()
+                    result = await resp.json()
+            else:
+                async with session.get(f"{base_url}{path}", params=params, headers=headers) as resp:
+                    result = await resp.json()
+            metrics.record_latency("kis", (time.monotonic() - _t0) * 1000)
+            return result
         except Exception as e:
             _log.error("KIS API exception", exc_info=e, extra={"event": "kis_api_exception", "path": path})
             return None
@@ -239,6 +249,7 @@ class ExchangeAdapter:
 
         side = "bid" if side in ["bid", "buy", "매수"] else "ask"
 
+        result = None
         if exchange == "upbit":
             args = [
                 "--market", ticker,
@@ -247,7 +258,7 @@ class ExchangeAdapter:
                 "--price", str(price),
                 "--volume", str(volume)
             ]
-            return await self._run_upbit_cli("orders", "create", args=args, keys=client)
+            result = await self._run_upbit_cli("orders", "create", args=args, keys=client)
         elif exchange == "bithumb":
             body = {
                 "market": ticker,
@@ -263,11 +274,15 @@ class ExchangeAdapter:
             body = {k: v for k, v in body.items() if v is not None}
             res = await self._request_bithumb("POST", "/v2/orders", keys=client, body=body)
             if res and ('order_id' in res or 'uuid' in res):
-                return {"uuid": res.get('order_id') or res.get('uuid'), **res}
-            return res
+                result = {"uuid": res.get('order_id') or res.get('uuid'), **res}
+            else:
+                result = res
         elif exchange == "kis":
-            return await self._create_kis_order(user_id, client, ticker, side, price, volume, ord_type=ord_type)
-        return None
+            result = await self._create_kis_order(user_id, client, ticker, side, price, volume, ord_type=ord_type)
+
+        ok = bool(result and "uuid" in result)
+        metrics.record_order(exchange, ok)
+        return result
 
     async def buy_limit_order(self, user_id, exchange, ticker, price, volume):
         """기존 코드 호환성을 위해 유지 (매수 전용)"""

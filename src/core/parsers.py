@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, time as dt_time, timedelta, timezone
 
 KST = timezone(timedelta(hours=9))
@@ -238,6 +239,16 @@ def parse_config_value(key, raw_value):
         if not 0 < pct <= 100:
             raise ValueError("손절 비율은 0 초과 100 이하의 숫자여야 합니다 (예: 3 또는 3%).")
         return pct
+    if key in ["quiet_hours_start", "quiet_hours_end"]:
+        text = str(raw_value).strip().lower()
+        if text in ["off", "none", "unset", "미설정", "해제"]:
+            return None
+        if not re.match(r"^\d{2}:\d{2}$", text):
+            raise ValueError("시간은 HH:MM 형식 (24시간) 또는 off로 입력하세요. 예: 22:00")
+        h, m = text.split(":")
+        if not (0 <= int(h) <= 23 and 0 <= int(m) <= 59):
+            raise ValueError("유효하지 않은 시간입니다. 예: 22:00, 08:30")
+        return text
     if key in POLL_INTERVAL_KEYS:
         try:
             val = int(raw_value)

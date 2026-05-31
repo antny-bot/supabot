@@ -18,7 +18,8 @@ from telegram.ext import (
     filters
 )
 
-from core.user_manager import UserManager
+from core.user_manager import UserManager, is_quiet_hours
+from core.trade_log import append_trade, read_trades
 from core.exchange_adapter import ExchangeAdapter
 from core.order_manager import OrderManager
 from core.signal_engine import SignalEngine
@@ -51,12 +52,13 @@ from core.formatters import (
     format_optional_krw, format_bool, escape_markdown_text,
     format_section, format_rsi_interval, format_config_value,
     format_safety_status, format_api_validation_status, build_secret_security_status,
-    build_config_view, build_diag_view,
+    build_config_view, build_diag_view, build_report_view,
     build_start_menu_message, build_help_message,
     build_account_summary, build_manual_order_confirm_message,
     build_grid_preview_lines, build_rsi_preview_lines,
 )
 from core.bot_logger import get_logger
+from core.metrics import metrics
 
 _log = get_logger("main")
 
@@ -95,6 +97,7 @@ DEFAULT_BOT_COMMANDS = [
     ("price", "실시간 시세 조회"),
     ("indicators", "RSI/MACD/BB/Stoch 멀티지표"),
     ("history", "최근 체결 내역"),
+    ("report", "기간별 수익률 리포트"),
     # 매매
     ("status", "트레이딩 전략 대시보드"),
     ("orders", "미체결 주문 목록"),
@@ -1190,6 +1193,24 @@ async def indicators_command(update: Update, context: ContextTypes.DEFAULT_TYPE,
     await update.message.reply_text(msg, parse_mode="HTML")
 
 @check_auth
+async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
+    if await check_details_help(update, "report"): return
+    user_id = str(update.effective_chat.id)
+    args = context.args or []
+    period = args[0].lower() if args else "all"
+    if period not in ("today", "week", "month", "all"):
+        await update.message.reply_text("⚠️ 사용법: /report [today|week|month|all]")
+        return
+    trades = read_trades(user_id, period)
+    if not trades:
+        await update.message.reply_text(
+            "📊 해당 기간에 체결 기록이 없습니다.\n"
+            "팁: 주문이 전량 체결되면 자동으로 기록됩니다."
+        )
+        return
+    await update.message.reply_text(build_report_view(trades, period), parse_mode="HTML")
+
+@check_auth
 async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     if await check_details_help(update, "history"): return
     user_id = str(update.effective_chat.id)
@@ -1542,6 +1563,17 @@ async def sync_orders(application):
                     text=f"🛑 [{exchange.upper()}] {ticker} 외부 개입 감지\n"
                          f"• 주문이 거래소에서 취소되었습니다. 추적을 중단합니다.",
                 )
+            if state == "done":
+                append_trade(
+                    user_id=user_id,
+                    exchange=exchange,
+                    ticker=ticker,
+                    side=ord["side"],
+                    price=ord["price"],
+                    volume=float(exec_vol) if exec_vol else float(ord.get("filled_volume", ord["volume"])),
+                    strategy=ord.get("strategy", "manual"),
+                    uuid=ord["uuid"],
+                )
             order_manager.remove_order(ord['uuid'])
         elif state != ord.get("status"):
             order_manager.update_order_status(ord['uuid'], state)
@@ -1782,6 +1814,7 @@ async def order_sync_loop(application):
         try:
             prefs = _get_admin_prefs()
             await sync_orders(application)
+            metrics.record_poll_ok()
             interval = prefs["poll_active_interval"] if order_manager.orders \
                        else prefs["poll_no_order_interval"]
             await _interruptible_sleep(interval)
@@ -1790,13 +1823,31 @@ async def order_sync_loop(application):
             append_operational_event("error", "order_sync_loop", "order sync loop error", e)
             await _interruptible_sleep(60)
 
+async def _check_ops_health(application):
+    """메트릭 임계 초과 시 관리자에게 알림 전송."""
+    if not ADMIN_CHAT_ID:
+        return
+    issues = metrics.ops_alerts()
+    if not issues:
+        return
+    msg = "🚨 <b>운영 알림</b>\n\n" + "\n".join(f"• {issue}" for issue in issues)
+    try:
+        await application.bot.send_message(chat_id=ADMIN_CHAT_ID, text=msg, parse_mode="HTML")
+    except Exception as e:
+        _log.warning("Ops health alert failed", exc_info=e, extra={"event": "ops_alert_failed"})
+
 async def signal_analysis_loop(application):
     _log.info("Signal analysis loop started", extra={"event": "signal_analysis_loop_start"})
     await asyncio.sleep(5)
+    _ops_check_counter = 0
     while True:
         try:
             prefs = _get_admin_prefs()
             await signal_engine.analyze_watchlist(application)
+            metrics.record_signal_ok()
+            _ops_check_counter += 1
+            if _ops_check_counter % 6 == 0:  # 매 6회 주기(~30분)마다 운영 상태 점검
+                await _check_ops_health(application)
             await asyncio.sleep(prefs["signal_analysis_interval"])
         except Exception as e:
             _log.error("Signal analysis loop error", exc_info=e, extra={"event": "signal_analysis_loop_error"})
@@ -1909,7 +1960,8 @@ async def diag_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
         "order_count": len(order_manager.orders),
     }
     await update.message.reply_text(
-        build_diag_view(user, env_info=env_info, recent_events=recent_events),
+        build_diag_view(user, env_info=env_info, recent_events=recent_events,
+                        metrics_snapshot=metrics.snapshot()),
         parse_mode="HTML",
     )
 
@@ -2144,6 +2196,7 @@ def main():
     application.add_handler(CommandHandler("indicators", indicators_command))
     application.add_handler(CommandHandler("ind", indicators_command))
     application.add_handler(CommandHandler("history", history_command))
+    application.add_handler(CommandHandler("report", report_command))
     application.add_handler(CommandHandler("buy", buy_command))
     application.add_handler(CommandHandler("sell", sell_command))
     application.add_handler(CommandHandler("orders", orders_command))

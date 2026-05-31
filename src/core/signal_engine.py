@@ -4,6 +4,7 @@ import pandas as pd
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from core.bot_logger import get_logger
+from core.user_manager import is_quiet_hours
 from core.indicators import (
     BollingerBandsIndicator,
     MACDIndicator,
@@ -182,7 +183,7 @@ class SignalEngine:
                     rsi_triggered = rsi <= threshold
                     bb_triggered = use_bb and current_price < bb.lower
 
-                    if rsi_triggered or bb_triggered:
+                    if (rsi_triggered or bb_triggered) and not is_quiet_hours(user_data):
                         reasons = []
                         if rsi_triggered:
                             reasons.append(f"RSI {rsi:.2f} ≤ {threshold:g}")

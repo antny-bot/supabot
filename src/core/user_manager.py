@@ -32,6 +32,8 @@ class UserManager:
         "rsi_interval": "day",
         "max_order_krw": None,
         "stop_loss_pct": None,
+        "quiet_hours_start": None,
+        "quiet_hours_end": None,
         "llm_enabled": False,
         "llm_model": "gemini-2.5-flash-lite",
         "poll_active_interval": 60,
@@ -278,3 +280,17 @@ class UserManager:
             _log.info("Registering initial admin", extra={"event": "admin_init", "user_id": admin_id_str})
             return self.add_user(admin_id_str, "SystemAdmin", is_admin=True)
         return True
+
+
+def is_quiet_hours(user: dict) -> bool:
+    """KST 기준 현재 시각이 조용한 시간대(quiet hours)에 해당하는지 확인."""
+    prefs = user.get("preferences", {})
+    start = prefs.get("quiet_hours_start")
+    end = prefs.get("quiet_hours_end")
+    if not start or not end:
+        return False
+    now_str = datetime.now(KST).strftime("%H:%M")
+    if start <= end:
+        return start <= now_str < end
+    # 자정 넘는 범위: e.g., 22:00–08:00
+    return now_str >= start or now_str < end
