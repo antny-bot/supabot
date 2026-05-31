@@ -1,8 +1,10 @@
 import os
 
-from supabase import Client, create_client
+from supabase import Client, ClientOptions, create_client
 
 _client: Client | None = None
+
+_TIMEOUT = int(os.environ.get("SUPABASE_TIMEOUT", "30"))
 
 
 def get_db() -> Client:
@@ -12,7 +14,13 @@ def get_db() -> Client:
         key = os.environ.get("SUPABASE_SERVICE_KEY", "")
         if not url or not key:
             raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set")
-        _client = create_client(url, key)
+        _client = create_client(
+            url, key,
+            options=ClientOptions(
+                postgrest_client_timeout=_TIMEOUT,
+                storage_client_timeout=_TIMEOUT,
+            ),
+        )
     return _client
 
 
