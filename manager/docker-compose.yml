@@ -1,0 +1,11 @@
+services:
+  supabot-manager:
+    image: ghcr.io/antny-bot/supabot-manager:latest
+    container_name: supabot-manager
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      TZ: Asia/Seoul
+    env_file:
+      - .env
