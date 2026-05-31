@@ -1,8 +1,27 @@
 import asyncio
 
 import pandas as pd
-import ta
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+from core.bot_logger import get_logger
+from core.user_manager import is_quiet_hours
+from core.indicators import (
+    BollingerBandsIndicator,
+    MACDIndicator,
+    RSIIndicator,
+    StochasticIndicator,
+)
+
+_log = get_logger("signal_engine")
+
+
+def _rename_candle_df(df: pd.DataFrame) -> pd.DataFrame:
+    return df.rename(columns={
+        "trade_price": "close",
+        "opening_price": "open",
+        "high_price": "high",
+        "low_price": "low",
+    })
 
 
 class SignalEngine:
@@ -12,6 +31,9 @@ class SignalEngine:
 
     async def get_rsi(self, exchange, ticker, interval="day", period=14, user_id=None):
         """Return the latest RSI and candle dataframe for a market."""
+        # KIS는 분봉 미지원 — 사용자 설정이 분봉이더라도 일봉으로 자동 폴백
+        if exchange == "kis" and interval != "day":
+            interval = "day"
         try:
             candles = await self.exchange_adapter.get_candles(
                 exchange,
@@ -22,29 +44,51 @@ class SignalEngine:
             )
             if not candles:
                 return None, None
-            df = pd.DataFrame(candles)
-            df = df.rename(
-                columns={
-                    "trade_price": "close",
-                    "opening_price": "open",
-                    "high_price": "high",
-                    "low_price": "low",
-                }
-            )
+            df = _rename_candle_df(pd.DataFrame(candles))
             if "candle_date_time_kst" in df.columns:
                 df = df.sort_values("candle_date_time_kst")
 
-            rsi_series = ta.momentum.RSIIndicator(close=df["close"], window=period).rsi()
-            return rsi_series.iloc[-1], df
+            closes = df["close"].astype(float).reset_index(drop=True)
+            rsi_value = RSIIndicator(period=period).compute(closes)
+            return rsi_value, df
         except Exception as e:
-            print(f"❌ [{exchange.upper()}] {ticker} RSI 계산 오류: {e}")
+            _log.error("RSI calculation error", exc_info=e, extra={"event": "rsi_error", "exchange": exchange, "ticker": ticker})
             return None, None
+
+    async def get_indicators(self, exchange, ticker, interval="day", user_id=None):
+        """Return RSI, MACD, Bollinger Bands, Stochastic for a market.
+
+        Returns a dict with keys: rsi, macd, bbands, stoch, current_price, interval.
+        Returns None if candle data is unavailable.
+        """
+        if exchange == "kis" and interval != "day":
+            interval = "day"
+        try:
+            candles = await self.exchange_adapter.get_candles(
+                exchange, ticker, interval=interval, count=100, user_id=user_id
+            )
+            if not candles:
+                return None
+            df = _rename_candle_df(pd.DataFrame(candles))
+            if "candle_date_time_kst" in df.columns:
+                df = df.sort_values("candle_date_time_kst")
+            df = df.reset_index(drop=True)
+
+            return {
+                "rsi": RSIIndicator(period=14).compute(df["close"]),
+                "macd": MACDIndicator().compute(df["close"]),
+                "bbands": BollingerBandsIndicator().compute(df["close"]),
+                "stoch": StochasticIndicator().compute_ohlcv(df),
+                "current_price": float(df["close"].astype(float).iloc[-1]),
+                "interval": interval,
+            }
+        except Exception as e:
+            _log.error("Indicator calculation error", exc_info=e, extra={"event": "indicator_error", "exchange": exchange, "ticker": ticker})
+            return None
 
     @staticmethod
     def _calculate_rsi_for_next_close(close_series, next_close, period):
-        simulated = pd.concat([close_series, pd.Series([float(next_close)])], ignore_index=True)
-        rsi_series = ta.momentum.RSIIndicator(close=simulated, window=period).rsi()
-        return float(rsi_series.iloc[-1])
+        return RSIIndicator(period=period).compute_with_next(close_series, next_close)
 
     def _search_price_for_target_rsi(self, close_series, current_price, current_rsi, target_rsi, side, period):
         if side == "bid":
@@ -114,7 +158,7 @@ class SignalEngine:
         return self.exchange_adapter.adjust_price_to_tick(target_price)
 
     async def analyze_watchlist(self, application):
-        """Scan watchlists and send alerts for oversold RSI levels."""
+        """Scan watchlists and send alerts based on RSI and (optionally) Bollinger Bands."""
         users = self.user_manager.users
         for user_id, user_data in users.items():
             if not user_data.get("is_active") or not user_data["preferences"].get("signal_alerts"):
@@ -124,24 +168,40 @@ class SignalEngine:
                 watchlist = ex_data.get("watchlist", [])
                 for ticker in watchlist:
                     interval = user_data["preferences"].get("rsi_interval", "day")
-                    rsi, _ = await self.get_rsi(exchange, ticker, interval=interval, user_id=user_id)
+                    threshold = float(user_data["preferences"].get("signal_rsi_threshold", 30))
+                    use_bb = user_data["preferences"].get("signal_bb_alert", False)
 
-                    if rsi is not None:
-                        threshold = float(user_data["preferences"].get("signal_rsi_threshold", 30))
-                        if rsi <= threshold:
-                            msg = (
-                                f"🔔 매수 시그널 포착\n\n"
-                                f"- 거래소: {exchange.upper()}\n"
-                                f"- 종목: {ticker}\n"
-                                f"- 현재 RSI: {rsi:.2f} (기준 {threshold:g} 이하)\n\n"
-                                "현재 가격대에서 진입을 고려해 보세요!"
-                            )
-                            keyboard = [[InlineKeyboardButton("🕸️ 거미줄 셋팅하기", callback_data=f"grid_quick_{exchange}_{ticker}")]]
-                            reply_markup = InlineKeyboardMarkup(keyboard)
-                            await application.bot.send_message(
-                                chat_id=user_id,
-                                text=msg,
-                                reply_markup=reply_markup,
-                            )
+                    indicators = await self.get_indicators(exchange, ticker, interval=interval, user_id=user_id)
+                    if indicators is None:
+                        await asyncio.sleep(0.5)
+                        continue
+
+                    rsi = indicators["rsi"]
+                    bb = indicators["bbands"]
+                    current_price = indicators["current_price"]
+
+                    rsi_triggered = rsi <= threshold
+                    bb_triggered = use_bb and current_price < bb.lower
+
+                    if (rsi_triggered or bb_triggered) and not is_quiet_hours(user_data):
+                        reasons = []
+                        if rsi_triggered:
+                            reasons.append(f"RSI {rsi:.2f} ≤ {threshold:g}")
+                        if bb_triggered:
+                            reasons.append(f"종가 {current_price:,.0f} < BB하단 {bb.lower:,.0f}")
+
+                        msg = (
+                            f"🔔 매수 시그널 포착\n\n"
+                            f"- 거래소: {exchange.upper()}\n"
+                            f"- 종목: {ticker}\n"
+                            f"- 조건: {' / '.join(reasons)}\n\n"
+                            "현재 가격대에서 진입을 고려해 보세요!"
+                        )
+                        keyboard = [[InlineKeyboardButton("🕸️ 거미줄 셋팅하기", callback_data=f"grid_quick_{exchange}_{ticker}")]]
+                        await application.bot.send_message(
+                            chat_id=user_id,
+                            text=msg,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                        )
 
                     await asyncio.sleep(0.5)

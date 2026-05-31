@@ -1,4 +1,5 @@
 import html as _html
+from collections import defaultdict
 
 from core.parsers import (
     exchange_display_name,
@@ -98,6 +99,19 @@ CMD_HELP = {
         "2. <code>/price 빗썸 ETH</code> (빗썸 이더리움 시세)\n"
         "3. <code>/p KRW-XRP</code> (심볼 직접 입력)\n"
         "4. <code>/price 한투 005930</code> (한국투자증권 삼성전자 시세)"
+    ),
+    "indicators": (
+        "📈 <b>/indicators 상세 가이드</b>\n\n"
+        "<b>기능:</b> RSI, MACD, 볼린저밴드, 스토캐스틱을 한 번에 조회합니다.\n"
+        "<b>구문:</b> <code>/indicators [거래소] [종목] [봉기준]</code>\n\n"
+        "<b>옵션:</b>\n"
+        "• <code>거래소</code>: 업비트, 빗썸, 한투 (생략 시 기본 거래소)\n"
+        "• <code>종목</code>: BTC, ETH, 005930 등\n"
+        "• <code>봉기준</code>: day(일봉, 기본값), 60, 240 등 분봉\n\n"
+        "<b>예시:</b>\n"
+        "1. <code>/indicators BTC</code> (업비트 비트코인 일봉 지표)\n"
+        "2. <code>/ind BTC 60</code> (업비트 비트코인 60분봉 지표)\n"
+        "3. <code>/indicators 빗썸 ETH</code> (빗썸 이더리움 지표)"
     ),
     "history": (
         "📜 <b>/history 상세 가이드</b>\n\n"
@@ -385,6 +399,13 @@ def build_config_view(user, active_order_count=0):
             f"- signal_alerts: {format_bool(preferences.get('signal_alerts'))}",
             f"- signal_rsi_threshold: {float(preferences.get('signal_rsi_threshold', 30)):g}",
             f"- max_order_krw: {format_optional_krw(preferences.get('max_order_krw'))}",
+            "- stop_loss_pct: " + ("없음 (손절 비활성)" if preferences.get('stop_loss_pct') is None else f"{preferences.get('stop_loss_pct'):g}%"),
+            f"- signal_bb_alert: {format_bool(preferences.get('signal_bb_alert'))}",
+            "- quiet_hours: " + (
+                f"{preferences.get('quiet_hours_start')} – {preferences.get('quiet_hours_end')}"
+                if preferences.get('quiet_hours_start') and preferences.get('quiet_hours_end')
+                else "비활성"
+            ),
         ]),
         "",
         format_section("LLM 설정", [
@@ -417,7 +438,23 @@ def build_config_view(user, active_order_count=0):
     return "\n".join(sections)
 
 
-def build_diag_view(user, env_info=None, recent_events=None):
+def _format_metrics_section(snap: dict) -> list:
+    lines = []
+    for ex, s in sorted(snap.get("orders", {}).items()):
+        rate = f"{s['success_rate']}%" if s["success_rate"] is not None else "n/a"
+        lines.append(f"- 주문 [{ex}]: 성공 {s['ok']} / 실패 {s['fail']} (성공률 {rate})")
+    for ex, lat in sorted(snap.get("latencies", {}).items()):
+        lines.append(f"- 레이턴시 [{ex}]: p50={lat['p50']:.0f}ms / p95={lat['p95']:.0f}ms ({lat['count']}회)")
+    import time as _time
+    now = _time.time()
+    poll_ts = snap.get("poll_last_ok")
+    sig_ts = snap.get("signal_last_ok")
+    lines.append(f"- 주문 동기화: {f'{int((now-poll_ts)//60)}분 전' if poll_ts else '미측정'}")
+    lines.append(f"- 신호 분석: {f'{int((now-sig_ts)//60)}분 전' if sig_ts else '미측정'}")
+    return lines or ["- 메트릭 수집 없음"]
+
+
+def build_diag_view(user, env_info=None, recent_events=None, metrics_snapshot=None):
     if env_info is None:
         env_info = {}
     prefs = user.get("preferences", {})
@@ -485,6 +522,8 @@ def build_diag_view(user, env_info=None, recent_events=None):
         format_section("거래 안전 상태", format_safety_status(user)),
         "",
         format_section("최근 오류", event_lines),
+        "",
+        format_section("메트릭", _format_metrics_section(metrics_snapshot or {})),
     ])
 
 
@@ -506,8 +545,9 @@ def build_account_summary(user_id, user):
     )
 
 
-def build_manual_order_confirm_message(exchange, ticker, side, price, volume, user):
+def build_manual_order_confirm_message(exchange, ticker, side, price, volume, user, ord_type="limit"):
     action = "매수" if side == "bid" else "매도"
+    is_market = ord_type == "market"
     env_notice = ""
     if exchange == "kis":
         env = user.get("exchanges", {}).get("kis", {}).get("env", "paper")
@@ -515,12 +555,14 @@ def build_manual_order_confirm_message(exchange, ticker, side, price, volume, us
         volume_text = f"{float(volume):,.0f}주"
     else:
         volume_text = f"{float(volume):.8f}".rstrip("0").rstrip(".")
+    price_text = "시장가" if is_market else f"{float(price):,.0f}원"
+    amount_line = "" if is_market else f"- 주문금액: {float(price) * float(volume):,.0f}원\n"
     return (
         f"{'📈' if side == 'bid' else '📉'} <b>{exchange_display_name(exchange)} {action} 주문 확인</b>{env_notice}\n\n"
         f"- 종목: {ticker}\n"
-        f"- 가격: {float(price):,.0f}원\n"
+        f"- 가격: {price_text}\n"
         f"- 수량: {volume_text}\n"
-        f"- 주문금액: {float(price) * float(volume):,.0f}원\n\n"
+        f"{amount_line}\n"
         "위 내용으로 주문을 전송할까요?"
     )
 
@@ -549,3 +591,41 @@ def build_rsi_preview_lines(ticker, rsi_prices, budget, total_count=None):
             f"{i}. RSI {float(target_rsi):g} → {price:,.0f}원 / 약 {_format_preview_volume(ticker, volume)} / {per_order_budget:,.0f}원"
         )
     return lines
+
+
+def build_report_view(trades: list, period: str = "all") -> str:
+    """체결 기록 기반 수익률 리포트 메시지 생성."""
+    period_label = {"today": "오늘", "week": "최근 7일", "month": "최근 30일"}.get(period, "전체")
+
+    by_key: dict = defaultdict(lambda: {"bid_krw": 0.0, "ask_krw": 0.0, "bid_count": 0, "ask_count": 0})
+    for t in trades:
+        key = (t.get("exchange", ""), t.get("ticker", ""))
+        val = float(t.get("price", 0)) * float(t.get("volume", 0))
+        side = t.get("side", "bid")
+        by_key[key][f"{side}_krw"] += val
+        by_key[key][f"{side}_count"] += 1
+
+    total_bid = sum(v["bid_krw"] for v in by_key.values())
+    total_ask = sum(v["ask_krw"] for v in by_key.values())
+    net = total_ask - total_bid
+
+    lines = [f"📊 <b>수익률 리포트 ({period_label})</b>", ""]
+    for (exchange, ticker), stats in sorted(by_key.items()):
+        pnl = stats["ask_krw"] - stats["bid_krw"]
+        sign = "+" if pnl >= 0 else ""
+        ex_label = exchange_display_name(exchange) if exchange else exchange.upper()
+        lines.append(f"<b>[{ex_label}] {ticker}</b>")
+        if stats["bid_count"]:
+            lines.append(f"  매수 {stats['bid_count']}건 / {stats['bid_krw']:,.0f}원")
+        if stats["ask_count"]:
+            lines.append(f"  매도 {stats['ask_count']}건 / {stats['ask_krw']:,.0f}원")
+        if stats["bid_count"] and stats["ask_count"]:
+            lines.append(f"  손익(추정): {sign}{pnl:,.0f}원")
+        lines.append("")
+
+    net_sign = "+" if net >= 0 else ""
+    lines.append(f"💰 합계: 매수 {total_bid:,.0f}원 / 매도 {total_ask:,.0f}원")
+    lines.append(f"📈 총 손익(추정): {net_sign}{net:,.0f}원")
+    lines.append("")
+    lines.append("⚠️ 손익은 가격×수량 기준 추정치입니다. 수수료 미반영.")
+    return "\n".join(lines)

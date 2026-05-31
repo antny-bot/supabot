@@ -7,12 +7,21 @@ import hashlib
 import urllib.parse
 import time
 
+from core.bot_logger import get_logger
+from core.metrics import metrics
+
+_log = get_logger("exchange_adapter")
+
+
 class ExchangeAdapter:
+    _CANDLE_TTL = {"day": 300, "default": 60}  # 일봉 5분, 분봉 1분
+
     def __init__(self, user_manager):
         self.user_manager = user_manager
         self._bithumb_session = None
         self._kis_session = None
         self._kis_tokens = {}
+        self._candle_cache = {}  # {(exchange, ticker, interval, count): (fetched_at, candles)}
 
     async def close(self):
         """장시간 실행 중 생성한 HTTP 세션을 정상 종료합니다."""
@@ -48,20 +57,22 @@ class ExchangeAdapter:
                 cmd.extend(["--access-key", access, "--secret-key", secret])
 
         try:
+            _t0 = time.monotonic()
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
             stdout, stderr = await process.communicate()
-            
+            metrics.record_latency("upbit", (time.monotonic() - _t0) * 1000)
+
             if process.returncode != 0:
-                print(f"❌ Upbit CLI Error: {stderr.decode().strip()}")
+                _log.error("Upbit CLI error", extra={"event": "upbit_cli_error", "msg": stderr.decode().strip()})
                 return None
-            
+
             return json.loads(stdout.decode())
         except Exception as e:
-            print(f"❌ Upbit CLI Exception: {e}")
+            _log.error("Upbit CLI exception", exc_info=e, extra={"event": "upbit_cli_exception"})
             return None
 
     def _get_bithumb_jwt(self, keys, query_string=None):
@@ -103,17 +114,20 @@ class ExchangeAdapter:
 
         try:
             session = await self._get_bithumb_session()
+            _t0 = time.monotonic()
             if method.upper() == "POST":
                 async with session.post(url, json=body, headers=headers) as resp:
-                    return await resp.json()
+                    result = await resp.json()
             elif method.upper() == "DELETE":
                 async with session.delete(url, headers=headers) as resp:
-                    return await resp.json()
+                    result = await resp.json()
             else:
                 async with session.get(url, headers=headers) as resp:
-                    return await resp.json()
+                    result = await resp.json()
+            metrics.record_latency("bithumb", (time.monotonic() - _t0) * 1000)
+            return result
         except Exception as e:
-            print(f"❌ Bithumb API Exception ({path}): {e}")
+            _log.error("Bithumb API exception", exc_info=e, extra={"event": "bithumb_api_exception", "path": path})
             return None
 
     def _get_client(self, user_id, exchange):
@@ -164,12 +178,12 @@ class ExchangeAdapter:
             async with session.post(f"{base_url}/oauth2/tokenP", json=body) as resp:
                 res = await resp.json()
         except Exception as e:
-            print(f"❌ KIS token exception: {e}")
+            _log.error("KIS token exception", exc_info=e, extra={"event": "kis_token_exception"})
             return None
 
         token = res.get("access_token") if isinstance(res, dict) else None
         if not token:
-            print(f"❌ KIS token error: {res}")
+            _log.error("KIS token error: no access_token in response", extra={"event": "kis_token_error"})
             return None
 
         expires_in = int(res.get("expires_in", 86400))
@@ -197,13 +211,17 @@ class ExchangeAdapter:
 
         try:
             session = await self._get_kis_session()
+            _t0 = time.monotonic()
             if method.upper() == "POST":
                 async with session.post(f"{base_url}{path}", json=body, headers=headers) as resp:
-                    return await resp.json()
-            async with session.get(f"{base_url}{path}", params=params, headers=headers) as resp:
-                return await resp.json()
+                    result = await resp.json()
+            else:
+                async with session.get(f"{base_url}{path}", params=params, headers=headers) as resp:
+                    result = await resp.json()
+            metrics.record_latency("kis", (time.monotonic() - _t0) * 1000)
+            return result
         except Exception as e:
-            print(f"❌ KIS API exception ({path}): {e}")
+            _log.error("KIS API exception", exc_info=e, extra={"event": "kis_api_exception", "path": path})
             return None
 
     async def get_balances(self, user_id, exchange):
@@ -231,6 +249,7 @@ class ExchangeAdapter:
 
         side = "bid" if side in ["bid", "buy", "매수"] else "ask"
 
+        result = None
         if exchange == "upbit":
             args = [
                 "--market", ticker,
@@ -239,7 +258,7 @@ class ExchangeAdapter:
                 "--price", str(price),
                 "--volume", str(volume)
             ]
-            return await self._run_upbit_cli("orders", "create", args=args, keys=client)
+            result = await self._run_upbit_cli("orders", "create", args=args, keys=client)
         elif exchange == "bithumb":
             body = {
                 "market": ticker,
@@ -255,11 +274,15 @@ class ExchangeAdapter:
             body = {k: v for k, v in body.items() if v is not None}
             res = await self._request_bithumb("POST", "/v2/orders", keys=client, body=body)
             if res and ('order_id' in res or 'uuid' in res):
-                return {"uuid": res.get('order_id') or res.get('uuid'), **res}
-            return res
+                result = {"uuid": res.get('order_id') or res.get('uuid'), **res}
+            else:
+                result = res
         elif exchange == "kis":
-            return await self._create_kis_order(user_id, client, ticker, side, price, volume)
-        return None
+            result = await self._create_kis_order(user_id, client, ticker, side, price, volume, ord_type=ord_type)
+
+        ok = bool(result and "uuid" in result)
+        metrics.record_order(exchange, ok)
+        return result
 
     async def buy_limit_order(self, user_id, exchange, ticker, price, volume):
         """기존 코드 호환성을 위해 유지 (매수 전용)"""
@@ -359,15 +382,25 @@ class ExchangeAdapter:
         return round(adjusted, 4)
 
     async def get_candles(self, exchange, ticker, interval="day", count=200, user_id=None):
-        """거래소별 캔들(OHLCV) 데이터 조회"""
+        """거래소별 캔들(OHLCV) 데이터 조회 (TTL 캐시 적용)"""
         interval = str(interval or "day").lower()
+        cache_key = (exchange, ticker, interval, count)
+        ttl = self._CANDLE_TTL.get(interval, self._CANDLE_TTL["default"])
+        entry = self._candle_cache.get(cache_key)
+        if entry:
+            fetched_at, cached = entry
+            if time.time() - fetched_at < ttl:
+                return cached
+
+        candles = None
         if exchange == "upbit":
             if interval == "day":
                 args = ["--market", ticker, "--count", str(count)]
-                return await self._run_upbit_cli("candles", "list-days", args=args)
-            unit = interval if interval in ["1", "3", "5", "10", "15", "30", "60", "240"] else "60"
-            args = ["--market", ticker, "--unit", str(unit), "--count", str(count)]
-            return await self._run_upbit_cli("candles", "list-minutes", args=args)
+                candles = await self._run_upbit_cli("candles", "list-days", args=args)
+            else:
+                unit = interval if interval in ["1", "3", "5", "10", "15", "30", "60", "240"] else "60"
+                args = ["--market", ticker, "--unit", str(unit), "--count", str(count)]
+                candles = await self._run_upbit_cli("candles", "list-minutes", args=args)
         elif exchange == "bithumb":
             if interval == "day":
                 path = "/v1/candles/days"
@@ -375,12 +408,15 @@ class ExchangeAdapter:
                 unit = interval if interval in ["1", "3", "5", "10", "15", "30", "60", "240"] else "60"
                 path = f"/v1/candles/minutes/{unit}"
             params = {"market": ticker, "count": str(count)}
-            return await self._request_bithumb("GET", path, params=params)
+            candles = await self._request_bithumb("GET", path, params=params)
         elif exchange == "kis":
             if interval != "day" or user_id is None:
                 return None
-            return await self._get_kis_daily_candles(user_id, ticker, count)
-        return None
+            candles = await self._get_kis_daily_candles(user_id, ticker, count)
+
+        if candles:
+            self._candle_cache[cache_key] = (time.time(), candles)
+        return candles
 
     async def _get_kis_daily_candles(self, user_id, ticker, count=200):
         end_date = time.strftime("%Y%m%d")
@@ -507,20 +543,21 @@ class ExchangeAdapter:
             "env": keys.get("env", "paper"),
         }
 
-    async def _create_kis_order(self, user_id, keys, ticker, side, price, volume):
+    async def _create_kis_order(self, user_id, keys, ticker, side, price, volume, ord_type="limit"):
         env = keys.get("env", "paper")
         order_side = "buy" if side in ["bid", "buy", "매수"] else "sell"
         if env == "real":
             tr_id = "TTTC0802U" if order_side == "buy" else "TTTC0801U"
         else:
             tr_id = "VTTC0802U" if order_side == "buy" else "VTTC0801U"
+        is_market = ord_type == "market"
         body = {
             "CANO": keys.get("account_no"),
             "ACNT_PRDT_CD": keys.get("product_code", "01"),
             "PDNO": self._normalize_kis_ticker(ticker),
-            "ORD_DVSN": "00",
+            "ORD_DVSN": "01" if is_market else "00",
             "ORD_QTY": str(int(float(volume))),
-            "ORD_UNPR": str(int(float(price))),
+            "ORD_UNPR": "0" if is_market else str(int(float(price))),
         }
         if int(float(volume)) <= 0:
             return {"error": "KIS 주문 수량은 1주 이상이어야 합니다."}

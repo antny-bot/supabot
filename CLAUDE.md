@@ -36,7 +36,8 @@ Docker on Oracle Cloud VM. 실거래 경로 포함 — 변경 전 반드시 `AGE
   "status": "wait|partial|done|cancel|pending_reorder",
   "created_at": 1700000000.0,
   "next_check_at": 0.0,
-  "reorder_of": null           // 재주문 시 이전 uuid
+  "reorder_of": null,          // 재주문 시 이전 uuid
+  "stop_price": null           // rsitrade_sell 전용: 손절 기준가 (stop_loss_pct로 계산)
 }
 ```
 
@@ -55,8 +56,10 @@ Docker on Oracle Cloud VM. 실거래 경로 포함 — 변경 전 반드시 `AGE
       "rsi_order_count": 5,
       "rsi_budget_krw": null,
       "max_order_krw": null,
+      "stop_loss_pct": null,   // RSITrade 손절 비율(%) — null이면 손절 비활성
       "signal_alerts": true,
       "signal_rsi_threshold": 30,
+      "signal_bb_alert": false,    // 볼린저 하단 이탈 시 추가 알림 (RSI OR BB 조건)
       "asset_min_display_krw": 10000,
       "llm_enabled": false,
       "llm_model": "gemini-2.5-flash",

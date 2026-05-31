@@ -6,3 +6,6 @@ pandas
 ta
 google-genai
 cryptography
+requests
+pytest
+pytest-asyncio

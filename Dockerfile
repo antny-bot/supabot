@@ -20,6 +20,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 소스 코드 복사
 COPY src/ ./src/
+COPY scripts/ ./scripts/
 
 # 빌드 메타데이터 기록 (이미지 생성 시각 자동 캡처)
 ARG VERSION="dev"

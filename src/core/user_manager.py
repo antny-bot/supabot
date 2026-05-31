@@ -3,10 +3,14 @@ import os
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 
+from core.bot_logger import get_logger
+from core.db import get_db, is_db_available
 from core.secret_crypto import can_decrypt_secrets, decrypt_secret, encrypt_secret, has_secret_key, is_encrypted_secret
 
+_log = get_logger("user_manager")
 
 KST = timezone(timedelta(hours=9))
+
 
 class UserManager:
     SECRET_EXCHANGE_FIELDS = {
@@ -25,8 +29,12 @@ class UserManager:
         "rsi_budget_krw": None,
         "signal_alerts": True,
         "signal_rsi_threshold": 30,
+        "signal_bb_alert": False,
         "rsi_interval": "day",
         "max_order_krw": None,
+        "stop_loss_pct": None,
+        "quiet_hours_start": None,
+        "quiet_hours_end": None,
         "llm_enabled": False,
         "llm_model": "gemini-2.5-flash-lite",
         "poll_active_interval": 60,
@@ -40,29 +48,102 @@ class UserManager:
         if self._ensure_all_user_defaults():
             self.save_users()
 
-    def _load_users(self):
+    # ── Load ──────────────────────────────────────────────────────────────────
+
+    def _load_users(self) -> dict:
+        if is_db_available():
+            try:
+                rows = get_db().table("users").select("*").execute().data
+                users = {row["user_id"]: self._db_row_to_user(row) for row in rows}
+                _log.info("Loaded users from DB", extra={"event": "users_loaded_db", "count": len(users)})
+                return users
+            except Exception as e:
+                _log.error("Failed to load users from DB, falling back to file", exc_info=e, extra={"event": "db_users_load_error"})
+        return self._load_users_from_file()
+
+    def _load_users_from_file(self) -> dict:
         if not os.path.exists(self.file_path):
             return {}
         try:
             with open(self.file_path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
-            print(f"Error loading users: {e}")
+            _log.error("Failed to load users from file", exc_info=e, extra={"event": "users_load_error"})
             return {}
 
+    # ── DB ↔ memory conversion ────────────────────────────────────────────────
+
+    @staticmethod
+    def _db_row_to_user(row: dict) -> dict:
+        return {
+            "username": row.get("username", ""),
+            "is_admin": row.get("is_admin", False),
+            "is_active": row.get("status") == "active",
+            "status": row.get("status", "pending"),
+            "preferences": row.get("preferences") or {},
+            "exchanges": row.get("exchanges") or {},
+            "llm": row.get("llm") or {},
+            "api_validation": row.get("api_validation") or {},
+        }
+
+    @staticmethod
+    def _user_to_db_row(user_id: str, user: dict) -> dict:
+        # Prefer explicit status; derive from is_active only as fallback
+        status = user.get("status") or ("active" if user.get("is_active") else "pending")
+        return {
+            "user_id": user_id,
+            "username": user.get("username", ""),
+            "is_admin": bool(user.get("is_admin", False)),
+            "status": status,
+            "preferences": user.get("preferences") or {},
+            "exchanges": user.get("exchanges") or {},
+            "llm": user.get("llm") or {},
+            "api_validation": user.get("api_validation") or {},
+        }
+
+    # ── Save ──────────────────────────────────────────────────────────────────
+
     def save_users(self):
+        """Full-table upsert — used on startup. Prefer _upsert_user() for single-row writes."""
+        if is_db_available():
+            try:
+                rows = [self._user_to_db_row(uid, u) for uid, u in self.users.items()]
+                if rows:
+                    get_db().table("users").upsert(rows).execute()
+                return
+            except Exception as e:
+                _log.error("Failed to save users to DB", exc_info=e, extra={"event": "db_users_save_error"})
+        self._save_users_to_file()
+
+    def _save_users_to_file(self):
         os.makedirs(os.path.dirname(self.file_path), exist_ok=True)
         try:
             with open(self.file_path, "w", encoding="utf-8") as f:
                 json.dump(self.users, f, indent=2, ensure_ascii=False)
             os.chmod(self.file_path, 0o600)
         except Exception as e:
-            print(f"Error saving users: {e}")
+            _log.error("Failed to save users to file", exc_info=e, extra={"event": "users_save_error"})
+
+    def _upsert_user(self, user_id: str):
+        """Single-user DB upsert — called after every in-memory mutation."""
+        if not is_db_available():
+            self._save_users_to_file()
+            return
+        user = self.users.get(str(user_id))
+        if not user:
+            return
+        try:
+            get_db().table("users").upsert(self._user_to_db_row(str(user_id), user)).execute()
+        except Exception as e:
+            _log.error("Failed to upsert user", exc_info=e, extra={"event": "db_user_upsert_error", "user_id": user_id})
+            self._save_users_to_file()
+
+    # ── Default / migration helpers ───────────────────────────────────────────
 
     def get_user(self, user_id):
         stored_user = self.users.get(str(user_id))
         if stored_user and self._ensure_user_defaults(stored_user):
-            self.save_users()
+            self._upsert_user(user_id)
         return self._decrypt_user_copy(stored_user) if stored_user else None
 
     def _ensure_all_user_defaults(self):
@@ -79,7 +160,7 @@ class UserManager:
             if key not in preferences:
                 preferences[key] = value
                 changed = True
-        exchanges = user.setdefault("exchanges", {})
+        user.setdefault("exchanges", {})
         llm = user.setdefault("llm", {})
         if "gemini_api_key" not in llm:
             llm["gemini_api_key"] = ""
@@ -100,13 +181,13 @@ class UserManager:
             },
         }
         for exchange, exchange_defaults in defaults.items():
-            if exchange not in exchanges:
-                exchanges[exchange] = dict(exchange_defaults)
+            if exchange not in user["exchanges"]:
+                user["exchanges"][exchange] = dict(exchange_defaults)
                 changed = True
             else:
                 for key, value in exchange_defaults.items():
-                    if key not in exchanges[exchange]:
-                        exchanges[exchange][key] = value
+                    if key not in user["exchanges"][exchange]:
+                        user["exchanges"][exchange][key] = value
                         changed = True
         return changed
 
@@ -161,13 +242,16 @@ class UserManager:
             raise ValueError("USER_SECRET_KEY is required to store user secrets")
         return encrypt_secret(text)
 
+    # ── Mutations ─────────────────────────────────────────────────────────────
+
     def add_user(self, user_id, username, is_admin=False):
         user_id_str = str(user_id)
         if user_id_str not in self.users:
             self.users[user_id_str] = {
                 "username": username,
                 "is_admin": is_admin,
-                "is_active": is_admin,  # 어드민은 즉시 활성화
+                "is_active": is_admin,
+                "status": "active" if is_admin else "pending",
                 "preferences": dict(self.DEFAULT_PREFERENCES),
                 "exchanges": {
                     "upbit": {"access_key": "", "secret_key": "", "watchlist": []},
@@ -184,7 +268,7 @@ class UserManager:
                 "llm": {"gemini_api_key": ""},
                 "api_validation": {},
             }
-            self.save_users()
+            self._upsert_user(user_id_str)
             return True
         return False
 
@@ -193,7 +277,7 @@ class UserManager:
         if not user:
             return False
         user["preferences"][key] = value
-        self.save_users()
+        self._upsert_user(user_id)
         return True
 
     def update_gemini_api_key(self, user_id, api_key):
@@ -201,7 +285,7 @@ class UserManager:
         if not user:
             return False
         user.setdefault("llm", {})["gemini_api_key"] = self._encrypt_secret_for_storage(api_key)
-        self.save_users()
+        self._upsert_user(user_id)
         return True
 
     def update_exchange_keys(self, user_id, exchange, access_key, secret_key):
@@ -209,7 +293,7 @@ class UserManager:
         if user and exchange in user["exchanges"]:
             user["exchanges"][exchange]["access_key"] = self._encrypt_secret_for_storage(access_key)
             user["exchanges"][exchange]["secret_key"] = self._encrypt_secret_for_storage(secret_key)
-            self.save_users()
+            self._upsert_user(user_id)
             return True
         return False
 
@@ -222,7 +306,7 @@ class UserManager:
             "checked_at": datetime.now(KST).isoformat(timespec="seconds"),
             "message": str(message or ""),
         }
-        self.save_users()
+        self._upsert_user(user_id)
         return True
 
     def update_kis_keys(self, user_id, app_key, app_secret, account_no, product_code="01", env="paper"):
@@ -233,7 +317,7 @@ class UserManager:
             user["exchanges"]["kis"]["account_no"] = self._encrypt_secret_for_storage(account_no)
             user["exchanges"]["kis"]["product_code"] = product_code
             user["exchanges"]["kis"]["env"] = env
-            self.save_users()
+            self._upsert_user(user_id)
             return True
         return False
 
@@ -241,7 +325,8 @@ class UserManager:
         user = self.users.get(str(user_id))
         if user:
             user["is_active"] = status
-            self.save_users()
+            user["status"] = "active" if status else "inactive"
+            self._upsert_user(user_id)
             return True
         return False
 
@@ -250,7 +335,7 @@ class UserManager:
         if user and exchange in user["exchanges"]:
             if ticker not in user["exchanges"][exchange]["watchlist"]:
                 user["exchanges"][exchange]["watchlist"].append(ticker.upper())
-                self.save_users()
+                self._upsert_user(user_id)
                 return True
         return False
 
@@ -259,17 +344,27 @@ class UserManager:
         if user and exchange in user["exchanges"]:
             if ticker.upper() in user["exchanges"][exchange]["watchlist"]:
                 user["exchanges"][exchange]["watchlist"].remove(ticker.upper())
-                self.save_users()
+                self._upsert_user(user_id)
                 return True
         return False
 
     def initialize_admin(self, admin_chat_id):
-        """환경 변수의 ADMIN_CHAT_ID를 기반으로 초기 관리자 등록"""
         if not admin_chat_id:
             return False
-        
         admin_id_str = str(admin_chat_id)
         if admin_id_str not in self.users:
-            print(f"⚙️ 초기 관리자 등록 중... (ID: {admin_id_str})")
+            _log.info("Registering initial admin", extra={"event": "admin_init", "user_id": admin_id_str})
             return self.add_user(admin_id_str, "SystemAdmin", is_admin=True)
         return True
+
+
+def is_quiet_hours(user: dict) -> bool:
+    prefs = user.get("preferences", {})
+    start = prefs.get("quiet_hours_start")
+    end = prefs.get("quiet_hours_end")
+    if not start or not end:
+        return False
+    now_str = datetime.now(KST).strftime("%H:%M")
+    if start <= end:
+        return start <= now_str < end
+    return now_str >= start or now_str < end

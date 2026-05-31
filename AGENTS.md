@@ -18,8 +18,44 @@
 
 ```bash
 # 호스트에 Python 없음 → Docker 내부에서 실행
-docker compose run --rm sutt-bot python -m pytest tests/ -v
-docker compose run --rm sutt-bot python -m py_compile src/main.py
+docker compose run --rm supabot python -m pytest tests/ -v
+docker compose run --rm supabot python -m py_compile src/main.py
 ```
 
 주문·거래소·KIS 로직 변경 시 전체 테스트 통과 필수.
+
+## 백업 · 롤백 절차
+
+### 정기 백업
+
+```bash
+# 운영 서버에서 직접 실행 (Docker 호스트)
+./scripts/backup.sh
+
+# 또는 cron 등록 예시 (매일 새벽 3시)
+# 0 3 * * * cd /opt/supabot && ./scripts/backup.sh >> /var/log/supabot-backup.log 2>&1
+```
+
+백업 결과물은 `./backups/YYYYMMDD_HHMMSS/` 에 저장됩니다. `data/orders.json`, `data/users.json` 복사본이 생성됩니다.
+
+### 배포 롤백
+
+```bash
+# 1. 현재 컨테이너 중지
+docker compose down
+
+# 2. 이전 이미지로 되돌리기
+docker tag ghcr.io/antny-bot/supabot:latest ghcr.io/antny-bot/supabot:broken
+docker pull ghcr.io/antny-bot/supabot:<이전_SHA_태그>
+docker tag ghcr.io/antny-bot/supabot:<이전_SHA_태그> ghcr.io/antny-bot/supabot:latest
+
+# 3. 데이터 복원 (필요 시)
+cp backups/<YYYYMMDD_HHMMSS>/orders.json data/orders.json
+cp backups/<YYYYMMDD_HHMMSS>/users.json  data/users.json
+chmod 600 data/orders.json data/users.json
+
+# 4. 재기동
+docker compose up -d
+```
+
+> ⚠️ `data/users.json` 복원 시 복원 시점 이후의 유저 설정 변경이 유실됩니다. 주문 복원은 거래소 실제 상태와 비교하여 불일치 여부를 확인하세요.

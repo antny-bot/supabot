@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h5 class="fw-bold mb-0">시스템 설정</h5>
+</div>
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+{% if saved %}
+<div class="alert alert-success py-2">저장되었습니다. 봇이 다음 폴링 주기에 반영합니다.</div>
+{% endif %}
+
+<div class="card shadow-sm">
+  <div class="card-body">
+    <form method="post" action="/admin/config">
+      {% for item in config %}
+      <div class="mb-4">
+        <label class="form-label fw-semibold">{{ item.label }}</label>
+        <div class="text-muted small mb-1">{{ item.desc }}</div>
+        <div class="input-group" style="max-width: 300px;">
+          <input type="number" name="{{ item.key }}" class="form-control"
+                 value="{{ item.value }}" min="1" required>
+          <span class="input-group-text">초</span>
+        </div>
+        {% if item.updated_at %}
+        <div class="text-muted small mt-1">최종 수정: {{ item.updated_at[:19] }}</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+      <button type="submit" class="btn btn-dark">저장</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
