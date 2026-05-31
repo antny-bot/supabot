@@ -6,7 +6,6 @@ load_dotenv()
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -38,7 +37,7 @@ async def root(request: Request):
 async def login_page(request: Request):
     if request.session.get("user_email"):
         return RedirectResponse("/admin/users", status_code=303)
-    return templates.TemplateResponse("login.html", {"request": request, "error": None})
+    return templates.TemplateResponse(request, "login.html", {"error": None})
 
 
 @app.post("/login", response_class=HTMLResponse)
@@ -49,8 +48,9 @@ async def login_submit(request: Request, email: str = Form(...), password: str =
         request.session["access_token"] = result["access_token"]
         return RedirectResponse("/admin/users", status_code=303)
     return templates.TemplateResponse(
+        request,
         "login.html",
-        {"request": request, "error": "이메일 또는 비밀번호가 올바르지 않습니다."},
+        {"error": "이메일 또는 비밀번호가 올바르지 않습니다."},
         status_code=401,
     )
 

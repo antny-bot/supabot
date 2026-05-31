@@ -61,9 +61,9 @@ async def list_users(request: Request, status: str | None = None):
         users = []
         error = str(e)
     return templates.TemplateResponse(
+        request,
         "users.html",
         {
-            "request": request,
             "users": users,
             "status_filter": status or "",
             "status_labels": _STATUS_LABELS,
@@ -76,8 +76,9 @@ def _user_row_response(request: Request, user: dict | None, error: str | None = 
     if user is None:
         return HTMLResponse(f'<tr><td colspan="6" class="text-danger">{error}</td></tr>')
     return templates.TemplateResponse(
+        request,
         "user_row.html",
-        {"request": request, "user": user},
+        {"user": user},
     )
 
 
