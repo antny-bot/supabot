@@ -1,0 +1,70 @@
+{% set status = user.get("status", "pending") %}
+{% set uid = user.get("user_id", "") %}
+<tr id="user-row-{{ uid }}">
+  <td class="font-monospace small">{{ uid }}</td>
+  <td>{{ user.get("username") or "—" }}</td>
+  <td>
+    {% if status == "active" %}
+    <span class="badge bg-success status-badge">{{ user.status_label }}</span>
+    {% elif status == "pending" %}
+    <span class="badge bg-warning text-dark status-badge">{{ user.status_label }}</span>
+    {% elif status == "inactive" %}
+    <span class="badge bg-secondary status-badge">{{ user.status_label }}</span>
+    {% elif status == "blocked" %}
+    <span class="badge bg-danger status-badge">{{ user.status_label }}</span>
+    {% elif status == "deleted" %}
+    <span class="badge bg-dark status-badge">{{ user.status_label }}</span>
+    {% else %}
+    <span class="badge bg-light text-dark status-badge">{{ status }}</span>
+    {% endif %}
+  </td>
+  <td>{{ "✓" if user.get("is_admin") else "" }}</td>
+  <td class="small text-muted">{{ (user.get("created_at") or "")[:10] }}</td>
+  <td>
+    <div class="d-flex gap-1 flex-wrap">
+      {% if status == "pending" %}
+      <button class="btn btn-success action-btn"
+              hx-post="/admin/users/{{ uid }}/approve"
+              hx-target="#user-row-{{ uid }}"
+              hx-swap="outerHTML">승인</button>
+      <button class="btn btn-danger action-btn"
+              hx-post="/admin/users/{{ uid }}/block"
+              hx-target="#user-row-{{ uid }}"
+              hx-swap="outerHTML"
+              hx-confirm="차단하시겠습니까?">차단</button>
+      {% elif status == "active" %}
+      <button class="btn btn-outline-secondary action-btn"
+              hx-post="/admin/users/{{ uid }}/deactivate"
+              hx-target="#user-row-{{ uid }}"
+              hx-swap="outerHTML">비활성화</button>
+      <button class="btn btn-outline-danger action-btn"
+              hx-post="/admin/users/{{ uid }}/block"
+              hx-target="#user-row-{{ uid }}"
+              hx-swap="outerHTML"
+              hx-confirm="차단하시겠습니까?">차단</button>
+      {% elif status == "inactive" %}
+      <button class="btn btn-outline-success action-btn"
+              hx-post="/admin/users/{{ uid }}/activate"
+              hx-target="#user-row-{{ uid }}"
+              hx-swap="outerHTML">활성화</button>
+      <button class="btn btn-outline-danger action-btn"
+              hx-post="/admin/users/{{ uid }}/block"
+              hx-target="#user-row-{{ uid }}"
+              hx-swap="outerHTML"
+              hx-confirm="차단하시겠습니까?">차단</button>
+      {% elif status == "blocked" %}
+      <button class="btn btn-outline-secondary action-btn"
+              hx-post="/admin/users/{{ uid }}/deactivate"
+              hx-target="#user-row-{{ uid }}"
+              hx-swap="outerHTML">차단해제</button>
+      {% endif %}
+      {% if status != "deleted" and not user.get("is_admin") %}
+      <button class="btn btn-dark action-btn"
+              hx-delete="/admin/users/{{ uid }}"
+              hx-target="#user-row-{{ uid }}"
+              hx-swap="outerHTML"
+              hx-confirm="삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.">삭제</button>
+      {% endif %}
+    </div>
+  </td>
+</tr>
