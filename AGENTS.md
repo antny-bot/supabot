@@ -18,8 +18,8 @@
 
 ```bash
 # 호스트에 Python 없음 → Docker 내부에서 실행
-docker compose run --rm sutt-bot python -m pytest tests/ -v
-docker compose run --rm sutt-bot python -m py_compile src/main.py
+docker compose run --rm supabot python -m pytest tests/ -v
+docker compose run --rm supabot python -m py_compile src/main.py
 ```
 
 주문·거래소·KIS 로직 변경 시 전체 테스트 통과 필수.
