@@ -15,9 +15,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
 WORKDIR /app
 
 # 라이브러리 설치 (캐시 최적화)
-# h2 제거: httpcore가 ALPN HTTP/2 광고 → Oracle Cloud 방화벽 차단 문제 해소
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt && pip uninstall h2 -y
+RUN pip install --no-cache-dir -r requirements.txt
 
 # 소스 코드 복사
 COPY src/ ./src/
