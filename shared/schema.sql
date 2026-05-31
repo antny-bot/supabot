@@ -100,3 +100,7 @@ ALTER TABLE trade_logs        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE operational_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE nl_logs           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE system_config     ENABLE ROW LEVEL SECURITY;
+
+-- ── Grants (SQL로 생성 시 자동 부여되지 않으므로 명시 필요) ────────────────
+GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
