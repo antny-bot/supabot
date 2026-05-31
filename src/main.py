@@ -335,7 +335,7 @@ def _intent_args(intent, user):
     return args
 
 def _is_immediate_intent(action):
-    return action in {"asset", "price", "orders", "status", "config_view", "history", "help"}
+    return action in {"asset", "price", "orders", "status", "config_view", "history", "help", "rsi", "indicators"}
 
 def _intent_summary(intent):
     action = intent.get("action")
@@ -386,6 +386,8 @@ async def execute_query_intent(update, context, user, intent):
         )
     if action == "help":
         return await help_command(update, context)
+    if action in ["rsi", "indicators"]:
+        return await indicators_command(update, context)
     await update.message.reply_text("⚠️ 자연어 요청을 조회 명령으로 해석하지 못했습니다.")
 
 async def execute_confirmed_intent(query, context, user, intent):
@@ -684,6 +686,11 @@ async def config_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
 
+    # Shorthand: /config <key> <value>  (equivalent to /config set <key> <value>)
+    if args and len(args) >= 2 and args[0].lower() not in ("-v", "-view", "--view", "set"):
+        args = ["set"] + list(args)
+        context.args = args
+
     if args and args[0].lower() == "set":
         if len(args) < 3:
             await update.message.reply_text("⚠️ 사용법: /config set [항목] [값]\n예: /config set rsi_budget_krw 100만")
@@ -726,7 +733,11 @@ async def config_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("Gemini API 키", callback_data="conf_gemini")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("설정할 거래소를 선택하세요.", reply_markup=reply_markup)
+    await update.message.reply_text(
+        build_config_view(user, active_order_count=len(order_manager.orders)),
+        parse_mode="HTML",
+        reply_markup=reply_markup,
+    )
     return SET_EXCHANGE
 
 async def config_exchange_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

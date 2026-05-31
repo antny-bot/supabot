@@ -45,6 +45,8 @@ HISTORY_HINTS = ("최근체결", "체결내역", "거래내역", "매매기록",
 CONFIG_VIEW_HINTS = ("설정보여", "현재설정", "설정확인", "api등록상태", "자연어켜져")
 HELP_HINTS = ("뭐할수", "사용법", "명령어", "도움말", "help")
 AMBIGUOUS_VIEW_HINTS = ("봐줘", "보여줘", "확인해줘")
+RSI_CHECK_HINTS = ("rsi알려", "rsi확인", "rsi보여", "rsi봐", "rsi체크")
+INDICATOR_HINTS = ("지표", "macd", "보조지표", "멀티지표")
 TICKER_ALIASES = {
     "비트": "BTC",
     "비트코인": "BTC",
@@ -160,8 +162,43 @@ def preprocess_natural_language_intent(text, user):
         return {"action": "config_set", "config_key": "llm_enabled", "config_value": "off"}
     if ("gemini" in compact or "모델" in compact or "llm" in compact) and any(hint in compact for hint in ("뭐", "확인", "보여", "알려")):
         return {"action": "config_view"}
+    # Budget change: "예산 100만 바꿔줘"
+    if "예산" in compact and any(h in compact for h in ("바꿔", "변경", "설정")):
+        amount = _extract_krw_amount_from_text(text)
+        if amount:
+            return {"action": "config_set", "config_key": "rsi_budget_krw", "config_value": str(amount)}
+
+    # Stop-loss: "손절 5% 설정"
+    if "손절" in compact:
+        pct_match = re.search(r"(\d+(?:\.\d+)?)\s*%", text)
+        if pct_match:
+            return {"action": "config_set", "config_key": "stop_loss_pct", "config_value": pct_match.group(1)}
+
+    # BB alert on/off: "볼린저 알림 켜줘"
+    if "볼린저" in compact and "알림" in compact:
+        if any(h in compact for h in ("켜", "on", "활성")):
+            return {"action": "config_set", "config_key": "signal_bb_alert", "config_value": "on"}
+        if any(h in compact for h in ("꺼", "off", "비활성")):
+            return {"action": "config_set", "config_key": "signal_bb_alert", "config_value": "off"}
+
     if _has_order_change_hint(text):
         return None
+
+    # RSI check: "BTC RSI 알려줘"
+    if "rsi" in compact and not _looks_like_rsi_split_request(text):
+        ticker = _extract_ticker_from_text(text)
+        if ticker:
+            intent = _intent_with_optional_exchange("rsi", text)
+            intent["ticker"] = ticker
+            return intent
+
+    # Indicators: "지표 보여줘 BTC"
+    if _contains_any(compact, INDICATOR_HINTS):
+        ticker = _extract_ticker_from_text(text)
+        if ticker:
+            intent = _intent_with_optional_exchange("indicators", text)
+            intent["ticker"] = ticker
+            return intent
 
     if _contains_any(compact, HELP_HINTS):
         return {"action": "help"}

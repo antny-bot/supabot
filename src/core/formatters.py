@@ -398,6 +398,8 @@ def build_config_view(user, active_order_count=0):
             f"- signal_alerts: {format_bool(preferences.get('signal_alerts'))}",
             f"- signal_rsi_threshold: {float(preferences.get('signal_rsi_threshold', 30)):g}",
             f"- max_order_krw: {format_optional_krw(preferences.get('max_order_krw'))}",
+            "- stop_loss_pct: " + ("없음 (손절 비활성)" if preferences.get('stop_loss_pct') is None else f"{preferences.get('stop_loss_pct'):g}%"),
+            f"- signal_bb_alert: {format_bool(preferences.get('signal_bb_alert'))}",
         ]),
         "",
         format_section("LLM 설정", [
