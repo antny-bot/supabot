@@ -1,5 +1,6 @@
 # Local secrets and runtime state
 config/.env
+manager/.env
 data/*.json
 data/*.jsonl
 
