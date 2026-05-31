@@ -8,11 +8,14 @@ import urllib.parse
 import time
 
 class ExchangeAdapter:
+    _CANDLE_TTL = {"day": 300, "default": 60}  # 일봉 5분, 분봉 1분
+
     def __init__(self, user_manager):
         self.user_manager = user_manager
         self._bithumb_session = None
         self._kis_session = None
         self._kis_tokens = {}
+        self._candle_cache = {}  # {(exchange, ticker, interval, count): (fetched_at, candles)}
 
     async def close(self):
         """장시간 실행 중 생성한 HTTP 세션을 정상 종료합니다."""
@@ -359,15 +362,25 @@ class ExchangeAdapter:
         return round(adjusted, 4)
 
     async def get_candles(self, exchange, ticker, interval="day", count=200, user_id=None):
-        """거래소별 캔들(OHLCV) 데이터 조회"""
+        """거래소별 캔들(OHLCV) 데이터 조회 (TTL 캐시 적용)"""
         interval = str(interval or "day").lower()
+        cache_key = (exchange, ticker, interval, count)
+        ttl = self._CANDLE_TTL.get(interval, self._CANDLE_TTL["default"])
+        entry = self._candle_cache.get(cache_key)
+        if entry:
+            fetched_at, cached = entry
+            if time.time() - fetched_at < ttl:
+                return cached
+
+        candles = None
         if exchange == "upbit":
             if interval == "day":
                 args = ["--market", ticker, "--count", str(count)]
-                return await self._run_upbit_cli("candles", "list-days", args=args)
-            unit = interval if interval in ["1", "3", "5", "10", "15", "30", "60", "240"] else "60"
-            args = ["--market", ticker, "--unit", str(unit), "--count", str(count)]
-            return await self._run_upbit_cli("candles", "list-minutes", args=args)
+                candles = await self._run_upbit_cli("candles", "list-days", args=args)
+            else:
+                unit = interval if interval in ["1", "3", "5", "10", "15", "30", "60", "240"] else "60"
+                args = ["--market", ticker, "--unit", str(unit), "--count", str(count)]
+                candles = await self._run_upbit_cli("candles", "list-minutes", args=args)
         elif exchange == "bithumb":
             if interval == "day":
                 path = "/v1/candles/days"
@@ -375,12 +388,15 @@ class ExchangeAdapter:
                 unit = interval if interval in ["1", "3", "5", "10", "15", "30", "60", "240"] else "60"
                 path = f"/v1/candles/minutes/{unit}"
             params = {"market": ticker, "count": str(count)}
-            return await self._request_bithumb("GET", path, params=params)
+            candles = await self._request_bithumb("GET", path, params=params)
         elif exchange == "kis":
             if interval != "day" or user_id is None:
                 return None
-            return await self._get_kis_daily_candles(user_id, ticker, count)
-        return None
+            candles = await self._get_kis_daily_candles(user_id, ticker, count)
+
+        if candles:
+            self._candle_cache[cache_key] = (time.time(), candles)
+        return candles
 
     async def _get_kis_daily_candles(self, user_id, ticker, count=200):
         end_date = time.strftime("%Y%m%d")

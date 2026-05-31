@@ -13,6 +13,9 @@ class SignalEngine:
 
     async def get_rsi(self, exchange, ticker, interval="day", period=14, user_id=None):
         """Return the latest RSI and candle dataframe for a market."""
+        # KIS는 분봉 미지원 — 사용자 설정이 분봉이더라도 일봉으로 자동 폴백
+        if exchange == "kis" and interval != "day":
+            interval = "day"
         try:
             candles = await self.exchange_adapter.get_candles(
                 exchange,

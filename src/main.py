@@ -190,9 +190,11 @@ async def approve_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text="🎉 축하합니다! 봇 사용 승인이 완료되었습니다. 이제 /start 명령어로 메뉴를 확인해 보세요!"
         )
 
+_KIS_RSI_MINUTE_ERROR = "⚠️ 한국투자증권 RSI는 일봉만 지원합니다. /config set rsi_interval day 후 다시 시도하세요."
+
 async def ensure_rsi_supported(update, user, exchange):
     if exchange == "kis" and get_user_rsi_interval(user) != "day":
-        await update.message.reply_text("⚠️ 한국투자증권 RSI는 일봉만 지원합니다. /config set rsi_interval day 후 다시 시도하세요.")
+        await update.message.reply_text(_KIS_RSI_MINUTE_ERROR)
         return False
     return True
 
@@ -371,7 +373,7 @@ async def execute_confirmed_intent(query, context, user, intent):
 
     if action in ["watch", "unwatch"]:
         if exchange == "kis" and get_user_rsi_interval(user) != "day":
-            await query.edit_message_text("⚠️ 한국투자증권 RSI는 일봉만 지원합니다. /config set rsi_interval day 후 다시 시도하세요.")
+            await query.edit_message_text(_KIS_RSI_MINUTE_ERROR)
             return
         changed = user_manager.add_watchlist(user_id, exchange, ticker) if action == "watch" else user_manager.remove_watchlist(user_id, exchange, ticker)
         label = "등록" if action == "watch" else "삭제"
@@ -413,7 +415,7 @@ async def execute_confirmed_intent(query, context, user, intent):
 
     if action == "rsitrade":
         if exchange == "kis" and get_user_rsi_interval(user) != "day":
-            await query.edit_message_text("⚠️ 한국투자증권 RSI는 일봉만 지원합니다. /config set rsi_interval day 후 다시 시도하세요.")
+            await query.edit_message_text(_KIS_RSI_MINUTE_ERROR)
             return
         buy_range = intent.get("buy_rsi_range") or user["preferences"].get("rsi_buy_range", "25-30")
         sell_range = intent.get("sell_rsi_range") or user["preferences"].get("rsi_sell_range", "65-75")
@@ -1572,7 +1574,7 @@ async def rsitrade_confirm_callback(update: Update, context: ContextTypes.DEFAUL
         await query.edit_message_text("❌ 사용자 설정을 찾을 수 없어 주문을 중단합니다.")
         return
     if ex == "kis" and get_user_rsi_interval(user) != "day":
-        await query.edit_message_text("⚠️ 한국투자증권 RSI는 일봉만 지원합니다. /config set rsi_interval day 후 다시 시도하세요.")
+        await query.edit_message_text(_KIS_RSI_MINUTE_ERROR)
         return
     ok, error_msg = validate_max_order(user, bg / ct)
     if not ok:
