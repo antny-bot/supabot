@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
@@ -40,8 +40,9 @@ async def config_page(request: Request):
         error = str(e)
         saved = False
     return templates.TemplateResponse(
+        request,
         "sysconfig.html",
-        {"request": request, "config": config, "error": error, "saved": saved},
+        {"config": config, "error": error, "saved": saved},
     )
 
 
@@ -65,6 +66,7 @@ async def config_save(request: Request):
         config = []
         error = str(e)
     return templates.TemplateResponse(
+        request,
         "sysconfig.html",
-        {"request": request, "config": config, "error": error, "saved": not error},
+        {"config": config, "error": error, "saved": not error},
     )
