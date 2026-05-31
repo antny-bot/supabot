@@ -3,6 +3,7 @@ import os
 import re
 from datetime import datetime, timedelta, timezone
 
+from core.db import get_db, is_db_available
 
 KST = timezone(timedelta(hours=9))
 OPERATIONAL_EVENTS_PATH = os.getenv("OPERATIONAL_EVENTS_PATH", "data/bot_events.jsonl")
@@ -32,13 +33,25 @@ def _trim_jsonl_file(path, max_lines):
 
 
 def append_operational_event(level, source, message, details=None, path=OPERATIONAL_EVENTS_PATH):
+    ts = datetime.now(KST).isoformat(timespec="seconds")
     row = {
-        "ts": datetime.now(KST).isoformat(timespec="seconds"),
+        "ts": ts,
         "level": sanitize_event_text(level).lower() or "info",
         "source": sanitize_event_text(source),
         "message": sanitize_event_text(message),
         "details": sanitize_event_text(details or ""),
     }
+    if is_db_available():
+        try:
+            get_db().table("operational_events").insert({
+                "level": row["level"],
+                "source": row["source"],
+                "message": row["message"],
+                "details": row["details"],
+                "created_at": ts,
+            }).execute()
+        except Exception:
+            pass
     try:
         dir_name = os.path.dirname(path)
         if dir_name:

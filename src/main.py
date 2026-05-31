@@ -1760,10 +1760,23 @@ async def grid_quick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 # --- 백그라운드 루프 엔진 ---
 def _get_admin_prefs() -> dict:
+    from core.db import get_db, is_db_available
+    base = dict(UserManager.DEFAULT_PREFERENCES)
+    if is_db_available():
+        try:
+            rows = get_db().table("system_config").select("key,value").in_(
+                "key", ["poll_active_interval", "poll_no_order_interval", "signal_analysis_interval"]
+            ).execute().data
+            for row in rows:
+                base[row["key"]] = int(row["value"])
+            return base
+        except Exception:
+            pass
+    # Fallback: admin user preferences
     for user in user_manager.users.values():
         if user.get("is_admin"):
-            return {**UserManager.DEFAULT_PREFERENCES, **user.get("preferences", {})}
-    return dict(UserManager.DEFAULT_PREFERENCES)
+            return {**base, **user.get("preferences", {})}
+    return base
 
 async def _interruptible_sleep(seconds: float):
     try:

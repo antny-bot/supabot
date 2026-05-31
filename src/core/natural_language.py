@@ -1,8 +1,11 @@
 import json
 import os
 import re
+import time
 from collections import Counter
 from datetime import datetime, timedelta, timezone
+
+from core.db import get_db, is_db_available
 
 
 KST = timezone(timedelta(hours=9))
@@ -285,13 +288,25 @@ def _trim_jsonl_file(path, max_lines):
         print(f"NL log trim error: {e}")
 
 
-def append_natural_language_log(text, llm_intent, final_intent, path=NL_UNMATCHED_LOG_PATH):
+def append_natural_language_log(text, llm_intent, final_intent, path=NL_UNMATCHED_LOG_PATH, user_id=None):
+    ts = time.time()
     row = {
         "ts": datetime.now(KST).isoformat(timespec="seconds"),
         "text_norm": sanitize_natural_language_log_text(text),
         "llm_action": (llm_intent or {}).get("action"),
         "final_action": (final_intent or {}).get("action"),
     }
+    if is_db_available():
+        try:
+            get_db().table("nl_logs").insert({
+                "user_id": str(user_id) if user_id else None,
+                "raw_text": sanitize_natural_language_log_text(text),
+                "llm_action": row["llm_action"],
+                "final_action": row["final_action"],
+                "logged_at": ts,
+            }).execute()
+        except Exception:
+            pass
     try:
         dir_name = os.path.dirname(path)
         if dir_name:

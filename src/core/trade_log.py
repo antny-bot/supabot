@@ -3,6 +3,8 @@ import os
 import time
 from datetime import datetime, timedelta, timezone
 
+from core.db import get_db, is_db_available
+
 TRADE_LOG_PATH = os.getenv("TRADE_LOG_PATH", "data/trades.jsonl")
 TRADE_LOG_MAX_LINES = 10_000
 
@@ -10,8 +12,9 @@ KST = timezone(timedelta(hours=9))
 
 
 def append_trade(user_id, exchange, ticker, side, price, volume, strategy, uuid, path=TRADE_LOG_PATH):
+    ts = time.time()
     record = {
-        "ts": time.time(),
+        "ts": ts,
         "user_id": str(user_id),
         "exchange": exchange,
         "ticker": ticker,
@@ -21,6 +24,21 @@ def append_trade(user_id, exchange, ticker, side, price, volume, strategy, uuid,
         "strategy": strategy,
         "uuid": uuid,
     }
+    if is_db_available():
+        try:
+            get_db().table("trade_logs").insert({
+                "user_id": str(user_id),
+                "exchange": exchange,
+                "ticker": ticker,
+                "side": side,
+                "price": float(price),
+                "volume": float(volume),
+                "strategy": strategy,
+                "uuid": uuid,
+                "executed_at": ts,
+            }).execute()
+        except Exception:
+            pass
     try:
         dir_name = os.path.dirname(path)
         if dir_name:
