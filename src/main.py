@@ -93,6 +93,7 @@ DEFAULT_BOT_COMMANDS = [
     # 자산
     ("asset", "통합 자산 현황"),
     ("price", "실시간 시세 조회"),
+    ("indicators", "RSI/MACD/BB/Stoch 멀티지표"),
     ("history", "최근 체결 내역"),
     # 매매
     ("status", "트레이딩 전략 대시보드"),
@@ -1104,6 +1105,56 @@ async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     await update.message.reply_text(msg, parse_mode="HTML")
 
 @check_auth
+async def indicators_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
+    if await check_details_help(update, "indicators"): return
+    user_id = str(update.effective_chat.id)
+    args = context.args or []
+    if not args:
+        await update.message.reply_text("⚠️ 종목을 입력하세요. 예: /indicators BTC 또는 /ind upbit KRW-BTC 60")
+        return
+
+    default_exchange = user["preferences"].get("default_exchange", "upbit")
+    # 마지막 인자가 봉기준(숫자 또는 day)이면 분리
+    if len(args) >= 2 and args[-1].lower() in ("day", "1", "3", "5", "10", "15", "30", "60", "240"):
+        interval = args[-1].lower()
+        exchange, ticker = parse_exchange_and_ticker(args[:-1], default_exchange)
+    else:
+        interval = user["preferences"].get("rsi_interval", "day")
+        exchange, ticker = parse_exchange_and_ticker(args, default_exchange)
+
+    await update.message.reply_text(f"⏳ {exchange_display_name(exchange)} {ticker} 지표 계산 중...")
+
+    result = await signal_engine.get_indicators(exchange, ticker, interval=interval, user_id=user_id)
+    if result is None:
+        await update.message.reply_text(f"❌ {exchange_display_name(exchange)}에서 {ticker} 캔들 데이터를 가져올 수 없습니다.")
+        return
+
+    rsi = result["rsi"]
+    macd = result["macd"]
+    bb = result["bbands"]
+    stoch = result["stoch"]
+    price = result["current_price"]
+    used_interval = result["interval"]
+    interval_label = "일봉" if used_interval == "day" else f"{used_interval}분봉"
+
+    bb_pos = ""
+    if price > bb.upper:
+        bb_pos = " ▲ 상단 돌파"
+    elif price < bb.lower:
+        bb_pos = " ▼ 하단 이탈"
+
+    hist_sign = "+" if macd.histogram >= 0 else ""
+    msg = (
+        f"📈 <b>[{exchange_display_name(exchange)}] {ticker}</b> 멀티지표 ({interval_label})\n\n"
+        f"현재가: <b>{price:,.0f}원</b>\n\n"
+        f"<b>RSI(14)</b>: {rsi:.2f}\n"
+        f"<b>MACD(12,26,9)</b>: {macd.macd:,.0f} / Signal {macd.signal:,.0f} / Hist {hist_sign}{macd.histogram:,.0f}\n"
+        f"<b>볼린저(20,2σ)</b>: 상 {bb.upper:,.0f} / 중 {bb.middle:,.0f} / 하 {bb.lower:,.0f}{bb_pos} (밴드폭 {bb.width_pct:.1f}%)\n"
+        f"<b>스토캐스틱(14,3)</b>: %K {stoch.k:.1f} / %D {stoch.d:.1f}"
+    )
+    await update.message.reply_text(msg, parse_mode="HTML")
+
+@check_auth
 async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     if await check_details_help(update, "history"): return
     user_id = str(update.effective_chat.id)
@@ -2046,6 +2097,8 @@ def main():
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("price", price_command))
     application.add_handler(CommandHandler("p", price_command))
+    application.add_handler(CommandHandler("indicators", indicators_command))
+    application.add_handler(CommandHandler("ind", indicators_command))
     application.add_handler(CommandHandler("history", history_command))
     application.add_handler(CommandHandler("buy", buy_command))
     application.add_handler(CommandHandler("sell", sell_command))

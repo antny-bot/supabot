@@ -99,6 +99,19 @@ CMD_HELP = {
         "3. <code>/p KRW-XRP</code> (심볼 직접 입력)\n"
         "4. <code>/price 한투 005930</code> (한국투자증권 삼성전자 시세)"
     ),
+    "indicators": (
+        "📈 <b>/indicators 상세 가이드</b>\n\n"
+        "<b>기능:</b> RSI, MACD, 볼린저밴드, 스토캐스틱을 한 번에 조회합니다.\n"
+        "<b>구문:</b> <code>/indicators [거래소] [종목] [봉기준]</code>\n\n"
+        "<b>옵션:</b>\n"
+        "• <code>거래소</code>: 업비트, 빗썸, 한투 (생략 시 기본 거래소)\n"
+        "• <code>종목</code>: BTC, ETH, 005930 등\n"
+        "• <code>봉기준</code>: day(일봉, 기본값), 60, 240 등 분봉\n\n"
+        "<b>예시:</b>\n"
+        "1. <code>/indicators BTC</code> (업비트 비트코인 일봉 지표)\n"
+        "2. <code>/ind BTC 60</code> (업비트 비트코인 60분봉 지표)\n"
+        "3. <code>/indicators 빗썸 ETH</code> (빗썸 이더리움 지표)"
+    ),
     "history": (
         "📜 <b>/history 상세 가이드</b>\n\n"
         "<b>기능:</b> 나의 최근 체결(완료)된 주문 내역을 보여줍니다.\n"

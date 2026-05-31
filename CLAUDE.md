@@ -59,6 +59,7 @@ Docker on Oracle Cloud VM. 실거래 경로 포함 — 변경 전 반드시 `AGE
       "stop_loss_pct": null,   // RSITrade 손절 비율(%) — null이면 손절 비활성
       "signal_alerts": true,
       "signal_rsi_threshold": 30,
+      "signal_bb_alert": false,    // 볼린저 하단 이탈 시 추가 알림 (RSI OR BB 조건)
       "asset_min_display_krw": 10000,
       "llm_enabled": false,
       "llm_model": "gemini-2.5-flash",

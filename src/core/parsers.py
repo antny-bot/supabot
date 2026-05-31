@@ -221,6 +221,13 @@ def parse_config_value(key, raw_value):
         if not 0 <= threshold <= 100:
             raise ValueError("RSI 기준은 0-100 사이여야 합니다.")
         return threshold
+    if key == "signal_bb_alert":
+        text = str(raw_value).strip().lower()
+        if text in ["on", "true", "1", "yes", "y", "켜기"]:
+            return True
+        if text in ["off", "false", "0", "no", "n", "끄기"]:
+            return False
+        raise ValueError("signal_bb_alert 값은 on 또는 off여야 합니다.")
     if key == "max_order_krw":
         return parse_optional_krw(raw_value)
     if key == "stop_loss_pct":

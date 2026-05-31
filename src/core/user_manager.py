@@ -28,6 +28,7 @@ class UserManager:
         "rsi_budget_krw": None,
         "signal_alerts": True,
         "signal_rsi_threshold": 30,
+        "signal_bb_alert": False,
         "rsi_interval": "day",
         "max_order_krw": None,
         "stop_loss_pct": None,
