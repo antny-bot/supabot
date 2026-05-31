@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h5 class="fw-bold mb-0">주문 현황</h5>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="/admin/orders" class="btn btn-sm {% if not status_filter %}btn-dark{% else %}btn-outline-dark{% endif %}">전체</a>
+    <a href="/admin/orders?status=open" class="btn btn-sm {% if status_filter == 'open' %}btn-dark{% else %}btn-outline-primary{% endif %}">미체결</a>
+    {% for key, label in status_labels.items() %}
+    <a href="/admin/orders?status={{ key }}"
+       class="btn btn-sm {% if status_filter == key %}btn-dark{% else %}btn-outline-secondary{% endif %}">{{ label }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+<div class="card shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-hover mb-0 align-middle">
+      <thead class="table-light">
+        <tr>
+          <th>생성</th><th>거래소</th><th>종목</th><th>구분</th>
+          <th>전략</th><th class="text-end">가격</th><th>체결률</th><th>상태</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for o in orders %}
+        <tr>
+          <td class="small text-muted">{{ o.created_fmt }}</td>
+          <td class="text-uppercase small">{{ o.get("exchange") }}</td>
+          <td class="font-monospace small">{{ o.get("ticker") }}</td>
+          <td>
+            {% if o.get("side") == "bid" %}<span class="badge bg-danger">매수</span>
+            {% else %}<span class="badge bg-primary">매도</span>{% endif %}
+          </td>
+          <td class="small">{{ o.get("strategy") }}</td>
+          <td class="text-end font-monospace small">{{ "{:,.0f}".format(o.get("price") or 0) }}</td>
+          <td style="min-width:90px;">
+            <div class="progress" style="height:14px;">
+              <div class="progress-bar bg-success" style="width: {{ o.fill_pct }}%;">{{ o.fill_pct }}%</div>
+            </div>
+          </td>
+          <td>
+            {% if o.get("status") == "done" %}<span class="badge bg-success">{{ o.status_label }}</span>
+            {% elif o.get("status") == "cancel" %}<span class="badge bg-secondary">{{ o.status_label }}</span>
+            {% elif o.get("status") == "partial" %}<span class="badge bg-info text-dark">{{ o.status_label }}</span>
+            {% elif o.get("status") == "pending_reorder" %}<span class="badge bg-warning text-dark">{{ o.status_label }}</span>
+            {% else %}<span class="badge bg-light text-dark border">{{ o.status_label }}</span>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-muted py-4">주문 없음</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

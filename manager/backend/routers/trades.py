@@ -1,0 +1,84 @@
+import time
+from collections import defaultdict
+from datetime import datetime
+
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+
+from ..db import get_db
+
+router = APIRouter()
+templates = Jinja2Templates(directory="frontend/templates")
+
+_PERIODS = {"1d": 86400, "7d": 604800, "30d": 2592000, "all": None}
+
+
+def _require_login(request: Request):
+    return request.session.get("user_email")
+
+
+def _fmt_ts(ts) -> str:
+    try:
+        return datetime.fromtimestamp(float(ts)).strftime("%m-%d %H:%M")
+    except (TypeError, ValueError):
+        return "—"
+
+
+@router.get("/admin/trades", response_class=HTMLResponse)
+async def list_trades(request: Request, period: str = "7d"):
+    if not _require_login(request):
+        return RedirectResponse("/login", status_code=303)
+    if period not in _PERIODS:
+        period = "7d"
+
+    trades = []
+    summary = {"total": 0, "buy": 0, "sell": 0, "volume_krw": 0.0}
+    by_exchange = []
+    by_strategy = []
+    error = None
+    try:
+        q = get_db().table("trade_logs").select("*").order("executed_at", desc=True).limit(500)
+        window = _PERIODS[period]
+        if window:
+            q._params["executed_at"] = f"gte.{time.time() - window}"
+        trades = q.execute().data
+
+        ex_agg = defaultdict(lambda: {"count": 0, "krw": 0.0})
+        st_agg = defaultdict(lambda: {"count": 0, "krw": 0.0})
+        for t in trades:
+            price = t.get("price") or 0
+            volume = t.get("volume") or 0
+            krw = price * volume
+            t["krw"] = krw
+            t["executed_fmt"] = _fmt_ts(t.get("executed_at"))
+            summary["total"] += 1
+            if t.get("side") == "bid":
+                summary["buy"] += 1
+            elif t.get("side") == "ask":
+                summary["sell"] += 1
+            summary["volume_krw"] += krw
+            ex = t.get("exchange") or "—"
+            ex_agg[ex]["count"] += 1
+            ex_agg[ex]["krw"] += krw
+            st = t.get("strategy") or "manual"
+            st_agg[st]["count"] += 1
+            st_agg[st]["krw"] += krw
+
+        by_exchange = [{"name": k, **v} for k, v in sorted(ex_agg.items())]
+        by_strategy = [{"name": k, **v} for k, v in sorted(st_agg.items())]
+    except Exception as e:
+        error = str(e)
+
+    return templates.TemplateResponse(
+        request,
+        "trades.html",
+        {
+            "trades": trades,
+            "summary": summary,
+            "by_exchange": by_exchange,
+            "by_strategy": by_strategy,
+            "period": period,
+            "error": error,
+        },
+    )

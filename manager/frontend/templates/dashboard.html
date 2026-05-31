@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block content %}
+<h5 class="fw-bold mb-3">대시보드</h5>
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-2">
+    <div class="card shadow-sm text-center h-100">
+      <div class="card-body py-3">
+        <div class="text-muted small">전체 유저</div>
+        <div class="fs-3 fw-bold">{{ stats.users_total }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <div class="card shadow-sm text-center h-100">
+      <div class="card-body py-3">
+        <div class="text-muted small">활성 유저</div>
+        <div class="fs-3 fw-bold text-success">{{ stats.users_active }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <div class="card shadow-sm text-center h-100">
+      <div class="card-body py-3">
+        <div class="text-muted small">승인 대기</div>
+        <div class="fs-3 fw-bold text-warning">{{ stats.users_pending }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <div class="card shadow-sm text-center h-100">
+      <div class="card-body py-3">
+        <div class="text-muted small">미체결 주문</div>
+        <div class="fs-3 fw-bold text-primary">{{ stats.orders_open }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <div class="card shadow-sm text-center h-100">
+      <div class="card-body py-3">
+        <div class="text-muted small">24h 거래</div>
+        <div class="fs-3 fw-bold">{{ stats.trades_24h }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <div class="card shadow-sm text-center h-100">
+      <div class="card-body py-3">
+        <div class="text-muted small">24h 오류</div>
+        <div class="fs-3 fw-bold {% if stats.errors_24h %}text-danger{% endif %}">{{ stats.errors_24h }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-header bg-white fw-semibold d-flex justify-content-between">
+    <span>최근 이벤트</span>
+    <a href="/admin/events" class="small text-decoration-none">전체 보기 →</a>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0">
+      <thead class="table-light">
+        <tr><th>시각</th><th>레벨</th><th>소스</th><th>메시지</th></tr>
+      </thead>
+      <tbody>
+        {% for e in recent_events %}
+        <tr>
+          <td class="small text-muted">{{ (e.get("created_at") or "")[:19] }}</td>
+          <td>
+            {% if e.get("level") == "error" %}<span class="badge bg-danger">error</span>
+            {% elif e.get("level") == "warning" %}<span class="badge bg-warning text-dark">warning</span>
+            {% else %}<span class="badge bg-secondary">{{ e.get("level") }}</span>{% endif %}
+          </td>
+          <td class="small">{{ e.get("source") }}</td>
+          <td class="small">{{ e.get("message") }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="text-center text-muted py-3">이벤트 없음</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
