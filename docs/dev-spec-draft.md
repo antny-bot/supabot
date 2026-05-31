@@ -1,5 +1,9 @@
 # SUTT-Bot V2 사양서: 멀티유저 및 멀티거래소 자동매매 플랫폼 (v2.0)
 
+> ⚠️ **주의: 본 문서는 V2.0 시점의 초기 사양서입니다.**
+> 현재 아키텍처는 **Supabase 데이터 계층** 도입 및 **봇(`src/`)·매니저(`manager/`) 모노레포 분리**로 크게 달라졌습니다.
+> 최신 기준(current truth)은 `README.md`와 `CLAUDE.md`를 참조하세요. 본 문서는 역사적 맥락 참고용입니다.
+
 본 사양서는 Synology NAS의 Container Manager(Docker) 환경에서 구동되는, 다중 사용자(Multi-User) 및 다중 거래소(Upbit & Bithumb) 지원 자동매매 봇의 개발 규격을 정의합니다.
 
 ---
@@ -44,6 +48,9 @@ crypto-bot/
 ```
 
 ### 3.2 데이터 스키마 예시 (`data/users.json` & `data/orders.json`)
+
+> 📌 **현재 데이터 저장소:** 아래 JSON 스키마는 V2 초기 형태입니다. 현재는 데이터가 **Supabase(Postgres, 6개 테이블)**에 저장되며,
+> Supabase 연결 실패 시 JSON 파일로 자동 폴백합니다. 자세한 내용은 `CLAUDE.md`와 `shared/schema.sql`을 참조하세요.
 
 **사용자 정보 및 설정 (`data/users.json`):**
 ```json

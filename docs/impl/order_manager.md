@@ -1,9 +1,13 @@
 # order_manager.md
 
-**파일**: `src/core/order_manager.py` (119줄)
+**파일**: `src/core/order_manager.py` (162줄)
 
 ## 역할
-전체 사용자·거래소의 활성 주문을 단일 JSON 리스트로 영속화. 봇이 제출했다고 믿는 주문의 단일 정보 소스.
+전체 사용자·거래소의 활성 주문을 영속화. 봇이 제출했다고 믿는 주문의 단일 정보 소스.
+
+저장은 **DB-우선 + 파일 폴백** 구조다. `core.db.is_db_available()` (`SUPABASE_URL` + `SUPABASE_SERVICE_KEY` 존재)이면 `orders` 테이블에서 로드하고, 모든 변경을 `_db_upsert(order)` / `_db_delete(uuid)`로 즉시 DB에 반영한다. DB 미사용이거나 DB 호출 실패 시 `data/orders.json` 파일로 폴백한다. 양방향 동기화는 없으며 파일은 비상 폴백이다.
+
+`replace_order_uuid(old, new)`는 UUID가 PK이므로 `_db_delete(old)` 후 `_db_upsert(new)` 순으로 처리한다(in-place UPDATE 아님).
 
 ## 상태 기계
 
@@ -63,8 +67,9 @@ manager.get_strategy_orders(user_id, strategy)
 전체 스키마는 `CLAUDE.md` 참조.
 
 ## 영속화 세부 사항
-- 파일: `data/orders.json` (생성자 인자로 변경 가능)
-- 모든 쓰기 후 `chmod 0600` 적용
+- DB-우선: `is_db_available()`이면 `orders` 테이블 사용. 쓰기는 `_db_upsert`/`_db_delete`, `uuid`가 PK.
+- 컬럼 매핑: `created_at` / `next_check_at`는 Unix timestamp(`DOUBLE PRECISION`)로 그대로 저장 — 타입 변환 없음.
+- 파일 폴백: DB 미사용/실패 시 `data/orders.json` (생성자 인자로 변경 가능), 쓰기 후 `chmod 0600` 적용
 - asyncio 단일 이벤트 루프 → 잠금(lock) 불필요
 
 ## 참조
