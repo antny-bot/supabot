@@ -266,7 +266,7 @@ class ExchangeAdapter:
                 return {"uuid": res.get('order_id') or res.get('uuid'), **res}
             return res
         elif exchange == "kis":
-            return await self._create_kis_order(user_id, client, ticker, side, price, volume)
+            return await self._create_kis_order(user_id, client, ticker, side, price, volume, ord_type=ord_type)
         return None
 
     async def buy_limit_order(self, user_id, exchange, ticker, price, volume):
@@ -528,20 +528,21 @@ class ExchangeAdapter:
             "env": keys.get("env", "paper"),
         }
 
-    async def _create_kis_order(self, user_id, keys, ticker, side, price, volume):
+    async def _create_kis_order(self, user_id, keys, ticker, side, price, volume, ord_type="limit"):
         env = keys.get("env", "paper")
         order_side = "buy" if side in ["bid", "buy", "매수"] else "sell"
         if env == "real":
             tr_id = "TTTC0802U" if order_side == "buy" else "TTTC0801U"
         else:
             tr_id = "VTTC0802U" if order_side == "buy" else "VTTC0801U"
+        is_market = ord_type == "market"
         body = {
             "CANO": keys.get("account_no"),
             "ACNT_PRDT_CD": keys.get("product_code", "01"),
             "PDNO": self._normalize_kis_ticker(ticker),
-            "ORD_DVSN": "00",
+            "ORD_DVSN": "01" if is_market else "00",
             "ORD_QTY": str(int(float(volume))),
-            "ORD_UNPR": str(int(float(price))),
+            "ORD_UNPR": "0" if is_market else str(int(float(price))),
         }
         if int(float(volume)) <= 0:
             return {"error": "KIS 주문 수량은 1주 이상이어야 합니다."}

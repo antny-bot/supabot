@@ -878,13 +878,10 @@ async def grid_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
 
     default_exchange = user["preferences"].get("default_exchange", "upbit")
     exchange, ticker = parse_exchange_and_ticker(args, default_exchange)
-    if exchange == "kis":
-        await update.message.reply_text("⚠️ 한국투자증권은 /grid 자동전략을 지원하지 않습니다. /buy 한투 [종목코드] [가격] [수량]을 사용하세요.")
-        return
-    
+
     # args 인덱스 보정 (거래소 명시 여부에 따라 파라미터 위치가 다름)
     offset = 2 if is_exchange_token(args[0], exchange) else 1
-    
+
     try:
         start_p, end_p = parse_number(args[offset]), parse_number(args[offset+1])
         count, budget = int(args[offset+2]), parse_number(args[offset+3])
@@ -899,13 +896,25 @@ async def grid_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
         await update.message.reply_text(error_msg)
         return
 
+    # KIS: 정규장 여부 및 최소 수량 사전 안내
+    kis_notice = ""
+    if exchange == "kis":
+        if not is_kis_regular_session():
+            await update.message.reply_text("⚠️ 현재 한국투자증권 정규장 시간이 아닙니다. 정규장(평일 09:00-15:35)에만 주문이 실행됩니다.")
+            return
+        mid_price = (start_p + end_p) / 2
+        if mid_price > 0 and int((budget / count) / mid_price) < 1:
+            await update.message.reply_text("⚠️ 예산 대비 가격이 높아 주문당 수량이 0주가 됩니다. 예산을 늘리거나 주문 개수를 줄여주세요.")
+            return
+        kis_notice = "\n⚠️ 한국투자증권: 주문 수량은 정수(주)로 처리됩니다."
+
     confirm_data = f"gridrun|{exchange}|{ticker}|{start_p}|{end_p}|{count}|{budget}"
     keyboard = [
         [InlineKeyboardButton("✅ 주문 실행", callback_data=confirm_data),
          InlineKeyboardButton("❌ 취소", callback_data="grid_cancel")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
+
     preview_text = "\n".join(build_grid_preview_lines(ticker, start_p, end_p, count, budget))
     summary = (
         f"🕸️ 거미줄 매수 주문 확인\n\n"
@@ -916,6 +925,7 @@ async def grid_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
         f"- 주문 개수: {count}회\n"
         f"- 총 예산: {budget:,.0f}원\n\n"
         "위 내용으로 주문을 진행할까요?"
+        f"{kis_notice}"
     )
     summary += f"\n\n예상 주문\n{preview_text}"
     await update.message.reply_text(summary, reply_markup=reply_markup)
@@ -932,12 +942,8 @@ async def sgrid_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
 
     default_exchange = user["preferences"].get("default_exchange", "upbit")
     exchange, ticker = parse_exchange_and_ticker(args, default_exchange)
-    if exchange == "kis":
-        await update.message.reply_text("⚠️ 한국투자증권은 /sgrid 자동전략을 지원하지 않습니다. /sell 한투 [종목코드] [가격] [수량]을 사용하세요.")
-        return
-    
     offset = 2 if is_exchange_token(args[0], exchange) else 1
-    
+
     try:
         start_p, end_p = parse_number(args[offset]), parse_number(args[offset+1])
         count, total_vol = int(args[offset+2]), parse_number(args[offset+3])
@@ -945,13 +951,25 @@ async def sgrid_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
         await update.message.reply_text("⚠️ 숫자 형식의 파라미터가 잘못되었습니다.")
         return
 
+    # KIS: 정규장 여부 및 최소 수량 확인
+    kis_notice = ""
+    if exchange == "kis":
+        if not is_kis_regular_session():
+            await update.message.reply_text("⚠️ 현재 한국투자증권 정규장 시간이 아닙니다. 정규장(평일 09:00-15:35)에만 주문이 실행됩니다.")
+            return
+        if int(total_vol) < count:
+            await update.message.reply_text(f"⚠️ 총 수량({int(total_vol)}주)이 주문 개수({count})보다 작아 주문당 수량이 0주가 됩니다.")
+            return
+        kis_notice = "\n⚠️ 한국투자증권: 주문 수량은 정수(주)로 처리됩니다."
+
+    vol_text = f"{int(total_vol):,}주" if exchange == "kis" else f"{total_vol:.4f}개"
     confirm_data = f"sgridrun|{exchange}|{ticker}|{start_p}|{end_p}|{count}|{total_vol}"
     keyboard = [
         [InlineKeyboardButton("✅ 매도 실행", callback_data=confirm_data),
          InlineKeyboardButton("❌ 취소", callback_data="grid_cancel")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
+
     summary = (
         f"🕸️ 거미줄 매도 주문 확인\n\n"
         f"주문 설정\n"
@@ -959,8 +977,9 @@ async def sgrid_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
         f"- 종목: {ticker}\n"
         f"- 가격 범위: {start_p:,.0f} ~ {end_p:,.0f}\n"
         f"- 주문 개수: {count}회\n"
-        f"- 총 수량: {total_vol:.4f}개\n\n"
+        f"- 총 수량: {vol_text}\n\n"
         "위 내용으로 분할 매도를 진행할까요?"
+        f"{kis_notice}"
     )
     await update.message.reply_text(summary, reply_markup=reply_markup)
 
@@ -990,41 +1009,46 @@ async def grid_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TY
         action_name = "매도" if is_sell else "매수"
         await query.edit_message_text(f"🚀 {ex.upper()}에 거미줄 {action_name} 주문 전송을 시작합니다...")
         
+        # KIS 정규장 재확인 (confirm 시점에 다시 체크)
+        if ex == "kis" and not is_kis_regular_session():
+            await query.edit_message_text("⚠️ 현재 한국투자증권 정규장 시간이 아닙니다. 주문을 실행할 수 없습니다.")
+            return
+
         price_step = (e_p - s_p) / (ct - 1) if ct > 1 else 0
         success_count = 0
+        skipped_count = 0
 
         for i in range(ct):
             target_price = s_p + (price_step * i)
             target_price = ExchangeAdapter.adjust_price_to_tick(target_price)
-            
+
             if is_sell:
-                volume = val / ct
-                volume = round(volume, 4)
+                raw_vol = val / ct
+                volume = int(raw_vol) if ex == "kis" else round(raw_vol, 4)
                 res = await exchange_adapter.create_order(user_id, ex, tk, "ask", target_price, volume)
             else:
-                volume = (val / ct) / target_price
-                volume = round(volume, 4)
+                raw_vol = (val / ct) / target_price if target_price else 0
+                volume = int(raw_vol) if ex == "kis" else round(raw_vol, 4)
                 res = await exchange_adapter.buy_limit_order(user_id, ex, tk, target_price, volume)
+
+            if ex == "kis" and volume <= 0:
+                skipped_count += 1
+                continue
 
             if res and 'uuid' in res:
                 order_manager.add_order(
-                    user_id,
-                    ex,
-                    tk,
-                    res['uuid'],
-                    target_price,
-                    volume,
+                    user_id, ex, tk, res['uuid'], target_price, volume,
                     side="ask" if is_sell else "bid",
                     strategy="sgrid" if is_sell else "grid",
                 )
                 success_count += 1
-            
+
             await asyncio.sleep(0.2)
 
-        await context.bot.send_message(
-            chat_id=user_id, 
-            text=f"✅ `{tk}` 거미줄 {action_name} 완료! ({success_count}/{ct}건 성공)\n백그라운드에서 체결을 감시합니다."
-        )
+        result_msg = f"✅ `{tk}` 거미줄 {action_name} 완료! ({success_count}/{ct}건 성공)\n백그라운드에서 체결을 감시합니다."
+        if skipped_count:
+            result_msg += f"\n⚠️ {skipped_count}건은 수량 부족(0주)으로 건너뜀."
+        await context.bot.send_message(chat_id=user_id, text=result_msg)
 
 # --- /watch & /unwatch: 관심 종목 관리 ---
 @check_auth
@@ -1181,7 +1205,7 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE, us
 
     await update.message.reply_text(msg, parse_mode="HTML")
 
-def create_manual_order_token(user_id, exchange, side, ticker, price, volume):
+def create_manual_order_token(user_id, exchange, side, ticker, price, volume, ord_type="limit"):
     token = str(len(_pending_manual_orders) + 1)
     while token in _pending_manual_orders:
         token = str(int(token) + 1)
@@ -1192,6 +1216,7 @@ def create_manual_order_token(user_id, exchange, side, ticker, price, volume):
         "ticker": ticker,
         "price": float(price),
         "volume": float(volume),
+        "ord_type": ord_type,
         "created_at": time.time(),
     }
     return token
@@ -1216,32 +1241,35 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     user_id = str(update.effective_chat.id)
     args = context.args
     if len(args) < 3:
-        await update.message.reply_text("⚠️ 사용법: /buy [거래소] [종목] [가격] [수량] (거래소 생략 시 업비트)")
+        await update.message.reply_text("⚠️ 사용법: /buy [거래소] [종목] [가격|market] [수량] (거래소 생략 시 업비트)")
         return
 
     default_exchange = user["preferences"].get("default_exchange", "upbit")
     exchange, ticker = parse_exchange_and_ticker(args, default_exchange)
-    
     offset = 2 if is_exchange_token(args[0], exchange) else 1
-    
+
     try:
-        price = parse_number(args[offset])
-        volume = parse_number(args[offset+1])
+        is_market = args[offset].lower() == "market"
+        if is_market:
+            price, volume, ord_type = 0.0, parse_number(args[offset + 1]), "market"
+        else:
+            price, volume, ord_type = parse_number(args[offset]), parse_number(args[offset + 1]), "limit"
     except (ValueError, IndexError):
         await update.message.reply_text("⚠️ 가격과 수량은 숫자여야 합니다.")
         return
 
-    ok, error_msg = validate_max_order(user, price * volume)
-    if not ok:
-        await update.message.reply_text(error_msg)
-        return
+    if not is_market:
+        ok, error_msg = validate_max_order(user, price * volume)
+        if not ok:
+            await update.message.reply_text(error_msg)
+            return
 
-    token = create_manual_order_token(user_id, exchange, "bid", ticker, price, volume)
+    token = create_manual_order_token(user_id, exchange, "bid", ticker, price, volume, ord_type=ord_type)
     confirm_data = f"manualrun|{token}"
     keyboard = [[InlineKeyboardButton("✅ 매수 실행", callback_data=confirm_data),
                  InlineKeyboardButton("❌ 취소", callback_data=f"manualcancel|{token}")]]
     await update.message.reply_text(
-        build_manual_order_confirm_message(exchange, ticker, "bid", price, volume, user),
+        build_manual_order_confirm_message(exchange, ticker, "bid", price, volume, user, ord_type=ord_type),
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
@@ -1251,27 +1279,29 @@ async def sell_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
     user_id = str(update.effective_chat.id)
     args = context.args
     if len(args) < 3:
-        await update.message.reply_text("⚠️ 사용법: /sell [거래소] [종목] [가격] [수량] (거래소 생략 시 업비트)")
+        await update.message.reply_text("⚠️ 사용법: /sell [거래소] [종목] [가격|market] [수량] (거래소 생략 시 업비트)")
         return
 
     default_exchange = user["preferences"].get("default_exchange", "upbit")
     exchange, ticker = parse_exchange_and_ticker(args, default_exchange)
-    
     offset = 2 if is_exchange_token(args[0], exchange) else 1
-    
+
     try:
-        price = parse_number(args[offset])
-        volume = parse_number(args[offset+1])
+        is_market = args[offset].lower() == "market"
+        if is_market:
+            price, volume, ord_type = 0.0, parse_number(args[offset + 1]), "market"
+        else:
+            price, volume, ord_type = parse_number(args[offset]), parse_number(args[offset + 1]), "limit"
     except (ValueError, IndexError):
         await update.message.reply_text("⚠️ 가격과 수량은 숫자여야 합니다.")
         return
 
-    token = create_manual_order_token(user_id, exchange, "ask", ticker, price, volume)
+    token = create_manual_order_token(user_id, exchange, "ask", ticker, price, volume, ord_type=ord_type)
     confirm_data = f"manualrun|{token}"
     keyboard = [[InlineKeyboardButton("✅ 매도 실행", callback_data=confirm_data),
                  InlineKeyboardButton("❌ 취소", callback_data=f"manualcancel|{token}")]]
     await update.message.reply_text(
-        build_manual_order_confirm_message(exchange, ticker, "ask", price, volume, user),
+        build_manual_order_confirm_message(exchange, ticker, "ask", price, volume, user, ord_type=ord_type),
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
@@ -1302,7 +1332,9 @@ async def manual_order_confirm_callback(update: Update, context: ContextTypes.DE
     ticker = pending["ticker"]
     price = float(pending["price"])
     volume = float(pending["volume"])
-    if side == "bid":
+    ord_type = pending.get("ord_type", "limit")
+    is_market = ord_type == "market"
+    if side == "bid" and not is_market:
         ok, error_msg = validate_max_order(user, price * volume)
         if not ok:
             await query.edit_message_text(error_msg)
@@ -1313,9 +1345,10 @@ async def manual_order_confirm_callback(update: Update, context: ContextTypes.DE
         env = user.get("exchanges", {}).get("kis", {}).get("env", "paper")
         env_notice = f" ({'실전' if env == 'real' else '모의'})"
     action = "매수" if side == "bid" else "매도"
-    await query.edit_message_text(f"🚀 {exchange_display_name(exchange)} {ticker} {action} 주문 전송 중{env_notice}...")
+    order_type_label = "시장가 " if is_market else ""
+    await query.edit_message_text(f"🚀 {exchange_display_name(exchange)} {ticker} {order_type_label}{action} 주문 전송 중{env_notice}...")
 
-    res = await exchange_adapter.create_order(user_id, exchange, ticker, side, price, volume)
+    res = await exchange_adapter.create_order(user_id, exchange, ticker, side, price, volume, ord_type=ord_type)
     if res and "uuid" in res:
         order_manager.add_order(user_id, exchange, ticker, res["uuid"], price, volume, side=side, strategy="manual")
         await context.bot.send_message(

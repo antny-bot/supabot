@@ -46,10 +46,11 @@ def _patch_auth(monkeypatch, user):
     monkeypatch.setattr(main, "user_manager", mock_um)
 
 
-# T4: grid_command — KIS 거래소 → 미지원 오류
-async def test_grid_command_rejects_kis(monkeypatch):
+# T4: grid_command — KIS 거래소 + 정규장 외 → 정규장 안내
+async def test_grid_command_kis_outside_market_hours(monkeypatch):
     user = _active_user()
     _patch_auth(monkeypatch, user)
+    monkeypatch.setattr(main, "is_kis_regular_session", lambda: False)
 
     update = _make_update(text="/grid 한투 005930 70000 80000 3 1000000")
     ctx = _make_context(["한투", "005930", "70000", "80000", "3", "1000000"])
@@ -58,8 +59,7 @@ async def test_grid_command_rejects_kis(monkeypatch):
 
     update.message.reply_text.assert_called_once()
     reply_text = update.message.reply_text.call_args.args[0]
-    assert "한국투자증권" in reply_text
-    assert "지원하지 않습니다" in reply_text
+    assert "정규장" in reply_text
 
 
 # T5: grid_command — 유효 인자 → 확인 미리보기 + 인라인 버튼

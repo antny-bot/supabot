@@ -519,8 +519,9 @@ def build_account_summary(user_id, user):
     )
 
 
-def build_manual_order_confirm_message(exchange, ticker, side, price, volume, user):
+def build_manual_order_confirm_message(exchange, ticker, side, price, volume, user, ord_type="limit"):
     action = "매수" if side == "bid" else "매도"
+    is_market = ord_type == "market"
     env_notice = ""
     if exchange == "kis":
         env = user.get("exchanges", {}).get("kis", {}).get("env", "paper")
@@ -528,12 +529,14 @@ def build_manual_order_confirm_message(exchange, ticker, side, price, volume, us
         volume_text = f"{float(volume):,.0f}주"
     else:
         volume_text = f"{float(volume):.8f}".rstrip("0").rstrip(".")
+    price_text = "시장가" if is_market else f"{float(price):,.0f}원"
+    amount_line = "" if is_market else f"- 주문금액: {float(price) * float(volume):,.0f}원\n"
     return (
         f"{'📈' if side == 'bid' else '📉'} <b>{exchange_display_name(exchange)} {action} 주문 확인</b>{env_notice}\n\n"
         f"- 종목: {ticker}\n"
-        f"- 가격: {float(price):,.0f}원\n"
+        f"- 가격: {price_text}\n"
         f"- 수량: {volume_text}\n"
-        f"- 주문금액: {float(price) * float(volume):,.0f}원\n\n"
+        f"{amount_line}\n"
         "위 내용으로 주문을 전송할까요?"
     )
 
