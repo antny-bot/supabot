@@ -1,6 +1,7 @@
 # Local secrets and runtime state
 config/.env
 data/*.json
+data/*.jsonl
 
 # Python runtime artifacts
 __pycache__/
