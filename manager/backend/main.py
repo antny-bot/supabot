@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -20,6 +20,7 @@ app.add_middleware(
     max_age=86400,
 )
 
+# /api/* routes — registered first so they take priority over static file mount
 app.include_router(dashboard.router)
 app.include_router(orders.router)
 app.include_router(trades.router)
@@ -59,16 +60,19 @@ async def api_logout(request: Request):
     return JSONResponse({"ok": True})
 
 
-# Legacy HTML login (redirect to SPA)
-@app.get("/login")
-@app.get("/")
-async def root_redirect(request: Request):
-    if request.session.get("user_email"):
-        return RedirectResponse("/dashboard", status_code=302)
-    return RedirectResponse("/login", status_code=302)
+# SPA: serve React app for all non-/api paths.
+# StaticFiles(html=True) serves index.html for any path that doesn't match a file,
+# enabling client-side React Router to handle routes like /dashboard, /login, etc.
+_DIST = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "frontend", "dist"))
 
+if os.path.isdir(_DIST):
+    app.mount("/", StaticFiles(directory=_DIST, html=True), name="static")
+else:
+    _INDEX_FALLBACK = os.path.join(os.path.dirname(__file__), "_no_frontend.html")
 
-# Serve React SPA — must be registered last
-_STATIC_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
-if os.path.isdir(_STATIC_DIR):
-    app.mount("/", StaticFiles(directory=_STATIC_DIR, html=True), name="static")
+    @app.get("/{full_path:path}")
+    async def no_frontend(full_path: str):  # noqa: ARG001
+        return JSONResponse(
+            {"error": "Frontend not built. Run: cd manager/frontend && npm run build"},
+            status_code=503,
+        )
