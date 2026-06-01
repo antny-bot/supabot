@@ -175,56 +175,93 @@ export default function Users() {
         {loading ? (
           <Spinner />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
-                  <th className="px-4 py-3 text-left font-medium">유저 ID</th>
-                  <th className="px-4 py-3 text-left font-medium">이름</th>
-                  <th className="px-4 py-3 text-left font-medium">상태</th>
-                  <th className="px-4 py-3 text-left font-medium">관리자</th>
-                  <th className="px-4 py-3 text-left font-medium">매니저 이메일</th>
-                  <th className="px-4 py-3 text-left font-medium whitespace-nowrap">가입일</th>
-                  <th className="px-4 py-3 text-left font-medium">액션</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {users.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-10 text-center text-slate-400 dark:text-slate-500 text-xs">
-                      유저 없음
-                    </td>
+          <>
+            {/* 데스크톱 뷰 (테이블 형태) */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
+                    <th className="px-4 py-3 text-left font-medium">유저 ID</th>
+                    <th className="px-4 py-3 text-left font-medium">이름</th>
+                    <th className="px-4 py-3 text-left font-medium">상태</th>
+                    <th className="px-4 py-3 text-left font-medium">관리자</th>
+                    <th className="px-4 py-3 text-left font-medium">매니저 이메일</th>
+                    <th className="px-4 py-3 text-left font-medium whitespace-nowrap">가입일</th>
+                    <th className="px-4 py-3 text-left font-medium">액션</th>
                   </tr>
-                ) : users.map((u) => (
-                  <tr key={u.user_id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                    <td className="px-4 py-2.5 font-mono text-xs text-slate-500 dark:text-slate-400">
-                      {u.user_id}
-                    </td>
-                    <td className="px-4 py-2.5 text-slate-800 dark:text-slate-200 font-medium text-xs">
-                      {u.username || '—'}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <Badge value={u.status} label={u.status_label} />
-                    </td>
-                    <td className="px-4 py-2.5">
-                      {u.is_admin && (
-                        <ShieldCheck size={14} className="text-indigo-500" />
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5">
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {users.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-10 text-center text-slate-400 dark:text-slate-500 text-xs">
+                        유저 없음
+                      </td>
+                    </tr>
+                  ) : users.map((u) => (
+                    <tr key={u.user_id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                      <td className="px-4 py-2.5 font-mono text-xs text-slate-500 dark:text-slate-400">
+                        {u.user_id}
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-800 dark:text-slate-200 font-medium text-xs">
+                        {u.username || '—'}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <Badge value={u.status} label={u.status_label} />
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {u.is_admin && (
+                          <ShieldCheck size={14} className="text-indigo-500" />
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <EmailCell user={u} onUpdate={handleUpdate} />
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400 text-xs whitespace-nowrap">
+                        {fmtDate(String(u.created_at))}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <ActionButtons user={u} onUpdate={handleUpdate} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* 모바일 뷰 (카드 형태) */}
+            <div className="block md:hidden divide-y divide-slate-100 dark:divide-slate-800">
+              {users.length === 0 ? (
+                <div className="px-4 py-10 text-center text-slate-400 dark:text-slate-500 text-xs">
+                  유저 없음
+                </div>
+              ) : (
+                users.map((u) => (
+                  <div key={u.user_id} className="p-4 space-y-3 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-500 dark:text-slate-400 font-mono">{u.user_id}</span>
+                      <div className="flex items-center gap-1">
+                        {u.is_admin && <ShieldCheck size={12} className="text-indigo-500" />}
+                        <Badge value={u.status} label={u.status_label} />
+                      </div>
+                    </div>
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="font-semibold text-slate-800 dark:text-slate-200 text-sm">
+                        {u.username || '—'}
+                      </span>
+                      <span className="text-slate-400 dark:text-slate-500">{fmtDate(String(u.created_at))}</span>
+                    </div>
+                    <div className="flex flex-col gap-1 text-xs">
+                      <span className="text-slate-400 dark:text-slate-500">매니저 이메일:</span>
                       <EmailCell user={u} onUpdate={handleUpdate} />
-                    </td>
-                    <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400 text-xs whitespace-nowrap">
-                      {fmtDate(String(u.created_at))}
-                    </td>
-                    <td className="px-4 py-2.5">
+                    </div>
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800/60">
                       <ActionButtons user={u} onUpdate={handleUpdate} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </>
         )}
       </div>
 

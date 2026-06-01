@@ -107,7 +107,8 @@ export default function Trades() {
             <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800">
               <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">상세 내역</h3>
             </div>
-            <div className="overflow-x-auto">
+            {/* 데스크톱 뷰 (테이블 형태) */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
@@ -138,6 +139,40 @@ export default function Trades() {
                   ))}
                 </tbody>
               </table>
+            </div>
+
+            {/* 모바일 뷰 (카드 형태) */}
+            <div className="block md:hidden divide-y divide-slate-100 dark:divide-slate-800">
+              {data.trades.length === 0 ? (
+                <div className="px-4 py-10 text-center text-slate-400 text-xs">
+                  거래 없음
+                </div>
+              ) : (
+                data.trades.map((t, i) => (
+                  <div key={i} className="p-4 space-y-3 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-500 dark:text-slate-400 font-mono">{t.executed_fmt}</span>
+                      <Badge value={t.side} />
+                    </div>
+                    <div className="flex justify-between items-baseline">
+                      <div className="flex items-center gap-1.5">
+                        <Badge value={t.exchange} label={t.exchange.toUpperCase()} />
+                        <span className="font-semibold text-slate-800 dark:text-slate-200 text-xs">{t.ticker}</span>
+                      </div>
+                      <span className="font-mono text-xs font-bold text-slate-900 dark:text-white">
+                        {t.price?.toLocaleString()}원
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                      <span>전략: {t.strategy}</span>
+                      <span>수량: <span className="font-mono text-slate-800 dark:text-slate-200 font-medium">{t.volume?.toFixed(4)}</span></span>
+                    </div>
+                    <div className="flex justify-end text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      대금: {t.krw?.toLocaleString()}원
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </>

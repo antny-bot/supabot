@@ -218,11 +218,10 @@ class SignalEngine:
                             reasons.append(f"종가 {current_price:,.0f} < BB하단 {bb.lower:,.0f}")
 
                         msg = (
-                            f"🔔 매수 시그널 포착\n\n"
-                            f"- 거래소: {exchange.upper()}\n"
-                            f"- 종목: {ticker}\n"
-                            f"- 조건: {' / '.join(reasons)}\n\n"
-                            "현재 가격대에서 진입을 고려해 보세요!"
+                            f"🔔 <b>[{exchange.upper()}] 매수 시그널</b>\n\n"
+                            f"🔹 종목: {ticker}\n"
+                            f"🔹 조건: {' / '.join(reasons)}\n\n"
+                            "💡 현재 가격대에서 진입을 고려해 보세요!"
                         )
                         keyboard = [
                             [InlineKeyboardButton("🕸️ 거미줄 셋팅하기", callback_data=f"grid_quick_{exchange}_{ticker}")],

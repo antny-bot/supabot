@@ -549,7 +549,9 @@ async def asset_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
             for stock in balances.get("stocks", []):
                 value = float(stock.get("value", 0))
                 if value > min_display_krw:
-                    full_msg += f"- 📈 {stock.get('name') or stock.get('code')}: {stock.get('quantity', 0):,.0f}주 ({value:,.0f}원)\n"
+                    name = stock.get('name') or stock.get('code')
+                    full_msg += f"- 📈 {name} ({stock.get('quantity', 0):,.0f}주)\n"
+                    full_msg += f"   └ {value:,.0f}원\n"
                 else:
                     others_count += 1
                     others_value += value
@@ -582,8 +584,9 @@ async def asset_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
                 ex_eval += value
                 
                 if value > min_display_krw:
-                    price_info = f" ({price:,.0f}원)" if price > 0 else ""
-                    full_msg += f"- 🪙 {currency}: {qty:.4f}개{price_info}\n"
+                    full_msg += f"- 🪙 {currency} ({qty:.4f}개)\n"
+                    if price > 0:
+                        full_msg += f"   └ {value:,.0f}원\n"
                 else:
                     others_count += 1
                     others_value += value
@@ -613,7 +616,7 @@ async def orders_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
     msg = "⏳ <b>현재 추적 중인 미체결 주문</b>\n\n"
     for ord in orders:
         msg += f"📌 <b>[{exchange_display_name(ord['exchange'])}]</b> {ord['ticker']}\n"
-        msg += f"   └ 가격: {ord['price']:,.0f}원 | 수량: {ord['volume']:.4f}\n"
+        msg += f"   └ {ord['price']:,.0f}원 ({ord['volume']:.4f}개)\n"
 
     await update.message.reply_text(msg, parse_mode="HTML")
 
@@ -1584,15 +1587,15 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
 
             prog_bar = "🔵" * filled + "⚪" * (total - filled)
 
-            msg += f"• <b>{tk}</b> {strategy_name}\n"
-            msg += f"  └ 상태: {prog_bar} ({total}건 추적 중)\n"
+            msg += f"• <b>{tk}</b> ({strategy_name})\n"
+            msg += f"  └ 진행: {prog_bar} ({total}건 추적)\n"
 
             for i, o in enumerate(tk_orders[:3]):
                 side_str = "매수" if o['side'] == 'bid' else "매도"
                 target = f"RSI {o['target_rsi']}" if o['target_rsi'] else f"{o['price']:,.0f}원"
                 state_text = status_names.get(o.get("status"), o.get("status", "대기"))
-                msg += f"    - {i+1}. {side_str} {state_text}: {target}\n"
-            if len(tk_orders) > 3: msg += "    - ... 그 외 생략\n"
+                msg += f"  ▫️ {i+1}. {side_str}[{state_text}]: {target}\n"
+            if len(tk_orders) > 3: msg += "  ▫️ ... 그 외 생략\n"
         msg += "\n"
 
     msg += "ℹ️ 체결 및 외부 취소 시 실시간 알림이 전송됩니다."

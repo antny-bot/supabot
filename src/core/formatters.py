@@ -366,21 +366,24 @@ def build_config_view(user, active_order_count=0):
     api_lines = []
     for exchange in ["upbit", "bithumb", "kis"]:
         keys = user.get("exchanges", {}).get(exchange, {})
+        status_text = format_api_validation_status(user, exchange)
+        status_text = status_text.replace("마지막 검증 ", "").replace("2026-", "")
         if exchange == "kis":
             is_set = bool(keys.get("app_key") and keys.get("app_secret") and keys.get("account_no"))
             account = keys.get("account_no", "")
             masked_account = f"{account[:2]}****{account[-2:]}" if len(account) >= 4 else "미설정"
             env_name = "실전" if keys.get("env") == "real" else "모의"
             api_lines.append(
-                f"- {exchange_display_name(exchange)}: {'설정됨' if is_set else '미설정'}"
-                f" / {env_name} / 계좌 {masked_account}"
-                f" / {format_api_validation_status(user, exchange)}"
+                f"🏛️ <b>{exchange_display_name(exchange)}</b> ({env_name})\n"
+                f"  ├ 계좌: {masked_account} ({'설정됨' if is_set else '미설정'})\n"
+                f"  └ 상태: {status_text}\n"
             )
         else:
             is_set = bool(keys.get("access_key") and keys.get("secret_key"))
             api_lines.append(
-                f"- {exchange_display_name(exchange)}: {'설정됨' if is_set else '미설정'}"
-                f" / {format_api_validation_status(user, exchange)}"
+                f"🏛️ <b>{exchange_display_name(exchange)}</b>\n"
+                f"  ├ 키: {'설정됨' if is_set else '미설정'}\n"
+                f"  └ 상태: {status_text}\n"
             )
 
     sections = [

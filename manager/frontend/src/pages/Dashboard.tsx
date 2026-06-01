@@ -67,7 +67,8 @@ export default function Dashboard() {
               <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800">
                 <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-300">최근 이벤트</h2>
               </div>
-              <div className="overflow-x-auto">
+              {/* 데스크톱 뷰 (테이블 형태) */}
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-xs text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800">
@@ -100,6 +101,24 @@ export default function Dashboard() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+
+              {/* 모바일 뷰 (리스트 형태) */}
+              <div className="block md:hidden divide-y divide-slate-100 dark:divide-slate-800">
+                {data.recent_events.length === 0 ? (
+                  <div className="px-4 py-8 text-center text-slate-400 dark:text-slate-500 text-xs">
+                    이벤트 없음
+                  </div>
+                ) : data.recent_events.map((ev, i) => (
+                  <div key={i} className="p-3 space-y-1.5 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-500 dark:text-slate-400 font-mono">{fmtTime(String(ev.created_at))}</span>
+                      <Badge value={ev.level} />
+                    </div>
+                    <div className="text-xs font-semibold text-slate-600 dark:text-slate-300">[{ev.source || 'system'}]</div>
+                    <div className="text-xs text-slate-700 dark:text-slate-200 text-break">{ev.message}</div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
