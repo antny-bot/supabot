@@ -1,6 +1,9 @@
 import asyncio
 import os
 import sys
+import time
+from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock, MagicMock
 
 import pandas as pd
 import ta
@@ -144,3 +147,102 @@ def test_get_indicators_kis_minute_falls_back_to_day():
     engine = SignalEngine(DummyUsers(), TrackingAdapter())
     asyncio.run(engine.get_indicators("kis", "005930", interval="60"))
     assert calls[0] == "day"
+
+
+# ── snooze ────────────────────────────────────────────────────────────────────
+
+def test_set_snooze_1h():
+    engine = SignalEngine(DummyUsers(), DummyAdapter([]))
+    before = time.time()
+    expires = engine.set_snooze("123", "upbit", "KRW-BTC", "1h")
+    assert abs(expires - (before + 3600)) < 2
+
+
+def test_set_snooze_2h():
+    engine = SignalEngine(DummyUsers(), DummyAdapter([]))
+    before = time.time()
+    expires = engine.set_snooze("123", "upbit", "KRW-BTC", "2h")
+    assert abs(expires - (before + 7200)) < 2
+
+
+def test_set_snooze_day_returns_next_midnight():
+    engine = SignalEngine(DummyUsers(), DummyAdapter([]))
+    expires = engine.set_snooze("123", "upbit", "KRW-BTC", "day")
+    kst = timezone(timedelta(hours=9))
+    exp_dt = datetime.fromtimestamp(expires, tz=kst)
+    assert exp_dt.hour == 0 and exp_dt.minute == 0 and exp_dt.second == 0
+    assert exp_dt > datetime.now(kst)
+
+
+def test_analyze_watchlist_sends_alert_once_then_snoozes():
+    """조건 충족 시 첫 폴링에만 알람 발송, 이후 스누즈 중엔 발송 안 함."""
+    sent = []
+
+    class FakeBot:
+        async def send_message(self, **kw):
+            sent.append(kw)
+
+    class FakeApp:
+        bot = FakeBot()
+
+    user_data = {
+        "is_active": True,
+        "preferences": {
+            "signal_alerts": True,
+            "signal_rsi_threshold": 80,  # 높게 설정해 항상 RSI 트리거
+            "signal_bb_alert": False,
+            "rsi_interval": "day",
+        },
+        "exchanges": {"upbit": {"watchlist": ["KRW-BTC"]}},
+    }
+
+    class FakeUsers:
+        users = {"999": user_data}
+
+    engine = SignalEngine(FakeUsers(), DummyAdapter(_long_candles()))
+    app = FakeApp()
+
+    asyncio.run(engine.analyze_watchlist(app))
+    assert len(sent) == 1
+
+    # 두 번째 실행 — 스누즈 중이므로 발송 없음
+    asyncio.run(engine.analyze_watchlist(app))
+    assert len(sent) == 1
+
+
+def test_analyze_watchlist_sends_again_after_snooze_expires():
+    """스누즈 만료 후엔 알람 재발송."""
+    sent = []
+
+    class FakeBot:
+        async def send_message(self, **kw):
+            sent.append(kw)
+
+    class FakeApp:
+        bot = FakeBot()
+
+    user_data = {
+        "is_active": True,
+        "preferences": {
+            "signal_alerts": True,
+            "signal_rsi_threshold": 80,
+            "signal_bb_alert": False,
+            "rsi_interval": "day",
+        },
+        "exchanges": {"upbit": {"watchlist": ["KRW-BTC"]}},
+    }
+
+    class FakeUsers:
+        users = {"999": user_data}
+
+    engine = SignalEngine(FakeUsers(), DummyAdapter(_long_candles()))
+    app = FakeApp()
+
+    asyncio.run(engine.analyze_watchlist(app))
+    assert len(sent) == 1
+
+    # 스누즈를 과거로 강제 만료
+    engine._alert_snooze[("999", "upbit", "KRW-BTC")] = time.time() - 1
+
+    asyncio.run(engine.analyze_watchlist(app))
+    assert len(sent) == 2
