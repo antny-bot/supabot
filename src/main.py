@@ -2017,6 +2017,90 @@ async def _internal_execute_grid_handler(request: _web.Request) -> _web.Response
         _log.warning("Internal grid execution failed", exc_info=e)
         return _web.Response(status=500, text=str(e))
 
+async def _internal_execute_rsitrade_handler(request: _web.Request) -> _web.Response:
+    api_key = os.environ.get("MANAGER_API_KEY", "")
+    if not api_key or request.headers.get("X-API-Key") != api_key:
+        return _web.Response(status=401)
+    try:
+        data = await request.json()
+        user_id = str(data["user_id"])
+        ex = data["exchange"].lower()
+        tk = data["ticker"].upper()
+        b_rsi = str(data["buy_rsi_range"])
+        s_rsi = str(data["sell_rsi_range"])
+        ct = int(data["count"])
+        bg = float(data["budget"])
+
+        user = user_manager.get_user(user_id)
+        if not user:
+            return _web.Response(status=404, text="User not found")
+
+        if ex == "kis" and get_user_rsi_interval(user) != "day":
+            return _web.Response(status=400, text="한투 KIS는 일봉(day) 기준 RSI만 지원합니다.")
+
+        ok, error_msg = validate_max_order(user, bg / ct)
+        if not ok:
+            return _web.Response(status=400, text=error_msg)
+
+        min_amt = exchange_adapter.get_min_order_amount(ex)
+        if (bg / ct) < min_amt:
+            return _web.Response(status=400, text=f"건당 주문 금액이 거래소 최소 주문 금액({min_amt:,.0f}원)보다 작습니다.")
+
+        app = request.app["bot_application"]
+
+        async def run_rsitrade():
+            b_start, b_end = parse_rsi_range(b_rsi)
+            s_start, s_end = parse_rsi_range(s_rsi)
+            budget_per_order = bg / ct
+            
+            success = 0
+            for i in range(ct):
+                target_rsi = interpolate_range(b_start, b_end, i, ct)
+                sell_target_rsi = interpolate_range(s_start, s_end, i, ct)
+                price = await signal_engine.get_price_by_rsi(
+                    ex,
+                    tk,
+                    target_rsi,
+                    side="bid",
+                    interval=get_user_rsi_interval(user),
+                    user_id=user_id,
+                )
+                if not price:
+                    await asyncio.sleep(0.2)
+                    continue
+                volume = round(budget_per_order / price, 4)
+                if ex == "kis":
+                    volume = int(volume)
+                    if volume <= 0:
+                        await asyncio.sleep(0.2)
+                        continue
+                
+                try:
+                    res = await exchange_adapter.create_order(user_id, ex, tk, "bid", price, volume)
+                    if res and 'uuid' in res:
+                        order_manager.add_order(
+                            user_id, ex, tk, res['uuid'], price, volume, 
+                            side="bid", strategy="rsitrade", target_rsi=target_rsi, linked_to=sell_target_rsi
+                        )
+                        success += 1
+                except Exception as e:
+                    _log.error(f"RSITrade order placement failed at index {i}", exc_info=e)
+                await asyncio.sleep(0.2)
+
+            result_msg = f"✅ `{tk}` RSI 순환 매매 전략 가동 완료! ({success}/{ct}건 예약됨)\n백그라운드에서 RSI 체결을 감시합니다."
+            asyncio.create_task(trigger_realtime_sync())
+            try:
+                await app.bot.send_message(chat_id=user_id, text=result_msg)
+            except Exception as e:
+                _log.warning("Failed to send telegram rsitrade execution message", exc_info=e)
+
+        asyncio.create_task(run_rsitrade())
+        return _web.Response(text="RSITrade execution started")
+    except Exception as e:
+        _log.warning("Internal rsitrade execution failed", exc_info=e)
+        return _web.Response(status=500, text=str(e))
+
+
 async def post_init(application):
     """봇 초기화 후 백그라운드 태스크 실행"""
     global _order_wake_event, _notify_runner
@@ -2050,6 +2134,7 @@ async def post_init(application):
         notify_app["bot_application"] = application
         notify_app.router.add_post("/internal/notify", _internal_notify_handler)
         notify_app.router.add_post("/internal/execute_grid", _internal_execute_grid_handler)
+        notify_app.router.add_post("/internal/execute_rsitrade", _internal_execute_rsitrade_handler)
         _notify_runner = _web.AppRunner(notify_app)
         await _notify_runner.setup()
         port = int(os.environ.get("INTERNAL_PORT", 8765))

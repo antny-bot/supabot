@@ -109,17 +109,24 @@ ON CONFLICT (key) DO NOTHING;
 
 -- ── Strategy Templates ──────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS strategy_templates (
-  id          BIGSERIAL PRIMARY KEY,
-  user_id     TEXT NOT NULL,
-  name        TEXT NOT NULL,
-  exchange    TEXT NOT NULL,
-  ticker      TEXT NOT NULL,
-  start_price DOUBLE PRECISION NOT NULL,
-  end_price   DOUBLE PRECISION NOT NULL,
-  count       INTEGER NOT NULL,
-  budget      DOUBLE PRECISION NOT NULL,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  id            BIGSERIAL PRIMARY KEY,
+  user_id       TEXT NOT NULL,
+  name          TEXT NOT NULL,
+  exchange      TEXT NOT NULL,
+  ticker        TEXT NOT NULL,
+  start_price   DOUBLE PRECISION NOT NULL,
+  end_price     DOUBLE PRECISION NOT NULL,
+  count         INTEGER NOT NULL,
+  budget        DOUBLE PRECISION NOT NULL,
+  strategy_type TEXT NOT NULL DEFAULT 'grid',
+  params        JSONB DEFAULT '{}'::jsonb,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- 기존 DB 호환성 유지용 ALTER TABLE 구문
+ALTER TABLE strategy_templates ADD COLUMN IF NOT EXISTS strategy_type TEXT NOT NULL DEFAULT 'grid';
+ALTER TABLE strategy_templates ADD COLUMN IF NOT EXISTS params JSONB DEFAULT '{}'::jsonb;
+
 
 -- ── Row Level Security ─────────────────────────────────────────────────────
 ALTER TABLE users             ENABLE ROW LEVEL SECURITY;

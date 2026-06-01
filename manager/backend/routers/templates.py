@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from ..db import get_db
 from ._auth import _require_login, get_session_user
-from ..bot_client import execute_grid
+from ..bot_client import execute_grid, execute_rsitrade
 
 router = APIRouter()
 
@@ -13,10 +13,13 @@ class TemplateCreate(BaseModel):
     name: str
     exchange: str
     ticker: str
-    start_price: float
-    end_price: float
+    start_price: float = 0.0
+    end_price: float = 0.0
     count: int
     budget: float
+    strategy_type: str = 'grid'
+    params: dict = {}
+
 
 @router.get("/api/templates")
 async def api_list_templates(request: Request):
@@ -73,6 +76,8 @@ async def api_create_template(request: Request, payload: TemplateCreate):
             "end_price": payload.end_price,
             "count": payload.count,
             "budget": payload.budget,
+            "strategy_type": payload.strategy_type,
+            "params": payload.params,
         }
         res = get_db().table("strategy_templates").insert(template_data).execute()
         return JSONResponse({"ok": True, "data": res.data})
@@ -122,19 +127,39 @@ async def api_execute_template(request: Request, template_id: int):
             return JSONResponse({"error": "템플릿을 찾을 수 없거나 권한이 없습니다."}, status_code=404)
         
         tpl = rows[0]
-        # 봇에게 거미줄 실행 요청 전송
-        success = execute_grid(
-            user_id=tpl["user_id"],
-            exchange=tpl["exchange"],
-            ticker=tpl["ticker"],
-            start_price=tpl["start_price"],
-            end_price=tpl["end_price"],
-            count=tpl["count"],
-            budget=tpl["budget"]
-        )
+        stype = tpl.get("strategy_type", "grid")
+        
+        if stype == "grid":
+            # 봇에게 거미줄 실행 요청 전송
+            success = execute_grid(
+                user_id=tpl["user_id"],
+                exchange=tpl["exchange"],
+                ticker=tpl["ticker"],
+                start_price=tpl["start_price"],
+                end_price=tpl["end_price"],
+                count=tpl["count"],
+                budget=tpl["budget"]
+            )
+            msg = "거미줄 전략이 가동되었습니다."
+        elif stype == "rsitrade":
+            # 봇에게 RSITrade 실행 요청 전송
+            params = tpl.get("params") or {}
+            success = execute_rsitrade(
+                user_id=tpl["user_id"],
+                exchange=tpl["exchange"],
+                ticker=tpl["ticker"],
+                buy_rsi_range=params.get("buy_rsi_range", "25-30"),
+                sell_rsi_range=params.get("sell_rsi_range", "65-75"),
+                count=tpl["count"],
+                budget=tpl["budget"]
+            )
+            msg = "RSI 순환 매매 전략이 가동되었습니다."
+        else:
+            return JSONResponse({"error": f"지원하지 않는 전략 유형입니다: {stype}"}, status_code=400)
+
         if not success:
             return JSONResponse({"error": "봇 백엔드로의 주문 실행 요청 전송에 실패했습니다."}, status_code=500)
             
-        return JSONResponse({"ok": True, "message": "거미줄 전략이 가동되었습니다."})
+        return JSONResponse({"ok": True, "message": msg})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
