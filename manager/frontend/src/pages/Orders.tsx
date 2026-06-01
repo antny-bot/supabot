@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { fetchOrders } from '../api/orders'
 import type { Order } from '../types'
 import Badge from '../components/ui/Badge'
@@ -6,6 +6,7 @@ import FilterBar from '../components/ui/FilterBar'
 import ProgressBar from '../components/ui/ProgressBar'
 import Spinner from '../components/ui/Spinner'
 import ErrorBanner from '../components/ui/ErrorBanner'
+import { useRealtime } from '../hooks/useRealtime'
 
 const STATUS_OPTIONS = [
   { value: '',              label: '전체' },
@@ -31,13 +32,21 @@ export default function Orders() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    setLoading(true)
+  const loadData = useCallback((showSpinner = false) => {
+    if (showSpinner) setLoading(true)
     fetchOrders(status, exchange)
       .then(setOrders)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류 발생'))
-      .finally(() => setLoading(false))
+      .finally(() => {
+        if (showSpinner) setLoading(false)
+      })
   }, [status, exchange])
+
+  useEffect(() => {
+    loadData(true)
+  }, [loadData])
+
+  useRealtime(useCallback(() => loadData(false), [loadData]))
 
   return (
     <div className="space-y-4">

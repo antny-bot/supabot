@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { BarChart2, TrendingUp, TrendingDown, DollarSign } from 'lucide-react'
 import { fetchTrades } from '../api/trades'
 import type { TradesData } from '../types'
@@ -6,6 +6,7 @@ import Badge from '../components/ui/Badge'
 import FilterBar from '../components/ui/FilterBar'
 import Spinner from '../components/ui/Spinner'
 import ErrorBanner from '../components/ui/ErrorBanner'
+import { useRealtime } from '../hooks/useRealtime'
 
 const PERIOD_OPTIONS = [
   { value: '1d',  label: '1일' },
@@ -26,13 +27,21 @@ export default function Trades() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    setLoading(true)
+  const loadData = useCallback((showSpinner = false) => {
+    if (showSpinner) setLoading(true)
     fetchTrades(period)
       .then(setData)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류 발생'))
-      .finally(() => setLoading(false))
+      .finally(() => {
+        if (showSpinner) setLoading(false)
+      })
   }, [period])
+
+  useEffect(() => {
+    loadData(true)
+  }, [loadData])
+
+  useRealtime(useCallback(() => loadData(false), [loadData]))
 
   const summaryCards = data
     ? [

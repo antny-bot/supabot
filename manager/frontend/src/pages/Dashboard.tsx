@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { Users, UserCheck, Clock, ShoppingCart, TrendingUp, AlertTriangle } from 'lucide-react'
 import { fetchDashboard } from '../api/dashboard'
 import type { DashboardData, DashboardStats } from '../types'
 import { useAuthContext } from '../contexts/AuthContext'
+import { useRealtime } from '../hooks/useRealtime'
 import StatCard from '../components/ui/StatCard'
 import Badge from '../components/ui/Badge'
 import Spinner from '../components/ui/Spinner'
@@ -32,11 +33,17 @@ export default function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
+  const loadData = useCallback(() => {
     fetchDashboard()
       .then(setData)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류 발생'))
   }, [])
+
+  useEffect(() => {
+    loadData()
+  }, [loadData])
+
+  useRealtime(loadData)
 
   if (!data && !error) return <Spinner />
 

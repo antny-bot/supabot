@@ -1,16 +1,17 @@
 import os
+import asyncio
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from .auth import supabase_sign_in
-from .routers import dashboard, events, orders, reports, sysconfig, trades, users
+from .routers import dashboard, events, orders, reports, sysconfig, trades, users, templates
 
 app = FastAPI(title="supabot manager")
 
@@ -28,6 +29,50 @@ app.include_router(events.router)
 app.include_router(users.router)
 app.include_router(sysconfig.router)
 app.include_router(reports.router)
+app.include_router(templates.router)
+
+
+class RealtimeBroadcastManager:
+    def __init__(self):
+        self.active_connections = set()
+
+    async def subscribe(self):
+        queue = asyncio.Queue()
+        self.active_connections.add(queue)
+        try:
+            while True:
+                event = await queue.get()
+                yield f"data: {event}\n\n"
+        except asyncio.CancelledError:
+            self.active_connections.remove(queue)
+
+    def trigger(self, event_data: str):
+        for queue in self.active_connections:
+            queue.put_nowait(event_data)
+
+realtime_manager = RealtimeBroadcastManager()
+
+
+@app.get("/api/realtime/stream")
+async def realtime_stream(request: Request):
+    from .routers._auth import _require_login
+    if not _require_login(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    return StreamingResponse(realtime_manager.subscribe(), media_type="text/event-stream")
+
+
+@app.post("/api/realtime/trigger")
+async def realtime_trigger(request: Request):
+    api_key = os.environ.get("MANAGER_API_KEY", "")
+    if not api_key or request.headers.get("X-API-Key") != api_key:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    try:
+        body = await request.json()
+        event_name = body.get("event", "refresh")
+    except Exception:
+        event_name = "refresh"
+    realtime_manager.trigger(event_name)
+    return {"ok": True}
 
 
 @app.get("/api/me")

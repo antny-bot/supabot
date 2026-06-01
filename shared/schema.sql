@@ -51,8 +51,12 @@ CREATE TABLE IF NOT EXISTS orders (
   created_at    DOUBLE PRECISION NOT NULL,     -- Unix timestamp
   next_check_at DOUBLE PRECISION NOT NULL DEFAULT 0,
   reorder_of    TEXT,
-  stop_price    DOUBLE PRECISION
+  stop_price    DOUBLE PRECISION,
+  trailing_stop_pct DOUBLE PRECISION
 );
+
+-- 기존 DB 호환성 유지용 ALTER TABLE 구문
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS trailing_stop_pct DOUBLE PRECISION;
 
 -- ── Trade Logs ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS trade_logs (
@@ -103,6 +107,20 @@ INSERT INTO system_config (key, value) VALUES
   ('signal_analysis_interval','300')
 ON CONFLICT (key) DO NOTHING;
 
+-- ── Strategy Templates ──────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS strategy_templates (
+  id          BIGSERIAL PRIMARY KEY,
+  user_id     TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  exchange    TEXT NOT NULL,
+  ticker      TEXT NOT NULL,
+  start_price DOUBLE PRECISION NOT NULL,
+  end_price   DOUBLE PRECISION NOT NULL,
+  count       INTEGER NOT NULL,
+  budget      DOUBLE PRECISION NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- ── Row Level Security ─────────────────────────────────────────────────────
 ALTER TABLE users             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE orders            ENABLE ROW LEVEL SECURITY;
@@ -110,6 +128,7 @@ ALTER TABLE trade_logs        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE operational_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE nl_logs           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE system_config     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE strategy_templates ENABLE ROW LEVEL SECURITY;
 
 -- ── Grants (SQL로 생성 시 자동 부여되지 않으므로 명시 필요) ────────────────
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;

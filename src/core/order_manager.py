@@ -73,7 +73,7 @@ class OrderManager:
             _log.error("Failed to delete order", exc_info=e, extra={"event": "db_order_delete_error", "uuid": uuid})
             self._save_orders_to_file()
 
-    def add_order(self, user_id, exchange, ticker, uuid, price, volume, side="bid", strategy="manual", target_rsi=None, linked_to=None, status="wait", stop_price=None):
+    def add_order(self, user_id, exchange, ticker, uuid, price, volume, side="bid", strategy="manual", target_rsi=None, linked_to=None, status="wait", stop_price=None, trailing_stop_pct=None):
         self.remove_order(uuid, save=False)
         order = {
             "user_id": str(user_id),
@@ -92,6 +92,7 @@ class OrderManager:
             "next_check_at": 0.0,
             "reorder_of": None,
             "stop_price": float(stop_price) if stop_price is not None else None,
+            "trailing_stop_pct": float(trailing_stop_pct) if trailing_stop_pct is not None else None,
         }
         self.orders.append(order)
         self._db_upsert(order)
@@ -111,6 +112,14 @@ class OrderManager:
         for o in self.orders:
             if o["uuid"] == uuid:
                 o["status"] = status
+                self._db_upsert(o)
+                return True
+        return False
+
+    def update_order_stop_price(self, uuid, stop_price):
+        for o in self.orders:
+            if o["uuid"] == uuid:
+                o["stop_price"] = float(stop_price) if stop_price is not None else None
                 self._db_upsert(o)
                 return True
         return False

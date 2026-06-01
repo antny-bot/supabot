@@ -1362,6 +1362,7 @@ async def manual_order_confirm_callback(update: Update, context: ContextTypes.DE
 # --- 주문 동기화 및 자동 대응 엔진 ---
 async def sync_orders(application):
     """현재 추적 중인 주문들의 상태를 거래소와 동기화하고 자동 대응 수행"""
+    initial_state = [(o['uuid'], o.get('status'), o.get('filled_volume'), o.get('stop_price')) for o in order_manager.orders]
     all_orders = list(order_manager.orders)
     _price_cache = {}  # 동일 sync 사이클 내 중복 API 호출 방지: {(exchange, ticker): price}
     for ord in all_orders:
@@ -1432,6 +1433,17 @@ async def sync_orders(application):
                 tkr = await exchange_adapter.get_ticker(exchange, ticker, user_id)
                 _price_cache[cache_key] = float(tkr.get("trade_price", 0)) if tkr else 0.0
             current_price = _price_cache.get(cache_key, 0.0)
+
+            # 트레일링 스톱 (Trailing Stop) 로직
+            if ord.get("trailing_stop_pct") is not None and current_price > 0:
+                trailing_pct = float(ord["trailing_stop_pct"])
+                expected_stop_price = current_price * (1 - trailing_pct / 100)
+                expected_stop_price = ExchangeAdapter.adjust_price_to_tick(expected_stop_price)
+                if expected_stop_price > float(ord["stop_price"]):
+                    order_manager.update_order_stop_price(ord["uuid"], expected_stop_price)
+                    ord["stop_price"] = expected_stop_price
+                    _log.info(f"Trailing stop updated for {ticker}: stop_price -> {expected_stop_price:,.0f}원 (현재가: {current_price:,.0f}원)")
+
             if current_price and current_price < float(ord["stop_price"]):
                 cancel_ok = await exchange_adapter.cancel_order(user_id, exchange, ord["uuid"], ticker)
                 if cancel_ok:
@@ -1548,6 +1560,11 @@ async def sync_orders(application):
             order_manager.update_order_status(ord['uuid'], state)
         
         await asyncio.sleep(0.2)
+
+    # 상태 변경 여부 체크 후 실시간 동기화 트리거
+    final_state = [(o['uuid'], o.get('status'), o.get('filled_volume'), o.get('stop_price')) for o in order_manager.orders]
+    if initial_state != final_state:
+        asyncio.create_task(trigger_realtime_sync())
 
 @check_auth
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
@@ -1914,11 +1931,102 @@ async def _internal_notify_handler(request: _web.Request) -> _web.Response:
         return _web.Response(status=500, text=str(e))
     return _web.Response(text="ok")
 
+async def trigger_realtime_sync():
+    """매니저의 /api/realtime/trigger를 호출하여 프론트엔드 실시간 갱신을 트리거합니다."""
+    manager_url = os.environ.get("MANAGER_BACKEND_URL", "http://localhost:8000")
+    api_key = os.environ.get("MANAGER_API_KEY", "")
+    if not api_key:
+        return
+    try:
+        import aiohttp
+        async with aiohttp.ClientSession() as session:
+            headers = {"X-API-Key": api_key}
+            async with session.post(f"{manager_url}/api/realtime/trigger", headers=headers, json={"event": "refresh"}) as resp:
+                if resp.status != 200:
+                    _log.warning(f"Failed to trigger realtime sync, status: {resp.status}")
+    except Exception as e:
+        _log.warning("Error triggering realtime sync", exc_info=e)
+
+async def _internal_execute_grid_handler(request: _web.Request) -> _web.Response:
+    api_key = os.environ.get("MANAGER_API_KEY", "")
+    if not api_key or request.headers.get("X-API-Key") != api_key:
+        return _web.Response(status=401)
+    try:
+        data = await request.json()
+        user_id = str(data["user_id"])
+        ex = data["exchange"].lower()
+        tk = data["ticker"].upper()
+        s_p = float(data["start_price"])
+        e_p = float(data["end_price"])
+        ct = int(data["count"])
+        val = float(data["budget"])
+
+        user = user_manager.get_user(user_id)
+        if not user:
+            return _web.Response(status=404, text="User not found")
+
+        ok, error_msg = validate_max_order(user, val / ct)
+        if not ok:
+            return _web.Response(status=400, text=error_msg)
+
+        if ex == "kis" and not is_kis_regular_session():
+            return _web.Response(status=400, text="한국투자증권 정규장 시간이 아닙니다.")
+
+        app = request.app["bot_application"]
+        
+        async def run_grid():
+            price_step = (e_p - s_p) / (ct - 1) if ct > 1 else 0
+            success_count = 0
+            skipped_count = 0
+            for i in range(ct):
+                target_price = s_p + (price_step * i)
+                target_price = ExchangeAdapter.adjust_price_to_tick(target_price)
+                raw_vol = (val / ct) / target_price if target_price else 0
+                volume = int(raw_vol) if ex == "kis" else round(raw_vol, 4)
+                
+                if ex == "kis" and volume <= 0:
+                    skipped_count += 1
+                    continue
+                
+                try:
+                    res = await exchange_adapter.buy_limit_order(user_id, ex, tk, target_price, volume)
+                    if res and 'uuid' in res:
+                        order_manager.add_order(
+                            user_id, ex, tk, res['uuid'], target_price, volume,
+                            side="bid",
+                            strategy="grid",
+                        )
+                        success_count += 1
+                except Exception as e:
+                    _log.error(f"Grid order placement failed at index {i}", exc_info=e)
+                await asyncio.sleep(0.2)
+            
+            result_msg = f"✅ `{tk}` 거미줄 매수 완료! ({success_count}/{ct}건 성공)\n백그라운드에서 체결을 감시합니다."
+            if skipped_count:
+                result_msg += f"\n⚠️ {skipped_count}건은 수량 부족(0주)으로 건너뜀."
+            
+            asyncio.create_task(trigger_realtime_sync())
+            try:
+                await app.bot.send_message(chat_id=user_id, text=result_msg)
+            except Exception as e:
+                _log.warning("Failed to send telegram grid execution message", exc_info=e)
+
+        asyncio.create_task(run_grid())
+        return _web.Response(text="Grid execution started")
+    except Exception as e:
+        _log.warning("Internal grid execution failed", exc_info=e)
+        return _web.Response(status=500, text=str(e))
+
 async def post_init(application):
     """봇 초기화 후 백그라운드 태스크 실행"""
     global _order_wake_event, _notify_runner
     _order_wake_event = asyncio.Event()
-    order_manager.on_order_added = lambda: _order_wake_event.set()
+    
+    def _on_order_added():
+        _order_wake_event.set()
+        asyncio.create_task(trigger_realtime_sync())
+    order_manager.on_order_added = _on_order_added
+
     try:
         await application.bot.set_my_commands(
             [BotCommand(cmd, desc) for cmd, desc in DEFAULT_BOT_COMMANDS],
@@ -1941,6 +2049,7 @@ async def post_init(application):
         notify_app = _web.Application()
         notify_app["bot_application"] = application
         notify_app.router.add_post("/internal/notify", _internal_notify_handler)
+        notify_app.router.add_post("/internal/execute_grid", _internal_execute_grid_handler)
         _notify_runner = _web.AppRunner(notify_app)
         await _notify_runner.setup()
         port = int(os.environ.get("INTERNAL_PORT", 8765))
