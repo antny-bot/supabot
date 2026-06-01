@@ -1,12 +1,10 @@
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from fastapi.responses import JSONResponse
 
 from ..bot_client import notify
 from ..db import get_db
 
 router = APIRouter()
-templates = Jinja2Templates(directory="frontend/templates")
 
 _STATUS_LABELS = {
     "pending": "대기",
@@ -50,98 +48,76 @@ def _set_user_status(user_id: str, status: str) -> dict | None:
     return None
 
 
-@router.get("/admin/users", response_class=HTMLResponse)
-async def list_users(request: Request, status: str | None = None):
+@router.get("/api/users")
+async def api_list_users(request: Request, status: str | None = None):
     if not _require_login(request):
-        return RedirectResponse("/login", status_code=303)
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
     try:
-        users = _get_users(status)
-        error = None
+        return JSONResponse(_get_users(status))
     except Exception as e:
-        users = []
-        error = str(e)
-    return templates.TemplateResponse(
-        request,
-        "users.html",
-        {
-            "users": users,
-            "status_filter": status or "",
-            "status_labels": _STATUS_LABELS,
-            "error": error,
-        },
-    )
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
-def _user_row_response(request: Request, user: dict | None, error: str | None = None):
-    if user is None:
-        return HTMLResponse(f'<tr><td colspan="6" class="text-danger">{error}</td></tr>')
-    return templates.TemplateResponse(
-        request,
-        "user_row.html",
-        {"user": user},
-    )
-
-
-@router.post("/admin/users/{user_id}/approve", response_class=HTMLResponse)
-async def approve_user(user_id: str, request: Request):
+@router.post("/api/users/{user_id}/approve")
+async def api_approve_user(user_id: str, request: Request):
     if not _require_login(request):
-        return HTMLResponse("Unauthorized", status_code=401)
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
     try:
         user = _set_user_status(user_id, "active")
         if user:
             notify(user_id, _NOTIFY_MESSAGES["active"])
+        return JSONResponse(user)
     except Exception as e:
-        return _user_row_response(request, None, str(e))
-    return _user_row_response(request, user)
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@router.post("/admin/users/{user_id}/deactivate", response_class=HTMLResponse)
-async def deactivate_user(user_id: str, request: Request):
+@router.post("/api/users/{user_id}/deactivate")
+async def api_deactivate_user(user_id: str, request: Request):
     if not _require_login(request):
-        return HTMLResponse("Unauthorized", status_code=401)
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
     try:
         user = _set_user_status(user_id, "inactive")
         if user:
             notify(user_id, _NOTIFY_MESSAGES["inactive"])
+        return JSONResponse(user)
     except Exception as e:
-        return _user_row_response(request, None, str(e))
-    return _user_row_response(request, user)
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@router.post("/admin/users/{user_id}/activate", response_class=HTMLResponse)
-async def activate_user(user_id: str, request: Request):
+@router.post("/api/users/{user_id}/activate")
+async def api_activate_user(user_id: str, request: Request):
     if not _require_login(request):
-        return HTMLResponse("Unauthorized", status_code=401)
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
     try:
         user = _set_user_status(user_id, "active")
         if user:
             notify(user_id, _NOTIFY_MESSAGES["active"])
+        return JSONResponse(user)
     except Exception as e:
-        return _user_row_response(request, None, str(e))
-    return _user_row_response(request, user)
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@router.post("/admin/users/{user_id}/block", response_class=HTMLResponse)
-async def block_user(user_id: str, request: Request):
+@router.post("/api/users/{user_id}/block")
+async def api_block_user(user_id: str, request: Request):
     if not _require_login(request):
-        return HTMLResponse("Unauthorized", status_code=401)
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
     try:
         user = _set_user_status(user_id, "blocked")
         if user:
             notify(user_id, _NOTIFY_MESSAGES["blocked"])
+        return JSONResponse(user)
     except Exception as e:
-        return _user_row_response(request, None, str(e))
-    return _user_row_response(request, user)
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@router.delete("/admin/users/{user_id}", response_class=HTMLResponse)
-async def delete_user(user_id: str, request: Request):
+@router.delete("/api/users/{user_id}")
+async def api_delete_user(user_id: str, request: Request):
     if not _require_login(request):
-        return HTMLResponse("Unauthorized", status_code=401)
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
     try:
         user = _set_user_status(user_id, "deleted")
         if user:
             notify(user_id, _NOTIFY_MESSAGES["deleted"])
+        return JSONResponse(user)
     except Exception as e:
-        return _user_row_response(request, None, str(e))
-    return _user_row_response(request, user)
+        return JSONResponse({"error": str(e)}, status_code=500)

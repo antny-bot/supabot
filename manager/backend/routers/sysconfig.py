@@ -1,11 +1,9 @@
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from fastapi.responses import JSONResponse
 
 from ..db import get_db
 
 router = APIRouter()
-templates = Jinja2Templates(directory="frontend/templates")
 
 _CONFIG_LABELS = {
     "poll_active_interval": ("주문 활성 폴링 간격", "초 — 미체결 주문이 있을 때 거래소 조회 주기"),
@@ -27,46 +25,27 @@ def _get_config() -> list[dict]:
     return result
 
 
-@router.get("/admin/config", response_class=HTMLResponse)
-async def config_page(request: Request):
+@router.get("/api/config")
+async def api_get_config(request: Request):
     if not _require_login(request):
-        return RedirectResponse("/login", status_code=303)
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
     try:
-        config = _get_config()
-        error = None
-        saved = False
+        return JSONResponse(_get_config())
     except Exception as e:
-        config = []
-        error = str(e)
-        saved = False
-    return templates.TemplateResponse(
-        request,
-        "sysconfig.html",
-        {"config": config, "error": error, "saved": saved},
-    )
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@router.post("/admin/config", response_class=HTMLResponse)
-async def config_save(request: Request):
+@router.post("/api/config")
+async def api_save_config(request: Request):
     if not _require_login(request):
-        return RedirectResponse("/login", status_code=303)
-    form = await request.form()
-    db = get_db()
-    error = None
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
     try:
+        body = await request.json()
+        db = get_db()
         for key in _CONFIG_LABELS:
-            val = form.get(key, "").strip()
+            val = str(body.get(key, "")).strip()
             if val:
                 db.table("system_config").upsert({"key": key, "value": val}).execute()
+        return JSONResponse({"saved": True})
     except Exception as e:
-        error = str(e)
-    try:
-        config = _get_config()
-    except Exception as e:
-        config = []
-        error = str(e)
-    return templates.TemplateResponse(
-        request,
-        "sysconfig.html",
-        {"config": config, "error": error, "saved": not error},
-    )
+        return JSONResponse({"error": str(e)}, status_code=500)

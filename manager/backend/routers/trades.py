@@ -3,13 +3,11 @@ from collections import defaultdict
 from datetime import datetime
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from fastapi.responses import JSONResponse
 
 from ..db import get_db
 
 router = APIRouter()
-templates = Jinja2Templates(directory="frontend/templates")
 
 _PERIODS = {"1d": 86400, "7d": 604800, "30d": 2592000, "all": None}
 
@@ -25,18 +23,12 @@ def _fmt_ts(ts) -> str:
         return "—"
 
 
-@router.get("/admin/trades", response_class=HTMLResponse)
-async def list_trades(request: Request, period: str = "7d"):
+@router.get("/api/trades")
+async def api_list_trades(request: Request, period: str = "7d"):
     if not _require_login(request):
-        return RedirectResponse("/login", status_code=303)
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
     if period not in _PERIODS:
         period = "7d"
-
-    trades = []
-    summary = {"total": 0, "buy": 0, "sell": 0, "volume_krw": 0.0}
-    by_exchange = []
-    by_strategy = []
-    error = None
     try:
         q = get_db().table("trade_logs").select("*").order("executed_at", desc=True).limit(500)
         window = _PERIODS[period]
@@ -44,8 +36,10 @@ async def list_trades(request: Request, period: str = "7d"):
             q._params["executed_at"] = f"gte.{time.time() - window}"
         trades = q.execute().data
 
-        ex_agg = defaultdict(lambda: {"count": 0, "krw": 0.0})
-        st_agg = defaultdict(lambda: {"count": 0, "krw": 0.0})
+        summary = {"total": 0, "buy": 0, "sell": 0, "volume_krw": 0.0}
+        ex_agg: dict = defaultdict(lambda: {"count": 0, "krw": 0.0})
+        st_agg: dict = defaultdict(lambda: {"count": 0, "krw": 0.0})
+
         for t in trades:
             price = t.get("price") or 0
             volume = t.get("volume") or 0
@@ -65,20 +59,11 @@ async def list_trades(request: Request, period: str = "7d"):
             st_agg[st]["count"] += 1
             st_agg[st]["krw"] += krw
 
-        by_exchange = [{"name": k, **v} for k, v in sorted(ex_agg.items())]
-        by_strategy = [{"name": k, **v} for k, v in sorted(st_agg.items())]
-    except Exception as e:
-        error = str(e)
-
-    return templates.TemplateResponse(
-        request,
-        "trades.html",
-        {
+        return JSONResponse({
             "trades": trades,
             "summary": summary,
-            "by_exchange": by_exchange,
-            "by_strategy": by_strategy,
-            "period": period,
-            "error": error,
-        },
-    )
+            "by_exchange": [{"name": k, **v} for k, v in sorted(ex_agg.items())],
+            "by_strategy": [{"name": k, **v} for k, v in sorted(st_agg.items())],
+        })
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)

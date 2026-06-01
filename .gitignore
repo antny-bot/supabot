@@ -10,6 +10,7 @@ __pycache__/
 
 # Node/vendor artifacts
 node_modules/
+manager/frontend/dist/
 
 # Local environment and logs
 .venv/
