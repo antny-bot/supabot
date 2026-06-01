@@ -1,11 +1,12 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, ClipboardList, ArrowLeftRight, Activity, Users } from 'lucide-react'
+import { LayoutDashboard, ClipboardList, ArrowLeftRight, Activity, Users, BarChart2 } from 'lucide-react'
 import { useAuthContext } from '../../contexts/AuthContext'
 
 const TABS = [
   { to: '/dashboard', label: '대시보드', Icon: LayoutDashboard, adminOnly: false },
   { to: '/orders',    label: '주문',     Icon: ClipboardList,   adminOnly: false },
   { to: '/trades',    label: '거래',     Icon: ArrowLeftRight,  adminOnly: false },
+  { to: '/reports',   label: '리포트',   Icon: BarChart2,       adminOnly: false },
   { to: '/events',    label: '이벤트',   Icon: Activity,        adminOnly: true },
   { to: '/users',     label: '유저',     Icon: Users,           adminOnly: true },
 ]

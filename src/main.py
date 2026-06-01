@@ -1538,6 +1538,7 @@ async def sync_orders(application):
                     volume=float(exec_vol) if exec_vol else float(ord.get("filled_volume", ord["volume"])),
                     strategy=ord.get("strategy", "manual"),
                     uuid=ord["uuid"],
+                    fee_amount=float(res.get("fee_amount") or 0),
                 )
             order_manager.remove_order(ord['uuid'])
         elif state != ord.get("status"):

@@ -11,7 +11,7 @@ TRADE_LOG_MAX_LINES = 10_000
 KST = timezone(timedelta(hours=9))
 
 
-def append_trade(user_id, exchange, ticker, side, price, volume, strategy, uuid, path=TRADE_LOG_PATH):
+def append_trade(user_id, exchange, ticker, side, price, volume, strategy, uuid, fee_amount=0.0, path=TRADE_LOG_PATH):
     ts = time.time()
     record = {
         "ts": ts,
@@ -23,6 +23,7 @@ def append_trade(user_id, exchange, ticker, side, price, volume, strategy, uuid,
         "volume": float(volume),
         "strategy": strategy,
         "uuid": uuid,
+        "fee_amount": float(fee_amount),
     }
     if is_db_available():
         try:
@@ -36,6 +37,7 @@ def append_trade(user_id, exchange, ticker, side, price, volume, strategy, uuid,
                 "strategy": strategy,
                 "uuid": uuid,
                 "executed_at": ts,
+                "fee_amount": float(fee_amount),
             }).execute()
         except Exception:
             pass

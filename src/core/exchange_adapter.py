@@ -326,7 +326,8 @@ class ExchangeAdapter:
                     "ticker": res.get('market'),
                     "side": res.get('side'),
                     "executed_volume": exec_vol,
-                    "remaining_volume": total_vol - exec_vol
+                    "remaining_volume": total_vol - exec_vol,
+                    "fee_amount": float(res.get('paid_fee') or 0),
                 }
             return None
         elif exchange == "bithumb":
@@ -343,7 +344,8 @@ class ExchangeAdapter:
                     "ticker": res.get('market'),
                     "side": res.get('side'),
                     "executed_volume": exec_vol,
-                    "remaining_volume": total_vol - exec_vol
+                    "remaining_volume": total_vol - exec_vol,
+                    "fee_amount": float(res.get('paid_fee') or 0),
                 }
             return None
         elif exchange == "kis":
@@ -663,6 +665,7 @@ class ExchangeAdapter:
                 "executed_volume": executed,
                 "status": "done" if qty > 0 and executed >= qty else "wait",
                 "created_at": item.get("ord_dt", ""),
+                "fee_amount": float(item.get("sll_cmsn") or item.get("tot_ccld_cmsn") or item.get("cmsn_amnt") or 0),
             })
         return orders
 

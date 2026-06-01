@@ -65,7 +65,8 @@ CREATE TABLE IF NOT EXISTS trade_logs (
   volume      DOUBLE PRECISION NOT NULL,
   strategy    TEXT NOT NULL DEFAULT 'manual',
   uuid        TEXT,
-  executed_at DOUBLE PRECISION NOT NULL  -- Unix timestamp
+  executed_at DOUBLE PRECISION NOT NULL,  -- Unix timestamp
+  fee_amount  DOUBLE PRECISION NOT NULL DEFAULT 0
 );
 
 -- ── Operational Events ─────────────────────────────────────────────────────

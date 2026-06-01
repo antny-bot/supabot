@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { to: '/dashboard', label: '대시보드', adminOnly: false },
   { to: '/orders',    label: '주문 현황', adminOnly: false },
   { to: '/trades',    label: '거래 내역', adminOnly: false },
+  { to: '/reports',   label: '리포트',   adminOnly: false },
   { to: '/events',    label: '이벤트',   adminOnly: true },
   { to: '/users',     label: '유저 관리', adminOnly: true },
 ]
