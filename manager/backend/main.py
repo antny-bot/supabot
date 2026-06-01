@@ -88,16 +88,23 @@ async def api_logout(request: Request):
 
 
 # SPA: serve React app for all non-/api paths.
-# StaticFiles(html=True) serves index.html for any path that doesn't match a file,
-# enabling client-side React Router to handle routes like /dashboard, /login, etc.
+# /assets mount handles hashed JS/CSS files; catch-all route serves index.html
+# for any SPA route (e.g. /dashboard, /orders) so BrowserRouter works on direct load.
 _DIST = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "frontend", "dist"))
 
 if os.path.isdir(_DIST):
-    app.mount("/", StaticFiles(directory=_DIST, html=True), name="static")
-else:
-    _INDEX_FALLBACK = os.path.join(os.path.dirname(__file__), "_no_frontend.html")
+    _assets_dir = os.path.join(_DIST, "assets")
+    if os.path.isdir(_assets_dir):
+        app.mount("/assets", StaticFiles(directory=_assets_dir), name="assets")
 
-    @app.get("/{full_path:path}")
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa_index(full_path: str):  # noqa: ARG001
+        file_path = os.path.normpath(os.path.join(_DIST, full_path))
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+        return FileResponse(os.path.join(_DIST, "index.html"))
+else:
+    @app.get("/{full_path:path}", include_in_schema=False)
     async def no_frontend(full_path: str):  # noqa: ARG001
         return JSONResponse(
             {"error": "Frontend not built. Run: cd manager/frontend && npm run build"},
