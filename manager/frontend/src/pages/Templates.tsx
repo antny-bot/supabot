@@ -35,6 +35,7 @@ export default function Templates() {
   const [budget, setBudget] = useState('100000')
   const [formOpen, setFormOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
   
   // rsitrade 추가 상태
   const [strategyType, setStrategyType] = useState('grid')
@@ -65,6 +66,7 @@ export default function Templates() {
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
+    setSuccessMessage(null)
 
     if (!name.trim()) {
       setError('템플릿 이름을 입력해 주세요.')
@@ -108,6 +110,7 @@ export default function Templates() {
         setBuyRsiRange('25-30')
         setSellRsiRange('65-75')
         setFormOpen(false)
+        setSuccessMessage('템플릿이 성공적으로 저장되었습니다.')
         loadTemplates()
       } else {
         const data = await res.json()
@@ -121,11 +124,13 @@ export default function Templates() {
   async function handleDelete(id: number) {
     if (!confirm('정말로 이 템플릿을 삭제하시겠습니까?')) return
     setError(null)
+    setSuccessMessage(null)
     setActionLoadingId(id)
 
     try {
       const res = await fetch(`/api/templates/${id}`, { method: 'DELETE' })
       if (res.ok) {
+        setSuccessMessage('템플릿이 삭제되었습니다.')
         loadTemplates()
       } else {
         const data = await res.json()
@@ -141,13 +146,14 @@ export default function Templates() {
   async function handleExecute(id: number) {
     if (!confirm('이 템플릿으로 전략을 즉시 가동하시겠습니까?')) return
     setError(null)
+    setSuccessMessage(null)
     setActionLoadingId(id)
 
     try {
       const res = await fetch(`/api/templates/${id}/execute`, { method: 'POST' })
       const data = await res.json()
       if (res.ok) {
-        alert(data.message || '전략 주문이 성공적으로 가동되었습니다.')
+        setSuccessMessage(data.message || '전략 주문이 성공적으로 가동되었습니다.')
       } else {
         setError(data.error || '실행 실패')
       }
@@ -157,6 +163,7 @@ export default function Templates() {
       setActionLoadingId(null)
     }
   }
+
 
 
   return (
@@ -186,6 +193,13 @@ export default function Templates() {
           ⚠️ {error}
         </div>
       )}
+
+      {successMessage && (
+        <div className="bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/50 rounded-xl p-3 text-xs text-emerald-600 dark:text-emerald-400">
+          ✅ {successMessage}
+        </div>
+      )}
+
 
       {/* 템플릿 작성 폼 */}
       {formOpen && (
@@ -422,8 +436,12 @@ export default function Templates() {
                             disabled={actionLoadingId !== null}
                             className="flex items-center gap-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-medium disabled:opacity-50 transition-colors"
                           >
-                            <Play size={12} />
-                            가동
+                            {actionLoadingId === tpl.id ? (
+                              <Loader2 size={12} className="animate-spin" />
+                            ) : (
+                              <Play size={12} />
+                            )}
+                            {actionLoadingId === tpl.id ? '가동 중...' : '가동'}
                           </button>
                           <button
                             onClick={() => handleDelete(tpl.id)}
@@ -500,8 +518,12 @@ export default function Templates() {
                     disabled={actionLoadingId !== null}
                     className="w-full flex items-center justify-center gap-1.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors"
                   >
-                    <Play size={12} />
-                    전략 즉시 가동
+                    {actionLoadingId === tpl.id ? (
+                      <Loader2 size={12} className="animate-spin" />
+                    ) : (
+                      <Play size={12} />
+                    )}
+                    {actionLoadingId === tpl.id ? '전략 가동 중...' : '전략 즉시 가동'}
                   </button>
                 </div>
               );

@@ -131,7 +131,7 @@ async def api_execute_template(request: Request, template_id: int):
         
         if stype == "grid":
             # 봇에게 거미줄 실행 요청 전송
-            success = execute_grid(
+            success, err_msg = execute_grid(
                 user_id=tpl["user_id"],
                 exchange=tpl["exchange"],
                 ticker=tpl["ticker"],
@@ -144,7 +144,7 @@ async def api_execute_template(request: Request, template_id: int):
         elif stype == "rsitrade":
             # 봇에게 RSITrade 실행 요청 전송
             params = tpl.get("params") or {}
-            success = execute_rsitrade(
+            success, err_msg = execute_rsitrade(
                 user_id=tpl["user_id"],
                 exchange=tpl["exchange"],
                 ticker=tpl["ticker"],
@@ -158,7 +158,7 @@ async def api_execute_template(request: Request, template_id: int):
             return JSONResponse({"error": f"지원하지 않는 전략 유형입니다: {stype}"}, status_code=400)
 
         if not success:
-            return JSONResponse({"error": "봇 백엔드로의 주문 실행 요청 전송에 실패했습니다."}, status_code=500)
+            return JSONResponse({"error": f"봇 주문 가동 실패: {err_msg}"}, status_code=500)
             
         return JSONResponse({"ok": True, "message": msg})
     except Exception as e:
