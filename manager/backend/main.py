@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from .auth import supabase_sign_in
-from .routers import dashboard, events, orders, sysconfig, trades, users
+from .routers import dashboard, events, orders, reports, sysconfig, trades, users
 
 app = FastAPI(title="supabot manager")
 
@@ -27,6 +27,7 @@ app.include_router(trades.router)
 app.include_router(events.router)
 app.include_router(users.router)
 app.include_router(sysconfig.router)
+app.include_router(reports.router)
 
 
 @app.get("/api/me")

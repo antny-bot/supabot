@@ -9,6 +9,7 @@ import Trades from './pages/Trades'
 import Events from './pages/Events'
 import Users from './pages/Users'
 import Config from './pages/Config'
+import Reports from './pages/Reports'
 
 function AdminRoute({ children }: { children: ReactNode }) {
   const { user } = useAuthContext()
@@ -26,6 +27,7 @@ export default function App() {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/orders" element={<Orders />} />
           <Route path="/trades" element={<Trades />} />
+          <Route path="/reports" element={<Reports />} />
           <Route path="/events" element={<AdminRoute><Events /></AdminRoute>} />
           <Route path="/users" element={<AdminRoute><Users /></AdminRoute>} />
           <Route path="/config" element={<AdminRoute><Config /></AdminRoute>} />
