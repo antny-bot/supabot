@@ -297,7 +297,24 @@ tail -n 100 /home/ubuntu/supabot/data/deploy-cron.log
 <YOUR_SSH_PUBLIC_KEY>
 ```
 
+## 트러블슈팅
+
+### 1. 매니저(supabot-manager)와 봇(supabot) 간의 ConnectTimeoutError (8765 포트 통신 실패)
+
+* **증상**: 매니저 대시보드 웹 UI에서 전략 템플릿의 **[가동]** 버튼 클릭 시, `봇 주문 가동 실패: Connection to 168.110.116.238 timed out` 과 같은 연결 시간 초과 에러가 발생함.
+* **원인**: 봇 서버 내부의 Linux OS 방화벽(`ufw`) 또는 오라클 클라우드 VCN 수신 규칙(Ingress Rules)에서 봇 백엔드 통신용 포트(`8765/tcp`)가 허용되어 있지 않아 발생함.
+* **해결 방법**:
+  1. **봇 서버 OS 내부 방화벽 포트 허용**: VM 인스턴스에 SSH로 접속하여 UFW 방화벽에 8765 포트를 허용합니다.
+     ```bash
+     sudo ufw allow 8765/tcp
+     ```
+  2. **Oracle Cloud VCN 보안 규칙 추가**: Oracle Cloud 대시보드 ➡️ VCN ➡️ Security Lists(보안 목록)의 **수신 규칙(Ingress Rules)**에 다음 규칙을 추가합니다.
+     * **소스 CIDR**: 매니저 서버의 공인 IP (보안을 위해 특정 IP 지정 권장)
+     * **IP 프로토콜**: `TCP`
+     * **대상 포트 범위**: `8765`
+
 ## 참고
 
 - 배포/인수인계 기준 문서: [oracle-cloud-handoff.md](oracle-cloud-handoff.md)
 - VM 설정 문서: [oracle-cloud-vm-setup.md](oracle-cloud-vm-setup.md)
+
