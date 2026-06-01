@@ -1,8 +1,15 @@
+export interface AuthUser {
+  email: string
+  is_admin: boolean
+  bot_user_id: string | null
+}
+
 export interface User {
   user_id: string
   username: string
   status: 'pending' | 'active' | 'inactive' | 'blocked' | 'deleted'
   is_admin: boolean
+  manager_email: string | null
   created_at: string
   status_label: string
 }
@@ -56,12 +63,13 @@ export interface ConfigItem {
 }
 
 export interface DashboardStats {
-  users_total: number
-  users_active: number
-  users_pending: number
   orders_open: number
   trades_24h: number
-  errors_24h: number
+  // 어드민 전용 (일반 유저 응답에는 없음)
+  users_total?: number
+  users_active?: number
+  users_pending?: number
+  errors_24h?: number
 }
 
 export interface DashboardData {

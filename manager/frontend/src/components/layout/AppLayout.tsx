@@ -2,10 +2,11 @@ import { Outlet } from 'react-router-dom'
 import TopBar from './TopBar'
 import BottomNav from './BottomNav'
 import { useAuth } from '../../hooks/useAuth'
+import { AuthContext } from '../../contexts/AuthContext'
 import Spinner from '../ui/Spinner'
 
 export default function AppLayout() {
-  const { loading } = useAuth()
+  const { user, loading } = useAuth()
 
   if (loading) {
     return (
@@ -16,12 +17,14 @@ export default function AppLayout() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <TopBar />
-      <main className="flex-1 max-w-screen-xl mx-auto w-full px-4 py-5 pb-24 md:pb-6">
-        <Outlet />
-      </main>
-      <BottomNav />
-    </div>
+    <AuthContext.Provider value={{ user, loading }}>
+      <div className="min-h-screen flex flex-col">
+        <TopBar />
+        <main className="flex-1 max-w-screen-xl mx-auto w-full px-4 py-5 pb-24 md:pb-6">
+          <Outlet />
+        </main>
+        <BottomNav />
+      </div>
+    </AuthContext.Provider>
   )
 }

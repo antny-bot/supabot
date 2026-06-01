@@ -1,5 +1,7 @@
+import type { ReactNode } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import AppLayout from './components/layout/AppLayout'
+import { useAuthContext } from './contexts/AuthContext'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Orders from './pages/Orders'
@@ -7,6 +9,12 @@ import Trades from './pages/Trades'
 import Events from './pages/Events'
 import Users from './pages/Users'
 import Config from './pages/Config'
+
+function AdminRoute({ children }: { children: ReactNode }) {
+  const { user } = useAuthContext()
+  if (!user?.is_admin) return <Navigate to="/dashboard" replace />
+  return <>{children}</>
+}
 
 export default function App() {
   return (
@@ -18,9 +26,9 @@ export default function App() {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/orders" element={<Orders />} />
           <Route path="/trades" element={<Trades />} />
-          <Route path="/events" element={<Events />} />
-          <Route path="/users" element={<Users />} />
-          <Route path="/config" element={<Config />} />
+          <Route path="/events" element={<AdminRoute><Events /></AdminRoute>} />
+          <Route path="/users" element={<AdminRoute><Users /></AdminRoute>} />
+          <Route path="/config" element={<AdminRoute><Config /></AdminRoute>} />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -25,6 +25,15 @@ CREATE TRIGGER users_updated_at
   BEFORE UPDATE ON users
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
+-- ── Manager Access Linking ──────────────────────────────────────────────────
+-- Supabase Auth 이메일과 봇 users 테이블을 연결하는 컬럼. 기존 운영 DB에는 아래 SQL로 추가:
+-- ALTER TABLE users ADD COLUMN IF NOT EXISTS manager_email TEXT;
+-- CREATE UNIQUE INDEX IF NOT EXISTS users_manager_email_unique ON users (manager_email) WHERE manager_email IS NOT NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS manager_email TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS users_manager_email_unique
+  ON users (manager_email)
+  WHERE manager_email IS NOT NULL;
+
 -- ── Orders ─────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS orders (
   uuid          TEXT PRIMARY KEY,

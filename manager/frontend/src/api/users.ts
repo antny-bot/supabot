@@ -9,3 +9,5 @@ export const deactivateUser = (id: string) => api.post<User>(`/api/users/${id}/d
 export const activateUser = (id: string) => api.post<User>(`/api/users/${id}/activate`)
 export const blockUser = (id: string) => api.post<User>(`/api/users/${id}/block`)
 export const deleteUser = (id: string) => api.delete<User>(`/api/users/${id}`)
+export const setUserEmail = (id: string, email: string) =>
+  api.patch<User>(`/api/users/${id}/email`, { email })

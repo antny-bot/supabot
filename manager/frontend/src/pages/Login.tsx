@@ -25,6 +25,9 @@ export default function Login() {
       })
       if (res.ok) {
         navigate('/dashboard', { replace: true })
+      } else if (res.status === 403) {
+        const body = await res.json().catch(() => ({})) as { error?: string }
+        setError(body.error ?? '매니저 사용 권한이 없습니다.')
       } else {
         setError('이메일 또는 비밀번호가 올바르지 않습니다.')
       }
