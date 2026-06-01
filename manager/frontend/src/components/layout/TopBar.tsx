@@ -1,18 +1,22 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { Zap, Sun, Moon, LogOut, Settings } from 'lucide-react'
 import { useTheme } from '../../hooks/useTheme'
+import { useAuthContext } from '../../contexts/AuthContext'
 
 const NAV_ITEMS = [
-  { to: '/dashboard', label: '대시보드' },
-  { to: '/orders',    label: '주문 현황' },
-  { to: '/trades',    label: '거래 내역' },
-  { to: '/events',    label: '이벤트' },
-  { to: '/users',     label: '유저 관리' },
+  { to: '/dashboard', label: '대시보드', adminOnly: false },
+  { to: '/orders',    label: '주문 현황', adminOnly: false },
+  { to: '/trades',    label: '거래 내역', adminOnly: false },
+  { to: '/events',    label: '이벤트',   adminOnly: true },
+  { to: '/users',     label: '유저 관리', adminOnly: true },
 ]
 
 export default function TopBar() {
   const { isDark, toggle } = useTheme()
   const navigate = useNavigate()
+  const { user } = useAuthContext()
+
+  const visibleItems = NAV_ITEMS.filter((item) => !item.adminOnly || user?.is_admin)
 
   async function handleLogout() {
     await fetch('/api/logout', { method: 'POST', credentials: 'include' })
@@ -32,7 +36,7 @@ export default function TopBar() {
 
         {/* Desktop nav */}
         <nav className="hidden md:flex items-center gap-0.5 flex-1">
-          {NAV_ITEMS.map((item) => (
+          {visibleItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -51,19 +55,21 @@ export default function TopBar() {
 
         {/* Actions */}
         <div className="ml-auto flex items-center gap-1">
-          <NavLink
-            to="/config"
-            className={({ isActive }) =>
-              `p-2 rounded-lg transition-colors ${
-                isActive
-                  ? 'text-indigo-600 dark:text-indigo-400'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
-              }`
-            }
-            title="시스템 설정"
-          >
-            <Settings size={16} />
-          </NavLink>
+          {user?.is_admin && (
+            <NavLink
+              to="/config"
+              className={({ isActive }) =>
+                `p-2 rounded-lg transition-colors ${
+                  isActive
+                    ? 'text-indigo-600 dark:text-indigo-400'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`
+              }
+              title="시스템 설정"
+            >
+              <Settings size={16} />
+            </NavLink>
+          )}
 
           <button
             onClick={toggle}

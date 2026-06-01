@@ -34,24 +34,51 @@ async def api_me(request: Request):
     email = request.session.get("user_email")
     if not email:
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
-    return JSONResponse({"email": email})
+    return JSONResponse({
+        "email": email,
+        "is_admin": bool(request.session.get("is_admin", False)),
+        "bot_user_id": request.session.get("bot_user_id"),
+    })
 
 
 @app.post("/api/login")
 async def api_login(request: Request):
     try:
         body = await request.json()
-        email = body.get("email", "")
+        email = body.get("email", "").strip().lower()
         password = body.get("password", "")
     except Exception:
         return JSONResponse({"error": "Invalid request"}, status_code=400)
 
     result = supabase_sign_in(email, password)
-    if result and result.get("access_token"):
+    if not result or not result.get("access_token"):
+        return JSONResponse({"error": "이메일 또는 비밀번호가 올바르지 않습니다."}, status_code=401)
+
+    # users 테이블에서 manager_email로 봇 유저 조회
+    try:
+        from .db import get_db
+        rows = get_db().table("users").select("user_id,is_admin").eq("manager_email", email).execute().data
+    except Exception:
+        rows = []
+
+    if rows:
+        bot_user = rows[0]
         request.session["user_email"] = email
         request.session["access_token"] = result["access_token"]
+        request.session["is_admin"] = bool(bot_user.get("is_admin", False))
+        request.session["bot_user_id"] = bot_user["user_id"]
         return JSONResponse({"ok": True})
-    return JSONResponse({"error": "이메일 또는 비밀번호가 올바르지 않습니다."}, status_code=401)
+
+    # MANAGER_SUPER_ADMIN_EMAIL: 봇 유저 없이도 어드민 접근 허용 (최초 설정/비상용)
+    super_admin = os.environ.get("MANAGER_SUPER_ADMIN_EMAIL", "").strip().lower()
+    if super_admin and email == super_admin:
+        request.session["user_email"] = email
+        request.session["access_token"] = result["access_token"]
+        request.session["is_admin"] = True
+        request.session["bot_user_id"] = None
+        return JSONResponse({"ok": True})
+
+    return JSONResponse({"error": "매니저 사용 권한이 없습니다."}, status_code=403)
 
 
 @app.post("/api/logout")

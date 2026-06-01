@@ -1,19 +1,23 @@
 import { NavLink } from 'react-router-dom'
 import { LayoutDashboard, ClipboardList, ArrowLeftRight, Activity, Users } from 'lucide-react'
+import { useAuthContext } from '../../contexts/AuthContext'
 
 const TABS = [
-  { to: '/dashboard', label: '대시보드', Icon: LayoutDashboard },
-  { to: '/orders',    label: '주문',     Icon: ClipboardList },
-  { to: '/trades',    label: '거래',     Icon: ArrowLeftRight },
-  { to: '/events',    label: '이벤트',   Icon: Activity },
-  { to: '/users',     label: '유저',     Icon: Users },
+  { to: '/dashboard', label: '대시보드', Icon: LayoutDashboard, adminOnly: false },
+  { to: '/orders',    label: '주문',     Icon: ClipboardList,   adminOnly: false },
+  { to: '/trades',    label: '거래',     Icon: ArrowLeftRight,  adminOnly: false },
+  { to: '/events',    label: '이벤트',   Icon: Activity,        adminOnly: true },
+  { to: '/users',     label: '유저',     Icon: Users,           adminOnly: true },
 ]
 
 export default function BottomNav() {
+  const { user } = useAuthContext()
+  const visibleTabs = TABS.filter((tab) => !tab.adminOnly || user?.is_admin)
+
   return (
     <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white/90 dark:bg-slate-900/90 backdrop-blur border-t border-slate-200 dark:border-slate-800 safe-bottom">
       <div className="flex">
-        {TABS.map(({ to, label, Icon }) => (
+        {visibleTabs.map(({ to, label, Icon }) => (
           <NavLink
             key={to}
             to={to}

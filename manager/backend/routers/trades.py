@@ -6,14 +6,11 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from ..db import get_db
+from ._auth import _require_login, get_session_user
 
 router = APIRouter()
 
 _PERIODS = {"1d": 86400, "7d": 604800, "30d": 2592000, "all": None}
-
-
-def _require_login(request: Request):
-    return request.session.get("user_email")
 
 
 def _fmt_ts(ts) -> str:
@@ -29,11 +26,21 @@ async def api_list_trades(request: Request, period: str = "7d"):
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
     if period not in _PERIODS:
         period = "7d"
+
+    session_user = get_session_user(request)
+    is_admin = session_user["is_admin"]
+    bot_user_id = session_user["bot_user_id"]
+
+    if not is_admin and not bot_user_id:
+        return JSONResponse({"error": "연결된 봇 계정이 없습니다."}, status_code=403)
+
     try:
         q = get_db().table("trade_logs").select("*").order("executed_at", desc=True).limit(500)
         window = _PERIODS[period]
         if window:
             q._params["executed_at"] = f"gte.{time.time() - window}"
+        if not is_admin:
+            q._params["user_id"] = f"eq.{bot_user_id}"
         trades = q.execute().data
 
         summary = {"total": 0, "buy": 0, "sell": 0, "volume_krw": 0.0}

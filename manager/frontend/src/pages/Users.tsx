@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
-import { ShieldCheck } from 'lucide-react'
-import { fetchUsers, approveUser, deactivateUser, activateUser, blockUser, deleteUser } from '../api/users'
+import { ShieldCheck, Pencil } from 'lucide-react'
+import { fetchUsers, approveUser, deactivateUser, activateUser, blockUser, deleteUser, setUserEmail } from '../api/users'
 import type { User } from '../types'
 import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
@@ -74,6 +74,75 @@ function ActionButtons({ user, onUpdate }: ActionButtonsProps) {
   )
 }
 
+interface EmailCellProps {
+  user: User
+  onUpdate: (updated: User) => void
+}
+
+function EmailCell({ user, onUpdate }: EmailCellProps) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(user.manager_email ?? '')
+  const [busy, setBusy] = useState(false)
+  const [cellError, setCellError] = useState<string | null>(null)
+
+  async function handleSave() {
+    setBusy(true)
+    setCellError(null)
+    try {
+      const updated = await setUserEmail(user.user_id, value)
+      onUpdate(updated)
+      setEditing(false)
+    } catch (e: unknown) {
+      setCellError(e instanceof Error ? e.message : '저장 실패')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function handleCancel() {
+    setValue(user.manager_email ?? '')
+    setCellError(null)
+    setEditing(false)
+  }
+
+  if (editing) {
+    return (
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-1">
+          <input
+            type="email"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            className="px-2 py-1 text-xs rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500 w-44"
+            placeholder="email@example.com"
+            autoFocus
+            disabled={busy}
+            onKeyDown={(e) => { if (e.key === 'Enter') void handleSave(); if (e.key === 'Escape') handleCancel() }}
+          />
+          <Button variant="success" disabled={busy} onClick={() => void handleSave()}>저장</Button>
+          <Button variant="ghost" disabled={busy} onClick={handleCancel}>취소</Button>
+        </div>
+        {cellError && <span className="text-rose-500 text-xs">{cellError}</span>}
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-1 group">
+      <span className="text-xs text-slate-500 dark:text-slate-400">
+        {user.manager_email ?? <span className="text-slate-300 dark:text-slate-600 italic">미설정</span>}
+      </span>
+      <button
+        onClick={() => setEditing(true)}
+        className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-slate-400 hover:text-indigo-500 transition-all"
+        title="이메일 수정"
+      >
+        <Pencil size={11} />
+      </button>
+    </div>
+  )
+}
+
 export default function Users() {
   const [users, setUsers] = useState<User[]>([])
   const [statusFilter, setStatusFilter] = useState('')
@@ -114,6 +183,7 @@ export default function Users() {
                   <th className="px-4 py-3 text-left font-medium">이름</th>
                   <th className="px-4 py-3 text-left font-medium">상태</th>
                   <th className="px-4 py-3 text-left font-medium">관리자</th>
+                  <th className="px-4 py-3 text-left font-medium">매니저 이메일</th>
                   <th className="px-4 py-3 text-left font-medium whitespace-nowrap">가입일</th>
                   <th className="px-4 py-3 text-left font-medium">액션</th>
                 </tr>
@@ -121,7 +191,7 @@ export default function Users() {
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {users.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-10 text-center text-slate-400 dark:text-slate-500 text-xs">
+                    <td colSpan={7} className="px-4 py-10 text-center text-slate-400 dark:text-slate-500 text-xs">
                       유저 없음
                     </td>
                   </tr>
@@ -140,6 +210,9 @@ export default function Users() {
                       {u.is_admin && (
                         <ShieldCheck size={14} className="text-indigo-500" />
                       )}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <EmailCell user={u} onUpdate={handleUpdate} />
                     </td>
                     <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400 text-xs whitespace-nowrap">
                       {fmtDate(String(u.created_at))}
