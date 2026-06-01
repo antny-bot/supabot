@@ -1,13 +1,11 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from fastapi.responses import JSONResponse
 
 from ..db import get_db
 
 router = APIRouter()
-templates = Jinja2Templates(directory="frontend/templates")
 
 _STATUS_LABELS = {
     "wait": "대기",
@@ -15,6 +13,7 @@ _STATUS_LABELS = {
     "done": "체결완료",
     "cancel": "취소",
     "pending_reorder": "재주문대기",
+    "stoploss": "손절",
 }
 
 _OPEN_STATUSES = ("wait", "partial", "pending_reorder")
@@ -31,12 +30,10 @@ def _fmt_ts(ts) -> str:
         return "—"
 
 
-@router.get("/admin/orders", response_class=HTMLResponse)
-async def list_orders(request: Request, status: str | None = None, exchange: str | None = None):
+@router.get("/api/orders")
+async def api_list_orders(request: Request, status: str | None = None, exchange: str | None = None):
     if not _require_login(request):
-        return RedirectResponse("/login", status_code=303)
-    orders = []
-    error = None
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
     try:
         q = get_db().table("orders").select("*").order("created_at", desc=True).limit(300)
         if status == "open":
@@ -52,16 +49,6 @@ async def list_orders(request: Request, status: str | None = None, exchange: str
             vol = o.get("volume") or 0
             filled = o.get("filled_volume") or 0
             o["fill_pct"] = round(filled / vol * 100) if vol else 0
+        return JSONResponse(orders)
     except Exception as e:
-        error = str(e)
-    return templates.TemplateResponse(
-        request,
-        "orders.html",
-        {
-            "orders": orders,
-            "status_filter": status or "",
-            "exchange_filter": exchange or "",
-            "status_labels": _STATUS_LABELS,
-            "error": error,
-        },
-    )
+        return JSONResponse({"error": str(e)}, status_code=500)
