@@ -1758,6 +1758,24 @@ async def grid_quick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"또는 RSI 전략은 /rsitrade {exchange} {ticker} [매수RSI] [매도RSI] [횟수] [예산]"
     )
 
+async def signal_snooze_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from datetime import datetime, timedelta, timezone
+    query = update.callback_query
+    await query.answer()
+    # data: "signal_snooze_{mode}_{exchange}_{ticker}"
+    parts = query.data.split("_", 4)
+    mode, exchange, ticker = parts[2], parts[3], parts[4]
+    user_id = str(query.from_user.id)
+    expires = signal_engine.set_snooze(user_id, exchange, ticker, mode)
+    label = {"1h": "1시간", "2h": "2시간", "day": "오늘 하루"}.get(mode, mode)
+    kst = timezone(timedelta(hours=9))
+    exp_str = datetime.fromtimestamp(expires, tz=kst).strftime("%H:%M")
+    await query.edit_message_reply_markup(reply_markup=None)
+    await context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text=f"🔕 {exchange.upper()} {ticker} 알람을 {label}({exp_str}까지) 스누즈했습니다.",
+    )
+
 # --- 백그라운드 루프 엔진 ---
 def _get_admin_prefs() -> dict:
     from core.db import get_db, is_db_available
@@ -2112,6 +2130,7 @@ def main():
     application.add_handler(CommandHandler("watch", watch_command))
     application.add_handler(CommandHandler("unwatch", unwatch_command))
     application.add_handler(CallbackQueryHandler(grid_quick_callback, pattern="^grid_quick_"))
+    application.add_handler(CallbackQueryHandler(signal_snooze_callback, pattern="^signal_snooze_"))
     application.add_handler(CallbackQueryHandler(grid_confirm_callback, pattern="^(gridrun|sgridrun|grid_cancel)"))
     application.add_handler(CallbackQueryHandler(rsitrade_confirm_callback, pattern="^rsitrun"))
     application.add_handler(CallbackQueryHandler(manual_order_confirm_callback, pattern="^(manualrun|manualcancel)\\|"))

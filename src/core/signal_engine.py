@@ -1,4 +1,6 @@
 import asyncio
+import time
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -14,6 +16,14 @@ from core.indicators import (
 
 _log = get_logger("signal_engine")
 
+_KST = timezone(timedelta(hours=9))
+
+
+def _next_midnight_kst() -> float:
+    now = datetime.now(_KST)
+    midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return midnight.timestamp()
+
 
 def _rename_candle_df(df: pd.DataFrame) -> pd.DataFrame:
     return df.rename(columns={
@@ -28,6 +38,18 @@ class SignalEngine:
     def __init__(self, user_manager, exchange_adapter):
         self.user_manager = user_manager
         self.exchange_adapter = exchange_adapter
+        self._alert_snooze: dict[tuple[str, str, str], float] = {}
+
+    def set_snooze(self, user_id: str, exchange: str, ticker: str, mode: str) -> float:
+        """mode: '1h' | '2h' | 'day' — 스누즈 만료 unix timestamp 반환"""
+        if mode == "1h":
+            expires = time.time() + 3600
+        elif mode == "2h":
+            expires = time.time() + 7200
+        else:
+            expires = _next_midnight_kst()
+        self._alert_snooze[(user_id, exchange, ticker)] = expires
+        return expires
 
     async def get_rsi(self, exchange, ticker, interval="day", period=14, user_id=None):
         """Return the latest RSI and candle dataframe for a market."""
@@ -183,6 +205,11 @@ class SignalEngine:
                     rsi_triggered = rsi <= threshold
                     bb_triggered = use_bb and current_price < bb.lower
 
+                    snooze_key = (user_id, exchange, ticker)
+                    if self._alert_snooze.get(snooze_key, 0) > time.time():
+                        await asyncio.sleep(0.5)
+                        continue
+
                     if (rsi_triggered or bb_triggered) and not is_quiet_hours(user_data):
                         reasons = []
                         if rsi_triggered:
@@ -197,11 +224,19 @@ class SignalEngine:
                             f"- 조건: {' / '.join(reasons)}\n\n"
                             "현재 가격대에서 진입을 고려해 보세요!"
                         )
-                        keyboard = [[InlineKeyboardButton("🕸️ 거미줄 셋팅하기", callback_data=f"grid_quick_{exchange}_{ticker}")]]
+                        keyboard = [
+                            [InlineKeyboardButton("🕸️ 거미줄 셋팅하기", callback_data=f"grid_quick_{exchange}_{ticker}")],
+                            [
+                                InlineKeyboardButton("⏰ 1시간 스누즈", callback_data=f"signal_snooze_1h_{exchange}_{ticker}"),
+                                InlineKeyboardButton("⏰ 2시간 스누즈", callback_data=f"signal_snooze_2h_{exchange}_{ticker}"),
+                                InlineKeyboardButton("🌙 오늘 하루", callback_data=f"signal_snooze_day_{exchange}_{ticker}"),
+                            ],
+                        ]
                         await application.bot.send_message(
                             chat_id=user_id,
                             text=msg,
                             reply_markup=InlineKeyboardMarkup(keyboard),
                         )
+                        self._alert_snooze[snooze_key] = _next_midnight_kst()
 
                     await asyncio.sleep(0.5)
