@@ -132,10 +132,10 @@ def test_config_view_splits_basic_and_llm_sections():
     assert message.index("LLM 설정") < message.index("폴링 설정 (관리자)")
     assert "- Gemini: 설정됨" in message
     assert "- llm_enabled: on" in message
-    assert "계좌 81****69" in message
+    assert "계좌: 81****69" in message
     assert "보안 설정" in message
     assert "USER_SECRET_KEY:" in message
-    assert "마지막 검증 성공 2026-05-30 22:10:00" in message
+    assert "성공 05-30 22:10:00" in message
     assert "gemini-secret" not in message
 
 

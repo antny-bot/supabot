@@ -1597,15 +1597,22 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
         for tk in tickers:
             tk_orders = [o for o in ex_orders if o['ticker'] == tk]
             total = len(tk_orders)
-            filled = len([o for o in tk_orders if o['status'] == 'done'])
-
             is_rsi = any(o['strategy'].startswith('rsitrade') for o in tk_orders)
             strategy_name = "RSI 순환 매매" if is_rsi else "거미줄 분할 매매"
+
+            if is_rsi:
+                # rsitrade_sell 주문 수 = 매수 체결 완료 후 매도 대기 중인 슬롯
+                filled = len([o for o in tk_orders if o['strategy'] == 'rsitrade_sell'])
+            else:
+                filled = len([o for o in tk_orders if o['status'] == 'done'])
 
             prog_bar = "🔵" * filled + "⚪" * (total - filled)
 
             msg += f"• <b>{tk}</b> ({strategy_name})\n"
-            msg += f"  └ 진행: {prog_bar} ({total}건 추적)\n"
+            if is_rsi and filled > 0:
+                msg += f"  └ 진행: {prog_bar} ({total}건 추적, {filled}건 매수완료·매도대기)\n"
+            else:
+                msg += f"  └ 진행: {prog_bar} ({total}건 추적)\n"
 
             for i, o in enumerate(tk_orders[:3]):
                 side_str = "매수" if o['side'] == 'bid' else "매도"
