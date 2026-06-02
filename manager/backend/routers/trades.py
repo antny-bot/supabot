@@ -2,11 +2,11 @@ import time
 from collections import defaultdict
 from datetime import datetime
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from ..db import get_db
-from ._auth import _require_login, get_session_user
+from ._auth import get_current_user
 
 router = APIRouter()
 
@@ -21,29 +21,49 @@ def _fmt_ts(ts) -> str:
 
 
 @router.get("/api/trades")
-async def api_list_trades(request: Request, period: str = "7d"):
-    if not _require_login(request):
-        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+async def api_list_trades(
+    period: str = "7d", 
+    page: int = 1, 
+    page_size: int = 50, 
+    user: dict = Depends(get_current_user)
+):
     if period not in _PERIODS:
         period = "7d"
+    
+    if page < 1: page = 1
+    if page_size > 200: page_size = 200
 
-    session_user = get_session_user(request)
-    is_admin = session_user["is_admin"]
-    bot_user_id = session_user["bot_user_id"]
+    is_admin = user["is_admin"]
+    bot_user_id = user["bot_user_id"]
 
     if not is_admin and not bot_user_id:
         return JSONResponse({"error": "연결된 봇 계정이 없습니다."}, status_code=403)
 
     try:
-        q = get_db().table("trade_logs").select("*").order("executed_at", desc=True).limit(500)
+        db = get_db()
+        # 전체 카운트를 위해 count='exact' 사용
+        q = db.table("trade_logs").select("*", count="exact").order("executed_at", desc=True)
+        
         window = _PERIODS[period]
         if window:
             q._params["executed_at"] = f"gte.{time.time() - window}"
         if not is_admin:
             q._params["user_id"] = f"eq.{bot_user_id}"
-        trades = q.execute().data
+            
+        # 페이지네이션 적용
+        offset = (page - 1) * page_size
+        q._params["limit"] = page_size
+        q._params["offset"] = offset
+        
+        res = await q.execute()
+        trades = res.data
+        total_count = res.count or 0
 
-        summary = {"total": 0, "buy": 0, "sell": 0, "volume_krw": 0.0}
+        summary = {"total": total_count, "buy": 0, "sell": 0, "volume_krw": 0.0}
+        
+        # 요약 통계는 현재 페이지가 아닌 전체(또는 기간 내 전체)에 대해 필요할 수 있으나,
+        # 성능을 위해 현재는 간소화하거나 별도 쿼리가 필요할 수 있음.
+        # 일단 현재 리스트된 데이터에 대한 통계만 반환 (UI 요구사항에 따라 조절 가능)
         ex_agg: dict = defaultdict(lambda: {"count": 0, "krw": 0.0})
         st_agg: dict = defaultdict(lambda: {"count": 0, "krw": 0.0})
 
@@ -53,7 +73,6 @@ async def api_list_trades(request: Request, period: str = "7d"):
             krw = price * volume
             t["krw"] = krw
             t["executed_fmt"] = _fmt_ts(t.get("executed_at"))
-            summary["total"] += 1
             if t.get("side") == "bid":
                 summary["buy"] += 1
             elif t.get("side") == "ask":
@@ -68,6 +87,9 @@ async def api_list_trades(request: Request, period: str = "7d"):
 
         return JSONResponse({
             "trades": trades,
+            "total": total_count,
+            "page": page,
+            "page_size": page_size,
             "summary": summary,
             "by_exchange": [{"name": k, **v} for k, v in sorted(ex_agg.items())],
             "by_strategy": [{"name": k, **v} for k, v in sorted(st_agg.items())],

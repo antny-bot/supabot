@@ -1,50 +1,35 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
 from fastapi.responses import JSONResponse
 
 from ..db import get_db
-from ._auth import _require_admin
+from ._auth import get_admin_user
 
 router = APIRouter()
 
-_CONFIG_LABELS = {
-    "poll_active_interval": ("주문 활성 폴링 간격", "초 — 미체결 주문이 있을 때 거래소 조회 주기"),
-    "poll_no_order_interval": ("대기 폴링 간격", "초 — 주문 없을 때 조회 주기"),
-    "signal_analysis_interval": ("시그널 분석 간격", "초 — RSI/BB 시그널 계산 주기"),
-}
 
-
-def _get_config() -> list[dict]:
-    rows = get_db().table("system_config").select("key,value,updated_at").execute().data
-    result = []
-    for row in rows:
-        label, desc = _CONFIG_LABELS.get(row["key"], (row["key"], ""))
-        result.append({**row, "label": label, "desc": desc})
-    return result
-
-
-@router.get("/api/config")
-async def api_get_config(request: Request):
-    guard = _require_admin(request)
-    if guard:
-        return guard
+@router.get("/api/sysconfig")
+async def api_get_sysconfig(_=Depends(get_admin_user)):
     try:
-        return JSONResponse(_get_config())
+        rows = (await get_db().table("system_config").select("key,value,updated_at").execute()).data
+        config = {r["key"]: r["value"] for r in rows}
+        return JSONResponse(config)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@router.post("/api/config")
-async def api_save_config(request: Request):
-    guard = _require_admin(request)
-    if guard:
-        return guard
+@router.post("/api/sysconfig")
+async def api_save_sysconfig(request: Request, _=Depends(get_admin_user)):
     try:
-        body = await request.json()
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            return JSONResponse({"error": "Invalid payload"}, status_code=400)
+
         db = get_db()
-        for key in _CONFIG_LABELS:
-            val = str(body.get(key, "")).strip()
-            if val:
-                db.table("system_config").upsert({"key": key, "value": val}).execute()
-        return JSONResponse({"saved": True})
+        # 키별로 upsert (현재 Supabase 간이 클라이언트는 단건 처리에 최적화됨)
+        for key, val in payload.items():
+            if key and val is not None:
+                await db.table("system_config").upsert({"key": key, "value": val}).execute()
+
+        return JSONResponse({"ok": True})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)

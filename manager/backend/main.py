@@ -5,13 +5,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from .auth import supabase_sign_in
 from .routers import dashboard, events, orders, reports, sysconfig, trades, users, templates, mfa
+from .routers._auth import get_current_user
 
 app = FastAPI(title="supabot manager")
 
@@ -55,10 +56,7 @@ realtime_manager = RealtimeBroadcastManager()
 
 
 @app.get("/api/realtime/stream")
-async def realtime_stream(request: Request):
-    from .routers._auth import _require_login
-    if not _require_login(request):
-        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+async def realtime_stream(_=Depends(get_current_user)):
     return StreamingResponse(realtime_manager.subscribe(), media_type="text/event-stream")
 
 
@@ -77,26 +75,20 @@ async def realtime_trigger(request: Request):
 
 
 @app.get("/api/me")
-async def api_me(request: Request):
-    email = request.session.get("user_email")
-    if not email:
-        return JSONResponse({"error": "Unauthorized"}, status_code=401)
-    
+async def api_me(user: dict = Depends(get_current_user)):
     mfa_enabled = False
-    user_id = request.session.get("bot_user_id")
+    user_id = user["bot_user_id"]
     if user_id:
         try:
             from .db import get_db
-            rows = get_db().table("users").select("mfa_enabled").eq("user_id", user_id).execute().data
+            rows = (await get_db().table("users").select("mfa_enabled").eq("user_id", user_id).execute()).data
             if rows:
                 mfa_enabled = bool(rows[0].get("mfa_enabled", False))
         except Exception:
             pass
 
     return JSONResponse({
-        "email": email,
-        "is_admin": bool(request.session.get("is_admin", False)),
-        "bot_user_id": user_id,
+        **user,
         "mfa_enabled": mfa_enabled,
     })
 
@@ -117,7 +109,7 @@ async def api_login(request: Request):
     # users 테이블에서 manager_email로 봇 유저 조회 (mfa_enabled도 함께 select)
     try:
         from .db import get_db
-        rows = get_db().table("users").select("user_id,is_admin,mfa_enabled").eq("manager_email", email).execute().data
+        rows = (await get_db().table("users").select("user_id,is_admin,mfa_enabled").eq("manager_email", email).execute()).data
     except Exception:
         rows = []
 

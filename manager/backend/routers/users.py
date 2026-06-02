@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from ..bot_client import notify
 from ..db import get_db
-from ._auth import _require_admin
+from ._auth import get_admin_user
 
 router = APIRouter()
 
@@ -23,21 +23,21 @@ _NOTIFY_MESSAGES = {
 }
 
 
-def _get_users(status_filter: str | None = None) -> list[dict]:
+async def _get_users(status_filter: str | None = None) -> list[dict]:
     db = get_db()
     q = db.table("users").select("*").order("created_at", desc=True)
     if status_filter:
         q._params["status"] = f"eq.{status_filter}"
-    rows = q.execute().data
+    rows = (await q.execute()).data
     for r in rows:
         r["status_label"] = _STATUS_LABELS.get(r.get("status", ""), r.get("status", ""))
     return rows
 
 
-def _set_user_status(user_id: str, status: str) -> dict | None:
+async def _set_user_status(user_id: str, status: str) -> dict | None:
     db = get_db()
-    db.table("users").update({"status": status}).eq("user_id", user_id).execute()
-    rows = db.table("users").select("*").eq("user_id", user_id).execute().data
+    await db.table("users").update({"status": status}).eq("user_id", user_id).execute()
+    rows = (await db.table("users").select("*").eq("user_id", user_id).execute()).data
     if rows:
         r = rows[0]
         r["status_label"] = _STATUS_LABELS.get(r.get("status", ""), r.get("status", ""))
@@ -46,23 +46,17 @@ def _set_user_status(user_id: str, status: str) -> dict | None:
 
 
 @router.get("/api/users")
-async def api_list_users(request: Request, status: str | None = None):
-    guard = _require_admin(request)
-    if guard:
-        return guard
+async def api_list_users(status: str | None = None, _=Depends(get_admin_user)):
     try:
-        return JSONResponse(_get_users(status))
+        return JSONResponse(await _get_users(status))
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @router.post("/api/users/{user_id}/approve")
-async def api_approve_user(user_id: str, request: Request):
-    guard = _require_admin(request)
-    if guard:
-        return guard
+async def api_approve_user(user_id: str, _=Depends(get_admin_user)):
     try:
-        user = _set_user_status(user_id, "active")
+        user = await _set_user_status(user_id, "active")
         if user:
             notify(user_id, _NOTIFY_MESSAGES["active"])
         return JSONResponse(user)
@@ -71,12 +65,9 @@ async def api_approve_user(user_id: str, request: Request):
 
 
 @router.post("/api/users/{user_id}/deactivate")
-async def api_deactivate_user(user_id: str, request: Request):
-    guard = _require_admin(request)
-    if guard:
-        return guard
+async def api_deactivate_user(user_id: str, _=Depends(get_admin_user)):
     try:
-        user = _set_user_status(user_id, "inactive")
+        user = await _set_user_status(user_id, "inactive")
         if user:
             notify(user_id, _NOTIFY_MESSAGES["inactive"])
         return JSONResponse(user)
@@ -85,12 +76,9 @@ async def api_deactivate_user(user_id: str, request: Request):
 
 
 @router.post("/api/users/{user_id}/activate")
-async def api_activate_user(user_id: str, request: Request):
-    guard = _require_admin(request)
-    if guard:
-        return guard
+async def api_activate_user(user_id: str, _=Depends(get_admin_user)):
     try:
-        user = _set_user_status(user_id, "active")
+        user = await _set_user_status(user_id, "active")
         if user:
             notify(user_id, _NOTIFY_MESSAGES["active"])
         return JSONResponse(user)
@@ -99,12 +87,9 @@ async def api_activate_user(user_id: str, request: Request):
 
 
 @router.post("/api/users/{user_id}/block")
-async def api_block_user(user_id: str, request: Request):
-    guard = _require_admin(request)
-    if guard:
-        return guard
+async def api_block_user(user_id: str, _=Depends(get_admin_user)):
     try:
-        user = _set_user_status(user_id, "blocked")
+        user = await _set_user_status(user_id, "blocked")
         if user:
             notify(user_id, _NOTIFY_MESSAGES["blocked"])
         return JSONResponse(user)
@@ -113,12 +98,9 @@ async def api_block_user(user_id: str, request: Request):
 
 
 @router.delete("/api/users/{user_id}")
-async def api_delete_user(user_id: str, request: Request):
-    guard = _require_admin(request)
-    if guard:
-        return guard
+async def api_delete_user(user_id: str, _=Depends(get_admin_user)):
     try:
-        user = _set_user_status(user_id, "deleted")
+        user = await _set_user_status(user_id, "deleted")
         if user:
             notify(user_id, _NOTIFY_MESSAGES["deleted"])
         return JSONResponse(user)
@@ -127,20 +109,17 @@ async def api_delete_user(user_id: str, request: Request):
 
 
 @router.patch("/api/users/{user_id}/email")
-async def api_set_user_email(user_id: str, request: Request):
-    guard = _require_admin(request)
-    if guard:
-        return guard
+async def api_set_user_email(user_id: str, request: any, _=Depends(get_admin_user)):
     try:
         body = await request.json()
         email = body.get("email", "").strip().lower() or None
         db = get_db()
         if email:
-            existing = db.table("users").select("user_id").eq("manager_email", email).execute().data
+            existing = (await db.table("users").select("user_id").eq("manager_email", email).execute()).data
             if existing and existing[0]["user_id"] != user_id:
                 return JSONResponse({"error": "이 이메일은 이미 다른 유저에게 사용 중입니다."}, status_code=409)
-        db.table("users").update({"manager_email": email}).eq("user_id", user_id).execute()
-        rows = db.table("users").select("*").eq("user_id", user_id).execute().data
+        await db.table("users").update({"manager_email": email}).eq("user_id", user_id).execute()
+        rows = (await db.table("users").select("*").eq("user_id", user_id).execute()).data
         if rows:
             r = rows[0]
             r["status_label"] = _STATUS_LABELS.get(r.get("status", ""), r.get("status", ""))

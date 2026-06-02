@@ -1,10 +1,10 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from ..db import get_db
-from ._auth import _require_login, get_session_user
+from ._auth import get_current_user
 
 router = APIRouter()
 
@@ -28,19 +28,25 @@ def _fmt_ts(ts) -> str:
 
 
 @router.get("/api/orders")
-async def api_list_orders(request: Request, status: str | None = None, exchange: str | None = None):
-    if not _require_login(request):
-        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+async def api_list_orders(
+    status: str | None = None, 
+    exchange: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+    user: dict = Depends(get_current_user)
+):
+    if page < 1: page = 1
+    if page_size > 200: page_size = 200
 
-    session_user = get_session_user(request)
-    is_admin = session_user["is_admin"]
-    bot_user_id = session_user["bot_user_id"]
+    is_admin = user["is_admin"]
+    bot_user_id = user["bot_user_id"]
 
     if not is_admin and not bot_user_id:
         return JSONResponse({"error": "연결된 봇 계정이 없습니다."}, status_code=403)
 
     try:
-        q = get_db().table("orders").select("*").order("created_at", desc=True).limit(300)
+        db = get_db()
+        q = db.table("orders").select("*", count="exact").order("created_at", desc=True)
         if status == "open":
             q._params["status"] = "in.({})".format(",".join(_OPEN_STATUSES))
         elif status:
@@ -49,13 +55,27 @@ async def api_list_orders(request: Request, status: str | None = None, exchange:
             q._params["exchange"] = f"eq.{exchange}"
         if not is_admin:
             q._params["user_id"] = f"eq.{bot_user_id}"
-        orders = q.execute().data
+            
+        offset = (page - 1) * page_size
+        q._params["limit"] = page_size
+        q._params["offset"] = offset
+
+        res = await q.execute()
+        orders = res.data
+        total_count = res.count or 0
+        
         for o in orders:
             o["status_label"] = _STATUS_LABELS.get(o.get("status", ""), o.get("status", ""))
             o["created_fmt"] = _fmt_ts(o.get("created_at"))
             vol = o.get("volume") or 0
             filled = o.get("filled_volume") or 0
             o["fill_pct"] = round(filled / vol * 100) if vol else 0
-        return JSONResponse(orders)
+            
+        return JSONResponse({
+            "orders": orders,
+            "total": total_count,
+            "page": page,
+            "page_size": page_size
+        })
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)

@@ -92,11 +92,21 @@ export interface AggRow {
   krw: number
 }
 
-export interface TradesData {
+export interface PaginatedResponse {
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface TradesData extends PaginatedResponse {
   trades: Trade[]
   summary: TradeSummary
   by_exchange: AggRow[]
   by_strategy: AggRow[]
+}
+
+export interface OrdersData extends PaginatedResponse {
+  orders: Order[]
 }
 
 // ── Reports ────────────────────────────────────────────────────────────────

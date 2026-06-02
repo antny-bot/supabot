@@ -3,7 +3,10 @@ uvicorn[standard]
 jinja2
 python-dotenv
 requests
+httpx
 itsdangerous
 python-multipart
 cryptography
 pyotp
+qrcode[pil]
+Pillow

@@ -32,16 +32,16 @@ def _fmt_hold(seconds: float) -> str:
         return "—"
 
 
-def _fetch_trades(db, is_admin, bot_user_id, window, limit=2000):
+async def _fetch_trades(db, is_admin, bot_user_id, window, limit=2000):
     q = db.table("trade_logs").select("*").order("executed_at", desc=True).limit(limit)
     if window:
         q._params["executed_at"] = f"gte.{time.time() - window}"
     if not is_admin:
         q._params["user_id"] = f"eq.{bot_user_id}"
-    return q.execute().data
+    return (await q.execute()).data
 
 
-def _fetch_orders_for_uuids(db, is_admin, bot_user_id, uuids):
+async def _fetch_orders_for_uuids(db, is_admin, bot_user_id, uuids):
     if not uuids:
         return []
     in_val = ",".join(uuids[:500])
@@ -49,7 +49,7 @@ def _fetch_orders_for_uuids(db, is_admin, bot_user_id, uuids):
     q._params["uuid"] = f"in.({in_val})"
     if not is_admin:
         q._params["user_id"] = f"eq.{bot_user_id}"
-    return q.execute().data
+    return (await q.execute()).data
 
 
 def _build_pnl_rows(trades):
@@ -151,7 +151,7 @@ async def api_reports_pnl(request: Request, period: str = "30d"):
         period = "30d"
     try:
         db = get_db()
-        trades = _fetch_trades(db, is_admin, bot_user_id, _PERIODS[period])
+        trades = await _fetch_trades(db, is_admin, bot_user_id, _PERIODS[period])
         rows = _build_pnl_rows(trades)
         rows.sort(key=lambda r: r["pnl"], reverse=True)
         total_bid = sum(r["bid_krw"] for r in rows)
@@ -181,7 +181,7 @@ async def api_reports_strategy(request: Request, period: str = "30d"):
         period = "30d"
     try:
         db = get_db()
-        trades = _fetch_trades(db, is_admin, bot_user_id, _PERIODS[period])
+        trades = await _fetch_trades(db, is_admin, bot_user_id, _PERIODS[period])
 
         # P&L by strategy
         st_agg: dict = defaultdict(lambda: {
@@ -243,7 +243,7 @@ async def api_reports_roi_ranking(request: Request, period: str = "30d"):
         period = "30d"
     try:
         db = get_db()
-        trades = _fetch_trades(db, is_admin, bot_user_id, _PERIODS[period])
+        trades = await _fetch_trades(db, is_admin, bot_user_id, _PERIODS[period])
         rows = _build_pnl_rows(trades)
         rows.sort(key=lambda r: r["roi_pct"], reverse=True)
         for i, r in enumerate(rows):
@@ -261,7 +261,7 @@ async def api_reports_monthly(request: Request):
     is_admin, bot_user_id = ctx
     try:
         db = get_db()
-        trades = _fetch_trades(db, is_admin, bot_user_id, None)
+        trades = await _fetch_trades(db, is_admin, bot_user_id, None)
 
         month_agg: dict = defaultdict(lambda: {"bid_krw": 0.0, "ask_krw": 0.0, "fee_amount": 0.0})
         for t in trades:
@@ -315,9 +315,9 @@ async def api_reports_pairs(request: Request, period: str = "30d"):
         period = "30d"
     try:
         db = get_db()
-        trades = _fetch_trades(db, is_admin, bot_user_id, _PERIODS[period])
+        trades = await _fetch_trades(db, is_admin, bot_user_id, _PERIODS[period])
         uuids = list({t["uuid"] for t in trades if t.get("uuid")})
-        orders = _fetch_orders_for_uuids(db, is_admin, bot_user_id, uuids)
+        orders = await _fetch_orders_for_uuids(db, is_admin, bot_user_id, uuids)
         orders_by_uuid = {o["uuid"]: o for o in orders}
         pairs = _build_pairs(trades, orders_by_uuid)
         return JSONResponse({"pairs": pairs})
@@ -335,9 +335,9 @@ async def api_reports_win_stats(request: Request, period: str = "30d"):
         period = "30d"
     try:
         db = get_db()
-        trades = _fetch_trades(db, is_admin, bot_user_id, _PERIODS[period])
+        trades = await _fetch_trades(db, is_admin, bot_user_id, _PERIODS[period])
         uuids = list({t["uuid"] for t in trades if t.get("uuid")})
-        orders = _fetch_orders_for_uuids(db, is_admin, bot_user_id, uuids)
+        orders = await _fetch_orders_for_uuids(db, is_admin, bot_user_id, uuids)
         orders_by_uuid = {o["uuid"]: o for o in orders}
         pairs = _build_pairs(trades, orders_by_uuid)
 

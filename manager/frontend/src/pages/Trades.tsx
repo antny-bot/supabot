@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { BarChart2, TrendingUp, TrendingDown, DollarSign } from 'lucide-react'
+import { BarChart2, TrendingUp, TrendingDown, DollarSign, ChevronLeft, ChevronRight } from 'lucide-react'
 import { fetchTrades } from '../api/trades'
 import type { TradesData } from '../types'
 import Badge from '../components/ui/Badge'
@@ -24,31 +24,40 @@ function krwFmt(n: number) {
 export default function Trades() {
   const [data, setData] = useState<TradesData | null>(null)
   const [period, setPeriod] = useState('7d')
+  const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const pageSize = 50
 
-  const loadData = useCallback((showSpinner = false) => {
+  const loadData = useCallback((showSpinner = false, targetPage = page) => {
     if (showSpinner) setLoading(true)
-    fetchTrades(period)
+    fetchTrades(period, targetPage, pageSize)
       .then(setData)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류 발생'))
       .finally(() => {
         if (showSpinner) setLoading(false)
       })
-  }, [period])
+  }, [period, page])
 
   useEffect(() => {
-    loadData(true)
-  }, [loadData])
+    loadData(true, page)
+  }, [loadData, page])
 
-  useRealtime(useCallback(() => loadData(false), [loadData]))
+  useRealtime(useCallback(() => loadData(false, page), [loadData, page]))
+
+  const handlePeriodChange = (p: string) => {
+    setPeriod(p)
+    setPage(1) // 기간 변경 시 첫 페이지로
+  }
+
+  const totalPages = data ? Math.ceil(data.total / pageSize) : 0
 
   const summaryCards = data
     ? [
-        { label: '총 거래', value: data.summary.total.toLocaleString(), Icon: BarChart2, bg: 'bg-indigo-500' },
-        { label: '매수', value: data.summary.buy.toLocaleString(), Icon: TrendingUp, bg: 'bg-blue-500' },
-        { label: '매도', value: data.summary.sell.toLocaleString(), Icon: TrendingDown, bg: 'bg-rose-500' },
-        { label: '거래금액', value: krwFmt(data.summary.volume_krw), Icon: DollarSign, bg: 'bg-emerald-500' },
+        { label: '전체 거래(기간)', value: data.total.toLocaleString(), Icon: BarChart2, bg: 'bg-indigo-500' },
+        { label: '매수(현재)', value: data.summary.buy.toLocaleString(), Icon: TrendingUp, bg: 'bg-blue-500' },
+        { label: '매도(현재)', value: data.summary.sell.toLocaleString(), Icon: TrendingDown, bg: 'bg-rose-500' },
+        { label: '거래액(현재)', value: krwFmt(data.summary.volume_krw), Icon: DollarSign, bg: 'bg-emerald-500' },
       ]
     : []
 
@@ -56,14 +65,14 @@ export default function Trades() {
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-slate-900 dark:text-white">거래 내역</h1>
-        <FilterBar options={PERIOD_OPTIONS} value={period} onChange={setPeriod} />
+        <FilterBar options={PERIOD_OPTIONS} value={period} onChange={handlePeriodChange} />
       </div>
 
       {error && <ErrorBanner message={error} />}
 
-      {loading && <Spinner />}
+      {loading && !data && <Spinner />}
 
-      {!loading && data && (
+      {data && (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             {summaryCards.map(({ label, value, Icon, bg }) => (
@@ -81,8 +90,8 @@ export default function Trades() {
 
           <div className="grid md:grid-cols-2 gap-4">
             {[
-              { title: '거래소별', rows: data.by_exchange },
-              { title: '전략별', rows: data.by_strategy },
+              { title: '거래소별 (현재 페이지)', rows: data.by_exchange },
+              { title: '전략별 (현재 페이지)', rows: data.by_strategy },
             ].map(({ title, rows }) => (
               <div key={title} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
                 <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800">
@@ -113,9 +122,11 @@ export default function Trades() {
           </div>
 
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-            <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800">
+            <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
               <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">상세 내역</h3>
+              <span className="text-[10px] text-slate-400 font-mono">Total: {data.total.toLocaleString()}</span>
             </div>
+            
             {/* 데스크톱 뷰 (테이블 형태) */}
             <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm">
@@ -183,6 +194,31 @@ export default function Trades() {
                 ))
               )}
             </div>
+
+            {/* 페이지네이션 컨트롤 */}
+            {totalPages > 1 && (
+              <div className="px-4 py-3 bg-slate-50 dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  Page <span className="font-semibold text-slate-900 dark:text-white">{page}</span> of {totalPages}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 disabled:opacity-30 bg-white dark:bg-slate-800 transition-colors"
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <button
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    disabled={page === totalPages}
+                    className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 disabled:opacity-30 bg-white dark:bg-slate-800 transition-colors"
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}

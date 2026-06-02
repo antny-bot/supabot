@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 from typing import Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from ..db import get_db
-from ._auth import _require_login, get_session_user
+from ._auth import get_current_user
 from ..bot_client import execute_grid, execute_rsitrade
 
 router = APIRouter()
@@ -35,13 +35,9 @@ class TemplateUpdate(BaseModel):
 
 
 @router.get("/api/templates")
-async def api_list_templates(request: Request):
-    if not _require_login(request):
-        return JSONResponse({"error": "Unauthorized"}, status_code=401)
-
-    session_user = get_session_user(request)
-    is_admin = session_user["is_admin"]
-    bot_user_id = session_user["bot_user_id"]
+async def api_list_templates(user: dict = Depends(get_current_user)):
+    is_admin = user["is_admin"]
+    bot_user_id = user["bot_user_id"]
 
     if not is_admin and not bot_user_id:
         return JSONResponse({"error": "연결된 봇 계정이 없습니다."}, status_code=403)
@@ -50,19 +46,15 @@ async def api_list_templates(request: Request):
         q = get_db().table("strategy_templates").select("*").order("created_at", desc=True)
         if not is_admin:
             q._params["user_id"] = f"eq.{bot_user_id}"
-        templates = q.execute().data
+        templates = (await q.execute()).data
         return JSONResponse(templates)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
 @router.post("/api/templates")
-async def api_create_template(request: Request, payload: TemplateCreate):
-    if not _require_login(request):
-        return JSONResponse({"error": "Unauthorized"}, status_code=401)
-
-    session_user = get_session_user(request)
-    is_admin = session_user["is_admin"]
-    bot_user_id = session_user["bot_user_id"]
+async def api_create_template(payload: TemplateCreate, user: dict = Depends(get_current_user)):
+    is_admin = user["is_admin"]
+    bot_user_id = user["bot_user_id"]
 
     # 어드민이라도 user_id가 필요하므로 본인 bot_user_id가 없으면 생성 불가하게 처리하거나,
     # 세션 정보를 기반으로 bot_user_id를 강제 할당합니다.
@@ -92,19 +84,15 @@ async def api_create_template(request: Request, payload: TemplateCreate):
             "strategy_type": payload.strategy_type,
             "params": payload.params,
         }
-        res = get_db().table("strategy_templates").insert(template_data).execute()
+        res = await get_db().table("strategy_templates").insert(template_data).execute()
         return JSONResponse({"ok": True, "data": res.data})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
 @router.delete("/api/templates/{template_id}")
-async def api_delete_template(request: Request, template_id: int):
-    if not _require_login(request):
-        return JSONResponse({"error": "Unauthorized"}, status_code=401)
-
-    session_user = get_session_user(request)
-    is_admin = session_user["is_admin"]
-    bot_user_id = session_user["bot_user_id"]
+async def api_delete_template(template_id: int, user: dict = Depends(get_current_user)):
+    is_admin = user["is_admin"]
+    bot_user_id = user["bot_user_id"]
 
     try:
         q = get_db().table("strategy_templates").delete().eq("id", template_id)
@@ -113,19 +101,15 @@ async def api_delete_template(request: Request, template_id: int):
                 return JSONResponse({"error": "권한이 없습니다."}, status_code=403)
             q._params["user_id"] = f"eq.{bot_user_id}"
         
-        q.execute()
+        await q.execute()
         return JSONResponse({"ok": True})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
 @router.patch("/api/templates/{template_id}")
-async def api_update_template(request: Request, template_id: int, payload: TemplateUpdate):
-    if not _require_login(request):
-        return JSONResponse({"error": "Unauthorized"}, status_code=401)
-
-    session_user = get_session_user(request)
-    is_admin = session_user["is_admin"]
-    bot_user_id = session_user["bot_user_id"]
+async def api_update_template(template_id: int, payload: TemplateUpdate, user: dict = Depends(get_current_user)):
+    is_admin = user["is_admin"]
+    bot_user_id = user["bot_user_id"]
 
     update_data = {}
     if payload.name is not None:
@@ -161,7 +145,7 @@ async def api_update_template(request: Request, template_id: int, payload: Templ
                 return JSONResponse({"error": "권한이 없습니다."}, status_code=403)
             q._params["user_id"] = f"eq.{bot_user_id}"
 
-        res = q.execute()
+        res = await q.execute()
         if not res.data:
             return JSONResponse({"error": "템플릿을 찾을 수 없거나 권한이 없습니다."}, status_code=404)
         return JSONResponse({"ok": True, "data": res.data})
@@ -170,13 +154,9 @@ async def api_update_template(request: Request, template_id: int, payload: Templ
 
 
 @router.post("/api/templates/{template_id}/duplicate")
-async def api_duplicate_template(request: Request, template_id: int):
-    if not _require_login(request):
-        return JSONResponse({"error": "Unauthorized"}, status_code=401)
-
-    session_user = get_session_user(request)
-    is_admin = session_user["is_admin"]
-    bot_user_id = session_user["bot_user_id"]
+async def api_duplicate_template(template_id: int, user: dict = Depends(get_current_user)):
+    is_admin = user["is_admin"]
+    bot_user_id = user["bot_user_id"]
 
     try:
         q = get_db().table("strategy_templates").select("*").eq("id", template_id)
@@ -185,7 +165,7 @@ async def api_duplicate_template(request: Request, template_id: int):
                 return JSONResponse({"error": "권한이 없습니다."}, status_code=403)
             q._params["user_id"] = f"eq.{bot_user_id}"
 
-        rows = q.execute().data
+        rows = (await q.execute()).data
         if not rows:
             return JSONResponse({"error": "템플릿을 찾을 수 없거나 권한이 없습니다."}, status_code=404)
 
@@ -193,20 +173,16 @@ async def api_duplicate_template(request: Request, template_id: int):
         new_data = {k: v for k, v in tpl.items() if k not in ("id", "created_at")}
         new_data["name"] = f"Copy of {tpl['name']}"
 
-        res = get_db().table("strategy_templates").insert(new_data).execute()
+        res = await get_db().table("strategy_templates").insert(new_data).execute()
         return JSONResponse({"ok": True, "data": res.data})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @router.post("/api/templates/{template_id}/execute")
-async def api_execute_template(request: Request, template_id: int):
-    if not _require_login(request):
-        return JSONResponse({"error": "Unauthorized"}, status_code=401)
-
-    session_user = get_session_user(request)
-    is_admin = session_user["is_admin"]
-    bot_user_id = session_user["bot_user_id"]
+async def api_execute_template(template_id: int, user: dict = Depends(get_current_user)):
+    is_admin = user["is_admin"]
+    bot_user_id = user["bot_user_id"]
 
     try:
         # 템플릿 로드
@@ -216,7 +192,7 @@ async def api_execute_template(request: Request, template_id: int):
                 return JSONResponse({"error": "권한이 없습니다."}, status_code=403)
             q._params["user_id"] = f"eq.{bot_user_id}"
         
-        rows = q.execute().data
+        rows = (await q.execute()).data
         if not rows:
             return JSONResponse({"error": "템플릿을 찾을 수 없거나 권한이 없습니다."}, status_code=404)
         

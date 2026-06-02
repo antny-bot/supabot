@@ -37,6 +37,7 @@ export default function Templates() {
   const [editingTemplate, setEditingTemplate] = useState<Template | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [executeTargetTemplate, setExecuteTargetTemplate] = useState<Template | null>(null)
   
   // rsitrade 추가 상태
   const [strategyType, setStrategyType] = useState('grid')
@@ -144,11 +145,14 @@ export default function Templates() {
     }
   }
 
-  async function handleExecute(id: number) {
-    if (!confirm('이 템플릿으로 전략을 즉시 가동하시겠습니까?')) return
+  async function confirmExecute() {
+    if (!executeTargetTemplate) return
+    
+    const id = executeTargetTemplate.id
     setError(null)
     setSuccessMessage(null)
     setActionLoadingId(id)
+    setExecuteTargetTemplate(null)
 
     try {
       const res = await fetch(`/api/templates/${id}/execute`, { method: 'POST' })
@@ -163,6 +167,14 @@ export default function Templates() {
     } finally {
       setActionLoadingId(null)
     }
+  }
+
+  function openExecuteModal(tpl: Template) {
+    setExecuteTargetTemplate(tpl)
+  }
+
+  function closeExecuteModal() {
+    setExecuteTargetTemplate(null)
   }
 
   function openEditForm(tpl: Template) {
@@ -545,7 +557,7 @@ export default function Templates() {
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-center gap-2">
                           <button
-                            onClick={() => handleExecute(tpl.id)}
+                            onClick={() => openExecuteModal(tpl)}
                             disabled={actionLoadingId !== null}
                             className="flex items-center gap-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-medium disabled:opacity-50 transition-colors"
                           >
@@ -663,7 +675,7 @@ export default function Templates() {
                   </div>
 
                   <button
-                    onClick={() => handleExecute(tpl.id)}
+                    onClick={() => openExecuteModal(tpl)}
                     disabled={actionLoadingId !== null}
                     className="w-full flex items-center justify-center gap-1.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors"
                   >
@@ -679,6 +691,64 @@ export default function Templates() {
             })}
           </div>
         </>
+      )}
+      {/* 가동 확인 모달 */}
+      {executeTargetTemplate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-6 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-950/50 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+                  <Play size={20} fill="currentColor" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">전략 가동 확인</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">선택한 템플릿으로 매매를 시작합니다.</p>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-4 space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-slate-500 dark:text-slate-400">템플릿명</span>
+                  <span className="text-xs font-semibold text-slate-900 dark:text-white">{executeTargetTemplate.name}</span>
+                </div>
+                <div className="flex justify-between items-center border-t border-slate-200/50 dark:border-slate-700/50 pt-2">
+                  <span className="text-xs text-slate-500 dark:text-slate-400">총 예산</span>
+                  <span className="text-sm font-bold text-indigo-600 dark:text-indigo-400">{executeTargetTemplate.budget.toLocaleString()}원</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-slate-500 dark:text-slate-400">주문 건수</span>
+                  <span className="text-sm font-semibold text-slate-900 dark:text-white">{executeTargetTemplate.count}건</span>
+                </div>
+                <div className="flex justify-between items-center border-t border-slate-200/50 dark:border-slate-700/50 pt-2">
+                  <span className="text-xs text-slate-500 dark:text-slate-400">1회당 매수액</span>
+                  <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                    {Math.floor(executeTargetTemplate.budget / executeTargetTemplate.count).toLocaleString()}원
+                  </span>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 text-center leading-relaxed">
+                가동 버튼을 누르면 즉시 거래소로 주문 예약이 전송됩니다.<br/>정말로 가동하시겠습니까?
+              </p>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={closeExecuteModal}
+                  className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-sm font-bold transition-colors"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={confirmExecute}
+                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold shadow-lg shadow-emerald-600/20 transition-colors"
+                >
+                  가동 시작
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
