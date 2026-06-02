@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+from typing import Optional
+
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -19,6 +21,17 @@ class TemplateCreate(BaseModel):
     budget: float
     strategy_type: str = 'grid'
     params: dict = {}
+
+class TemplateUpdate(BaseModel):
+    name: Optional[str] = None
+    exchange: Optional[str] = None
+    ticker: Optional[str] = None
+    start_price: Optional[float] = None
+    end_price: Optional[float] = None
+    count: Optional[int] = None
+    budget: Optional[float] = None
+    strategy_type: Optional[str] = None
+    params: Optional[dict] = None
 
 
 @router.get("/api/templates")
@@ -104,6 +117,87 @@ async def api_delete_template(request: Request, template_id: int):
         return JSONResponse({"ok": True})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
+@router.patch("/api/templates/{template_id}")
+async def api_update_template(request: Request, template_id: int, payload: TemplateUpdate):
+    if not _require_login(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    session_user = get_session_user(request)
+    is_admin = session_user["is_admin"]
+    bot_user_id = session_user["bot_user_id"]
+
+    update_data = {}
+    if payload.name is not None:
+        update_data["name"] = payload.name
+    if payload.exchange is not None:
+        update_data["exchange"] = payload.exchange.lower()
+    if payload.ticker is not None:
+        update_data["ticker"] = payload.ticker.upper()
+    if payload.start_price is not None:
+        update_data["start_price"] = payload.start_price
+    if payload.end_price is not None:
+        update_data["end_price"] = payload.end_price
+    if payload.count is not None:
+        if payload.count <= 0:
+            return JSONResponse({"error": "주문 개수는 1개 이상이어야 합니다."}, status_code=400)
+        update_data["count"] = payload.count
+    if payload.budget is not None:
+        if payload.budget <= 0:
+            return JSONResponse({"error": "총 예산은 0보다 커야 합니다."}, status_code=400)
+        update_data["budget"] = payload.budget
+    if payload.strategy_type is not None:
+        update_data["strategy_type"] = payload.strategy_type
+    if payload.params is not None:
+        update_data["params"] = payload.params
+
+    if not update_data:
+        return JSONResponse({"error": "변경할 내용이 없습니다."}, status_code=400)
+
+    try:
+        q = get_db().table("strategy_templates").update(update_data).eq("id", template_id)
+        if not is_admin:
+            if not bot_user_id:
+                return JSONResponse({"error": "권한이 없습니다."}, status_code=403)
+            q._params["user_id"] = f"eq.{bot_user_id}"
+
+        res = q.execute()
+        if not res.data:
+            return JSONResponse({"error": "템플릿을 찾을 수 없거나 권한이 없습니다."}, status_code=404)
+        return JSONResponse({"ok": True, "data": res.data})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.post("/api/templates/{template_id}/duplicate")
+async def api_duplicate_template(request: Request, template_id: int):
+    if not _require_login(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    session_user = get_session_user(request)
+    is_admin = session_user["is_admin"]
+    bot_user_id = session_user["bot_user_id"]
+
+    try:
+        q = get_db().table("strategy_templates").select("*").eq("id", template_id)
+        if not is_admin:
+            if not bot_user_id:
+                return JSONResponse({"error": "권한이 없습니다."}, status_code=403)
+            q._params["user_id"] = f"eq.{bot_user_id}"
+
+        rows = q.execute().data
+        if not rows:
+            return JSONResponse({"error": "템플릿을 찾을 수 없거나 권한이 없습니다."}, status_code=404)
+
+        tpl = rows[0]
+        new_data = {k: v for k, v in tpl.items() if k not in ("id", "created_at")}
+        new_data["name"] = f"Copy of {tpl['name']}"
+
+        res = get_db().table("strategy_templates").insert(new_data).execute()
+        return JSONResponse({"ok": True, "data": res.data})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
 
 @router.post("/api/templates/{template_id}/execute")
 async def api_execute_template(request: Request, template_id: int):

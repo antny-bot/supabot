@@ -1,6 +1,6 @@
 // -*- coding: utf-8 -*-
 import { useEffect, useState } from 'react'
-import { Play, Trash2, Plus, Layers, Loader2 } from 'lucide-react'
+import { Play, Trash2, Plus, Layers, Loader2, Pencil, Copy } from 'lucide-react'
 
 interface Template {
   id: number
@@ -34,6 +34,7 @@ export default function Templates() {
   const [count, setCount] = useState('10')
   const [budget, setBudget] = useState('100000')
   const [formOpen, setFormOpen] = useState(false)
+  const [editingTemplate, setEditingTemplate] = useState<Template | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   
@@ -164,7 +165,119 @@ export default function Templates() {
     }
   }
 
+  function openEditForm(tpl: Template) {
+    setEditingTemplate(tpl)
+    setName(tpl.name)
+    setExchange(tpl.exchange)
+    setTicker(tpl.ticker)
+    setStrategyType(tpl.strategy_type || 'grid')
+    setCount(String(tpl.count))
+    setBudget(String(tpl.budget))
+    if (!tpl.strategy_type || tpl.strategy_type === 'grid') {
+      setStartPrice(String(tpl.start_price))
+      setEndPrice(String(tpl.end_price))
+      setBuyRsiRange('25-30')
+      setSellRsiRange('65-75')
+    } else {
+      setStartPrice('')
+      setEndPrice('')
+      setBuyRsiRange(tpl.params?.buy_rsi_range || '25-30')
+      setSellRsiRange(tpl.params?.sell_rsi_range || '65-75')
+    }
+    setFormOpen(true)
+    setError(null)
+    setSuccessMessage(null)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
 
+  function cancelEdit() {
+    setEditingTemplate(null)
+    setFormOpen(false)
+    setName('')
+    setExchange('upbit')
+    setTicker('KRW-BTC')
+    setStartPrice('')
+    setEndPrice('')
+    setCount('10')
+    setBudget('100000')
+    setStrategyType('grid')
+    setBuyRsiRange('25-30')
+    setSellRsiRange('65-75')
+  }
+
+  async function handleUpdate(e: React.FormEvent) {
+    e.preventDefault()
+    if (!editingTemplate) return
+    setError(null)
+    setSuccessMessage(null)
+
+    if (!name.trim()) {
+      setError('템플릿 이름을 입력해 주세요.')
+      return
+    }
+
+    try {
+      const payload: any = {
+        name: name.trim(),
+        exchange,
+        ticker: ticker.trim().toUpperCase(),
+        count: parseInt(count),
+        budget: parseFloat(budget),
+        strategy_type: strategyType,
+      }
+
+      if (strategyType === 'grid') {
+        payload.start_price = parseFloat(startPrice)
+        payload.end_price = parseFloat(endPrice)
+        payload.params = {}
+      } else {
+        payload.start_price = 0
+        payload.end_price = 0
+        payload.params = {
+          buy_rsi_range: buyRsiRange.trim(),
+          sell_rsi_range: sellRsiRange.trim(),
+        }
+      }
+
+      const res = await fetch(`/api/templates/${editingTemplate.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+
+      if (res.ok) {
+        setSuccessMessage('템플릿이 성공적으로 수정되었습니다.')
+        cancelEdit()
+        loadTemplates()
+      } else {
+        const data = await res.json()
+        setError(data.error || '템플릿 수정 실패')
+      }
+    } catch {
+      setError('네트워크 오류가 발생했습니다.')
+    }
+  }
+
+  async function handleDuplicate(id: number) {
+    setError(null)
+    setSuccessMessage(null)
+    setActionLoadingId(id)
+
+    try {
+      const res = await fetch(`/api/templates/${id}/duplicate`, { method: 'POST' })
+      if (res.ok) {
+        setSuccessMessage('템플릿이 복제되었습니다.')
+        loadTemplates()
+      } else {
+        const data = await res.json()
+        setError(data.error || '템플릿 복제 실패')
+      }
+    } catch {
+      setError('네트워크 오류가 발생했습니다.')
+    } finally {
+      setActionLoadingId(null)
+    }
+  }
 
   return (
     <div className="space-y-6 max-w-screen-xl mx-auto px-4 pb-20">
@@ -180,7 +293,7 @@ export default function Templates() {
           </p>
         </div>
         <button
-          onClick={() => setFormOpen(!formOpen)}
+          onClick={() => editingTemplate ? cancelEdit() : setFormOpen(!formOpen)}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors"
         >
           <Plus size={14} />
@@ -203,8 +316,8 @@ export default function Templates() {
 
       {/* 템플릿 작성 폼 */}
       {formOpen && (
-        <form onSubmit={handleCreate} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-4 shadow-sm">
-          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200 border-b border-slate-100 dark:border-slate-800 pb-2">신규 템플릿 작성</h3>
+        <form onSubmit={editingTemplate ? handleUpdate : handleCreate} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-4 shadow-sm">
+          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200 border-b border-slate-100 dark:border-slate-800 pb-2">{editingTemplate ? '템플릿 수정' : '신규 템플릿 작성'}</h3>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1">
@@ -356,7 +469,7 @@ export default function Templates() {
           <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
             <button
               type="button"
-              onClick={() => setFormOpen(false)}
+              onClick={cancelEdit}
               className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-lg text-xs font-semibold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
             >
               취소
@@ -365,7 +478,7 @@ export default function Templates() {
               type="submit"
               className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors"
             >
-              저장하기
+              {editingTemplate ? '수정 저장' : '저장하기'}
             </button>
           </div>
         </form>
@@ -444,8 +557,25 @@ export default function Templates() {
                             {actionLoadingId === tpl.id ? '가동 중...' : '가동'}
                           </button>
                           <button
+                            onClick={() => handleDuplicate(tpl.id)}
+                            disabled={actionLoadingId !== null}
+                            title="복제"
+                            className="p-1 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded disabled:opacity-50 transition-colors"
+                          >
+                            {actionLoadingId === tpl.id ? <Loader2 size={14} className="animate-spin" /> : <Copy size={14} />}
+                          </button>
+                          <button
+                            onClick={() => openEditForm(tpl)}
+                            disabled={actionLoadingId !== null}
+                            title="수정"
+                            className="p-1 text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded disabled:opacity-50 transition-colors"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
                             onClick={() => handleDelete(tpl.id)}
                             disabled={actionLoadingId !== null}
+                            title="삭제"
                             className="p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded disabled:opacity-50 transition-colors"
                           >
                             <Trash2 size={14} />
@@ -483,13 +613,32 @@ export default function Templates() {
                         {tpl.exchange.toUpperCase()} • <span className="font-mono">{tpl.ticker}</span>
                       </p>
                     </div>
-                    <button
-                      onClick={() => handleDelete(tpl.id)}
-                      disabled={actionLoadingId !== null}
-                      className="p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded disabled:opacity-50"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleDuplicate(tpl.id)}
+                        disabled={actionLoadingId !== null}
+                        title="복제"
+                        className="p-1 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded disabled:opacity-50"
+                      >
+                        {actionLoadingId === tpl.id ? <Loader2 size={14} className="animate-spin" /> : <Copy size={14} />}
+                      </button>
+                      <button
+                        onClick={() => openEditForm(tpl)}
+                        disabled={actionLoadingId !== null}
+                        title="수정"
+                        className="p-1 text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded disabled:opacity-50"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(tpl.id)}
+                        disabled={actionLoadingId !== null}
+                        title="삭제"
+                        className="p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded disabled:opacity-50"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 text-xs">
