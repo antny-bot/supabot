@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from ..bot_client import notify
@@ -109,7 +109,7 @@ async def api_delete_user(user_id: str, _=Depends(get_admin_user)):
 
 
 @router.patch("/api/users/{user_id}/email")
-async def api_set_user_email(user_id: str, request: any, _=Depends(get_admin_user)):
+async def api_set_user_email(user_id: str, request: Request, _=Depends(get_admin_user)):
     try:
         body = await request.json()
         email = body.get("email", "").strip().lower() or None
@@ -117,7 +117,7 @@ async def api_set_user_email(user_id: str, request: any, _=Depends(get_admin_use
         if email:
             existing = (await db.table("users").select("user_id").eq("manager_email", email).execute()).data
             if existing and existing[0]["user_id"] != user_id:
-                return JSONResponse({"error": "이 이메일은 이미 다른 유저에게 사용 중입니다."}, status_code=409)
+                return JSONResponse({"error": "이메일이 이미 다른 유저에게 사용 중입니다."}, status_code=409)
         await db.table("users").update({"manager_email": email}).eq("user_id", user_id).execute()
         rows = (await db.table("users").select("*").eq("user_id", user_id).execute()).data
         if rows:
