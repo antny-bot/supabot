@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { TrendingUp, TrendingDown, DollarSign, Award } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  ReferenceLine, PieChart, Pie, Cell
+  ReferenceLine, PieChart, Pie, Cell, LineChart, Line
 } from 'recharts'
 import {
   fetchReportPnl,
@@ -358,38 +358,64 @@ function MonthlySection() {
   if (error) return <ErrorBanner message={error} />
   if (!data) return null
 
-  const chartData = data.rows.map(r => ({
-    name: r.month,
-    '손익': r.pnl,
-    '매수': r.bid_krw,
-    '매도': r.ask_krw
-  }))
+  let cumulative = 0;
+  const chartData = data.rows.map(r => {
+    cumulative += r.pnl;
+    return {
+      name: r.month,
+      '손익': r.pnl,
+      '누적손익': cumulative,
+      '매수': r.bid_krw,
+      '매도': r.ask_krw
+    };
+  })
 
   return (
     <div className="space-y-4">
       {chartData.length > 0 && (
-        <div className={`${CARD} p-4 h-64`}>
-          <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-3">월별 실현 손익 추이</h4>
-          <ResponsiveContainer width="100%" height="90%">
-            <BarChart data={chartData} margin={{ top: 5, right: 5, left: 10, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.1} />
-              <XAxis dataKey="name" stroke="#64748b" fontSize={11} tickLine={false} />
-              <YAxis stroke="#64748b" fontSize={11} tickLine={false} tickFormatter={(v) => krwFmt(v)} />
-              <Tooltip
-                contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px' }}
-                labelStyle={{ color: '#94a3b8', fontSize: '12px', fontWeight: 'bold' }}
-                itemStyle={{ color: '#fff', fontSize: '12px' }}
-                formatter={(value: any) => [`${krwFmt(Number(value))}원`, '']}
-              />
-              <ReferenceLine y={0} stroke="#64748b" />
-              <Bar dataKey="손익" radius={[4, 4, 0, 0]}>
-                {chartData.map((entry: any, index: number) => {
-                  const color = entry['손익'] >= 0 ? '#10b981' : '#f43f5e';
-                  return <Cell key={`cell-${index}`} fill={color} />;
-                })}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className={`${CARD} p-4 h-72`}>
+            <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-3">월별 실현 손익 추이</h4>
+            <ResponsiveContainer width="100%" height="90%">
+              <BarChart data={chartData} margin={{ top: 5, right: 5, left: 10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.1} />
+                <XAxis dataKey="name" stroke="#64748b" fontSize={11} tickLine={false} />
+                <YAxis stroke="#64748b" fontSize={11} tickLine={false} tickFormatter={(v) => krwFmt(v)} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px' }}
+                  labelStyle={{ color: '#94a3b8', fontSize: '12px', fontWeight: 'bold' }}
+                  itemStyle={{ color: '#fff', fontSize: '12px' }}
+                  formatter={(value: any) => [`${krwFmt(Number(value))}원`, '손익']}
+                />
+                <ReferenceLine y={0} stroke="#64748b" />
+                <Bar dataKey="손익" radius={[4, 4, 0, 0]}>
+                  {chartData.map((entry: any, index: number) => {
+                    const color = entry['손익'] >= 0 ? '#10b981' : '#f43f5e';
+                    return <Cell key={`cell-${index}`} fill={color} />;
+                  })}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className={`${CARD} p-4 h-72`}>
+            <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-3">누적 자산 성장 곡선 (Cumulative PnL)</h4>
+            <ResponsiveContainer width="100%" height="90%">
+              <LineChart data={chartData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.1} />
+                <XAxis dataKey="name" stroke="#64748b" fontSize={11} tickLine={false} />
+                <YAxis stroke="#64748b" fontSize={11} tickLine={false} tickFormatter={(v) => krwFmt(v)} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px' }}
+                  labelStyle={{ color: '#94a3b8', fontSize: '12px', fontWeight: 'bold' }}
+                  itemStyle={{ color: '#fff', fontSize: '12px' }}
+                  formatter={(value: any) => [`${krwFmt(Number(value))}원`, '누적 손익']}
+                />
+                <ReferenceLine y={0} stroke="#64748b" />
+                <Line type="monotone" dataKey="누적손익" stroke="#6366f1" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       )}
 
@@ -536,6 +562,18 @@ function WinStatsSection({ period }: { period: string }) {
     { label: '승률', value: `${stats.win_rate}%`, bg: stats.win_rate >= 50 ? 'bg-emerald-500' : 'bg-amber-500' },
   ]
 
+  const pieData = [
+    { name: '수익 거래', value: stats.win_count },
+    { name: '손실 거래', value: stats.loss_count },
+  ]
+
+  const barData = [
+    { name: '평균수익', '수익률': stats.avg_win_pct },
+    { name: '평균손실', '수익률': stats.avg_loss_pct },
+  ]
+
+  const COLORS = ['#10b981', '#f43f5e']
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -560,6 +598,60 @@ function WinStatsSection({ period }: { period: string }) {
           </div>
         ))}
       </div>
+
+      {stats.total_pairs > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className={`${CARD} p-4 h-72`}>
+            <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-3">거래 승률 비중</h4>
+            <ResponsiveContainer width="100%" height="90%">
+              <PieChart>
+                <Pie
+                  data={pieData}
+                  dataKey="value"
+                  nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={65}
+                  label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+                  labelLine={false}
+                >
+                  {pieData.map((_, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px' }}
+                  itemStyle={{ color: '#fff', fontSize: '12px' }}
+                  formatter={(value: any) => [`${value}건`, '거래수']}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className={`${CARD} p-4 h-72`}>
+            <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-3">평균 수익/손실 비교</h4>
+            <ResponsiveContainer width="100%" height="90%">
+              <BarChart data={barData} margin={{ top: 5, right: 5, left: 10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.1} />
+                <XAxis dataKey="name" stroke="#64748b" fontSize={11} tickLine={false} />
+                <YAxis stroke="#64748b" fontSize={11} tickLine={false} tickFormatter={(v) => `${v}%`} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px' }}
+                  itemStyle={{ color: '#fff', fontSize: '12px' }}
+                  formatter={(value: any) => [`${value >= 0 ? '+' : ''}${Number(value).toFixed(2)}%`, '수익률']}
+                />
+                <ReferenceLine y={0} stroke="#64748b" />
+                <Bar dataKey="수익률" radius={4}>
+                  {barData.map((entry: any, index: number) => {
+                    const color = entry['수익률'] >= 0 ? '#10b981' : '#f43f5e';
+                    return <Cell key={`cell-${index}`} fill={color} />;
+                  })}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

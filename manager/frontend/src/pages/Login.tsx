@@ -7,6 +7,8 @@ import { Sun, Moon } from 'lucide-react'
 export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [otpCode, setOtpCode] = useState('')
+  const [isMfaRequired, setIsMfaRequired] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
@@ -24,12 +26,41 @@ export default function Login() {
         body: JSON.stringify({ email, password }),
       })
       if (res.ok) {
-        navigate('/dashboard', { replace: true })
+        const body = await res.json().catch(() => ({})) as { mfa_required?: boolean }
+        if (body.mfa_required) {
+          setIsMfaRequired(true)
+        } else {
+          navigate('/dashboard', { replace: true })
+        }
       } else if (res.status === 403) {
         const body = await res.json().catch(() => ({})) as { error?: string }
         setError(body.error ?? '매니저 사용 권한이 없습니다.')
       } else {
         setError('이메일 또는 비밀번호가 올바르지 않습니다.')
+      }
+    } catch {
+      setError('서버에 연결할 수 없습니다.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleMfaSubmit(e: FormEvent) {
+    e.preventDefault()
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/login/mfa', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: otpCode }),
+      })
+      if (res.ok) {
+        navigate('/dashboard', { replace: true })
+      } else {
+        const body = await res.json().catch(() => ({})) as { error?: string }
+        setError(body.error ?? '인증 코드가 올바르지 않습니다.')
       }
     } catch {
       setError('서버에 연결할 수 없습니다.')
@@ -64,45 +95,91 @@ export default function Login() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                이메일
-              </label>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 text-sm transition-shadow"
-                placeholder="admin@example.com"
-                autoComplete="email"
-              />
-            </div>
+          {isMfaRequired ? (
+            <form onSubmit={handleMfaSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                  2차 인증 번호 (OTP)
+                </label>
+                <input
+                  type="text"
+                  required
+                  pattern="[0-9]*"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={otpCode}
+                  onChange={(e) => setOtpCode(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 text-sm transition-shadow text-center text-lg tracking-widest font-bold"
+                  placeholder="000000"
+                  autoComplete="one-time-code"
+                  autoFocus
+                />
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 text-center">
+                  구글 OTP 등 인증 앱에 표시된 6자리 번호를 입력하세요.
+                </p>
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                비밀번호
-              </label>
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 text-sm transition-shadow"
-                placeholder="••••••••"
-                autoComplete="current-password"
-              />
-            </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white rounded-xl font-medium text-sm transition-colors mt-2"
+              >
+                {loading ? '인증 중…' : '인증 및 로그인'}
+              </button>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white rounded-xl font-medium text-sm transition-colors mt-2"
-            >
-              {loading ? '로그인 중…' : '로그인'}
-            </button>
-          </form>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMfaRequired(false)
+                  setOtpCode('')
+                  setError(null)
+                }}
+                className="w-full py-2 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-xs text-center transition-colors block mt-2"
+              >
+                이전 화면으로 돌아가기
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                  이메일
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 text-sm transition-shadow"
+                  placeholder="admin@example.com"
+                  autoComplete="email"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                  비밀번호
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 text-sm transition-shadow"
+                  placeholder="••••••••"
+                  autoComplete="current-password"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white rounded-xl font-medium text-sm transition-colors mt-2"
+              >
+                {loading ? '로그인 중…' : '로그인'}
+              </button>
+            </form>
+          )}
         </div>
       </div>
     </div>

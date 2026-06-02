@@ -1921,9 +1921,60 @@ async def notify_admin_security_status(application):
 
 _notify_runner: "_web.AppRunner | None" = None
 
-async def _internal_notify_handler(request: _web.Request) -> _web.Response:
+async def _verify_webhook_request(request: _web.Request) -> bool:
+    """웹훅 요청의 HMAC 서명 및 IP 화이트리스트 검증"""
+    import hmac
+    import hashlib
+    import time
+
+    # 1. IP 화이트리스팅 검증
+    allowed_ips_str = os.environ.get("ALLOWED_WEBHOOK_IPS", "").strip()
+    if allowed_ips_str:
+        allowed_ips = [ip.strip() for ip in allowed_ips_str.split(",") if ip.strip()]
+        client_ip = request.remote
+        xff = request.headers.get("X-Forwarded-For")
+        if xff:
+            client_ip = xff.split(",")[0].strip()
+        if client_ip not in allowed_ips and client_ip != "127.0.0.1":
+            _log.warning(f"Webhook blocked: IP {client_ip} is not in whitelist")
+            return False
+
+    # 2. HMAC 서명 검증
     api_key = os.environ.get("MANAGER_API_KEY", "")
-    if not api_key or request.headers.get("X-API-Key") != api_key:
+    if not api_key:
+        return False
+
+    timestamp = request.headers.get("X-Timestamp")
+    signature = request.headers.get("X-Signature")
+
+    if not timestamp or not signature:
+        _log.warning("Webhook blocked: Missing X-Timestamp or X-Signature headers")
+        return False
+
+    # 시간 오차 검증 (리플레이 공격 방지, 5분 허용)
+    try:
+        req_time = int(timestamp)
+        if abs(int(time.time()) - req_time) > 300:
+            _log.warning("Webhook blocked: Timestamp drift too large")
+            return False
+    except ValueError:
+        return False
+
+    # 바디 페이로드 읽기
+    body_bytes = await request.read()
+
+    # 예상 서명 계산
+    msg = timestamp.encode("utf-8") + body_bytes
+    expected_sig = hmac.new(api_key.encode("utf-8"), msg, hashlib.sha256).hexdigest()
+
+    if not hmac.compare_digest(expected_sig, signature):
+        _log.warning("Webhook blocked: Signature verification failed")
+        return False
+
+    return True
+
+async def _internal_notify_handler(request: _web.Request) -> _web.Response:
+    if not await _verify_webhook_request(request):
         return _web.Response(status=401)
     try:
         data = await request.json()
@@ -1955,8 +2006,7 @@ async def trigger_realtime_sync():
         _log.warning("Error triggering realtime sync", exc_info=e)
 
 async def _internal_execute_grid_handler(request: _web.Request) -> _web.Response:
-    api_key = os.environ.get("MANAGER_API_KEY", "")
-    if not api_key or request.headers.get("X-API-Key") != api_key:
+    if not await _verify_webhook_request(request):
         return _web.Response(status=401)
     try:
         data = await request.json()
@@ -2025,8 +2075,7 @@ async def _internal_execute_grid_handler(request: _web.Request) -> _web.Response
         return _web.Response(status=500, text=str(e))
 
 async def _internal_execute_rsitrade_handler(request: _web.Request) -> _web.Response:
-    api_key = os.environ.get("MANAGER_API_KEY", "")
-    if not api_key or request.headers.get("X-API-Key") != api_key:
+    if not await _verify_webhook_request(request):
         return _web.Response(status=401)
     try:
         data = await request.json()
@@ -2136,6 +2185,16 @@ async def post_init(application):
     await startup_recovery(application)
     asyncio.create_task(order_sync_loop(application))
     asyncio.create_task(signal_analysis_loop(application))
+    
+    # DB 장애 복구 후 데이터 동기화 백그라운드 태스크 기동
+    from core.db_sync import start_sync_loop
+    start_sync_loop()
+
+    # 실시간 시세 WebSocket 수집 엔진 기동
+    from core.websocket_client import init_ticker_engine
+    init_ticker_engine(user_manager)
+
+
     if os.environ.get("MANAGER_API_KEY"):
         notify_app = _web.Application()
         notify_app["bot_application"] = application
@@ -2155,6 +2214,12 @@ async def post_shutdown(application):
     if _notify_runner:
         await _notify_runner.cleanup()
         _notify_runner = None
+    
+    # 웹소켓 엔진 정지
+    from core.websocket_client import ticker_engine
+    if ticker_engine:
+        ticker_engine.stop()
+
     await exchange_adapter.close()
 
 # --- 디버그용 글로벌 메시지 핸들러 ---

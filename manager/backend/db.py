@@ -79,7 +79,8 @@ class _Table:
                       extra_headers={"Prefer": "resolution=merge-duplicates,return=minimal"})
 
     def update(self, data) -> _FilteredQuery:
-        return _FilteredQuery(self._session, "PATCH", self._url, json=data)
+        return _FilteredQuery(self._session, "PATCH", self._url, json=data,
+                              extra_headers={"Prefer": "return=representation"})
 
     def delete(self) -> _FilteredQuery:
         return _FilteredQuery(self._session, "DELETE", self._url)

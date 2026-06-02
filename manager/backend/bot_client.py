@@ -1,36 +1,50 @@
 import os
-
+import hmac
+import hashlib
+import time
+import json
 import requests
 
-
-def notify(chat_id: str, text: str, parse_mode: str = "HTML") -> bool:
-    """Send Telegram message via the bot's /internal/notify endpoint."""
+def _send_signed_request(endpoint: str, payload: dict) -> requests.Response:
     bot_url = os.environ.get("BOT_NOTIFY_URL", "").rstrip("/")
     api_key = os.environ.get("MANAGER_API_KEY", "")
     if not bot_url or not api_key:
-        return False
+        raise ValueError("BOT_NOTIFY_URL 또는 MANAGER_API_KEY 환경변수가 설정되지 않았습니다.")
+        
+    url = f"{bot_url}{endpoint}"
+    body_bytes = json.dumps(payload).encode("utf-8")
+    timestamp = str(int(time.time()))
+    
+    # HMAC-SHA256 서명 생성
+    msg = timestamp.encode("utf-8") + body_bytes
+    sig = hmac.new(api_key.encode("utf-8"), msg, hashlib.sha256).hexdigest()
+    
+    headers = {
+        "X-API-Key": api_key,  # 하위 호환성 유지
+        "X-Timestamp": timestamp,
+        "X-Signature": sig,
+        "Content-Type": "application/json"
+    }
+    
+    return requests.post(url, data=body_bytes, headers=headers, timeout=10)
+
+def notify(chat_id: str, text: str, parse_mode: str = "HTML") -> bool:
+    """Send Telegram message via the bot's /internal/notify endpoint with signature."""
     try:
-        resp = requests.post(
-            f"{bot_url}/internal/notify",
-            json={"chat_id": chat_id, "text": text, "parse_mode": parse_mode},
-            headers={"X-API-Key": api_key, "Content-Type": "application/json"},
-            timeout=10,
+        resp = _send_signed_request(
+            "/internal/notify",
+            {"chat_id": chat_id, "text": text, "parse_mode": parse_mode}
         )
         return resp.ok
     except Exception:
         return False
 
-
 def execute_grid(user_id: str, exchange: str, ticker: str, start_price: float, end_price: float, count: int, budget: float) -> tuple[bool, str]:
-    """Send Grid trade execution request via the bot's /internal/execute_grid endpoint."""
-    bot_url = os.environ.get("BOT_NOTIFY_URL", "").rstrip("/")
-    api_key = os.environ.get("MANAGER_API_KEY", "")
-    if not bot_url or not api_key:
-        return False, "BOT_NOTIFY_URL 또는 MANAGER_API_KEY 환경변수가 설정되지 않았습니다."
+    """Send Grid trade execution request via the bot's /internal/execute_grid endpoint with signature."""
     try:
-        resp = requests.post(
-            f"{bot_url}/internal/execute_grid",
-            json={
+        resp = _send_signed_request(
+            "/internal/execute_grid",
+            {
                 "user_id": user_id,
                 "exchange": exchange,
                 "ticker": ticker,
@@ -38,9 +52,7 @@ def execute_grid(user_id: str, exchange: str, ticker: str, start_price: float, e
                 "end_price": end_price,
                 "count": count,
                 "budget": budget,
-            },
-            headers={"X-API-Key": api_key, "Content-Type": "application/json"},
-            timeout=10,
+            }
         )
         if resp.ok:
             return True, "ok"
@@ -48,17 +60,12 @@ def execute_grid(user_id: str, exchange: str, ticker: str, start_price: float, e
     except Exception as e:
         return False, str(e)
 
-
 def execute_rsitrade(user_id: str, exchange: str, ticker: str, buy_rsi_range: str, sell_rsi_range: str, count: int, budget: float) -> tuple[bool, str]:
-    """Send RSITrade execution request via the bot's /internal/execute_rsitrade endpoint."""
-    bot_url = os.environ.get("BOT_NOTIFY_URL", "").rstrip("/")
-    api_key = os.environ.get("MANAGER_API_KEY", "")
-    if not bot_url or not api_key:
-        return False, "BOT_NOTIFY_URL 또는 MANAGER_API_KEY 환경변수가 설정되지 않았습니다."
+    """Send RSITrade execution request via the bot's /internal/execute_rsitrade endpoint with signature."""
     try:
-        resp = requests.post(
-            f"{bot_url}/internal/execute_rsitrade",
-            json={
+        resp = _send_signed_request(
+            "/internal/execute_rsitrade",
+            {
                 "user_id": user_id,
                 "exchange": exchange,
                 "ticker": ticker,
@@ -66,14 +73,10 @@ def execute_rsitrade(user_id: str, exchange: str, ticker: str, buy_rsi_range: st
                 "sell_rsi_range": sell_rsi_range,
                 "count": count,
                 "budget": budget,
-            },
-            headers={"X-API-Key": api_key, "Content-Type": "application/json"},
-            timeout=10,
+            }
         )
         if resp.ok:
             return True, "ok"
         return False, resp.text or f"HTTP 에러 {resp.status_code}"
     except Exception as e:
         return False, str(e)
-
-

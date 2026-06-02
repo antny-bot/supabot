@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from .auth import supabase_sign_in
-from .routers import dashboard, events, orders, reports, sysconfig, trades, users, templates
+from .routers import dashboard, events, orders, reports, sysconfig, trades, users, templates, mfa
 
 app = FastAPI(title="supabot manager")
 
@@ -30,6 +30,7 @@ app.include_router(users.router)
 app.include_router(sysconfig.router)
 app.include_router(reports.router)
 app.include_router(templates.router)
+app.include_router(mfa.router)
 
 
 class RealtimeBroadcastManager:
@@ -80,10 +81,23 @@ async def api_me(request: Request):
     email = request.session.get("user_email")
     if not email:
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    
+    mfa_enabled = False
+    user_id = request.session.get("bot_user_id")
+    if user_id:
+        try:
+            from .db import get_db
+            rows = get_db().table("users").select("mfa_enabled").eq("user_id", user_id).execute().data
+            if rows:
+                mfa_enabled = bool(rows[0].get("mfa_enabled", False))
+        except Exception:
+            pass
+
     return JSONResponse({
         "email": email,
         "is_admin": bool(request.session.get("is_admin", False)),
-        "bot_user_id": request.session.get("bot_user_id"),
+        "bot_user_id": user_id,
+        "mfa_enabled": mfa_enabled,
     })
 
 
@@ -100,15 +114,23 @@ async def api_login(request: Request):
     if not result or not result.get("access_token"):
         return JSONResponse({"error": "이메일 또는 비밀번호가 올바르지 않습니다."}, status_code=401)
 
-    # users 테이블에서 manager_email로 봇 유저 조회
+    # users 테이블에서 manager_email로 봇 유저 조회 (mfa_enabled도 함께 select)
     try:
         from .db import get_db
-        rows = get_db().table("users").select("user_id,is_admin").eq("manager_email", email).execute().data
+        rows = get_db().table("users").select("user_id,is_admin,mfa_enabled").eq("manager_email", email).execute().data
     except Exception:
         rows = []
 
     if rows:
         bot_user = rows[0]
+        # 만약 MFA가 활성화되어 있으면, 2차 인증을 위해 대기 세션 설정
+        if bool(bot_user.get("mfa_enabled", False)):
+            request.session["mfa_pending_email"] = email
+            request.session["mfa_pending_user_id"] = bot_user["user_id"]
+            request.session["mfa_pending_is_admin"] = bool(bot_user.get("is_admin", False))
+            request.session["mfa_pending_access_token"] = result["access_token"]
+            return JSONResponse({"mfa_required": True})
+
         request.session["user_email"] = email
         request.session["access_token"] = result["access_token"]
         request.session["is_admin"] = bool(bot_user.get("is_admin", False))

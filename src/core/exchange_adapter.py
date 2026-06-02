@@ -20,6 +20,7 @@ class ExchangeAdapter:
         self.user_manager = user_manager
         self._bithumb_session = None
         self._kis_session = None
+        self._upbit_session = None
         self._kis_tokens = {}
         self._candle_cache = {}  # {(exchange, ticker, interval, count): (fetched_at, candles)}
 
@@ -31,6 +32,9 @@ class ExchangeAdapter:
         if self._kis_session and not self._kis_session.closed:
             await self._kis_session.close()
         self._kis_session = None
+        if self._upbit_session and not self._upbit_session.closed:
+            await self._upbit_session.close()
+        self._upbit_session = None
 
     async def _get_bithumb_session(self):
         if not self._bithumb_session or self._bithumb_session.closed:
@@ -44,35 +48,64 @@ class ExchangeAdapter:
             self._kis_session = aiohttp.ClientSession(timeout=timeout)
         return self._kis_session
 
-    async def _run_upbit_cli(self, resource, command, args=None, keys=None):
-        """upbit CLI를 실행하고 결과를 JSON으로 반환"""
-        cmd = ["upbit", resource, command, "--format", "json"]
-        if args:
-            cmd.extend(args)
+    async def _get_upbit_session(self):
+        if not self._upbit_session or self._upbit_session.closed:
+            timeout = aiohttp.ClientTimeout(total=15)
+            self._upbit_session = aiohttp.ClientSession(timeout=timeout)
+        return self._upbit_session
+
+    def _get_upbit_jwt(self, keys, query_string=None):
+        """업비트 API 인증을 위한 JWT 토큰 생성"""
+        access_key = keys.get("access_key")
+        secret_key = keys.get("secret_key")
         
+        payload = {
+            "access_key": access_key,
+            "nonce": str(uuid.uuid4()),
+        }
+        
+        if query_string:
+            query_hash = hashlib.sha512(query_string.encode('utf-8')).hexdigest()
+            payload["query_hash"] = query_hash
+            payload["query_hash_alg"] = "SHA512"
+            
+        return jwt.encode(payload, secret_key, algorithm="HS256")
+
+    async def _request_upbit(self, method, path, keys=None, params=None, body=None):
+        """업비트 REST API 호출 헬퍼"""
+        base_url = "https://api.upbit.com"
+        url = f"{base_url}{path}"
+        
+        query_string = None
+        if params:
+            query_string = urllib.parse.urlencode(params)
+            url = f"{url}?{query_string}"
+        elif body:
+            query_string = urllib.parse.urlencode({k: v for k, v in body.items() if v is not None})
+            
+        headers = {}
         if keys:
-            access = keys.get("access_key")
-            secret = keys.get("secret_key")
-            if access and secret:
-                cmd.extend(["--access-key", access, "--secret-key", secret])
+            token = self._get_upbit_jwt(keys, query_string)
+            headers["Authorization"] = f"Bearer {token}"
+            if body:
+                headers["Content-Type"] = "application/json; charset=utf-8"
 
         try:
+            session = await self._get_upbit_session()
             _t0 = time.monotonic()
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await process.communicate()
+            if method.upper() == "POST":
+                async with session.post(url, json=body, headers=headers) as resp:
+                    result = await resp.json()
+            elif method.upper() == "DELETE":
+                async with session.delete(url, headers=headers) as resp:
+                    result = await resp.json()
+            else:
+                async with session.get(url, headers=headers) as resp:
+                    result = await resp.json()
             metrics.record_latency("upbit", (time.monotonic() - _t0) * 1000)
-
-            if process.returncode != 0:
-                _log.error("Upbit CLI error", extra={"event": "upbit_cli_error", "msg": stderr.decode().strip()})
-                return None
-
-            return json.loads(stdout.decode())
+            return result
         except Exception as e:
-            _log.error("Upbit CLI exception", exc_info=e, extra={"event": "upbit_cli_exception"})
+            _log.error("Upbit API exception", exc_info=e, extra={"event": "upbit_api_exception", "path": path})
             return None
 
     def _get_bithumb_jwt(self, keys, query_string=None):
@@ -231,7 +264,8 @@ class ExchangeAdapter:
             return None
 
         if exchange == "upbit":
-            return await self._run_upbit_cli("accounts", "list", keys=client)
+            res = await self._request_upbit("GET", "/v1/accounts", keys=client)
+            return res if isinstance(res, list) else None
         elif exchange == "bithumb":
             res = await self._request_bithumb("GET", "/v1/accounts", keys=client)
             if res and isinstance(res, list):
@@ -251,14 +285,23 @@ class ExchangeAdapter:
 
         result = None
         if exchange == "upbit":
-            args = [
-                "--market", ticker,
-                "--side", side,
-                "--ord-type", ord_type,
-                "--price", str(price),
-                "--volume", str(volume)
-            ]
-            result = await self._run_upbit_cli("orders", "create", args=args, keys=client)
+            body = {
+                "market": ticker,
+                "side": side,
+                "volume": str(volume),
+                "price": str(price),
+                "ord_type": ord_type
+            }
+            if ord_type == "price":
+                body["volume"] = None
+            elif ord_type == "market":
+                body["price"] = None
+            body = {k: v for k, v in body.items() if v is not None}
+            res = await self._request_upbit("POST", "/v1/orders", keys=client, body=body)
+            if res and not self._is_error_response(res):
+                result = res
+            else:
+                result = None
         elif exchange == "bithumb":
             body = {
                 "market": ticker,
@@ -295,9 +338,9 @@ class ExchangeAdapter:
             return False
 
         if exchange == "upbit":
-            args = ["--uuid", order_id]
-            res = await self._run_upbit_cli("orders", "cancel", args=args, keys=client)
-            return True if res else False
+            params = {"uuid": order_id}
+            res = await self._request_upbit("DELETE", "/v1/order", keys=client, params=params)
+            return True if res and not self._is_error_response(res) else False
         elif exchange == "bithumb":
             params = {"order_id": order_id}
             res = await self._request_bithumb("DELETE", "/v2/order", keys=client, params=params)
@@ -313,9 +356,9 @@ class ExchangeAdapter:
             return None
 
         if exchange == "upbit":
-            args = ["--uuid", order_id]
-            res = await self._run_upbit_cli("orders", "retrieve", args=args, keys=client)
-            if res:
+            params = {"uuid": order_id}
+            res = await self._request_upbit("GET", "/v1/order", keys=client, params=params)
+            if res and not self._is_error_response(res):
                 state = res.get('state', '').lower()
                 exec_vol = float(res.get('executed_volume', 0))
                 total_vol = float(res.get('volume', 0))
@@ -397,12 +440,14 @@ class ExchangeAdapter:
         candles = None
         if exchange == "upbit":
             if interval == "day":
-                args = ["--market", ticker, "--count", str(count)]
-                candles = await self._run_upbit_cli("candles", "list-days", args=args)
+                path = "/v1/candles/days"
+                params = {"market": ticker, "count": str(count)}
+                candles = await self._request_upbit("GET", path, params=params)
             else:
                 unit = interval if interval in ["1", "3", "5", "10", "15", "30", "60", "240"] else "60"
-                args = ["--market", ticker, "--unit", str(unit), "--count", str(count)]
-                candles = await self._run_upbit_cli("candles", "list-minutes", args=args)
+                path = f"/v1/candles/minutes/{unit}"
+                params = {"market": ticker, "count": str(count)}
+                candles = await self._request_upbit("GET", path, params=params)
         elif exchange == "bithumb":
             if interval == "day":
                 path = "/v1/candles/days"
@@ -683,9 +728,22 @@ class ExchangeAdapter:
 
     async def get_ticker(self, exchange, ticker, user_id=None):
         """특정 종목의 현재가 정보 조회"""
+        from core.websocket_client import ticker_engine
+        if ticker_engine:
+            price = ticker_engine.get_price(exchange, ticker)
+            if price is not None:
+                return {
+                    "market": ticker,
+                    "trade_price": price,
+                    "opening_price": price,
+                    "high_price": price,
+                    "low_price": price,
+                    "prev_closing_price": price,
+                }
+
         if exchange == "upbit":
-            args = ["--markets", ticker]
-            res = await self._run_upbit_cli("tickers", "list-by-trading-pairs", args=args)
+            params = {"markets": ticker}
+            res = await self._request_upbit("GET", "/v1/ticker", params=params)
             return res[0] if res and isinstance(res, list) else None
         elif exchange == "bithumb":
             path = "/v1/ticker"
@@ -701,14 +759,21 @@ class ExchangeAdapter:
     async def get_krw_ticker_prices(self, exchange):
         """원화 마켓 전체 현재가를 {코인: 가격} 형태로 반환"""
         if exchange == "upbit":
-            tickers = await self._run_upbit_cli(
-                "tickers",
-                "list-by-quote-currencies",
-                args=["--quote-currencies", "KRW"],
-            )
-            if not tickers:
+            markets = await self._request_upbit("GET", "/v1/market/all")
+            if not isinstance(markets, list):
                 return {}
-            return {t["market"].split("-")[1]: float(t["trade_price"]) for t in tickers}
+            krw_markets = [m["market"] for m in markets if str(m.get("market", "")).startswith("KRW-")]
+            prices = {}
+            for i in range(0, len(krw_markets), 100):
+                chunk = ",".join(krw_markets[i:i + 100])
+                tickers = await self._request_upbit("GET", "/v1/ticker", params={"markets": chunk})
+                if not isinstance(tickers, list):
+                    continue
+                for ticker in tickers:
+                    market = ticker.get("market", "")
+                    if market.startswith("KRW-"):
+                        prices[market.split("-")[1]] = float(ticker.get("trade_price", 0))
+            return prices
 
         if exchange == "bithumb":
             markets = await self._request_bithumb("GET", "/v1/market/all")
@@ -737,9 +802,11 @@ class ExchangeAdapter:
         client = self._get_client(user_id, exchange)
         if not client: return None
         if exchange == "upbit":
-            args = ["--state", "done"]
-            if ticker: args.extend(["--market", ticker])
-            return await self._run_upbit_cli("orders", "list", args=args, keys=client)
+            params = {"state": "done"}
+            if ticker:
+                params["market"] = ticker
+            res = await self._request_upbit("GET", "/v1/orders", keys=client, params=params)
+            return res if isinstance(res, list) else None
         elif exchange == "bithumb":
             params = {"state": "done"}
             if ticker: params["market"] = ticker

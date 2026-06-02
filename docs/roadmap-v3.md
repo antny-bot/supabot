@@ -72,11 +72,12 @@ RSI 단일 의존에서 벗어나 리스크 관리와 다지표 전략으로 확
 ### 중기
 - [x] **MACD · 볼린저밴드 · 스토캐스틱 추가** — `src/core/indicators.py`에 `ta` 라이브러리 기반으로 구현,
       `/indicators`·`/ind` 명령으로 조회
-- [ ] **멀티지표 조합 전략** — "RSI 과매도 + 볼린저 하단 터치" 같은 AND/OR 조건 신호. `/config`에 조건 설정 UI
+- [ ] **멀티지표 조합 전략** — "RSI 과매도 + 볼린저 하단 터치" 같은 AND/OR 조건 신호. `/config`에 조건 설정 UI 및 복합 기술적 지표 결합 전략 엔진 개발
 
 ### 장기
 - [ ] **백테스트 엔진** — 과거 캔들로 전략 시뮬레이션, 수수료 버퍼 반영, 승률·MDD·손익 리포트
 - [ ] **전략 성과 리포트** — 실거래 결과 누적 집계 및 전략별 비교
+- [ ] **로컬 모의투자(Sandbox) 엔진** — Upbit, Bithumb 등의 가상 자산 거래를 지원하는 인메모리/DB 기반 모의 거래 엔진 구축 및 시뮬레이션 환경 제공
 
 ---
 
@@ -87,6 +88,7 @@ RSI 단일 의존에서 벗어나 리스크 관리와 다지표 전략으로 확
 ### 단기
 - [x] **테스트 설정 정비** — `pytest.ini` 추가, CI 워크플로(`ci-test.yml`)에서 pytest 테스트 게이트 실행
 - [x] **핵심 흐름 통합테스트** — 통합 테스트 추가(라이브 API mock). *추가 흐름 커버리지 확대는 지속 과제.*
+- [ ] **웹 UI 로그인 세션 보안 강화** — `SESSION_SECRET` 강제 검증, HTTPS 강제 미들웨어 구축, 쿠키 세션 보안 속성 (`secure`, `httponly`, `samesite`) 명시 설정
 
 ### 중기
 - [x] **구조화 로깅** — `src/core/bot_logger.py`로 JSON 구조화 로그를 stdout 출력
@@ -94,10 +96,14 @@ RSI 단일 의존에서 벗어나 리스크 관리와 다지표 전략으로 확
       (`.env.template`에 `USER_SECRET_KEY`·`SUPABASE_*` 반영)
 - [x] **백업 · 롤백 절차** — `scripts/backup.sh` 추가, 롤백 절차를 `AGENTS.md`에 문서화
 - [x] **`.env.template` 보강** — `USER_SECRET_KEY` 및 `SUPABASE_*` 변수 추가
+- [x] **DB 장애 폴백 데이터 동기화(Sync) 고도화** — Supabase 복구 시 로컬 JSON의 누적 쓰기 트랜잭션을 원격 DB로 재시도하는 동기화 메커니즘 구축
+- [x] **외부 Webhook 서명 검증 및 IP 화이트리스팅** — 매니저-봇 간 `/internal/notify` 호출 시 HMAC 서명 검증 및 IP 필터 적용
 
 ### 장기
 - [x] **메트릭 수집** — `src/core/metrics.py`(인메모리 운영 메트릭). *외부 수집기 연동은 추후.*
 - [ ] **운영 모니터링 알림** — 임계 초과 시 관리자 알림 (supabot-manager 대시보드/Telegram 연동 확장)
+- [ ] **매니저 2차 인증(MFA/TOTP) 도입** — Google OTP/Authenticator 등 연동 기능 탑재
+- [ ] **Supabase DB 접근 권한 격리 및 RLS 강화** — `service_role` 직접 공유 탈피, 봇/매니저 권한 역할(Role) 분리 및 테이블별 RLS 정책 재정립 (장기 과제로 조정)
 
 ---
 
@@ -106,14 +112,16 @@ RSI 단일 의존에서 벗어나 리스크 관리와 다지표 전략으로 확
 거래소별 기능 격차 해소 및 신규 자산군 편입.
 
 ### 단기
-- [ ] **KIS 분봉 한계 명확화** — `rsi_interval`이 분봉일 때 KIS 거부 메시지/일봉 폴백을 일관 처리
+- [x] **KIS 분봉 한계 명확화** — `rsi_interval`이 분봉일 때 KIS 거부 메시지/일봉 폴백을 일관 처리
       (`exchange_adapter.py` 캔들 조회 + `signal_engine` 경로)
-- [ ] **캔들 캐싱** — 동일 주기·종목 반복 조회 시 단기 캐시로 API 호출 절감
+- [x] **캔들 캐싱** — 동일 주기·종목 반복 조회 시 단기 캐시로 API 호출 절감
+- [x] **Upbit API 연동 Python 포팅** — 외부 Node.js CLI subprocess 실행 방식을 `aiohttp`/`pyupbit` 기반의 비동기 호출로 포팅하여 단일 언어 스택 통합
 
 ### 중기
 - [ ] **KIS 시장가 주문** — `_create_kis_order`에 시장가(`ORD_DVSN`) 지원
 - [ ] **KIS Grid/SGrid 지원** — 현재 암호화폐 전용 전략을 정수 수량·정규장 정책에 맞게 확장
 - [ ] **신규 거래소 어댑터** — 어댑터 인터페이스 기반으로 추가 거래소(예: 바이낸스) 연동
+- [x] **웹소켓(WebSocket) 기반 실시간 시세 수집 엔진 도입** — Upbit/Bithumb/KIS WebSocket 연결을 통해 실시간 시세 수집 및 캔들 업데이트 구조화
 
 ### 장기
 - [ ] **통합 포트폴리오** — 코인↔주식 합산 자산 뷰
@@ -129,10 +137,12 @@ RSI 단일 의존에서 벗어나 리스크 관리와 다지표 전략으로 확
 - [ ] **`/config` UX 개선** — 대화형 단계 축소, 현재 설정 한눈에 보기
 - [ ] **자연어 커버리지 확대** — `data/nl_unmatched.jsonl`·`nl_logs` 테이블의 미처리 패턴을 근거로 전처리 규칙 보강, LLM 호출 비용 절감
       (`/nlstats` 명령은 Phase A에서 제거됨)
+- [ ] **멀티 채널 알림 연동** — Slack, Discord Webhook 연동 옵션 추가로 텔레그램 단일 알림 채널 분산
 
 ### 중기
 - [x] **수익률 리포트** (`/report`) — 기간별 실현 손익·체결 요약
 - [ ] **알림 세분화** — 채널·임계값별 알림 on/off, 조용 시간(Quiet Hours)
+- [x] **웹 대시보드 실시간 자산 시각화** — React UI에서 Recharts 등을 이용한 투자 대비 수익률(PnL), 자산 성장 곡선 차트 구현
 
 ### 장기
 - [x] **웹 대시보드** — supabot-manager(FastAPI/HTMX)로 자산·주문·전략 현황 시각화 (Phase C, 별도 모노레포 패키지)

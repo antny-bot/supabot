@@ -62,6 +62,12 @@ class OrderManager:
         except Exception as e:
             _log.error("Failed to upsert order", exc_info=e, extra={"event": "db_order_upsert_error", "uuid": order.get("uuid")})
             self._save_orders_to_file()
+            import asyncio
+            from core.db_sync import enqueue_task
+            try:
+                asyncio.create_task(enqueue_task("upsert", "orders", "uuid", order.get("uuid"), order))
+            except Exception as ex:
+                _log.error("Failed to enqueue upsert task", exc_info=ex)
 
     def _db_delete(self, uuid: str):
         if not is_db_available():
@@ -72,6 +78,12 @@ class OrderManager:
         except Exception as e:
             _log.error("Failed to delete order", exc_info=e, extra={"event": "db_order_delete_error", "uuid": uuid})
             self._save_orders_to_file()
+            import asyncio
+            from core.db_sync import enqueue_task
+            try:
+                asyncio.create_task(enqueue_task("delete", "orders", "uuid", uuid))
+            except Exception as ex:
+                _log.error("Failed to enqueue delete task", exc_info=ex)
 
     def add_order(self, user_id, exchange, ticker, uuid, price, volume, side="bid", strategy="manual", target_rsi=None, linked_to=None, status="wait", stop_price=None, trailing_stop_pct=None):
         self.remove_order(uuid, save=False)

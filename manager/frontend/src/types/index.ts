@@ -2,6 +2,7 @@ export interface AuthUser {
   email: string
   is_admin: boolean
   bot_user_id: string | null
+  mfa_enabled?: boolean
 }
 
 export interface User {
