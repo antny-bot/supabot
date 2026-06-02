@@ -62,9 +62,10 @@ class _Table:
 
     def select(self, columns: str = "*", count: str | None = None) -> _FilteredQuery:
         params = {"select": columns}
+        extra_headers = {}
         if count:
-            params["count"] = count
-        return _FilteredQuery(self._client, "GET", self._url, params=params)
+            extra_headers["Prefer"] = f"count={count}"
+        return _FilteredQuery(self._client, "GET", self._url, params=params, extra_headers=extra_headers)
 
     def insert(self, data) -> _Query:
         return _Query(self._client, "POST", self._url, json=data,
