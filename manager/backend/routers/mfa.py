@@ -13,6 +13,7 @@ async def api_login_mfa(request: Request):
     try:
         body = await request.json()
         code = body.get("code", "").strip()
+        trust_device = bool(body.get("trust_device", False))
     except Exception:
         return JSONResponse({"error": "올바르지 않은 요청입니다."}, status_code=400)
 
@@ -59,7 +60,22 @@ async def api_login_mfa(request: Request):
     request.session["is_admin"] = is_admin
     request.session["bot_user_id"] = user_id
 
-    return JSONResponse({"ok": True})
+    response = JSONResponse({"ok": True})
+    
+    # "신뢰할 수 있는 기기" 토큰 발급
+    if trust_device:
+        from ..crypto import create_trusted_token
+        token = create_trusted_token(user_id, days=30)
+        response.set_cookie(
+            key="trusted_device_token",
+            value=token,
+            max_age=30 * 86400,
+            httponly=True,
+            secure=True,
+            samesite="lax"
+        )
+        
+    return response
 
 
 @router.post("/api/mfa/setup")

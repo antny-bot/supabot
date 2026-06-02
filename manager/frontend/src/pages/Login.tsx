@@ -8,6 +8,7 @@ export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [otpCode, setOtpCode] = useState('')
+  const [trustDevice, setTrustDevice] = useState(false)
   const [isMfaRequired, setIsMfaRequired] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -54,7 +55,7 @@ export default function Login() {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: otpCode }),
+        body: JSON.stringify({ code: otpCode, trust_device: trustDevice }),
       })
       if (res.ok) {
         navigate('/dashboard', { replace: true })
@@ -117,6 +118,19 @@ export default function Login() {
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 text-center">
                   구글 OTP 등 인증 앱에 표시된 6자리 번호를 입력하세요.
                 </p>
+              </div>
+
+              <div className="flex items-center gap-2 px-1">
+                <input
+                  type="checkbox"
+                  id="trustDevice"
+                  checked={trustDevice}
+                  onChange={(e) => setTrustDevice(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 dark:border-slate-700 text-indigo-600 focus:ring-indigo-500 dark:bg-slate-800 transition-colors cursor-pointer"
+                />
+                <label htmlFor="trustDevice" className="text-xs text-slate-600 dark:text-slate-400 cursor-pointer select-none">
+                  이 기기를 30일 동안 신뢰함 (2차 인증 생략)
+                </label>
               </div>
 
               <button

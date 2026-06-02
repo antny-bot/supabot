@@ -115,13 +115,22 @@ async def api_login(request: Request):
 
     if rows:
         bot_user = rows[0]
-        # 만약 MFA가 활성화되어 있으면, 2차 인증을 위해 대기 세션 설정
+        # 만약 MFA가 활성화되어 있으면, 2차 인증 필요 여부 확인
         if bool(bot_user.get("mfa_enabled", False)):
-            request.session["mfa_pending_email"] = email
-            request.session["mfa_pending_user_id"] = bot_user["user_id"]
-            request.session["mfa_pending_is_admin"] = bool(bot_user.get("is_admin", False))
-            request.session["mfa_pending_access_token"] = result["access_token"]
-            return JSONResponse({"mfa_required": True})
+            # "신뢰할 수 있는 기기" 쿠키 확인
+            from .crypto import verify_trusted_token
+            trusted_token = request.cookies.get("trusted_device_token")
+            trusted_user_id = verify_trusted_token(trusted_token)
+            
+            if trusted_user_id != bot_user["user_id"]:
+                # 신뢰 토큰이 없거나 다른 유저인 경우 MFA 대기 세션 설정
+                request.session["mfa_pending_email"] = email
+                request.session["mfa_pending_user_id"] = bot_user["user_id"]
+                request.session["mfa_pending_is_admin"] = bool(bot_user.get("is_admin", False))
+                request.session["mfa_pending_access_token"] = result["access_token"]
+                return JSONResponse({"mfa_required": True})
+            
+            # 신뢰 토큰이 유효하면 MFA 패스 (로그에 남길 수 있음)
 
         request.session["user_email"] = email
         request.session["access_token"] = result["access_token"]
