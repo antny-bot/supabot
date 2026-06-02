@@ -7,6 +7,7 @@ import FilterBar from '../components/ui/FilterBar'
 import Spinner from '../components/ui/Spinner'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import { useRealtime } from '../hooks/useRealtime'
+import { krwFmt } from '../utils/formatters'
 
 const PERIOD_OPTIONS = [
   { value: '1d',  label: '1일' },
@@ -14,12 +15,6 @@ const PERIOD_OPTIONS = [
   { value: '30d', label: '30일' },
   { value: 'all', label: '전체' },
 ]
-
-function krwFmt(n: number) {
-  if (n >= 100_000_000) return `${(n / 100_000_000).toFixed(1)}억`
-  if (n >= 10_000) return `${(n / 10_000).toFixed(0)}만`
-  return n.toLocaleString()
-}
 
 export default function Trades() {
   const [data, setData] = useState<TradesData | null>(null)

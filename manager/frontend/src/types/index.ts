@@ -25,6 +25,7 @@ export interface Order {
   price: number
   volume: number
   filled_volume: number
+  order_value: number
   status: string
   status_label: string
   created_at: number

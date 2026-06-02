@@ -67,8 +67,10 @@ async def api_list_orders(
         for o in orders:
             o["status_label"] = _STATUS_LABELS.get(o.get("status", ""), o.get("status", ""))
             o["created_fmt"] = _fmt_ts(o.get("created_at"))
-            vol = o.get("volume") or 0
-            filled = o.get("filled_volume") or 0
+            price = float(o.get("price") or 0)
+            vol = float(o.get("volume") or 0)
+            filled = float(o.get("filled_volume") or 0)
+            o["order_value"] = price * vol
             o["fill_pct"] = round(filled / vol * 100) if vol else 0
             
         return JSONResponse({

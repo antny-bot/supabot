@@ -22,7 +22,7 @@
       <thead class="table-light">
         <tr>
           <th>생성</th><th>거래소</th><th>종목</th><th>구분</th>
-          <th>전략</th><th class="text-end">가격</th><th>체결률</th><th>상태</th>
+          <th>전략</th><th class="text-end">가격</th><th class="text-end">수량</th><th class="text-end">금액</th><th>체결률</th><th>상태</th>
         </tr>
       </thead>
       <tbody>
@@ -37,6 +37,8 @@
           </td>
           <td class="small">{{ o.get("strategy") }}</td>
           <td class="text-end font-monospace small">{{ "{:,.0f}".format(o.get("price") or 0) }}</td>
+          <td class="text-end font-monospace small">{{ "%.4f"|format(o.get("volume") or 0) }}</td>
+          <td class="text-end font-monospace small">{{ "{:,.0f}".format(o.get("order_value") or 0) }}</td>
           <td style="min-width:90px;">
             <div class="progress" style="height:14px;">
               <div class="progress-bar bg-success" style="width: {{ o.fill_pct }}%;">{{ o.fill_pct }}%</div>
@@ -51,7 +53,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="8" class="text-center text-muted py-4">주문 없음</td></tr>
+        <tr><td colspan="10" class="text-center text-muted py-4">주문 없음</td></tr>
         {% endfor %}
       </tbody>
     </table>

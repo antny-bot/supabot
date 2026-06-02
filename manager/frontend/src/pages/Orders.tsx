@@ -8,6 +8,7 @@ import ProgressBar from '../components/ui/ProgressBar'
 import Spinner from '../components/ui/Spinner'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import { useRealtime } from '../hooks/useRealtime'
+import { krwFmt } from '../utils/formatters'
 
 const STATUS_OPTIONS = [
   { value: '',              label: '전체' },
@@ -83,7 +84,9 @@ export default function Orders() {
                     <th className="px-4 py-3 text-left font-medium">종목</th>
                     <th className="px-4 py-3 text-left font-medium">방향</th>
                     <th className="px-4 py-3 text-left font-medium">전략</th>
-                    <th className="px-4 py-3 text-right font-medium">주문가</th>
+                    <th className="px-4 py-3 text-right font-medium">가격</th>
+                    <th className="px-4 py-3 text-right font-medium">수량</th>
+                    <th className="px-4 py-3 text-right font-medium">금액</th>
                     <th className="px-4 py-3 text-left font-medium w-32">체결률</th>
                     <th className="px-4 py-3 text-left font-medium">상태</th>
                   </tr>
@@ -91,7 +94,7 @@ export default function Orders() {
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {!data || data.orders.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-10 text-center text-slate-400 dark:text-slate-500 text-xs">
+                      <td colSpan={10} className="px-4 py-10 text-center text-slate-400 dark:text-slate-500 text-xs">
                         주문 없음
                       </td>
                     </tr>
@@ -112,6 +115,12 @@ export default function Orders() {
                       <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400 text-xs">{o.strategy}</td>
                       <td className="px-4 py-2.5 text-right font-mono text-slate-700 dark:text-slate-300 text-xs whitespace-nowrap">
                         {o.price?.toLocaleString()}
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-mono text-slate-600 dark:text-slate-400 text-xs whitespace-nowrap">
+                        {o.volume?.toFixed(4)}
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-mono text-slate-700 dark:text-slate-300 text-xs whitespace-nowrap">
+                        {krwFmt(o.order_value ?? 0)}
                       </td>
                       <td className="px-4 py-2.5 w-32">
                         <ProgressBar value={o.fill_pct} />
