@@ -36,8 +36,10 @@ export default function Sidebar() {
     return () => document.removeEventListener('mousedown', handler)
   }, [menuOpen])
 
+  // config and admin are only accessible via the bottom settings popup
+  const NAV_POPUP_KEYS = new Set(['config', 'admin'])
   const visibleItems = APP_NAV_ITEMS.filter(
-    (item) => !item.adminOnly || user?.is_admin,
+    (item) => !NAV_POPUP_KEYS.has(item.key) && (!item.adminOnly || user?.is_admin),
   )
 
   async function handleLogout() {
