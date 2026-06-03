@@ -5,9 +5,7 @@ import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import FilterBar from '../components/ui/FilterBar'
-import PageHeader from '../components/ui/PageHeader'
 import Spinner from '../components/ui/Spinner'
-import { PAGE_META } from '../config/pageMeta'
 
 const LEVEL_OPTIONS = [
   { value: '', label: '전체' },
@@ -27,7 +25,7 @@ function fmtTime(value: string) {
   return value ? value.slice(0, 19).replace('T', ' ') : '--'
 }
 
-export default function Events() {
+export function EventsContent() {
   const [events, setEvents] = useState<Event[]>([])
   const [level, setLevel] = useState('')
   const [state, setState] = useState('unread')
@@ -62,8 +60,6 @@ export default function Events() {
 
   return (
     <div className="space-y-4">
-      <PageHeader {...PAGE_META.events} />
-
       <div className="flex flex-wrap items-center gap-2">
         <FilterBar options={STATE_OPTIONS} value={state} onChange={setState} />
         <FilterBar options={LEVEL_OPTIONS} value={level} onChange={setLevel} />
@@ -151,4 +147,8 @@ export default function Events() {
       <p className="text-right text-xs text-slate-400 dark:text-slate-600">최근 {events.length}건</p>
     </div>
   )
+}
+
+export default function Events() {
+  return <EventsContent />
 }

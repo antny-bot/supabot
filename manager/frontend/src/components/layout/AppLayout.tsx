@@ -1,4 +1,5 @@
 import { Outlet } from 'react-router-dom'
+import Sidebar from './Sidebar'
 import TopBar from './TopBar'
 import BottomNav from './BottomNav'
 import { useAuth } from '../../hooks/useAuth'
@@ -18,11 +19,21 @@ export default function AppLayout() {
 
   return (
     <AuthContext.Provider value={{ user, loading }}>
-      <div className="font-app-ui min-h-screen flex flex-col">
-        <TopBar />
-        <main className="flex-1 max-w-screen-xl mx-auto w-full px-4 py-5 pb-24 md:pb-6">
-          <Outlet />
-        </main>
+      <div className="font-app-ui min-h-screen bg-slate-50 dark:bg-slate-950 flex">
+        {/* Desktop sidebar */}
+        <Sidebar />
+
+        {/* Main column */}
+        <div className="flex flex-col flex-1 min-w-0">
+          {/* Mobile top bar */}
+          <TopBar />
+
+          <main className="flex-1 px-4 py-5 pb-24 md:pb-8 md:px-6 max-w-screen-xl w-full">
+            <Outlet />
+          </main>
+        </div>
+
+        {/* Mobile bottom nav */}
         <BottomNav />
       </div>
     </AuthContext.Provider>

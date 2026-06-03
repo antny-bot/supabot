@@ -1,8 +1,8 @@
-import os
-import sys
 import time
 from collections import defaultdict
 from datetime import datetime
+
+import httpx
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -344,37 +344,54 @@ async def _fetch_current_prices(position_rows, bot_user_id):
     if not position_rows:
         return {}
 
-    try:
-        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-        src_dir = os.path.join(root_dir, "src")
-        if src_dir not in sys.path:
-            sys.path.insert(0, src_dir)
+    # exchange별 ticker set 및 (user_id, exchange, ticker) 목록 구성
+    upbit_tickers: set[str] = set()
+    bithumb_tickers: set[str] = set()
+    keys_by_ticker: dict[tuple[str, str], list[tuple]] = defaultdict(list)
 
-        from core.exchange_adapter import ExchangeAdapter
-        from core.user_manager import UserManager
-    except Exception:
-        return {}
+    for row in position_rows:
+        exchange = row["exchange"]
+        ticker = row["ticker"]
+        user_id = str(row.get("user_id") or bot_user_id or "")
+        key = (user_id, exchange, ticker)
+        keys_by_ticker[(exchange, ticker)].append(key)
+        if exchange == "upbit":
+            upbit_tickers.add(ticker)
+        elif exchange == "bithumb":
+            bithumb_tickers.add(ticker)
+        # KIS: 공개 현재가 API 없으므로 skip
 
-    adapter = None
-    prices = {}
+    prices: dict[tuple, float] = {}
     try:
-        adapter = ExchangeAdapter(UserManager())
-        for row in position_rows:
-            row_user_id = str(row.get("user_id") or bot_user_id or "")
-            ticker = await adapter.get_ticker(row["exchange"], row["ticker"], user_id=row_user_id or None)
-            if not isinstance(ticker, dict):
-                continue
-            price = _safe_float(ticker.get("trade_price"))
-            if price > 0:
-                prices[(row_user_id, row["exchange"], row["ticker"])] = price
+        async with httpx.AsyncClient(timeout=10) as client:
+            if upbit_tickers:
+                resp = await client.get(
+                    "https://api.upbit.com/v1/ticker",
+                    params={"markets": ",".join(upbit_tickers)},
+                )
+                if resp.status_code == 200:
+                    for item in resp.json():
+                        market = item.get("market", "")
+                        price = _safe_float(item.get("trade_price"))
+                        if price > 0:
+                            for key in keys_by_ticker[("upbit", market)]:
+                                prices[key] = price
+
+            if bithumb_tickers:
+                resp = await client.get(
+                    "https://api.bithumb.com/v1/ticker",
+                    params={"markets": ",".join(bithumb_tickers)},
+                )
+                if resp.status_code == 200:
+                    for item in resp.json():
+                        market = item.get("market", "")
+                        price = _safe_float(item.get("trade_price"))
+                        if price > 0:
+                            for key in keys_by_ticker[("bithumb", market)]:
+                                prices[key] = price
     except Exception:
-        return prices
-    finally:
-        if adapter is not None:
-            try:
-                await adapter.close()
-            except Exception:
-                pass
+        pass
+
     return prices
 
 

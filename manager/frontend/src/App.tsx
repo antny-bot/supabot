@@ -7,15 +7,20 @@ import Dashboard from './pages/Dashboard'
 import Orders from './pages/Orders'
 import Trades from './pages/Trades'
 import Templates from './pages/Templates'
-import Events from './pages/Events'
-import Users from './pages/Users'
 import Config from './pages/Config'
 import Reports from './pages/Reports'
+import Admin from './pages/Admin'
+import { readDefaultPage } from './lib/navPreferences'
 
 function AdminRoute({ children }: { children: ReactNode }) {
   const { user } = useAuthContext()
   if (!user?.is_admin) return <Navigate to="/dashboard" replace />
   return <>{children}</>
+}
+
+function DefaultRedirect() {
+  const target = readDefaultPage() || '/dashboard'
+  return <Navigate to={target} replace />
 }
 
 export default function App() {
@@ -24,14 +29,15 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route element={<AppLayout />}>
-          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route index element={<DefaultRedirect />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/orders" element={<Orders />} />
           <Route path="/trades" element={<Trades />} />
           <Route path="/templates" element={<Templates />} />
           <Route path="/reports" element={<Reports />} />
-          <Route path="/events" element={<AdminRoute><Events /></AdminRoute>} />
-          <Route path="/users" element={<AdminRoute><Users /></AdminRoute>} />
+          <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
+          <Route path="/events" element={<Navigate to="/admin" replace />} />
+          <Route path="/users" element={<Navigate to="/admin" replace />} />
           <Route path="/config" element={<Config />} />
         </Route>
       </Routes>

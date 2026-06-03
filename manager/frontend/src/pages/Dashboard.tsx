@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { AlertTriangle, Clock, Shield, ShoppingCart, TrendingUp, UserCheck, Users } from 'lucide-react'
+import { AlertTriangle, Clock, ShoppingCart, TrendingUp, UserCheck, Users } from 'lucide-react'
 import { fetchDashboard } from '../api/dashboard'
 import Badge from '../components/ui/Badge'
 import ErrorBanner from '../components/ui/ErrorBanner'
@@ -51,7 +50,6 @@ export default function Dashboard() {
   if (!data && !error) return <Spinner />
 
   const visibleStats = STAT_CONFIG.filter((item) => !item.adminOnly || user?.is_admin)
-  const mfaEnabled = data?.mfa_enabled ?? user?.mfa_enabled ?? false
 
   return (
     <div className="space-y-6">
@@ -72,19 +70,6 @@ export default function Dashboard() {
               />
             ))}
 
-            <Link
-              to="/config"
-              className="block rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400"
-            >
-              <div className="transition-transform hover:-translate-y-0.5">
-                <StatCard
-                  label={user?.is_admin ? '2차 인증' : '2차 인증 설정'}
-                  value={mfaEnabled ? '활성' : '비활성'}
-                  icon={<Shield size={16} />}
-                  iconBg={mfaEnabled ? 'bg-emerald-500' : 'bg-slate-500'}
-                />
-              </div>
-            </Link>
           </div>
 
           {user?.is_admin && (

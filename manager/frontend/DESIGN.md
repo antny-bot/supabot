@@ -126,6 +126,64 @@ Keep titles and subtitles visually consistent across all pages.
 - Mobile bottom navigation labels may be shorter than desktop labels, but they must still reference the same page metadata and icon.
 - When increasing font size toward the top of the allowed range, navigation labels, filter chips, and dense tables must remain readable without breaking the information hierarchy.
 
+## Tab Strip Pattern
+
+Pages with multiple tabs must use the responsive two-mode tab strip:
+
+- **Desktop (`md:`)**: underline tabs — `border-b-2 -mb-px` style, wrapped in a bottom-bordered container.
+- **Mobile (default)**: horizontal scroll dial — `overflow-x-auto`, `snap-x snap-mandatory`, pill buttons (`rounded-full`), active pill uses solid `bg-indigo-600 text-white`.
+
+Rules:
+- Never use `flex-wrap` on tabs — wrapping tabs onto multiple lines is a design regression.
+- Hide scrollbar on the mobile scroll container using `scrollbar-none` (defined in `src/index.css` `@layer utilities`).
+- Do not add a Tailwind scrollbar plugin; use the `scrollbar-none` utility already in `index.css`.
+- Active state: desktop = `border-indigo-600 text-indigo-600`; mobile = `bg-indigo-600 text-white`.
+
+## Mobile Navigation — Bottom Nav + 전체 Drawer
+
+### Structure
+- Bottom nav shows **max 6 items**: up to 5 pinned items + one fixed **"전체"** button (hamburger icon, rightmost).
+- Pinned items = the first `MAX_PINNED` (5) entries from the user's nav order in `localStorage`.
+- Nav order and default page are stored via `src/lib/navPreferences.ts`.
+
+### 전체 Drawer (AllMenuDrawer)
+- Triggered by the "전체" button; slides up as a bottom sheet.
+- Lists all nav items visible to the user (admin-only items hidden for non-admins).
+- **Drag to reorder**: uses `@dnd-kit/core` + `@dnd-kit/sortable`. The new order is persisted immediately to `localStorage` via `writeNavOrder`. The top 5 become the pinned bottom-nav items.
+- **Star (★) to set default page**: tapping the star icon on any item marks it as the default landing page after login. Stored via `writeDefaultPage` in `localStorage`. Only one item can be starred.
+- `BottomNav` listens to the `sbm-navprefs-change` custom window event to re-render when preferences change.
+
+### Pages and nav keys
+All navigable pages are declared in `src/config/pageMeta.ts` as `APP_NAV_ITEMS`. Current keys:
+`dashboard`, `orders`, `trades`, `templates`, `reports`, `admin` (admin-only), `config`.
+
+Admin-only pages (`adminOnly: true`) are hidden from the drawer and never pinned for non-admin users.
+
+### Rules
+- **Never hard-code a nav item list** outside `APP_NAV_ITEMS` in `pageMeta.ts`.
+- **Never exceed 6 bottom-nav slots** (5 pinned + 전체).
+- Default pinned order: `dashboard`, `orders`, `trades`, `reports`, `config` (first 5 of default order).
+- When adding a new page, add it to `APP_NAV_ITEMS` and `navPreferences.ALL_NAV_KEYS`; it automatically appears in the drawer.
+
+## Page Architecture
+
+### Admin page (`/admin`)
+Admin-only page accessible via the `admin` nav item. Contains three tabs:
+- **유저관리**: renders `<UsersContent />` from `pages/Users.tsx`
+- **이벤트**: renders `<EventsContent />` from `pages/Events.tsx`
+- **주문 및 신호 주기**: monitoring interval config form (fetchConfig/saveConfig)
+
+Routes `/users` and `/events` redirect to `/admin`.
+
+When adding new admin-only features, add a tab in `Admin.tsx` rather than a new route.
+
+### Config page (`/config`)
+Two tabs:
+- **화면 표시**: `DisplaySettingsCard` — font family and size (localStorage only)
+- **보안**: `MfaSettingsCard` — TOTP/MFA management
+
+Monitoring intervals moved to `/admin` → "주문 및 신호 주기" tab.
+
 ## Maintenance Rule
 
 - Any new page must add or update:
