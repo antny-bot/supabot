@@ -32,7 +32,7 @@ export default function App() {
           <Route path="/reports" element={<Reports />} />
           <Route path="/events" element={<AdminRoute><Events /></AdminRoute>} />
           <Route path="/users" element={<AdminRoute><Users /></AdminRoute>} />
-          <Route path="/config" element={<AdminRoute><Config /></AdminRoute>} />
+          <Route path="/config" element={<Config />} />
         </Route>
       </Routes>
     </BrowserRouter>

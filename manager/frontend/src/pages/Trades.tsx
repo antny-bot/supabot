@@ -1,17 +1,19 @@
-import { useEffect, useState, useCallback } from 'react'
-import { BarChart2, TrendingUp, TrendingDown, DollarSign, ChevronLeft, ChevronRight } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { BarChart2, ChevronLeft, ChevronRight, DollarSign, TrendingDown, TrendingUp } from 'lucide-react'
 import { fetchTrades } from '../api/trades'
 import type { TradesData } from '../types'
 import Badge from '../components/ui/Badge'
-import FilterBar from '../components/ui/FilterBar'
-import Spinner from '../components/ui/Spinner'
 import ErrorBanner from '../components/ui/ErrorBanner'
+import FilterBar from '../components/ui/FilterBar'
+import PageHeader from '../components/ui/PageHeader'
+import Spinner from '../components/ui/Spinner'
+import { PAGE_META } from '../config/pageMeta'
 import { useRealtime } from '../hooks/useRealtime'
 import { krwFmt } from '../utils/formatters'
 
 const PERIOD_OPTIONS = [
-  { value: '1d',  label: '1일' },
-  { value: '7d',  label: '7일' },
+  { value: '1d', label: '1일' },
+  { value: '7d', label: '7일' },
   { value: '30d', label: '30일' },
   { value: 'all', label: '전체' },
 ]
@@ -28,11 +30,11 @@ export default function Trades() {
     if (showSpinner) setLoading(true)
     fetchTrades(period, targetPage, pageSize)
       .then(setData)
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류 발생'))
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류가 발생했습니다.'))
       .finally(() => {
         if (showSpinner) setLoading(false)
       })
-  }, [period, page])
+  }, [page, period])
 
   useEffect(() => {
     loadData(true, page)
@@ -40,9 +42,9 @@ export default function Trades() {
 
   useRealtime(useCallback(() => loadData(false, page), [loadData, page]))
 
-  const handlePeriodChange = (p: string) => {
-    setPeriod(p)
-    setPage(1) // 기간 변경 시 첫 페이지로
+  const handlePeriodChange = (value: string) => {
+    setPeriod(value)
+    setPage(1)
   }
 
   const totalPages = data ? Math.ceil(data.total / pageSize) : 0
@@ -58,10 +60,10 @@ export default function Trades() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-slate-900 dark:text-white">거래 내역</h1>
-        <FilterBar options={PERIOD_OPTIONS} value={period} onChange={handlePeriodChange} />
-      </div>
+      <PageHeader
+        {...PAGE_META.trades}
+        actions={<FilterBar options={PERIOD_OPTIONS} value={period} onChange={handlePeriodChange} />}
+      />
 
       {error && <ErrorBanner message={error} />}
 
@@ -69,32 +71,32 @@ export default function Trades() {
 
       {data && (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {summaryCards.map(({ label, value, Icon, bg }) => (
-              <div key={label} className="bg-white dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-3">
+              <div key={label} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
                 <div className={`${bg} rounded-lg p-2 text-white shrink-0`}>
                   <Icon size={16} />
                 </div>
                 <div>
-                  <p className="text-xl font-bold text-slate-900 dark:text-white leading-none">{value}</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{label}</p>
+                  <p className="text-xl font-bold leading-none text-slate-900 dark:text-white">{value}</p>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{label}</p>
                 </div>
               </div>
             ))}
           </div>
 
-          <div className="grid md:grid-cols-2 gap-4">
+          <div className="grid gap-4 md:grid-cols-2">
             {[
-              { title: '거래소별 (현재 페이지)', rows: data.by_exchange },
-              { title: '전략별 (현재 페이지)', rows: data.by_strategy },
+              { title: '거래소별 집계 (현재 페이지)', rows: data.by_exchange },
+              { title: '전략별 집계 (현재 페이지)', rows: data.by_strategy },
             ].map(({ title, rows }) => (
-              <div key={title} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-                <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800">
+              <div key={title} className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
                   <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">{title}</h3>
                 </div>
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900">
+                    <tr className="bg-slate-50 text-xs text-slate-500 dark:bg-slate-900 dark:text-slate-400">
                       <th className="px-4 py-2.5 text-left font-medium">이름</th>
                       <th className="px-4 py-2.5 text-right font-medium">건수</th>
                       <th className="px-4 py-2.5 text-right font-medium">금액</th>
@@ -102,12 +104,14 @@ export default function Trades() {
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {rows.length === 0 ? (
-                      <tr><td colSpan={3} className="px-4 py-6 text-center text-slate-400 text-xs">데이터 없음</td></tr>
-                    ) : rows.map((r) => (
-                      <tr key={r.name} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                        <td className="px-4 py-2.5 text-slate-700 dark:text-slate-300 text-xs font-medium">{r.name}</td>
-                        <td className="px-4 py-2.5 text-right text-slate-600 dark:text-slate-400 text-xs">{r.count.toLocaleString()}</td>
-                        <td className="px-4 py-2.5 text-right text-slate-600 dark:text-slate-400 font-mono text-xs">{krwFmt(r.krw)}</td>
+                      <tr>
+                        <td colSpan={3} className="px-4 py-6 text-center text-xs text-slate-400">데이터가 없습니다.</td>
+                      </tr>
+                    ) : rows.map((row) => (
+                      <tr key={row.name} className="transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                        <td className="px-4 py-2.5 text-xs font-medium text-slate-700 dark:text-slate-300">{row.name}</td>
+                        <td className="px-4 py-2.5 text-right text-xs text-slate-600 dark:text-slate-400">{row.count.toLocaleString()}</td>
+                        <td className="px-4 py-2.5 text-right font-mono text-xs text-slate-600 dark:text-slate-400">{krwFmt(row.krw)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -116,17 +120,16 @@ export default function Trades() {
             ))}
           </div>
 
-          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-            <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-slate-800">
               <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">상세 내역</h3>
-              <span className="text-[10px] text-slate-400 font-mono">Total: {data.total.toLocaleString()}</span>
+              <span className="font-mono text-[10px] text-slate-400">Total: {data.total.toLocaleString()}</span>
             </div>
-            
-            {/* 데스크톱 뷰 (테이블 형태) */}
-            <div className="hidden md:block overflow-x-auto">
+
+            <div className="hidden overflow-x-auto md:block">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
+                  <tr className="border-b border-slate-100 bg-slate-50 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
                     <th className="px-4 py-2.5 text-left font-medium">체결시간</th>
                     <th className="px-4 py-2.5 text-left font-medium">거래소</th>
                     <th className="px-4 py-2.5 text-left font-medium">종목</th>
@@ -139,75 +142,69 @@ export default function Trades() {
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {data.trades.length === 0 ? (
-                    <tr><td colSpan={8} className="px-4 py-10 text-center text-slate-400 text-xs">거래 없음</td></tr>
-                  ) : data.trades.map((t, i) => (
-                    <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                      <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400 font-mono text-xs whitespace-nowrap">{t.executed_fmt}</td>
-                      <td className="px-4 py-2.5"><Badge value={t.exchange} label={t.exchange.toUpperCase()} /></td>
-                      <td className="px-4 py-2.5 text-slate-800 dark:text-slate-200 font-medium text-xs">{t.ticker}</td>
-                      <td className="px-4 py-2.5"><Badge value={t.side} /></td>
-                      <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400 text-xs">{t.strategy}</td>
-                      <td className="px-4 py-2.5 text-right font-mono text-slate-700 dark:text-slate-300 text-xs">{t.price?.toLocaleString()}</td>
-                      <td className="px-4 py-2.5 text-right font-mono text-slate-600 dark:text-slate-400 text-xs">{t.volume?.toFixed(4)}</td>
-                      <td className="px-4 py-2.5 text-right font-mono text-slate-700 dark:text-slate-300 text-xs">{krwFmt(t.krw)}</td>
+                    <tr>
+                      <td colSpan={8} className="px-4 py-10 text-center text-xs text-slate-400">거래가 없습니다.</td>
+                    </tr>
+                  ) : data.trades.map((trade, index) => (
+                    <tr key={index} className="transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                      <td className="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-slate-500 dark:text-slate-400">{trade.executed_fmt}</td>
+                      <td className="px-4 py-2.5"><Badge value={trade.exchange} label={trade.exchange.toUpperCase()} /></td>
+                      <td className="px-4 py-2.5 text-xs font-medium text-slate-800 dark:text-slate-200">{trade.ticker}</td>
+                      <td className="px-4 py-2.5"><Badge value={trade.side} /></td>
+                      <td className="px-4 py-2.5 text-xs text-slate-500 dark:text-slate-400">{trade.strategy}</td>
+                      <td className="px-4 py-2.5 text-right font-mono text-xs text-slate-700 dark:text-slate-300">{trade.price?.toLocaleString()}</td>
+                      <td className="px-4 py-2.5 text-right font-mono text-xs text-slate-600 dark:text-slate-400">{trade.volume?.toFixed(4)}</td>
+                      <td className="px-4 py-2.5 text-right font-mono text-xs text-slate-700 dark:text-slate-300">{krwFmt(trade.krw)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
 
-            {/* 모바일 뷰 (카드 형태) */}
-            <div className="block md:hidden divide-y divide-slate-100 dark:divide-slate-800">
+            <div className="block divide-y divide-slate-100 dark:divide-slate-800 md:hidden">
               {data.trades.length === 0 ? (
-                <div className="px-4 py-10 text-center text-slate-400 text-xs">
-                  거래 없음
-                </div>
-              ) : (
-                data.trades.map((t, i) => (
-                  <div key={i} className="p-4 space-y-3 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-slate-500 dark:text-slate-400 font-mono">{t.executed_fmt}</span>
-                      <Badge value={t.side} />
-                    </div>
-                    <div className="flex justify-between items-baseline">
-                      <div className="flex items-center gap-1.5">
-                        <Badge value={t.exchange} label={t.exchange.toUpperCase()} />
-                        <span className="font-semibold text-slate-800 dark:text-slate-200 text-xs">{t.ticker}</span>
-                      </div>
-                      <span className="font-mono text-xs font-bold text-slate-900 dark:text-white">
-                        {t.price?.toLocaleString()}원
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                      <span>전략: {t.strategy}</span>
-                      <span>수량: <span className="font-mono text-slate-800 dark:text-slate-200 font-medium">{t.volume?.toFixed(4)}</span></span>
-                    </div>
-                    <div className="flex justify-end text-xs font-semibold text-slate-700 dark:text-slate-300">
-                      대금: {t.krw?.toLocaleString()}원
-                    </div>
+                <div className="px-4 py-10 text-center text-xs text-slate-400">거래가 없습니다.</div>
+              ) : data.trades.map((trade, index) => (
+                <div key={index} className="space-y-3 p-4 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-mono text-slate-500 dark:text-slate-400">{trade.executed_fmt}</span>
+                    <Badge value={trade.side} />
                   </div>
-                ))
-              )}
+                  <div className="flex items-baseline justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <Badge value={trade.exchange} label={trade.exchange.toUpperCase()} />
+                      <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">{trade.ticker}</span>
+                    </div>
+                    <span className="font-mono text-xs font-bold text-slate-900 dark:text-white">{trade.price?.toLocaleString()}원</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                    <span>전략: {trade.strategy}</span>
+                    <span>수량: <span className="font-mono font-medium text-slate-800 dark:text-slate-200">{trade.volume?.toFixed(4)}</span></span>
+                  </div>
+                  <div className="flex justify-end text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    금액 {trade.krw?.toLocaleString()}원
+                  </div>
+                </div>
+              ))}
             </div>
 
-            {/* 페이지네이션 컨트롤 */}
             {totalPages > 1 && (
-              <div className="px-4 py-3 bg-slate-50 dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
                 <div className="text-xs text-slate-500 dark:text-slate-400">
                   Page <span className="font-semibold text-slate-900 dark:text-white">{page}</span> of {totalPages}
                 </div>
                 <div className="flex gap-2">
                   <button
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    onClick={() => setPage((current) => Math.max(1, current - 1))}
                     disabled={page === 1}
-                    className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 disabled:opacity-30 bg-white dark:bg-slate-800 transition-colors"
+                    className="rounded-lg border border-slate-200 bg-white p-1.5 transition-colors disabled:opacity-30 dark:border-slate-700 dark:bg-slate-800"
                   >
                     <ChevronLeft size={16} />
                   </button>
                   <button
-                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
                     disabled={page === totalPages}
-                    className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 disabled:opacity-30 bg-white dark:bg-slate-800 transition-colors"
+                    className="rounded-lg border border-slate-200 bg-white p-1.5 transition-colors disabled:opacity-30 dark:border-slate-700 dark:bg-slate-800"
                   >
                     <ChevronRight size={16} />
                   </button>

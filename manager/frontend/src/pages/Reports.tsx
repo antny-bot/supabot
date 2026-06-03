@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { TrendingUp, TrendingDown, DollarSign, Award } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -25,6 +25,8 @@ import FilterBar from '../components/ui/FilterBar'
 import ProgressBar from '../components/ui/ProgressBar'
 import Spinner from '../components/ui/Spinner'
 import ErrorBanner from '../components/ui/ErrorBanner'
+import PageHeader from '../components/ui/PageHeader'
+import { PAGE_META } from '../config/pageMeta'
 
 const PERIOD_OPTIONS = [
   { value: '1d',  label: '1일' },
@@ -664,12 +666,14 @@ export default function Reports() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-xl font-bold text-slate-900 dark:text-white">리포트</h1>
-        {activeTab !== 'monthly' && (
-          <FilterBar options={PERIOD_OPTIONS} value={period} onChange={setPeriod} />
-        )}
-      </div>
+      <PageHeader
+        {...PAGE_META.reports}
+        actions={
+          activeTab !== 'monthly'
+            ? <FilterBar options={PERIOD_OPTIONS} value={period} onChange={setPeriod} />
+            : undefined
+        }
+      />
 
       {/* Tab strip */}
       <div className="flex gap-1.5 flex-wrap border-b border-slate-200 dark:border-slate-800 pb-0">

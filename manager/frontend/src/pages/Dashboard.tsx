@@ -1,13 +1,16 @@
-import { useEffect, useState, useCallback } from 'react'
-import { Users, UserCheck, Clock, ShoppingCart, TrendingUp, AlertTriangle, Shield } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { AlertTriangle, Clock, Shield, ShoppingCart, TrendingUp, UserCheck, Users } from 'lucide-react'
 import { fetchDashboard } from '../api/dashboard'
-import type { DashboardData, DashboardStats } from '../types'
+import Badge from '../components/ui/Badge'
+import ErrorBanner from '../components/ui/ErrorBanner'
+import PageHeader from '../components/ui/PageHeader'
+import Spinner from '../components/ui/Spinner'
+import StatCard from '../components/ui/StatCard'
+import { PAGE_META } from '../config/pageMeta'
 import { useAuthContext } from '../contexts/AuthContext'
 import { useRealtime } from '../hooks/useRealtime'
-import StatCard from '../components/ui/StatCard'
-import Badge from '../components/ui/Badge'
-import Spinner from '../components/ui/Spinner'
-import ErrorBanner from '../components/ui/ErrorBanner'
+import type { DashboardData, DashboardStats } from '../types'
 
 const STAT_CONFIG: {
   key: keyof DashboardStats
@@ -24,8 +27,8 @@ const STAT_CONFIG: {
   { key: 'errors_24h', label: '24h 오류', Icon: AlertTriangle, bg: 'bg-rose-500', adminOnly: true },
 ]
 
-function fmtTime(s: string) {
-  return s ? s.slice(0, 19).replace('T', ' ') : '--'
+function fmtTime(value: string) {
+  return value ? value.slice(0, 19).replace('T', ' ') : '--'
 }
 
 export default function Dashboard() {
@@ -47,18 +50,18 @@ export default function Dashboard() {
 
   if (!data && !error) return <Spinner />
 
-  const visibleStats = STAT_CONFIG.filter((c) => !c.adminOnly || user?.is_admin)
-  const mfaSummary = data?.mfa_enabled ?? user?.mfa_enabled ?? false
+  const visibleStats = STAT_CONFIG.filter((item) => !item.adminOnly || user?.is_admin)
+  const mfaEnabled = data?.mfa_enabled ?? user?.mfa_enabled ?? false
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-bold text-slate-900 dark:text-white">대시보드</h1>
+      <PageHeader {...PAGE_META.dashboard} />
 
       {error && <ErrorBanner message={error} />}
 
       {data && (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
             {visibleStats.map(({ key, label, Icon, bg }) => (
               <StatCard
                 key={key}
@@ -68,23 +71,32 @@ export default function Dashboard() {
                 iconBg={bg}
               />
             ))}
-            <StatCard
-              label="2차 인증"
-              value={mfaSummary ? '활성' : '비활성'}
-              icon={<Shield size={16} />}
-              iconBg={mfaSummary ? 'bg-emerald-500' : 'bg-slate-500'}
-            />
+
+            <Link
+              to="/config"
+              className="block rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400"
+            >
+              <div className="transition-transform hover:-translate-y-0.5">
+                <StatCard
+                  label={user?.is_admin ? '2차 인증' : '2차 인증 설정'}
+                  value={mfaEnabled ? '활성' : '비활성'}
+                  icon={<Shield size={16} />}
+                  iconBg={mfaEnabled ? 'bg-emerald-500' : 'bg-slate-500'}
+                />
+              </div>
+            </Link>
           </div>
 
           {user?.is_admin && (
-            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-              <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800">
+            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-800">
                 <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-300">최근 미확인 이벤트</h2>
               </div>
-              <div className="hidden md:block overflow-x-auto">
+
+              <div className="hidden overflow-x-auto md:block">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-xs text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800">
+                    <tr className="border-b border-slate-100 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
                       <th className="px-4 py-2.5 text-left font-medium">시간</th>
                       <th className="px-4 py-2.5 text-left font-medium">레벨</th>
                       <th className="px-4 py-2.5 text-left font-medium">소스</th>
@@ -94,21 +106,21 @@ export default function Dashboard() {
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {data.recent_events.length === 0 ? (
                       <tr>
-                        <td colSpan={4} className="px-4 py-8 text-center text-slate-400 dark:text-slate-500 text-xs">
+                        <td colSpan={4} className="px-4 py-8 text-center text-xs text-slate-400 dark:text-slate-500">
                           미확인 이벤트가 없습니다.
                         </td>
                       </tr>
-                    ) : data.recent_events.map((ev) => (
-                      <tr key={ev.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                        <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400 font-mono text-xs whitespace-nowrap">
-                          {fmtTime(String(ev.created_at))}
+                    ) : data.recent_events.map((event) => (
+                      <tr key={event.id} className="transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                        <td className="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-slate-500 dark:text-slate-400">
+                          {fmtTime(String(event.created_at))}
                         </td>
                         <td className="px-4 py-2.5">
-                          <Badge value={ev.level} />
+                          <Badge value={event.level} />
                         </td>
-                        <td className="px-4 py-2.5 text-slate-600 dark:text-slate-300 text-xs">{ev.source}</td>
-                        <td className="px-4 py-2.5 text-slate-700 dark:text-slate-200 text-xs max-w-xs truncate">
-                          {ev.message}
+                        <td className="px-4 py-2.5 text-xs text-slate-600 dark:text-slate-300">{event.source}</td>
+                        <td className="max-w-xs truncate px-4 py-2.5 text-xs text-slate-700 dark:text-slate-200">
+                          {event.message}
                         </td>
                       </tr>
                     ))}
@@ -116,19 +128,19 @@ export default function Dashboard() {
                 </table>
               </div>
 
-              <div className="block md:hidden divide-y divide-slate-100 dark:divide-slate-800">
+              <div className="block divide-y divide-slate-100 dark:divide-slate-800 md:hidden">
                 {data.recent_events.length === 0 ? (
-                  <div className="px-4 py-8 text-center text-slate-400 dark:text-slate-500 text-xs">
+                  <div className="px-4 py-8 text-center text-xs text-slate-400 dark:text-slate-500">
                     미확인 이벤트가 없습니다.
                   </div>
-                ) : data.recent_events.map((ev) => (
-                  <div key={ev.id} className="p-3 space-y-1.5 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-slate-500 dark:text-slate-400 font-mono">{fmtTime(String(ev.created_at))}</span>
-                      <Badge value={ev.level} />
+                ) : data.recent_events.map((event) => (
+                  <div key={event.id} className="space-y-1.5 p-3 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-mono text-slate-500 dark:text-slate-400">{fmtTime(String(event.created_at))}</span>
+                      <Badge value={event.level} />
                     </div>
-                    <div className="text-xs font-semibold text-slate-600 dark:text-slate-300">[{ev.source || 'system'}]</div>
-                    <div className="text-xs text-slate-700 dark:text-slate-200 break-words">{ev.message}</div>
+                    <div className="text-xs font-semibold text-slate-600 dark:text-slate-300">[{event.source || 'system'}]</div>
+                    <div className="break-words text-xs text-slate-700 dark:text-slate-200">{event.message}</div>
                   </div>
                 ))}
               </div>

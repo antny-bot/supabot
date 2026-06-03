@@ -1,11 +1,13 @@
-import { useEffect, useState, FormEvent } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
 import { CheckCircle } from 'lucide-react'
 import { fetchConfig, saveConfig } from '../api/config'
-import type { ConfigItem } from '../types'
-import { useAuthContext } from '../contexts/AuthContext'
-import Spinner from '../components/ui/Spinner'
-import ErrorBanner from '../components/ui/ErrorBanner'
 import MfaSettingsCard from '../components/settings/MfaSettingsCard'
+import ErrorBanner from '../components/ui/ErrorBanner'
+import PageHeader from '../components/ui/PageHeader'
+import Spinner from '../components/ui/Spinner'
+import { PAGE_META } from '../config/pageMeta'
+import { useAuthContext } from '../contexts/AuthContext'
+import type { ConfigItem } from '../types'
 
 export default function Config() {
   const { user } = useAuthContext()
@@ -22,16 +24,21 @@ export default function Config() {
   }, [user])
 
   useEffect(() => {
+    if (!user?.is_admin) {
+      setLoading(false)
+      return
+    }
+
     fetchConfig()
       .then((items) => {
         setConfig(items)
-        const init: Record<string, string> = {}
-        for (const item of items) init[item.key] = item.value
-        setValues(init)
+        const initialValues: Record<string, string> = {}
+        for (const item of items) initialValues[item.key] = item.value
+        setValues(initialValues)
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류가 발생했습니다.'))
       .finally(() => setLoading(false))
-  }, [])
+  }, [user?.is_admin])
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -51,14 +58,21 @@ export default function Config() {
 
   if (loading) return <Spinner />
 
+  const pageMeta = user?.is_admin
+    ? PAGE_META.config
+    : {
+        ...PAGE_META.config,
+        subtitle: '보안 강화를 위해 2차 인증을 설정하고 관리합니다.',
+      }
+
   return (
-    <div className="space-y-5 max-w-xl">
-      <h1 className="text-xl font-bold text-slate-900 dark:text-white">시스템 설정</h1>
+    <div className="max-w-xl space-y-5">
+      <PageHeader {...pageMeta} />
 
       {error && <ErrorBanner message={error} />}
 
       {saved && (
-        <div className="flex items-center gap-2 p-4 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl text-emerald-700 dark:text-emerald-400 text-sm">
+        <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-400">
           <CheckCircle size={16} className="shrink-0" />
           설정이 저장되었습니다.
         </div>
@@ -66,40 +80,42 @@ export default function Config() {
 
       <MfaSettingsCard initialEnabled={mfaEnabled} onStatusChange={setMfaEnabled} />
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {config.map((item) => (
-          <div key={item.key} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-5">
-            <label className="block text-sm font-semibold text-slate-800 dark:text-slate-200 mb-1">
-              {item.label}
-            </label>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">{item.desc}</p>
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                min={1}
-                required
-                value={values[item.key] ?? ''}
-                onChange={(e) => setValues((prev) => ({ ...prev, [item.key]: e.target.value }))}
-                className="w-32 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400"
-              />
-              <span className="text-sm text-slate-500 dark:text-slate-400">초</span>
+      {user?.is_admin && (
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {config.map((item) => (
+            <div key={item.key} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <label className="mb-1 block text-sm font-semibold text-slate-800 dark:text-slate-200">
+                {item.label}
+              </label>
+              <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">{item.desc}</p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  required
+                  value={values[item.key] ?? ''}
+                  onChange={(e) => setValues((prev) => ({ ...prev, [item.key]: e.target.value }))}
+                  className="w-32 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:ring-indigo-400"
+                />
+                <span className="text-sm text-slate-500 dark:text-slate-400">초</span>
+              </div>
+              {item.updated_at && (
+                <p className="mt-2 text-xs text-slate-400 dark:text-slate-600">
+                  마지막 수정: {item.updated_at.slice(0, 19).replace('T', ' ')}
+                </p>
+              )}
             </div>
-            {item.updated_at && (
-              <p className="text-xs text-slate-400 dark:text-slate-600 mt-2">
-                마지막 수정: {item.updated_at.slice(0, 19).replace('T', ' ')}
-              </p>
-            )}
-          </div>
-        ))}
+          ))}
 
-        <button
-          type="submit"
-          disabled={saving}
-          className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white rounded-xl text-sm font-medium transition-colors"
-        >
-          {saving ? '저장 중…' : '설정 저장'}
-        </button>
-      </form>
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-60"
+          >
+            {saving ? '저장 중…' : '설정 저장'}
+          </button>
+        </form>
+      )}
     </div>
   )
 }

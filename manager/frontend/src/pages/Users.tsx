@@ -1,24 +1,26 @@
-import { useEffect, useState, useCallback } from 'react'
-import { ShieldCheck, Pencil } from 'lucide-react'
-import { fetchUsers, approveUser, deactivateUser, activateUser, blockUser, deleteUser, setUserEmail } from '../api/users'
+import { useCallback, useEffect, useState } from 'react'
+import { Pencil, ShieldCheck } from 'lucide-react'
+import { activateUser, approveUser, blockUser, deactivateUser, deleteUser, fetchUsers, setUserEmail } from '../api/users'
 import type { User } from '../types'
 import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
-import FilterBar from '../components/ui/FilterBar'
-import Spinner from '../components/ui/Spinner'
 import ErrorBanner from '../components/ui/ErrorBanner'
+import FilterBar from '../components/ui/FilterBar'
+import PageHeader from '../components/ui/PageHeader'
+import Spinner from '../components/ui/Spinner'
+import { PAGE_META } from '../config/pageMeta'
 
 const STATUS_OPTIONS = [
-  { value: '',         label: '전체' },
-  { value: 'pending',  label: '대기' },
-  { value: 'active',   label: '활성' },
+  { value: '', label: '전체' },
+  { value: 'pending', label: '대기' },
+  { value: 'active', label: '활성' },
   { value: 'inactive', label: '비활성' },
-  { value: 'blocked',  label: '차단' },
-  { value: 'deleted',  label: '삭제' },
+  { value: 'blocked', label: '차단' },
+  { value: 'deleted', label: '삭제' },
 ]
 
-function fmtDate(s: string) {
-  return s ? s.slice(0, 10) : '—'
+function fmtDate(value: string) {
+  return value ? value.slice(0, 10) : '--'
 }
 
 interface ActionButtonsProps {
@@ -39,30 +41,31 @@ function ActionButtons({ user, onUpdate }: ActionButtonsProps) {
     }
   }
 
-  const s = user.status
+  const status = user.status
+
   return (
     <div className="flex flex-wrap gap-1">
-      {s === 'pending' && (
+      {status === 'pending' && (
         <Button variant="success" disabled={busy} onClick={() => run(() => approveUser(user.user_id))}>승인</Button>
       )}
-      {s === 'inactive' && (
+      {status === 'inactive' && (
         <Button variant="success" disabled={busy} onClick={() => run(() => activateUser(user.user_id))}>활성화</Button>
       )}
-      {s === 'active' && (
-        <Button variant="ghost" disabled={busy} onClick={() => run(() => deactivateUser(user.user_id))}>비활성</Button>
+      {status === 'active' && (
+        <Button variant="ghost" disabled={busy} onClick={() => run(() => deactivateUser(user.user_id))}>비활성화</Button>
       )}
-      {(s === 'pending' || s === 'active' || s === 'inactive') && (
+      {(status === 'pending' || status === 'active' || status === 'inactive') && (
         <Button variant="warning" disabled={busy} onClick={() => run(() => blockUser(user.user_id))}>차단</Button>
       )}
-      {s === 'blocked' && (
-        <Button variant="ghost" disabled={busy} onClick={() => run(() => activateUser(user.user_id))}>차단해제</Button>
+      {status === 'blocked' && (
+        <Button variant="ghost" disabled={busy} onClick={() => run(() => activateUser(user.user_id))}>차단 해제</Button>
       )}
-      {s !== 'deleted' && !user.is_admin && (
+      {status !== 'deleted' && !user.is_admin && (
         <Button
           variant="danger"
           disabled={busy}
           onClick={() => {
-            if (window.confirm(`${user.username || user.user_id} 를 삭제하시겠습니까?`)) {
+            if (window.confirm(`${user.username || user.user_id} 사용자를 삭제하시겠습니까?`)) {
               void run(() => deleteUser(user.user_id))
             }
           }}
@@ -93,7 +96,7 @@ function EmailCell({ user, onUpdate }: EmailCellProps) {
       onUpdate(updated)
       setEditing(false)
     } catch (e: unknown) {
-      setCellError(e instanceof Error ? e.message : '저장 실패')
+      setCellError(e instanceof Error ? e.message : '저장에 실패했습니다.')
     } finally {
       setBusy(false)
     }
@@ -113,28 +116,31 @@ function EmailCell({ user, onUpdate }: EmailCellProps) {
             type="email"
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            className="px-2 py-1 text-xs rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500 w-44"
+            className="w-44 rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             placeholder="email@example.com"
             autoFocus
             disabled={busy}
-            onKeyDown={(e) => { if (e.key === 'Enter') void handleSave(); if (e.key === 'Escape') handleCancel() }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void handleSave()
+              if (e.key === 'Escape') handleCancel()
+            }}
           />
           <Button variant="success" disabled={busy} onClick={() => void handleSave()}>저장</Button>
           <Button variant="ghost" disabled={busy} onClick={handleCancel}>취소</Button>
         </div>
-        {cellError && <span className="text-rose-500 text-xs">{cellError}</span>}
+        {cellError && <span className="text-xs text-rose-500">{cellError}</span>}
       </div>
     )
   }
 
   return (
-    <div className="flex items-center gap-1 group">
+    <div className="group flex items-center gap-1">
       <span className="text-xs text-slate-500 dark:text-slate-400">
-        {user.manager_email ?? <span className="text-slate-300 dark:text-slate-600 italic">미설정</span>}
+        {user.manager_email ?? <span className="italic text-slate-300 dark:text-slate-600">미설정</span>}
       </span>
       <button
         onClick={() => setEditing(true)}
-        className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-slate-400 hover:text-indigo-500 transition-all"
+        className="rounded p-0.5 text-slate-400 opacity-0 transition-all group-hover:opacity-100 hover:text-indigo-500"
         title="이메일 수정"
       >
         <Pencil size={11} />
@@ -153,74 +159,65 @@ export default function Users() {
     setLoading(true)
     fetchUsers(statusFilter)
       .then(setUsers)
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류 발생'))
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류가 발생했습니다.'))
       .finally(() => setLoading(false))
   }, [statusFilter])
 
   const handleUpdate = useCallback((updated: User) => {
-    setUsers((prev) => prev.map((u) => (u.user_id === updated.user_id ? updated : u)))
+    setUsers((prev) => prev.map((user) => (user.user_id === updated.user_id ? updated : user)))
   }, [])
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-slate-900 dark:text-white">유저 관리</h1>
-      </div>
+      <PageHeader {...PAGE_META.users} />
 
       <FilterBar options={STATUS_OPTIONS} value={statusFilter} onChange={setStatusFilter} />
 
       {error && <ErrorBanner message={error} />}
 
-      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
         {loading ? (
           <Spinner />
         ) : (
           <>
-            {/* 데스크톱 뷰 (테이블 형태) */}
-            <div className="hidden md:block overflow-x-auto">
+            <div className="hidden overflow-x-auto md:block">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
+                  <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
                     <th className="px-4 py-3 text-left font-medium">유저 ID</th>
                     <th className="px-4 py-3 text-left font-medium">이름</th>
                     <th className="px-4 py-3 text-left font-medium">상태</th>
                     <th className="px-4 py-3 text-left font-medium">관리자</th>
                     <th className="px-4 py-3 text-left font-medium">매니저 이메일</th>
-                    <th className="px-4 py-3 text-left font-medium whitespace-nowrap">가입일</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-left font-medium">가입일</th>
                     <th className="px-4 py-3 text-left font-medium">액션</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {users.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-4 py-10 text-center text-slate-400 dark:text-slate-500 text-xs">
-                        유저 없음
+                      <td colSpan={7} className="px-4 py-10 text-center text-xs text-slate-400 dark:text-slate-500">
+                        유저가 없습니다.
                       </td>
                     </tr>
-                  ) : users.map((u) => (
-                    <tr key={u.user_id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                      <td className="px-4 py-2.5 font-mono text-xs text-slate-500 dark:text-slate-400">
-                        {u.user_id}
-                      </td>
-                      <td className="px-4 py-2.5 text-slate-800 dark:text-slate-200 font-medium text-xs">
-                        {u.username || '—'}
+                  ) : users.map((user) => (
+                    <tr key={user.user_id} className="transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                      <td className="px-4 py-2.5 font-mono text-xs text-slate-500 dark:text-slate-400">{user.user_id}</td>
+                      <td className="px-4 py-2.5 text-xs font-medium text-slate-800 dark:text-slate-200">{user.username || '--'}</td>
+                      <td className="px-4 py-2.5">
+                        <Badge value={user.status} label={user.status_label} />
                       </td>
                       <td className="px-4 py-2.5">
-                        <Badge value={u.status} label={u.status_label} />
+                        {user.is_admin && <ShieldCheck size={14} className="text-indigo-500" />}
                       </td>
                       <td className="px-4 py-2.5">
-                        {u.is_admin && (
-                          <ShieldCheck size={14} className="text-indigo-500" />
-                        )}
+                        <EmailCell user={user} onUpdate={handleUpdate} />
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-2.5 text-xs text-slate-500 dark:text-slate-400">
+                        {fmtDate(String(user.created_at))}
                       </td>
                       <td className="px-4 py-2.5">
-                        <EmailCell user={u} onUpdate={handleUpdate} />
-                      </td>
-                      <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400 text-xs whitespace-nowrap">
-                        {fmtDate(String(u.created_at))}
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <ActionButtons user={u} onUpdate={handleUpdate} />
+                        <ActionButtons user={user} onUpdate={handleUpdate} />
                       </td>
                     </tr>
                   ))}
@@ -228,44 +225,39 @@ export default function Users() {
               </table>
             </div>
 
-            {/* 모바일 뷰 (카드 형태) */}
-            <div className="block md:hidden divide-y divide-slate-100 dark:divide-slate-800">
+            <div className="block divide-y divide-slate-100 dark:divide-slate-800 md:hidden">
               {users.length === 0 ? (
-                <div className="px-4 py-10 text-center text-slate-400 dark:text-slate-500 text-xs">
-                  유저 없음
+                <div className="px-4 py-10 text-center text-xs text-slate-400 dark:text-slate-500">
+                  유저가 없습니다.
                 </div>
-              ) : (
-                users.map((u) => (
-                  <div key={u.user_id} className="p-4 space-y-3 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-slate-500 dark:text-slate-400 font-mono">{u.user_id}</span>
-                      <div className="flex items-center gap-1">
-                        {u.is_admin && <ShieldCheck size={12} className="text-indigo-500" />}
-                        <Badge value={u.status} label={u.status_label} />
-                      </div>
-                    </div>
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="font-semibold text-slate-800 dark:text-slate-200 text-sm">
-                        {u.username || '—'}
-                      </span>
-                      <span className="text-slate-400 dark:text-slate-500">{fmtDate(String(u.created_at))}</span>
-                    </div>
-                    <div className="flex flex-col gap-1 text-xs">
-                      <span className="text-slate-400 dark:text-slate-500">매니저 이메일:</span>
-                      <EmailCell user={u} onUpdate={handleUpdate} />
-                    </div>
-                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800/60">
-                      <ActionButtons user={u} onUpdate={handleUpdate} />
+              ) : users.map((user) => (
+                <div key={user.user_id} className="space-y-3 p-4 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-mono text-slate-500 dark:text-slate-400">{user.user_id}</span>
+                    <div className="flex items-center gap-1">
+                      {user.is_admin && <ShieldCheck size={12} className="text-indigo-500" />}
+                      <Badge value={user.status} label={user.status_label} />
                     </div>
                   </div>
-                ))
-              )}
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">{user.username || '--'}</span>
+                    <span className="text-slate-400 dark:text-slate-500">{fmtDate(String(user.created_at))}</span>
+                  </div>
+                  <div className="flex flex-col gap-1 text-xs">
+                    <span className="text-slate-400 dark:text-slate-500">매니저 이메일</span>
+                    <EmailCell user={user} onUpdate={handleUpdate} />
+                  </div>
+                  <div className="border-t border-slate-100 pt-2 dark:border-slate-800/60">
+                    <ActionButtons user={user} onUpdate={handleUpdate} />
+                  </div>
+                </div>
+              ))}
             </div>
           </>
         )}
       </div>
 
-      <p className="text-xs text-slate-400 dark:text-slate-600 text-right">총 {users.length}명</p>
+      <p className="text-right text-xs text-slate-400 dark:text-slate-600">총 {users.length}명</p>
     </div>
   )
 }

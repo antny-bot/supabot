@@ -1,6 +1,8 @@
-// -*- coding: utf-8 -*-
+﻿// -*- coding: utf-8 -*-
 import { useEffect, useState } from 'react'
-import { Play, Trash2, Plus, Layers, Loader2, Pencil, Copy } from 'lucide-react'
+import { Play, Trash2, Plus, Loader2, Pencil, Copy } from 'lucide-react'
+import PageHeader from '../components/ui/PageHeader'
+import { PAGE_META } from '../config/pageMeta'
 
 interface Template {
   id: number
@@ -293,25 +295,18 @@ export default function Templates() {
 
   return (
     <div className="space-y-6 max-w-screen-xl mx-auto px-4 pb-20">
-      {/* 타이틀 및 템플릿 추가 버튼 */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <Layers className="text-indigo-600 dark:text-indigo-400" />
-            거미줄 전략 템플릿
-          </h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            자주 사용하는 거미줄 분할 매수 설정을 템플릿으로 저장하고 원클릭으로 실행합니다.
-          </p>
-        </div>
-        <button
-          onClick={() => editingTemplate ? cancelEdit() : setFormOpen(!formOpen)}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors"
-        >
-          <Plus size={14} />
-          템플릿 생성
-        </button>
-      </div>
+      <PageHeader
+        {...PAGE_META.templates}
+        actions={(
+          <button
+            onClick={() => editingTemplate ? cancelEdit() : setFormOpen(!formOpen)}
+            className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700"
+          >
+            <Plus size={14} />
+            템플릿 생성
+          </button>
+        )}
+      />
 
       {error && (
         <div className="bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/50 rounded-xl p-3 text-xs text-rose-600 dark:text-rose-400">
