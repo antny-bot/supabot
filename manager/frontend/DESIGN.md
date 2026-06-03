@@ -184,6 +184,55 @@ Two tabs:
 
 Monitoring intervals moved to `/admin` → "주문 및 신호 주기" tab.
 
+## Desktop Sidebar Layout
+
+### Structure
+`AppLayout` renders a **sticky left sidebar** (`Sidebar.tsx`) on `md:` and above, with the main content to its right. Mobile uses `TopBar` (header) + `BottomNav` instead.
+
+```
+md+:  [ Sidebar (sticky, full-height) ] [ main content (flex-1) ]
+<md:  [ TopBar ] / [ main content ] / [ BottomNav (fixed bottom) ]
+```
+
+### Sidebar states
+| State | Width | Shows |
+|-------|-------|-------|
+| Expanded | `w-56` (224 px) | icon + label for every nav item |
+| Collapsed | `w-16` (64 px) | icon only; tooltip on hover |
+
+- Toggle: **hamburger (`Menu`) icon** at the top-right of the sidebar header, next to the supabot logo. Do NOT use a floating chevron button outside the sidebar boundary.
+- Collapsed state persisted to `localStorage` key `sbm_sidebar_collapsed`.
+
+### Header (top)
+- Left: supabot logo (Zap icon + "supabot" text, hidden when collapsed) as a `NavLink` to `/dashboard`.
+- Right: `Menu` icon button to toggle collapsed/expanded.
+
+### Nav items (middle, scrollable)
+- Source: `APP_NAV_ITEMS` filtered by `adminOnly` vs `user.is_admin`.
+- Active item: `bg-indigo-50 text-indigo-600` (light) / `bg-indigo-900/30 text-indigo-400` (dark).
+- Collapsed: items are `justify-center`, no label, show `title` tooltip.
+- **Settings (`/config`) and Admin (`/admin`) are regular nav items** — do not duplicate them as special bottom buttons.
+
+### Bottom user row + settings popup
+- Always visible at the bottom, above the border.
+- Shows: avatar circle (email initial) + email address (hidden when collapsed).
+- Clicking anywhere on the row opens/closes a **settings popup that slides upward** (absolute positioned, `bottom-full`).
+
+#### Settings popup contents (top → bottom):
+1. **Theme row**: Sun icon (light) + Moon icon (dark), both always visible; active mode highlighted with `bg-indigo-50`.
+2. **설정** → NavLink to `/config`.
+3. **관리자 메뉴** → NavLink to `/admin` — **rendered only when `user.is_admin` is true**.
+4. **로그아웃** button — separated by a top border, styled in rose.
+
+- Popup closes on outside click (`mousedown` listener) or on any navigation link click.
+- Do not add separate bottom buttons for Settings, Theme, or Logout outside this popup.
+
+### Rules
+- Never render the `TopBar` on desktop (`md:hidden` on `TopBar`).
+- Never render the sidebar on mobile (`hidden md:flex` on `Sidebar`).
+- Keep `Sidebar.tsx` as the single source of truth for desktop navigation, user identity display, and session actions.
+- The sidebar must use `overflow-visible` on the `<aside>` so the popup is not clipped.
+
 ## Maintenance Rule
 
 - Any new page must add or update:
