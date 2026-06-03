@@ -167,8 +167,17 @@ Gemini API 키는 `.env`에 넣지 않고 거래소 키처럼 텔레그램 `/con
 | `.github/workflows/build-bot.yml` | `src/**`·`scripts/**`·`requirements.txt`·`Dockerfile`·`docker-compose.yml` 변경이 `main`에 push, 또는 `bot-*` 태그 Release | `ghcr.io/antny-bot/supabot` 빌드·푸시. `bot-*` Release 시 Oracle VM에 SSH 자동 배포 |
 | `.github/workflows/build-manager.yml` | `manager/**` 변경이 `main`에 push, 또는 `manager-*` 태그 Release | `ghcr.io/antny-bot/supabot-manager` 빌드·푸시 (Synology는 수동 pull) |
 | `.github/workflows/ci-test.yml` | `main`·`claude/**` push, `main` 대상 PR | `pytest tests/ -v` 테스트 게이트 |
+| `.github/workflows/cleanup-registry-and-cache.yml` | 매주 1회 스케줄 실행, 또는 수동 실행 | GHCR `supabot`·`supabot-manager` 패키지에서 최신 5개 버전만 남기고 삭제, 이후 GitHub Actions cache 전체 정리 |
 
 GHCR는 `GITHUB_TOKEN`으로 인증하므로 별도의 레지스트리 secret이 필요 없습니다. Oracle VM 자동 배포(`build-bot.yml`)는 다음 secrets를 사용합니다: `OCI_HOST`, `OCI_USER`, `OCI_SSH_PRIVATE_KEY`, `OCI_SSH_PORT`, `OCI_DEPLOY_PATH`. 등록 위치는 저장소 `Settings` > `Secrets and variables` > `Actions`입니다.
+
+정리 워크플로(`cleanup-registry-and-cache.yml`)도 `GITHUB_TOKEN`만 사용합니다. 기본 운영 정책은 다음과 같습니다.
+
+1. 매주 월요일 03:25(KST)에 스케줄 실행
+2. `ghcr.io/antny-bot/supabot`, `ghcr.io/antny-bot/supabot-manager` 각각 최신 5개 버전만 유지
+3. GHCR 정리 후 GitHub Actions cache 전체 삭제
+
+수동 실행이 필요하면 `Actions` 탭에서 `Cleanup Registry and Cache` 워크플로를 열고 `Run workflow`를 누르면 됩니다. `keep_versions`로 남길 GHCR 버전 개수를 조정할 수 있고, `cleanup_caches`를 꺼서 캐시 삭제만 건너뛸 수도 있습니다. 캐시를 비우면 다음 Docker Buildx 빌드는 캐시 재생성 때문에 평소보다 오래 걸릴 수 있습니다.
 
 봇 배포 순서:
 1. 변경 사항을 `main`에 push하면 `latest` 이미지가 갱신됩니다.
