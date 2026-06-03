@@ -15,6 +15,53 @@ import {
 } from '../lib/displayPreferences'
 import type { ConfigItem } from '../types'
 
+const MONITORING_CONFIG_KEYS = [
+  'poll_active_interval',
+  'poll_no_order_interval',
+  'signal_analysis_interval',
+] as const
+
+type MonitoringConfigKey = (typeof MONITORING_CONFIG_KEYS)[number]
+
+function isMonitoringConfigKey(key: string): key is MonitoringConfigKey {
+  return MONITORING_CONFIG_KEYS.includes(key as MonitoringConfigKey)
+}
+
+function ConfigNumberField({
+  item,
+  value,
+  onChange,
+}: {
+  item: ConfigItem
+  value: string
+  onChange: (next: string) => void
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-sm font-semibold text-slate-800 dark:text-slate-200">
+        {item.label}
+      </label>
+      <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">{item.desc}</p>
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          min={1}
+          required
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-32 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:ring-indigo-400"
+        />
+        <span className="text-sm text-slate-500 dark:text-slate-400">초</span>
+      </div>
+      {item.updated_at && (
+        <p className="mt-2 text-xs text-slate-400 dark:text-slate-600">
+          마지막 수정: {item.updated_at.slice(0, 19).replace('T', ' ')}
+        </p>
+      )}
+    </div>
+  )
+}
+
 export default function Config() {
   const { user } = useAuthContext()
   const [config, setConfig] = useState<ConfigItem[]>([])
@@ -84,6 +131,9 @@ export default function Config() {
         subtitle: '보안 강화와 표시 설정을 함께 관리합니다.',
       }
 
+  const monitoringItems = config.filter((item) => isMonitoringConfigKey(item.key))
+  const otherItems = config.filter((item) => !isMonitoringConfigKey(item.key))
+
   return (
     <div className="max-w-xl space-y-5">
       <PageHeader {...pageMeta} />
@@ -106,31 +156,44 @@ export default function Config() {
 
       {user?.is_admin && (
         <form onSubmit={handleSubmit} className="space-y-4">
-          {config.map((item) => (
+          {monitoringItems.length > 0 && (
+            <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <div className="mb-4">
+                <h2 className="text-app-body font-semibold text-slate-900 dark:text-slate-100">
+                  주문 및 신호 주기
+                </h2>
+                <p className="mt-1 text-app-caption text-slate-500 dark:text-slate-400">
+                  주문 감시 간격과 신호 분석 주기를 한 곳에서 관리합니다.
+                </p>
+              </div>
+
+              <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                {monitoringItems.map((item, index) => (
+                  <div
+                    key={item.key}
+                    className={`${index === 0 ? 'pt-0' : 'pt-4'} ${index === monitoringItems.length - 1 ? 'pb-0' : 'pb-4'}`}
+                  >
+                    <ConfigNumberField
+                      item={item}
+                      value={values[item.key] ?? ''}
+                      onChange={(next) => setValues((prev) => ({ ...prev, [item.key]: next }))}
+                    />
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {otherItems.map((item) => (
             <div
               key={item.key}
               className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"
             >
-              <label className="mb-1 block text-sm font-semibold text-slate-800 dark:text-slate-200">
-                {item.label}
-              </label>
-              <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">{item.desc}</p>
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  min={1}
-                  required
-                  value={values[item.key] ?? ''}
-                  onChange={(e) => setValues((prev) => ({ ...prev, [item.key]: e.target.value }))}
-                  className="w-32 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:ring-indigo-400"
-                />
-                <span className="text-sm text-slate-500 dark:text-slate-400">초</span>
-              </div>
-              {item.updated_at && (
-                <p className="mt-2 text-xs text-slate-400 dark:text-slate-600">
-                  마지막 수정: {item.updated_at.slice(0, 19).replace('T', ' ')}
-                </p>
-              )}
+              <ConfigNumberField
+                item={item}
+                value={values[item.key] ?? ''}
+                onChange={(next) => setValues((prev) => ({ ...prev, [item.key]: next }))}
+              />
             </div>
           ))}
 
