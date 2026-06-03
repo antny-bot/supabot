@@ -57,8 +57,6 @@ jobs:
               for (const endpoint of endpoints) {
                 try {
                   const versions = await github.paginate(endpoint, {
-                    package_type: packageType,
-                    package_name: packageName,
                     per_page: 100,
                   });
                   core.info(`Loaded ${versions.length} versions for ${packageName} via ${endpoint}.`);
@@ -75,10 +73,7 @@ jobs:
               const deleteEndpoint = endpoint
                 .replace('GET /', 'DELETE /')
                 .replace('/versions', `/versions/${versionId}`);
-              await github.request(deleteEndpoint, {
-                package_type: packageType,
-                package_name: packageName,
-              });
+              await github.request(deleteEndpoint);
             }
 
             function versionSummary(version) {
