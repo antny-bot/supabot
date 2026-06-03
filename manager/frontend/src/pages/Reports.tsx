@@ -38,11 +38,11 @@ const PERIOD_OPTIONS = [
 ]
 
 const REPORT_TABS = [
+  { id: 'holdings', label: '현재 투자중' },
   { id: 'pnl',      label: '실현 손익' },
+  { id: 'monthly',  label: '월별 손익' },
   { id: 'strategy', label: '전략별 분석' },
   { id: 'ranking',  label: '수익률 랭킹' },
-  { id: 'monthly',  label: '월별 손익' },
-  { id: 'holdings', label: '현재 투자중' },
   { id: 'pairs',    label: '거래 페어' },
   { id: 'winstats', label: '승률/손익비' },
 ]
@@ -778,7 +778,7 @@ function WinStatsSection({ period }: { period: string }) {
 // ── Reports (main page) ───────────────────────────────────────────────────
 
 export default function Reports() {
-  const [activeTab, setActiveTab] = useState('pnl')
+  const [activeTab, setActiveTab] = useState('holdings')
   const [period, setPeriod] = useState('30d')
 
   return (
@@ -792,21 +792,40 @@ export default function Reports() {
         }
       />
 
-      {/* Tab strip */}
-      <div className="flex gap-1.5 flex-wrap border-b border-slate-200 dark:border-slate-800 pb-0">
-        {REPORT_TABS.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`px-3.5 py-2 text-sm font-medium rounded-t-lg transition-colors border-b-2 -mb-px ${
-              activeTab === tab.id
-                ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400'
-                : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
+      {/* Tab strip — desktop: underline tabs / mobile: horizontal scroll dial */}
+      <div className="md:border-b md:border-slate-200 md:dark:border-slate-800">
+        {/* mobile */}
+        <div className="flex md:hidden overflow-x-auto gap-2 pb-2 scrollbar-none snap-x snap-mandatory">
+          {REPORT_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex-shrink-0 snap-start px-4 py-1.5 rounded-full text-sm font-medium transition-colors whitespace-nowrap ${
+                activeTab === tab.id
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        {/* desktop */}
+        <div className="hidden md:flex gap-1.5 pb-0">
+          {REPORT_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-3.5 py-2 text-sm font-medium rounded-t-lg transition-colors border-b-2 -mb-px ${
+                activeTab === tab.id
+                  ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400'
+                  : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Tab content — lazy mount */}
