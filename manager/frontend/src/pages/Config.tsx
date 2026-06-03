@@ -2,16 +2,24 @@ import { useEffect, useState, FormEvent } from 'react'
 import { CheckCircle } from 'lucide-react'
 import { fetchConfig, saveConfig } from '../api/config'
 import type { ConfigItem } from '../types'
+import { useAuthContext } from '../contexts/AuthContext'
 import Spinner from '../components/ui/Spinner'
 import ErrorBanner from '../components/ui/ErrorBanner'
+import MfaSettingsCard from '../components/settings/MfaSettingsCard'
 
 export default function Config() {
+  const { user } = useAuthContext()
   const [config, setConfig] = useState<ConfigItem[]>([])
   const [values, setValues] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const [mfaEnabled, setMfaEnabled] = useState(user?.mfa_enabled ?? false)
+
+  useEffect(() => {
+    setMfaEnabled(user?.mfa_enabled ?? false)
+  }, [user])
 
   useEffect(() => {
     fetchConfig()
@@ -21,7 +29,7 @@ export default function Config() {
         for (const item of items) init[item.key] = item.value
         setValues(init)
       })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류 발생'))
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류가 발생했습니다.'))
       .finally(() => setLoading(false))
   }, [])
 
@@ -35,7 +43,7 @@ export default function Config() {
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : '저장 실패')
+      setError(e instanceof Error ? e.message : '저장에 실패했습니다.')
     } finally {
       setSaving(false)
     }
@@ -55,6 +63,8 @@ export default function Config() {
           설정이 저장되었습니다.
         </div>
       )}
+
+      <MfaSettingsCard initialEnabled={mfaEnabled} onStatusChange={setMfaEnabled} />
 
       <form onSubmit={handleSubmit} className="space-y-4">
         {config.map((item) => (

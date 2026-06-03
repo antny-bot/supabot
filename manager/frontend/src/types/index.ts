@@ -55,6 +55,8 @@ export interface Event {
   message: string
   details?: string
   created_at: string
+  read_at: string | null
+  archived_at: string | null
 }
 
 export interface ConfigItem {
@@ -78,6 +80,7 @@ export interface DashboardStats {
 export interface DashboardData {
   stats: DashboardStats
   recent_events: Event[]
+  mfa_enabled?: boolean
 }
 
 export interface TradeSummary {

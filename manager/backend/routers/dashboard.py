@@ -24,14 +24,11 @@ async def _build_stats(db):
         "trades_24h": 0,
         "errors_24h": 0,
     }
-    
-    # DB 레벨에서 카운트 최적화
+
     stats["users_total"] = (await db.table("users").select("*", count="exact").execute()).count or 0
     stats["users_active"] = (await db.table("users").select("*", count="exact").eq("status", "active").execute()).count or 0
     stats["users_pending"] = (await db.table("users").select("*", count="exact").eq("status", "pending").execute()).count or 0
 
-    # Open Orders 카운트 (DB에서 필터링하여 카운트만 가져옴)
-    # Supabase/PostgREST에서는 복합 필터링이 가능하므로 in_(...) 활용
     open_statuses = ["wait", "partial", "pending_reorder"]
     stats["orders_open"] = (await db.table("orders").select("*", count="exact").in_("status", open_statuses).execute()).count or 0
 
@@ -43,13 +40,13 @@ async def _build_stats(db):
     errors_q = db.table("operational_events").select("*", count="exact").eq("level", "error")
     errors_q._params["created_at"] = f"gte.{_iso_cutoff()}"
     stats["errors_24h"] = (await errors_q.execute()).count or 0
-    
+
     return stats
 
 
 async def _build_user_stats(db, user_id: str) -> dict:
     stats = {"orders_open": 0, "trades_24h": 0}
-    
+
     open_statuses = ["wait", "partial", "pending_reorder"]
     stats["orders_open"] = (
         await db.table("orders").select("*", count="exact")
@@ -57,12 +54,12 @@ async def _build_user_stats(db, user_id: str) -> dict:
         .in_("status", open_statuses)
         .execute()
     ).count or 0
-    
+
     cutoff = time.time() - 86400
     trades_q = db.table("trade_logs").select("*", count="exact").eq("user_id", user_id)
     trades_q._params["executed_at"] = f"gte.{cutoff}"
     stats["trades_24h"] = (await trades_q.execute()).count or 0
-    
+
     return stats
 
 
@@ -73,18 +70,29 @@ async def api_dashboard(user: dict = Depends(get_current_user)):
 
     try:
         db = get_db()
+        mfa_enabled = False
+        if bot_user_id:
+            rows = (await db.table("users").select("mfa_enabled").eq("user_id", bot_user_id).execute()).data
+            mfa_enabled = bool(rows and rows[0].get("mfa_enabled", False))
+
         if is_admin:
             stats = await _build_stats(db)
             events = (
-                await db.table("operational_events").select("level,source,message,created_at")
-                .order("id", desc=True).limit(10).execute()
+                await db.table("operational_events")
+                .select("id,level,source,message,details,created_at,read_at,archived_at")
+                .is_("read_at", "null")
+                .is_("archived_at", "null")
+                .order("id", desc=True)
+                .limit(10)
+                .execute()
             ).data
-            return JSONResponse({"stats": stats, "recent_events": events})
-        else:
-            if not bot_user_id:
-                return JSONResponse({"error": "연결된 봇 계정이 없습니다."}, status_code=403)
-            stats = await _build_user_stats(db, bot_user_id)
-            return JSONResponse({"stats": stats, "recent_events": []})
+            return JSONResponse({"stats": stats, "recent_events": events, "mfa_enabled": mfa_enabled})
+
+        if not bot_user_id:
+            return JSONResponse({"error": "Linked bot account not found."}, status_code=403)
+
+        stats = await _build_user_stats(db, bot_user_id)
+        return JSONResponse({"stats": stats, "recent_events": [], "mfa_enabled": mfa_enabled})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 

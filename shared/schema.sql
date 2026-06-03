@@ -80,8 +80,13 @@ CREATE TABLE IF NOT EXISTS operational_events (
   source     TEXT NOT NULL DEFAULT '',
   message    TEXT NOT NULL DEFAULT '',
   details    TEXT NOT NULL DEFAULT '',
-  created_at TEXT NOT NULL  -- ISO timestamp string (KST)
+  created_at TEXT NOT NULL,  -- ISO timestamp string (KST)
+  read_at    TIMESTAMPTZ,
+  archived_at TIMESTAMPTZ
 );
+
+ALTER TABLE operational_events ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ;
+ALTER TABLE operational_events ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
 
 -- ── NL Logs ────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS nl_logs (

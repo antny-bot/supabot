@@ -43,6 +43,10 @@ class _FilteredQuery(_Query):
         self._params[column] = f"eq.{value}"
         return self
 
+    def is_(self, column: str, value: str) -> "_FilteredQuery":
+        self._params[column] = f"is.{value}"
+        return self
+
     def in_(self, column: str, values: list) -> "_FilteredQuery":
         self._params[column] = "in.({})".format(",".join(str(v) for v in values))
         return self
