@@ -147,6 +147,63 @@ CREATE INDEX IF NOT EXISTS idx_command_logs_user    ON command_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_command_logs_time    ON command_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_command_logs_command ON command_logs(command);
 
+-- ── Command Log Daily (Analytics 요약 테이블) ──────────────────────────────
+-- command_logs의 하루치 raw 로그를 매일 집계해 저장. pg_cron이 집계 후 raw를 삭제.
+-- hour_of_day·weekday를 보존하므로 히트맵 등 모든 분석 그대로 지원.
+CREATE TABLE IF NOT EXISTS command_log_daily (
+  date        DATE     NOT NULL,
+  user_id     TEXT     NOT NULL,
+  command     TEXT     NOT NULL,
+  source      TEXT     NOT NULL DEFAULT 'direct',
+  hour_of_day SMALLINT NOT NULL,  -- 0-23 KST
+  weekday     SMALLINT NOT NULL,  -- 0=월 6=일 (Python weekday() 일치)
+  count       INTEGER  NOT NULL DEFAULT 1,
+  PRIMARY KEY (date, user_id, command, source, hour_of_day)
+);
+CREATE INDEX IF NOT EXISTS idx_cmd_daily_date    ON command_log_daily(date);
+CREATE INDEX IF NOT EXISTS idx_cmd_daily_user_id ON command_log_daily(user_id);
+
+-- ── 집계·정리 함수 (pg_cron에서 호출) ─────────────────────────────────────
+CREATE OR REPLACE FUNCTION aggregate_command_logs_daily()
+RETURNS void LANGUAGE plpgsql AS $$
+DECLARE
+  kst_today_epoch DOUBLE PRECISION;
+BEGIN
+  -- 오늘 자정(KST)의 Unix timestamp
+  kst_today_epoch := EXTRACT(EPOCH FROM
+    DATE_TRUNC('day', NOW() AT TIME ZONE 'Asia/Seoul') AT TIME ZONE 'Asia/Seoul'
+  );
+
+  -- 오늘 이전 raw 로그를 요약 테이블에 upsert
+  INSERT INTO command_log_daily (date, user_id, command, source, hour_of_day, weekday, count)
+  SELECT
+    (to_timestamp(created_at) AT TIME ZONE 'Asia/Seoul')::date                               AS date,
+    user_id, command, source,
+    EXTRACT(HOUR  FROM to_timestamp(created_at) AT TIME ZONE 'Asia/Seoul')::smallint         AS hour_of_day,
+    (EXTRACT(ISODOW FROM to_timestamp(created_at) AT TIME ZONE 'Asia/Seoul') - 1)::smallint  AS weekday,
+    COUNT(*)::integer                                                                         AS count
+  FROM command_logs
+  WHERE created_at < kst_today_epoch
+  GROUP BY 1, 2, 3, 4, 5, 6
+  ON CONFLICT (date, user_id, command, source, hour_of_day)
+  DO UPDATE SET count = command_log_daily.count + EXCLUDED.count;
+
+  -- 집계된 raw 로그 삭제 (오늘치 raw는 보존)
+  DELETE FROM command_logs WHERE created_at < kst_today_epoch;
+END;
+$$;
+
+-- ── pg_cron 설정 ────────────────────────────────────────────────────────────
+-- 사전 조건: Supabase 대시보드 → Database → Extensions → pg_cron 활성화 후 실행.
+-- 매일 KST 01:00 (UTC 16:00) 집계 실행.
+-- 이미 등록된 경우 cron.unschedule('aggregate_command_logs') 로 먼저 제거.
+--
+-- SELECT cron.schedule(
+--   'aggregate_command_logs',
+--   '0 16 * * *',
+--   'SELECT aggregate_command_logs_daily()'
+-- );
+
 -- ── Row Level Security ─────────────────────────────────────────────────────
 ALTER TABLE users             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE orders            ENABLE ROW LEVEL SECURITY;
@@ -156,6 +213,7 @@ ALTER TABLE nl_logs           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE system_config     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE strategy_templates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE command_logs       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE command_log_daily  ENABLE ROW LEVEL SECURITY;
 
 -- ── Grants (SQL로 생성 시 자동 부여되지 않으므로 명시 필요) ────────────────
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
