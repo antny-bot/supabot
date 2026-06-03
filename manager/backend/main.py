@@ -22,6 +22,19 @@ app.add_middleware(
     max_age=86400,
 )
 
+
+@app.middleware("http")
+async def add_cache_headers(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith("/assets/"):
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    elif path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    else:
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
 # /api/* routes — registered first so they take priority over static file mount
 app.include_router(dashboard.router)
 app.include_router(orders.router)
