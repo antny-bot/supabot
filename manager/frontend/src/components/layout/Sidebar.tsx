@@ -57,18 +57,18 @@ export default function Sidebar() {
       }`}
     >
       {/* Header: logo + hamburger toggle */}
-      <div className="flex h-14 items-center border-b border-slate-200 dark:border-slate-800 shrink-0 px-3 gap-2">
-        <NavLink
-          to="/dashboard"
-          className="flex items-center gap-2 font-bold text-slate-900 dark:text-white min-w-0 flex-1"
-        >
-          <div className="shrink-0 rounded-lg bg-indigo-600 p-1.5">
-            <Zap size={14} className="text-white" />
-          </div>
-          {!collapsed && (
+      <div className={`flex h-14 items-center border-b border-slate-200 dark:border-slate-800 shrink-0 px-3 gap-2 ${collapsed ? 'justify-center' : ''}`}>
+        {!collapsed && (
+          <NavLink
+            to="/dashboard"
+            className="flex items-center gap-2 font-bold text-slate-900 dark:text-white min-w-0 flex-1"
+          >
+            <div className="shrink-0 rounded-lg bg-indigo-600 p-1.5">
+              <Zap size={14} className="text-white" />
+            </div>
             <span className="text-app-body-sm whitespace-nowrap truncate">supabot</span>
-          )}
-        </NavLink>
+          </NavLink>
+        )}
         <button
           onClick={() => setCollapsed((v) => !v)}
           className="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-colors"
