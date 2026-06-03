@@ -1,3 +1,5 @@
+import os
+import sys
 import time
 from collections import defaultdict
 from datetime import datetime
@@ -11,13 +13,14 @@ from ._auth import _require_login, get_session_user
 router = APIRouter()
 
 _PERIODS = {"1d": 86400, "7d": 604800, "30d": 2592000, "all": None}
+_EPSILON = 1e-12
 
 
 def _fmt_ts(ts) -> str:
     try:
         return datetime.fromtimestamp(float(ts)).strftime("%m-%d %H:%M")
     except (TypeError, ValueError):
-        return "—"
+        return "??"
 
 
 def _fmt_hold(seconds: float) -> str:
@@ -26,13 +29,37 @@ def _fmt_hold(seconds: float) -> str:
         days, rem = divmod(s, 86400)
         hours, _ = divmod(rem, 3600)
         if days:
-            return f"{days}일 {hours}시간"
-        return f"{hours}시간"
+            return f"{days}d {hours}h"
+        return f"{hours}h"
     except Exception:
-        return "—"
+        return "??"
 
 
-async def _fetch_trades(db, is_admin, bot_user_id, window, limit=2000):
+def _safe_float(value) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _round_money(value: float) -> int:
+    return round(value)
+
+
+def _position_key(trade: dict) -> tuple[str, str]:
+    return (str(trade.get("exchange") or ""), str(trade.get("ticker") or ""))
+
+
+def _new_position() -> dict:
+    return {
+        "quantity": 0.0,
+        "cost_krw": 0.0,
+        "opened_at": None,
+        "oversold_count": 0,
+    }
+
+
+async def _fetch_trades(db, is_admin, bot_user_id, window, limit=5000):
     q = db.table("trade_logs").select("*").order("executed_at", desc=True).limit(limit)
     if window:
         q._params["executed_at"] = f"gte.{time.time() - window}"
@@ -41,93 +68,287 @@ async def _fetch_trades(db, is_admin, bot_user_id, window, limit=2000):
     return (await q.execute()).data
 
 
-async def _fetch_orders_for_uuids(db, is_admin, bot_user_id, uuids):
-    if not uuids:
-        return []
-    in_val = ",".join(uuids[:500])
-    q = db.table("orders").select("uuid,linked_to,side,strategy,created_at")
-    q._params["uuid"] = f"in.({in_val})"
-    if not is_admin:
-        q._params["user_id"] = f"eq.{bot_user_id}"
-    return (await q.execute()).data
+def _iter_trades_asc(trades):
+    return sorted(
+        trades,
+        key=lambda t: (
+            _safe_float(t.get("executed_at")),
+            str(t.get("uuid") or ""),
+            str(t.get("side") or ""),
+        ),
+    )
 
 
-def _build_pnl_rows(trades):
-    """(exchange, ticker) 별 매수/매도 집계"""
-    agg: dict = defaultdict(lambda: {
-        "bid_krw": 0.0, "ask_krw": 0.0, "fee_amount": 0.0,
-        "bid_count": 0, "ask_count": 0,
+def _build_report_state(trades, window_start=None):
+    positions: dict[tuple[str, str], dict] = defaultdict(_new_position)
+    realized_events: list[dict] = []
+
+    for trade in _iter_trades_asc(trades):
+        side = str(trade.get("side") or "")
+        price = _safe_float(trade.get("price"))
+        volume = _safe_float(trade.get("volume"))
+        fee = _safe_float(trade.get("fee_amount"))
+        executed_at = _safe_float(trade.get("executed_at"))
+        if price <= 0 or volume <= 0:
+            continue
+
+        key = _position_key(trade)
+        position = positions[key]
+
+        if side == "bid":
+            if position["quantity"] <= _EPSILON:
+                position["opened_at"] = executed_at
+            position["quantity"] += volume
+            position["cost_krw"] += price * volume + fee
+            continue
+
+        if side != "ask":
+            continue
+
+        available_qty = position["quantity"]
+        matched_qty = min(volume, available_qty) if available_qty > _EPSILON else 0.0
+        if matched_qty <= _EPSILON:
+            position["oversold_count"] += 1
+            continue
+
+        avg_cost = position["cost_krw"] / available_qty if available_qty > _EPSILON else 0.0
+        realized_cost = avg_cost * matched_qty
+        gross_ask = price * matched_qty
+        matched_fee = fee * (matched_qty / volume)
+        pnl = gross_ask - matched_fee - realized_cost
+        roi_pct = round(pnl / realized_cost * 100, 2) if realized_cost > _EPSILON else 0.0
+        hold_started_at = position["opened_at"] or executed_at
+        hold_time_s = executed_at - hold_started_at
+
+        position["quantity"] -= matched_qty
+        position["cost_krw"] -= realized_cost
+        if position["quantity"] <= _EPSILON:
+            position["quantity"] = 0.0
+            position["cost_krw"] = 0.0
+            position["opened_at"] = None
+
+        if volume - matched_qty > _EPSILON:
+            position["oversold_count"] += 1
+
+        if window_start is not None and executed_at < window_start:
+            continue
+
+        realized_events.append({
+            "exchange": key[0],
+            "ticker": key[1],
+            "strategy": str(trade.get("strategy") or "manual"),
+            "executed_at": executed_at,
+            "month": datetime.fromtimestamp(executed_at).strftime("%Y-%m"),
+            "buy_price": avg_cost,
+            "sell_price": price,
+            "volume": matched_qty,
+            "bid_krw": realized_cost,
+            "ask_krw": gross_ask,
+            "fee_amount": matched_fee,
+            "pnl": pnl,
+            "roi_pct": roi_pct,
+            "hold_time_s": hold_time_s,
+            "hold_time_fmt": _fmt_hold(hold_time_s),
+            "buy_at_fmt": _fmt_ts(hold_started_at),
+            "sell_at_fmt": _fmt_ts(executed_at),
+        })
+
+    return positions, realized_events
+
+
+def _build_pnl_rows(realized_events):
+    agg: dict[tuple[str, str], dict] = defaultdict(lambda: {
+        "bid_krw": 0.0,
+        "ask_krw": 0.0,
+        "fee_amount": 0.0,
+        "bid_count": 0,
+        "ask_count": 0,
     })
-    for t in trades:
-        price = float(t.get("price") or 0)
-        volume = float(t.get("volume") or 0)
-        fee = float(t.get("fee_amount") or 0)
-        krw = price * volume
-        key = (t.get("exchange", ""), t.get("ticker", ""))
-        if t.get("side") == "bid":
-            agg[key]["bid_krw"] += krw
-            agg[key]["bid_count"] += 1
-        elif t.get("side") == "ask":
-            agg[key]["ask_krw"] += krw
-            agg[key]["ask_count"] += 1
-        agg[key]["fee_amount"] += fee
+    for event in realized_events:
+        key = (event["exchange"], event["ticker"])
+        agg[key]["bid_krw"] += event["bid_krw"]
+        agg[key]["ask_krw"] += event["ask_krw"]
+        agg[key]["fee_amount"] += event["fee_amount"]
+        agg[key]["bid_count"] += 1
+        agg[key]["ask_count"] += 1
+
     rows = []
-    for (exchange, ticker), v in agg.items():
-        bid_krw = v["bid_krw"]
-        ask_krw = v["ask_krw"]
-        fee = v["fee_amount"]
-        pnl = ask_krw - bid_krw - fee
-        roi_pct = round(pnl / bid_krw * 100, 2) if bid_krw else 0.0
+    for (exchange, ticker), value in agg.items():
+        bid_krw = value["bid_krw"]
+        ask_krw = value["ask_krw"]
+        fee_amount = value["fee_amount"]
+        pnl = ask_krw - fee_amount - bid_krw
+        roi_pct = round(pnl / bid_krw * 100, 2) if bid_krw > _EPSILON else 0.0
         rows.append({
             "exchange": exchange,
             "ticker": ticker,
-            "bid_krw": round(bid_krw),
-            "ask_krw": round(ask_krw),
-            "fee_amount": round(fee),
-            "pnl": round(pnl),
+            "bid_krw": _round_money(bid_krw),
+            "ask_krw": _round_money(ask_krw),
+            "fee_amount": _round_money(fee_amount),
+            "pnl": _round_money(pnl),
             "roi_pct": roi_pct,
-            "bid_count": v["bid_count"],
-            "ask_count": v["ask_count"],
+            "bid_count": value["bid_count"],
+            "ask_count": value["ask_count"],
         })
     return rows
 
 
-def _build_pairs(trades, orders_by_uuid):
-    bid_by_uuid = {t["uuid"]: t for t in trades if t.get("side") == "bid" and t.get("uuid")}
-    pairs = []
-    for t in trades:
-        if t.get("side") != "ask" or not t.get("uuid"):
-            continue
-        order = orders_by_uuid.get(t["uuid"])
-        if not order or not order.get("linked_to"):
-            continue
-        bid_trade = bid_by_uuid.get(order["linked_to"])
-        if not bid_trade:
-            continue
-        bid_krw = float(bid_trade.get("price", 0)) * float(bid_trade.get("volume", 0))
-        ask_krw = float(t.get("price", 0)) * float(t.get("volume", 0))
-        fee = float(bid_trade.get("fee_amount") or 0) + float(t.get("fee_amount") or 0)
-        pnl = ask_krw - bid_krw - fee
-        roi_pct = round(pnl / bid_krw * 100, 2) if bid_krw else 0.0
-        hold_s = float(t.get("executed_at", 0)) - float(bid_trade.get("executed_at", 0))
-        pairs.append({
-            "ticker": t.get("ticker", ""),
-            "exchange": t.get("exchange", ""),
-            "strategy": order.get("strategy", "manual"),
-            "buy_price": float(bid_trade.get("price", 0)),
-            "sell_price": float(t.get("price", 0)),
-            "volume": float(t.get("volume", 0)),
-            "bid_krw": round(bid_krw),
-            "ask_krw": round(ask_krw),
-            "fee_amount": round(fee),
-            "pnl": round(pnl),
-            "roi_pct": roi_pct,
-            "hold_time_s": hold_s,
-            "hold_time_fmt": _fmt_hold(hold_s),
-            "buy_at_fmt": _fmt_ts(bid_trade.get("executed_at")),
-            "sell_at_fmt": _fmt_ts(t.get("executed_at")),
+def _build_strategy_rows(realized_events):
+    agg: dict[str, dict] = defaultdict(lambda: {
+        "bid_krw": 0.0,
+        "ask_krw": 0.0,
+        "fee_amount": 0.0,
+        "trade_count": 0,
+        "win_count": 0,
+    })
+    for event in realized_events:
+        strategy = event["strategy"] or "manual"
+        pnl = event["pnl"]
+        agg[strategy]["bid_krw"] += event["bid_krw"]
+        agg[strategy]["ask_krw"] += event["ask_krw"]
+        agg[strategy]["fee_amount"] += event["fee_amount"]
+        agg[strategy]["trade_count"] += 1
+        if pnl > 0:
+            agg[strategy]["win_count"] += 1
+
+    rows = []
+    for strategy, value in agg.items():
+        pnl = value["ask_krw"] - value["fee_amount"] - value["bid_krw"]
+        trade_count = value["trade_count"]
+        rows.append({
+            "strategy": strategy,
+            "bid_krw": _round_money(value["bid_krw"]),
+            "ask_krw": _round_money(value["ask_krw"]),
+            "fee_amount": _round_money(value["fee_amount"]),
+            "pnl": _round_money(pnl),
+            "roi_pct": round(pnl / value["bid_krw"] * 100, 2) if value["bid_krw"] > _EPSILON else 0.0,
+            "trade_count": trade_count,
+            "win_rate": round(value["win_count"] / trade_count * 100, 1) if trade_count else 0.0,
         })
-    return sorted(pairs, key=lambda p: p["hold_time_s"], reverse=True)
+    return rows
+
+
+def _build_monthly_rows(realized_events):
+    agg: dict[str, dict] = defaultdict(lambda: {"bid_krw": 0.0, "ask_krw": 0.0, "fee_amount": 0.0})
+    for event in realized_events:
+        month = event["month"]
+        agg[month]["bid_krw"] += event["bid_krw"]
+        agg[month]["ask_krw"] += event["ask_krw"]
+        agg[month]["fee_amount"] += event["fee_amount"]
+
+    rows = []
+    for month in sorted(agg.keys()):
+        value = agg[month]
+        pnl = value["ask_krw"] - value["fee_amount"] - value["bid_krw"]
+        rows.append({
+            "month": month,
+            "bid_krw": _round_money(value["bid_krw"]),
+            "ask_krw": _round_money(value["ask_krw"]),
+            "fee_amount": _round_money(value["fee_amount"]),
+            "pnl": _round_money(pnl),
+            "bar_pct": 0,
+        })
+
+    if rows:
+        max_abs = max(abs(row["pnl"]) for row in rows) or 1
+        for row in rows:
+            row["bar_pct"] = round(abs(row["pnl"]) / max_abs * 100)
+
+    return rows
+
+
+def _build_pair_rows(realized_events):
+    pairs = []
+    for event in realized_events:
+        pairs.append({
+            "ticker": event["ticker"],
+            "exchange": event["exchange"],
+            "strategy": event["strategy"],
+            "buy_price": round(event["buy_price"], 8),
+            "sell_price": round(event["sell_price"], 8),
+            "volume": round(event["volume"], 8),
+            "bid_krw": _round_money(event["bid_krw"]),
+            "ask_krw": _round_money(event["ask_krw"]),
+            "fee_amount": _round_money(event["fee_amount"]),
+            "pnl": _round_money(event["pnl"]),
+            "roi_pct": event["roi_pct"],
+            "hold_time_s": event["hold_time_s"],
+            "hold_time_fmt": event["hold_time_fmt"],
+            "buy_at_fmt": event["buy_at_fmt"],
+            "sell_at_fmt": event["sell_at_fmt"],
+        })
+    return sorted(pairs, key=lambda pair: pair["hold_time_s"], reverse=True)
+
+
+def _build_holdings_rows(positions, current_prices):
+    rows = []
+    oversold_count = 0
+    for (exchange, ticker), position in positions.items():
+        quantity = position["quantity"]
+        if quantity <= _EPSILON:
+            oversold_count += int(position["oversold_count"] > 0)
+            continue
+
+        cost_krw = position["cost_krw"]
+        avg_price = cost_krw / quantity if quantity > _EPSILON else 0.0
+        current_price = _safe_float(current_prices.get((exchange, ticker)))
+        value_krw = current_price * quantity if current_price > 0 else 0.0
+        pnl = value_krw - cost_krw if current_price > 0 else 0.0
+        roi_pct = round(pnl / cost_krw * 100, 2) if cost_krw > _EPSILON and current_price > 0 else 0.0
+        rows.append({
+            "exchange": exchange,
+            "ticker": ticker,
+            "quantity": round(quantity, 8),
+            "avg_price": round(avg_price, 8),
+            "cost_krw": _round_money(cost_krw),
+            "current_price": current_price,
+            "value_krw": _round_money(value_krw),
+            "pnl": _round_money(pnl),
+            "roi_pct": roi_pct,
+            "oversold": position["oversold_count"] > 0,
+        })
+        if position["oversold_count"] > 0:
+            oversold_count += 1
+
+    rows.sort(key=lambda row: row["value_krw"], reverse=True)
+    return rows, oversold_count
+
+
+async def _fetch_current_prices(position_rows, bot_user_id):
+    if not position_rows:
+        return {}
+
+    try:
+        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+        src_dir = os.path.join(root_dir, "src")
+        if src_dir not in sys.path:
+            sys.path.insert(0, src_dir)
+
+        from core.exchange_adapter import ExchangeAdapter
+        from core.user_manager import UserManager
+    except Exception:
+        return {}
+
+    adapter = None
+    prices = {}
+    try:
+        adapter = ExchangeAdapter(UserManager())
+        for row in position_rows:
+            ticker = await adapter.get_ticker(row["exchange"], row["ticker"], user_id=bot_user_id)
+            if not isinstance(ticker, dict):
+                continue
+            price = _safe_float(ticker.get("trade_price"))
+            if price > 0:
+                prices[(row["exchange"], row["ticker"])] = price
+    except Exception:
+        return prices
+    finally:
+        if adapter is not None:
+            try:
+                await adapter.close()
+            except Exception:
+                pass
+    return prices
 
 
 def _auth_guard(request: Request):
@@ -137,7 +358,7 @@ def _auth_guard(request: Request):
     is_admin = session_user["is_admin"]
     bot_user_id = session_user["bot_user_id"]
     if not is_admin and not bot_user_id:
-        return None, JSONResponse({"error": "연결된 봇 계정이 없습니다."}, status_code=403)
+        return None, JSONResponse({"error": "No linked trading account."}, status_code=403)
     return (is_admin, bot_user_id), None
 
 
@@ -151,13 +372,15 @@ async def api_reports_pnl(request: Request, period: str = "30d"):
         period = "30d"
     try:
         db = get_db()
-        trades = await _fetch_trades(db, is_admin, bot_user_id, _PERIODS[period])
-        rows = _build_pnl_rows(trades)
-        rows.sort(key=lambda r: r["pnl"], reverse=True)
-        total_bid = sum(r["bid_krw"] for r in rows)
-        total_ask = sum(r["ask_krw"] for r in rows)
-        total_fee = sum(r["fee_amount"] for r in rows)
-        total_pnl = total_ask - total_bid - total_fee
+        trades = await _fetch_trades(db, is_admin, bot_user_id, None)
+        window_start = time.time() - _PERIODS[period] if _PERIODS[period] else None
+        _, realized_events = _build_report_state(trades, window_start=window_start)
+        rows = _build_pnl_rows(realized_events)
+        rows.sort(key=lambda row: row["pnl"], reverse=True)
+        total_bid = sum(row["bid_krw"] for row in rows)
+        total_ask = sum(row["ask_krw"] for row in rows)
+        total_fee = sum(row["fee_amount"] for row in rows)
+        total_pnl = sum(row["pnl"] for row in rows)
         return JSONResponse({
             "rows": rows,
             "summary": {
@@ -167,8 +390,8 @@ async def api_reports_pnl(request: Request, period: str = "30d"):
                 "total_pnl": round(total_pnl),
             },
         })
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
 
 
 @router.get("/api/reports/strategy")
@@ -181,56 +404,14 @@ async def api_reports_strategy(request: Request, period: str = "30d"):
         period = "30d"
     try:
         db = get_db()
-        trades = await _fetch_trades(db, is_admin, bot_user_id, _PERIODS[period])
-
-        # P&L by strategy
-        st_agg: dict = defaultdict(lambda: {
-            "bid_krw": 0.0, "ask_krw": 0.0, "fee_amount": 0.0, "trade_count": 0,
-        })
-        # ticker wins by strategy
-        ticker_pnl: dict = defaultdict(lambda: defaultdict(float))  # strategy -> ticker_key -> pnl
-        for t in trades:
-            price = float(t.get("price") or 0)
-            volume = float(t.get("volume") or 0)
-            fee = float(t.get("fee_amount") or 0)
-            krw = price * volume
-            st = t.get("strategy") or "manual"
-            st_agg[st]["trade_count"] += 1
-            st_agg[st]["fee_amount"] += fee
-            if t.get("side") == "bid":
-                st_agg[st]["bid_krw"] += krw
-                ticker_key = f"{t.get('exchange')}:{t.get('ticker')}"
-                ticker_pnl[st][ticker_key] -= krw
-            elif t.get("side") == "ask":
-                st_agg[st]["ask_krw"] += krw
-                ticker_key = f"{t.get('exchange')}:{t.get('ticker')}"
-                ticker_pnl[st][ticker_key] += krw
-
-        rows = []
-        for st, v in st_agg.items():
-            bid_krw = v["bid_krw"]
-            ask_krw = v["ask_krw"]
-            fee = v["fee_amount"]
-            pnl = ask_krw - bid_krw - fee
-            roi_pct = round(pnl / bid_krw * 100, 2) if bid_krw else 0.0
-            tickers = ticker_pnl.get(st, {})
-            paired = [p for p in tickers.values() if p != 0]
-            wins = sum(1 for p in paired if p > 0)
-            win_rate = round(wins / len(paired) * 100, 1) if paired else 0.0
-            rows.append({
-                "strategy": st,
-                "bid_krw": round(bid_krw),
-                "ask_krw": round(ask_krw),
-                "fee_amount": round(fee),
-                "pnl": round(pnl),
-                "roi_pct": roi_pct,
-                "trade_count": v["trade_count"],
-                "win_rate": win_rate,
-            })
-        rows.sort(key=lambda r: r["pnl"], reverse=True)
+        trades = await _fetch_trades(db, is_admin, bot_user_id, None)
+        window_start = time.time() - _PERIODS[period] if _PERIODS[period] else None
+        _, realized_events = _build_report_state(trades, window_start=window_start)
+        rows = _build_strategy_rows(realized_events)
+        rows.sort(key=lambda row: row["pnl"], reverse=True)
         return JSONResponse({"rows": rows})
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
 
 
 @router.get("/api/reports/roi-ranking")
@@ -243,14 +424,16 @@ async def api_reports_roi_ranking(request: Request, period: str = "30d"):
         period = "30d"
     try:
         db = get_db()
-        trades = await _fetch_trades(db, is_admin, bot_user_id, _PERIODS[period])
-        rows = _build_pnl_rows(trades)
-        rows.sort(key=lambda r: r["roi_pct"], reverse=True)
-        for i, r in enumerate(rows):
-            r["rank"] = i + 1
+        trades = await _fetch_trades(db, is_admin, bot_user_id, None)
+        window_start = time.time() - _PERIODS[period] if _PERIODS[period] else None
+        _, realized_events = _build_report_state(trades, window_start=window_start)
+        rows = _build_pnl_rows(realized_events)
+        rows.sort(key=lambda row: row["roi_pct"], reverse=True)
+        for index, row in enumerate(rows):
+            row["rank"] = index + 1
         return JSONResponse({"rows": rows})
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
 
 
 @router.get("/api/reports/monthly")
@@ -262,47 +445,44 @@ async def api_reports_monthly(request: Request):
     try:
         db = get_db()
         trades = await _fetch_trades(db, is_admin, bot_user_id, None)
+        _, realized_events = _build_report_state(trades)
+        return JSONResponse({"rows": _build_monthly_rows(realized_events)})
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
 
-        month_agg: dict = defaultdict(lambda: {"bid_krw": 0.0, "ask_krw": 0.0, "fee_amount": 0.0})
-        for t in trades:
-            try:
-                month = datetime.fromtimestamp(float(t.get("executed_at", 0))).strftime("%Y-%m")
-            except (TypeError, ValueError):
-                continue
-            price = float(t.get("price") or 0)
-            volume = float(t.get("volume") or 0)
-            fee = float(t.get("fee_amount") or 0)
-            krw = price * volume
-            month_agg[month]["fee_amount"] += fee
-            if t.get("side") == "bid":
-                month_agg[month]["bid_krw"] += krw
-            elif t.get("side") == "ask":
-                month_agg[month]["ask_krw"] += krw
 
-        rows = []
-        for month in sorted(month_agg.keys()):
-            v = month_agg[month]
-            bid_krw = v["bid_krw"]
-            ask_krw = v["ask_krw"]
-            fee = v["fee_amount"]
-            pnl = ask_krw - bid_krw - fee
-            rows.append({
-                "month": month,
-                "bid_krw": round(bid_krw),
-                "ask_krw": round(ask_krw),
-                "fee_amount": round(fee),
-                "pnl": round(pnl),
-                "bar_pct": 0,  # filled below
-            })
-
-        if rows:
-            max_abs = max(abs(r["pnl"]) for r in rows) or 1
-            for r in rows:
-                r["bar_pct"] = round(abs(r["pnl"]) / max_abs * 100)
-
-        return JSONResponse({"rows": rows})
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+@router.get("/api/reports/holdings")
+async def api_reports_holdings(request: Request):
+    ctx, err = _auth_guard(request)
+    if err:
+        return err
+    is_admin, bot_user_id = ctx
+    try:
+        db = get_db()
+        trades = await _fetch_trades(db, is_admin, bot_user_id, None)
+        positions, _ = _build_report_state(trades)
+        current_prices = await _fetch_current_prices(
+            [{"exchange": exchange, "ticker": ticker} for exchange, ticker in positions.keys()],
+            bot_user_id,
+        )
+        rows, oversold_count = _build_holdings_rows(positions, current_prices)
+        total_cost = sum(row["cost_krw"] for row in rows)
+        total_value = sum(row["value_krw"] for row in rows)
+        total_pnl = sum(row["pnl"] for row in rows)
+        total_roi_pct = round(total_pnl / total_cost * 100, 2) if total_cost else 0.0
+        return JSONResponse({
+            "rows": rows,
+            "summary": {
+                "total_cost": round(total_cost),
+                "total_value": round(total_value),
+                "total_pnl": round(total_pnl),
+                "total_roi_pct": total_roi_pct,
+                "asset_count": len(rows),
+                "oversold_count": oversold_count,
+            },
+        })
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
 
 
 @router.get("/api/reports/pairs")
@@ -315,14 +495,12 @@ async def api_reports_pairs(request: Request, period: str = "30d"):
         period = "30d"
     try:
         db = get_db()
-        trades = await _fetch_trades(db, is_admin, bot_user_id, _PERIODS[period])
-        uuids = list({t["uuid"] for t in trades if t.get("uuid")})
-        orders = await _fetch_orders_for_uuids(db, is_admin, bot_user_id, uuids)
-        orders_by_uuid = {o["uuid"]: o for o in orders}
-        pairs = _build_pairs(trades, orders_by_uuid)
-        return JSONResponse({"pairs": pairs})
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        trades = await _fetch_trades(db, is_admin, bot_user_id, None)
+        window_start = time.time() - _PERIODS[period] if _PERIODS[period] else None
+        _, realized_events = _build_report_state(trades, window_start=window_start)
+        return JSONResponse({"pairs": _build_pair_rows(realized_events)})
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
 
 
 @router.get("/api/reports/win-stats")
@@ -335,33 +513,34 @@ async def api_reports_win_stats(request: Request, period: str = "30d"):
         period = "30d"
     try:
         db = get_db()
-        trades = await _fetch_trades(db, is_admin, bot_user_id, _PERIODS[period])
-        uuids = list({t["uuid"] for t in trades if t.get("uuid")})
-        orders = await _fetch_orders_for_uuids(db, is_admin, bot_user_id, uuids)
-        orders_by_uuid = {o["uuid"]: o for o in orders}
-        pairs = _build_pairs(trades, orders_by_uuid)
+        trades = await _fetch_trades(db, is_admin, bot_user_id, None)
+        window_start = time.time() - _PERIODS[period] if _PERIODS[period] else None
+        _, realized_events = _build_report_state(trades, window_start=window_start)
+        pairs = _build_pair_rows(realized_events)
 
         if not pairs:
             return JSONResponse({"stats": {
-                "total_pairs": 0, "win_count": 0, "loss_count": 0,
-                "win_rate": 0.0, "avg_win_pct": 0.0, "avg_loss_pct": 0.0, "rr_ratio": 0.0,
+                "total_pairs": 0,
+                "win_count": 0,
+                "loss_count": 0,
+                "win_rate": 0.0,
+                "avg_win_pct": 0.0,
+                "avg_loss_pct": 0.0,
+                "rr_ratio": 0.0,
             }})
 
-        wins = [p for p in pairs if p["pnl"] > 0]
-        losses = [p for p in pairs if p["pnl"] <= 0]
-        win_rate = round(len(wins) / len(pairs) * 100, 1)
-        avg_win_pct = round(sum(p["roi_pct"] for p in wins) / len(wins), 2) if wins else 0.0
-        avg_loss_pct = round(sum(p["roi_pct"] for p in losses) / len(losses), 2) if losses else 0.0
-        rr_ratio = round(avg_win_pct / abs(avg_loss_pct), 2) if avg_loss_pct else 0.0
-
+        wins = [pair for pair in pairs if pair["pnl"] > 0]
+        losses = [pair for pair in pairs if pair["pnl"] <= 0]
+        avg_win_pct = round(sum(pair["roi_pct"] for pair in wins) / len(wins), 2) if wins else 0.0
+        avg_loss_pct = round(sum(pair["roi_pct"] for pair in losses) / len(losses), 2) if losses else 0.0
         return JSONResponse({"stats": {
             "total_pairs": len(pairs),
             "win_count": len(wins),
             "loss_count": len(losses),
-            "win_rate": win_rate,
+            "win_rate": round(len(wins) / len(pairs) * 100, 1),
             "avg_win_pct": avg_win_pct,
             "avg_loss_pct": avg_loss_pct,
-            "rr_ratio": rr_ratio,
+            "rr_ratio": round(avg_win_pct / abs(avg_loss_pct), 2) if avg_loss_pct else 0.0,
         }})
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)

@@ -168,6 +168,31 @@ export interface MonthlyReport {
   rows: MonthlyRow[]
 }
 
+export interface HoldingRow {
+  exchange: string
+  ticker: string
+  quantity: number
+  avg_price: number
+  cost_krw: number
+  current_price: number
+  value_krw: number
+  pnl: number
+  roi_pct: number
+  oversold: boolean
+}
+
+export interface HoldingsReport {
+  rows: HoldingRow[]
+  summary: {
+    total_cost: number
+    total_value: number
+    total_pnl: number
+    total_roi_pct: number
+    asset_count: number
+    oversold_count: number
+  }
+}
+
 export interface PairRow {
   ticker: string
   exchange: string

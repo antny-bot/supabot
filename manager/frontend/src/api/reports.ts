@@ -4,6 +4,7 @@ import type {
   StrategyReport,
   RoiRankingReport,
   MonthlyReport,
+  HoldingsReport,
   PairsReport,
   WinStatsReport,
 } from '../types'
@@ -12,5 +13,6 @@ export const fetchReportPnl        = (period = '30d') => api.get<PnlReport>(`/ap
 export const fetchReportStrategy   = (period = '30d') => api.get<StrategyReport>(`/api/reports/strategy?period=${period}`)
 export const fetchReportRoiRanking = (period = '30d') => api.get<RoiRankingReport>(`/api/reports/roi-ranking?period=${period}`)
 export const fetchReportMonthly    = ()               => api.get<MonthlyReport>('/api/reports/monthly')
+export const fetchReportHoldings   = ()               => api.get<HoldingsReport>('/api/reports/holdings')
 export const fetchReportPairs      = (period = '30d') => api.get<PairsReport>(`/api/reports/pairs?period=${period}`)
 export const fetchReportWinStats   = (period = '30d') => api.get<WinStatsReport>(`/api/reports/win-stats?period=${period}`)

@@ -9,6 +9,7 @@ import {
   fetchReportStrategy,
   fetchReportRoiRanking,
   fetchReportMonthly,
+  fetchReportHoldings,
   fetchReportPairs,
   fetchReportWinStats,
 } from '../api/reports'
@@ -17,6 +18,7 @@ import type {
   StrategyReport,
   RoiRankingReport,
   MonthlyReport,
+  HoldingsReport,
   PairsReport,
   WinStatsReport,
 } from '../types'
@@ -40,6 +42,7 @@ const REPORT_TABS = [
   { id: 'strategy', label: '전략별 분석' },
   { id: 'ranking',  label: '수익률 랭킹' },
   { id: 'monthly',  label: '월별 손익' },
+  { id: 'holdings', label: '현재 투자중' },
   { id: 'pairs',    label: '거래 페어' },
   { id: 'winstats', label: '승률/손익비' },
 ]
@@ -87,7 +90,7 @@ function PnlSection({ period }: { period: string }) {
 
   const { summary, rows } = data
   const summaryCards = [
-    { label: '총 매수금액', value: krwFmt(summary.total_bid), Icon: TrendingUp, bg: 'bg-blue-500' },
+    { label: '총 실현원가', value: krwFmt(summary.total_bid), Icon: TrendingUp, bg: 'bg-blue-500' },
     { label: '총 매도금액', value: krwFmt(summary.total_ask), Icon: TrendingDown, bg: 'bg-rose-500' },
     { label: '총 수수료', value: krwFmt(summary.total_fee), Icon: DollarSign, bg: 'bg-amber-500' },
     { label: '실현 손익', value: krwFmt(Math.abs(summary.total_pnl)), Icon: Award,
@@ -114,7 +117,7 @@ function PnlSection({ period }: { period: string }) {
 
       <div className={`${CARD} overflow-hidden`}>
         <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800">
-          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">종목별 손익</h3>
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">종목별 실현 손익</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -122,7 +125,7 @@ function PnlSection({ period }: { period: string }) {
               <tr className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
                 <th className={`${TH} text-left`}>거래소</th>
                 <th className={`${TH} text-left`}>종목</th>
-                <th className={`${TH} text-right`}>매수금액</th>
+                <th className={`${TH} text-right`}>실현원가</th>
                 <th className={`${TH} text-right`}>매도금액</th>
                 <th className={`${TH} text-right`}>수수료</th>
                 <th className={`${TH} text-right`}>손익</th>
@@ -246,7 +249,7 @@ function StrategySection({ period }: { period: string }) {
               <tr className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
                 <th className={`${TH} text-left`}>전략</th>
                 <th className={`${TH} text-right`}>거래수</th>
-                <th className={`${TH} text-right`}>매수금액</th>
+                <th className={`${TH} text-right`}>실현원가</th>
                 <th className={`${TH} text-right`}>매도금액</th>
                 <th className={`${TH} text-right`}>수수료</th>
                 <th className={`${TH} text-right`}>손익</th>
@@ -309,7 +312,7 @@ function RoiRankingSection({ period }: { period: string }) {
               <th className={`${TH} text-center`}>#</th>
               <th className={`${TH} text-left`}>거래소</th>
               <th className={`${TH} text-left`}>종목</th>
-              <th className={`${TH} text-right`}>매수금액</th>
+              <th className={`${TH} text-right`}>실현원가</th>
               <th className={`${TH} text-right`}>매도금액</th>
               <th className={`${TH} text-right`}>수수료</th>
               <th className={`${TH} text-right`}>손익</th>
@@ -367,7 +370,7 @@ function MonthlySection() {
       name: r.month,
       '손익': r.pnl,
       '누적손익': cumulative,
-      '매수': r.bid_krw,
+      '원가': r.bid_krw,
       '매도': r.ask_krw
     };
   })
@@ -430,7 +433,7 @@ function MonthlySection() {
             <thead>
               <tr className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
                 <th className={`${TH} text-left`}>월</th>
-                <th className={`${TH} text-right`}>매수금액</th>
+                <th className={`${TH} text-right`}>실현원가</th>
                 <th className={`${TH} text-right`}>매도금액</th>
                 <th className={`${TH} text-right`}>수수료</th>
                 <th className={`${TH} text-right`}>손익</th>
@@ -469,6 +472,120 @@ function MonthlySection() {
   )
 }
 
+// ── HoldingsSection ───────────────────────────────────────────────────────
+
+function HoldingsSection() {
+  const [data, setData] = useState<HoldingsReport | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setLoading(true)
+    setError(null)
+    fetchReportHoldings()
+      .then(setData)
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류 발생'))
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading) return <Spinner />
+  if (error) return <ErrorBanner message={error} />
+  if (!data) return null
+
+  const { summary, rows } = data
+  const summaryCards = [
+    { label: '보유원가', value: krwFmt(summary.total_cost), Icon: TrendingUp, bg: 'bg-blue-500' },
+    { label: '평가금액', value: krwFmt(summary.total_value), Icon: DollarSign, bg: 'bg-slate-700' },
+    {
+      label: '평가손익',
+      value: krwFmt(Math.abs(summary.total_pnl)),
+      Icon: Award,
+      bg: summary.total_pnl >= 0 ? 'bg-emerald-500' : 'bg-rose-500',
+      extra: pctFmt(summary.total_roi_pct),
+      extraColor: pctColor(summary.total_pnl),
+    },
+    {
+      label: '투자 종목',
+      value: summary.asset_count.toLocaleString(),
+      Icon: TrendingDown,
+      bg: 'bg-indigo-500',
+      extra: summary.oversold_count > 0 ? `oversell ${summary.oversold_count}건` : undefined,
+      extraColor: summary.oversold_count > 0 ? 'text-amber-600 dark:text-amber-400' : undefined,
+    },
+  ]
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {summaryCards.map(({ label, value, Icon, bg, extra, extraColor }) => (
+          <div key={label} className={`${CARD} p-4 flex items-center gap-3`}>
+            <div className={`${bg} rounded-lg p-2 text-white shrink-0`}><Icon size={16} /></div>
+            <div>
+              <p className="text-xl font-bold text-slate-900 dark:text-white leading-none">{value}</p>
+              {extra && <p className={`text-xs font-medium mt-0.5 ${extraColor}`}>{extra}</p>}
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{label}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className={`${CARD} overflow-hidden`}>
+        <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800">
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">현재 투자중인 자산</h3>
+          <p className="text-xs text-slate-400 mt-0.5">supabot 트랜잭션 이력 기준 포지션</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
+                <th className={`${TH} text-left`}>거래소</th>
+                <th className={`${TH} text-left`}>종목</th>
+                <th className={`${TH} text-right`}>보유수량</th>
+                <th className={`${TH} text-right`}>평단가</th>
+                <th className={`${TH} text-right`}>보유원가</th>
+                <th className={`${TH} text-right`}>현재가</th>
+                <th className={`${TH} text-right`}>평가금액</th>
+                <th className={`${TH} text-right`}>평가손익</th>
+                <th className={`${TH} text-right`}>평가수익률</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {rows.length === 0 ? (
+                <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-400 text-xs">현재 투자중인 자산 없음</td></tr>
+              ) : rows.map((row, index) => (
+                <tr key={`${row.exchange}-${row.ticker}-${index}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                  <td className={TD}><Badge value={row.exchange} label={row.exchange.toUpperCase()} /></td>
+                  <td className={`${TD} font-medium text-xs text-slate-800 dark:text-slate-200`}>
+                    <div className="flex items-center gap-2">
+                      <span>{row.ticker}</span>
+                      {row.oversold && <Badge value="warning" label="oversell" />}
+                    </div>
+                  </td>
+                  <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>{row.quantity.toFixed(4)}</td>
+                  <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(row.avg_price)}</td>
+                  <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(row.cost_krw)}</td>
+                  <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>
+                    {row.current_price > 0 ? krwFmt(row.current_price) : '—'}
+                  </td>
+                  <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>
+                    {row.current_price > 0 ? krwFmt(row.value_krw) : '—'}
+                  </td>
+                  <td className={`${TD} text-right font-mono text-xs font-medium ${pctColor(row.pnl)}`}>
+                    {row.current_price > 0 ? `${row.pnl >= 0 ? '+' : '-'}${krwFmt(Math.abs(row.pnl))}` : '—'}
+                  </td>
+                  <td className={`${TD} text-right font-mono text-xs font-medium ${pctColor(row.roi_pct)}`}>
+                    {row.current_price > 0 ? pctFmt(row.roi_pct) : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── PairsSection ──────────────────────────────────────────────────────────
 
 function PairsSection({ period }: { period: string }) {
@@ -493,7 +610,7 @@ function PairsSection({ period }: { period: string }) {
     <div className={`${CARD} overflow-hidden`}>
       <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800">
         <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">거래 페어</h3>
-        <p className="text-xs text-slate-400 mt-0.5">매수-매도 연결 주문 기준</p>
+        <p className="text-xs text-slate-400 mt-0.5">평단 기준 실현 매도 이벤트</p>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -669,7 +786,7 @@ export default function Reports() {
       <PageHeader
         {...PAGE_META.reports}
         actions={
-          activeTab !== 'monthly'
+          activeTab !== 'monthly' && activeTab !== 'holdings'
             ? <FilterBar options={PERIOD_OPTIONS} value={period} onChange={setPeriod} />
             : undefined
         }
@@ -698,6 +815,7 @@ export default function Reports() {
         {activeTab === 'strategy' && <StrategySection period={period} />}
         {activeTab === 'ranking'  && <RoiRankingSection period={period} />}
         {activeTab === 'monthly'  && <MonthlySection />}
+        {activeTab === 'holdings' && <HoldingsSection />}
         {activeTab === 'pairs'    && <PairsSection period={period} />}
         {activeTab === 'winstats' && <WinStatsSection period={period} />}
       </div>
