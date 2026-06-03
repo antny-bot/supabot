@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from .auth import supabase_sign_in
-from .routers import dashboard, events, orders, reports, sysconfig, trades, users, templates, mfa
+from .routers import dashboard, events, orders, reports, sysconfig, trades, users, templates, mfa, analytics
 from .routers._auth import get_current_user
 
 app = FastAPI(title="supabot manager")
@@ -32,6 +32,7 @@ app.include_router(sysconfig.router)
 app.include_router(reports.router)
 app.include_router(templates.router)
 app.include_router(mfa.router)
+app.include_router(analytics.router)
 
 
 class RealtimeBroadcastManager:

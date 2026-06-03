@@ -133,6 +133,20 @@ ALTER TABLE strategy_templates ADD COLUMN IF NOT EXISTS strategy_type TEXT NOT N
 ALTER TABLE strategy_templates ADD COLUMN IF NOT EXISTS params JSONB DEFAULT '{}'::jsonb;
 
 
+-- ── Command Logs ───────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS command_logs (
+  id          BIGSERIAL PRIMARY KEY,
+  user_id     TEXT NOT NULL,
+  command     TEXT NOT NULL,           -- /buy, /sell, /price, /rsitrade, nl 등
+  source      TEXT NOT NULL DEFAULT 'direct',  -- 'direct' | 'nl'
+  exchange    TEXT,
+  ticker      TEXT,
+  created_at  DOUBLE PRECISION NOT NULL  -- Unix timestamp
+);
+CREATE INDEX IF NOT EXISTS idx_command_logs_user    ON command_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_command_logs_time    ON command_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_command_logs_command ON command_logs(command);
+
 -- ── Row Level Security ─────────────────────────────────────────────────────
 ALTER TABLE users             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE orders            ENABLE ROW LEVEL SECURITY;
@@ -141,6 +155,7 @@ ALTER TABLE operational_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE nl_logs           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE system_config     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE strategy_templates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE command_logs       ENABLE ROW LEVEL SECURITY;
 
 -- ── Grants (SQL로 생성 시 자동 부여되지 않으므로 명시 필요) ────────────────
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;

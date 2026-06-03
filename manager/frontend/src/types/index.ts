@@ -67,6 +67,49 @@ export interface ConfigItem {
   desc: string
 }
 
+export interface AnalyticsOverview {
+  dau: number
+  wau: number
+  mau: number
+  total_commands_30d: number
+}
+
+export interface ActivityItem {
+  date: string
+  count: number
+}
+
+export interface AnalyticsActivity {
+  activity: ActivityItem[]
+}
+
+export interface CommandItem {
+  command: string
+  count: number
+}
+
+export interface AnalyticsCommands {
+  commands: CommandItem[]
+  total: number
+}
+
+export interface AnalyticsUserItem {
+  user_id: string
+  username: string
+  count: number
+  last_active: string
+  last_active_ts: number
+}
+
+export interface AnalyticsUsers {
+  users: AnalyticsUserItem[]
+}
+
+export interface AnalyticsHeatmap {
+  matrix: number[][]
+  max: number
+}
+
 export interface DashboardStats {
   orders_open: number
   trades_24h: number

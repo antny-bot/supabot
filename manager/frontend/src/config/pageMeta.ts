@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react'
 import {
+  Activity,
   ArrowLeftRight,
   BarChart2,
   ClipboardList,
@@ -15,6 +16,7 @@ export type PageMetaKey =
   | 'trades'
   | 'templates'
   | 'reports'
+  | 'analytics'
   | 'admin'
   | 'config'
 
@@ -59,6 +61,11 @@ export const PAGE_META: Record<PageMetaKey, PageMeta> = {
     subtitle: '손익, 전략 성과, 승률 지표를 기간별로 분석합니다.',
     Icon: BarChart2,
   },
+  analytics: {
+    title: '사용 분석',
+    subtitle: '사용자 활동, 명령어 빈도, 시간대별 사용 패턴을 분석합니다.',
+    Icon: Activity,
+  },
   admin: {
     title: '관리자',
     subtitle: '유저, 이벤트, 시스템 설정을 관리합니다.',
@@ -77,6 +84,7 @@ export const APP_NAV_ITEMS: NavItem[] = [
   { key: 'trades',    to: '/trades',    label: '거래 내역',   compactLabel: '거래',   adminOnly: false, Icon: ArrowLeftRight },
   { key: 'templates', to: '/templates', label: '전략 템플릿', compactLabel: '템플릿', adminOnly: false, Icon: LayoutTemplate },
   { key: 'reports',   to: '/reports',   label: '리포트',     compactLabel: '리포트', adminOnly: false, Icon: BarChart2 },
+  { key: 'analytics', to: '/analytics', label: '사용 분석',  compactLabel: '분석',   adminOnly: true,  Icon: Activity },
   { key: 'admin',     to: '/admin',     label: '관리자',     compactLabel: '관리',   adminOnly: true,  Icon: ShieldCheck },
   { key: 'config',    to: '/config',    label: '설정',       compactLabel: '설정',   adminOnly: false, Icon: Settings },
 ]
