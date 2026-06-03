@@ -46,8 +46,12 @@ def _round_money(value: float) -> int:
     return round(value)
 
 
-def _position_key(trade: dict) -> tuple[str, str]:
-    return (str(trade.get("exchange") or ""), str(trade.get("ticker") or ""))
+def _position_key(trade: dict) -> tuple[str, str, str]:
+    return (
+        str(trade.get("user_id") or ""),
+        str(trade.get("exchange") or ""),
+        str(trade.get("ticker") or ""),
+    )
 
 
 def _new_position() -> dict:
@@ -134,8 +138,8 @@ def _build_report_state(trades, window_start=None):
             continue
 
         realized_events.append({
-            "exchange": key[0],
-            "ticker": key[1],
+            "exchange": key[1],
+            "ticker": key[2],
             "strategy": str(trade.get("strategy") or "manual"),
             "executed_at": executed_at,
             "month": datetime.fromtimestamp(executed_at).strftime("%Y-%m"),
@@ -281,20 +285,44 @@ def _build_pair_rows(realized_events):
 
 
 def _build_holdings_rows(positions, current_prices):
-    rows = []
+    grouped: dict[tuple[str, str], dict] = defaultdict(lambda: {
+        "quantity": 0.0,
+        "cost_krw": 0.0,
+        "current_price": 0.0,
+        "value_krw": 0.0,
+        "pnl": 0.0,
+        "oversold": False,
+    })
     oversold_count = 0
-    for (exchange, ticker), position in positions.items():
+    for (_user_id, exchange, ticker), position in positions.items():
         quantity = position["quantity"]
         if quantity <= _EPSILON:
             oversold_count += int(position["oversold_count"] > 0)
             continue
 
         cost_krw = position["cost_krw"]
-        avg_price = cost_krw / quantity if quantity > _EPSILON else 0.0
-        current_price = _safe_float(current_prices.get((exchange, ticker)))
+        current_price = _safe_float(current_prices.get((_user_id, exchange, ticker)))
         value_krw = current_price * quantity if current_price > 0 else 0.0
         pnl = value_krw - cost_krw if current_price > 0 else 0.0
-        roi_pct = round(pnl / cost_krw * 100, 2) if cost_krw > _EPSILON and current_price > 0 else 0.0
+
+        row = grouped[(exchange, ticker)]
+        row["quantity"] += quantity
+        row["cost_krw"] += cost_krw
+        row["value_krw"] += value_krw
+        row["pnl"] += pnl
+        row["oversold"] = row["oversold"] or position["oversold_count"] > 0
+        if current_price > 0:
+            row["current_price"] = current_price
+        if position["oversold_count"] > 0:
+            oversold_count += 1
+
+    rows = []
+    for (exchange, ticker), value in grouped.items():
+        quantity = value["quantity"]
+        cost_krw = value["cost_krw"]
+        current_price = value["current_price"]
+        avg_price = cost_krw / quantity if quantity > _EPSILON else 0.0
+        roi_pct = round(value["pnl"] / cost_krw * 100, 2) if cost_krw > _EPSILON and current_price > 0 else 0.0
         rows.append({
             "exchange": exchange,
             "ticker": ticker,
@@ -302,13 +330,11 @@ def _build_holdings_rows(positions, current_prices):
             "avg_price": round(avg_price, 8),
             "cost_krw": _round_money(cost_krw),
             "current_price": current_price,
-            "value_krw": _round_money(value_krw),
-            "pnl": _round_money(pnl),
+            "value_krw": _round_money(value["value_krw"]),
+            "pnl": _round_money(value["pnl"]),
             "roi_pct": roi_pct,
-            "oversold": position["oversold_count"] > 0,
+            "oversold": value["oversold"],
         })
-        if position["oversold_count"] > 0:
-            oversold_count += 1
 
     rows.sort(key=lambda row: row["value_krw"], reverse=True)
     return rows, oversold_count
@@ -334,12 +360,13 @@ async def _fetch_current_prices(position_rows, bot_user_id):
     try:
         adapter = ExchangeAdapter(UserManager())
         for row in position_rows:
-            ticker = await adapter.get_ticker(row["exchange"], row["ticker"], user_id=bot_user_id)
+            row_user_id = str(row.get("user_id") or bot_user_id or "")
+            ticker = await adapter.get_ticker(row["exchange"], row["ticker"], user_id=row_user_id or None)
             if not isinstance(ticker, dict):
                 continue
             price = _safe_float(ticker.get("trade_price"))
             if price > 0:
-                prices[(row["exchange"], row["ticker"])] = price
+                prices[(row_user_id, row["exchange"], row["ticker"])] = price
     except Exception:
         return prices
     finally:
@@ -462,7 +489,10 @@ async def api_reports_holdings(request: Request):
         trades = await _fetch_trades(db, is_admin, bot_user_id, None)
         positions, _ = _build_report_state(trades)
         current_prices = await _fetch_current_prices(
-            [{"exchange": exchange, "ticker": ticker} for exchange, ticker in positions.keys()],
+            [
+                {"user_id": user_id, "exchange": exchange, "ticker": ticker}
+                for user_id, exchange, ticker in positions.keys()
+            ],
             bot_user_id,
         )
         rows, oversold_count = _build_holdings_rows(positions, current_prices)

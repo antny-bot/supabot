@@ -10,7 +10,7 @@ export default function AppLayout() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
+      <div className="font-app-ui min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
         <Spinner />
       </div>
     )
@@ -18,7 +18,7 @@ export default function AppLayout() {
 
   return (
     <AuthContext.Provider value={{ user, loading }}>
-      <div className="min-h-screen flex flex-col">
+      <div className="font-app-ui min-h-screen flex flex-col">
         <TopBar />
         <main className="flex-1 max-w-screen-xl mx-auto w-full px-4 py-5 pb-24 md:pb-6">
           <Outlet />

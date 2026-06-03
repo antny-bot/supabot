@@ -185,7 +185,8 @@ def test_api_reports_holdings_returns_average_cost_and_valuation(monkeypatch):
 
     async def fake_fetch_prices(positions, _bot_user_id):
         assert len(positions) == 1
-        return {("upbit", "KRW-BTC"): 190.0}
+        assert positions[0] == {"user_id": "user-1", "exchange": "upbit", "ticker": "KRW-BTC"}
+        return {("user-1", "upbit", "KRW-BTC"): 190.0}
 
     monkeypatch.setattr(reports_router, "_fetch_current_prices", fake_fetch_prices)
 
@@ -210,5 +211,49 @@ def test_api_reports_holdings_returns_average_cost_and_valuation(monkeypatch):
         "value_krw": 285,
         "pnl": 60,
         "roi_pct": 26.67,
+        "oversold": False,
+    }]
+
+
+def test_api_reports_holdings_admin_aggregates_multi_user_prices(monkeypatch):
+    trades = [
+        _trade(side="bid", price=100.0, volume=1.0, executed_at=1_700_000_000.0, exchange="kis", ticker="005930", user_id="user-1"),
+        _trade(side="bid", price=200.0, volume=2.0, executed_at=1_700_000_100.0, exchange="kis", ticker="005930", user_id="user-2"),
+    ]
+    monkeypatch.setattr(reports_router, "get_db", lambda: _FakeDB(trades))
+
+    async def fake_fetch_prices(positions, _bot_user_id):
+        assert positions == [
+            {"user_id": "user-1", "exchange": "kis", "ticker": "005930"},
+            {"user_id": "user-2", "exchange": "kis", "ticker": "005930"},
+        ]
+        return {
+            ("user-1", "kis", "005930"): 300.0,
+            ("user-2", "kis", "005930"): 300.0,
+        }
+
+    monkeypatch.setattr(reports_router, "_fetch_current_prices", fake_fetch_prices)
+
+    response = asyncio.run(reports_router.api_reports_holdings(_FakeRequest(is_admin=True)))
+    payload = json.loads(response.body)
+
+    assert payload["summary"] == {
+        "total_cost": 500,
+        "total_value": 900,
+        "total_pnl": 400,
+        "total_roi_pct": 80.0,
+        "asset_count": 1,
+        "oversold_count": 0,
+    }
+    assert payload["rows"] == [{
+        "exchange": "kis",
+        "ticker": "005930",
+        "quantity": 3.0,
+        "avg_price": 166.66666667,
+        "cost_krw": 500,
+        "current_price": 300.0,
+        "value_krw": 900,
+        "pnl": 400,
+        "roi_pct": 80.0,
         "oversold": False,
     }]

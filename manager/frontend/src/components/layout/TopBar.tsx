@@ -23,7 +23,7 @@ export default function TopBar() {
           <div className="rounded-lg bg-indigo-600 p-1.5">
             <Zap size={14} className="text-white" />
           </div>
-          <span className="text-sm">supabot</span>
+          <span className="text-app-body-sm">supabot</span>
         </NavLink>
 
         <nav className="hidden flex-1 items-center gap-0.5 md:flex">
@@ -32,7 +32,7 @@ export default function TopBar() {
               key={item.to}
               to={item.to}
               className={({ isActive }) =>
-                `rounded-lg px-3 py-1.5 text-sm transition-colors ${
+                `rounded-lg px-3 py-1.5 text-app-body-sm transition-colors ${
                   isActive
                     ? 'bg-indigo-50 font-medium text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400'
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200'

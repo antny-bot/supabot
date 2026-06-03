@@ -1,0 +1,5 @@
+ALTER TABLE operational_events
+  ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ;
+
+ALTER TABLE operational_events
+  ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;

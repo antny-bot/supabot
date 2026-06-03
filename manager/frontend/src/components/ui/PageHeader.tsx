@@ -16,8 +16,8 @@ export default function PageHeader({ title, subtitle, Icon, actions }: PageHeade
           <Icon size={20} />
         </div>
         <div className="space-y-1">
-          <h1 className="text-xl font-bold text-slate-900 dark:text-white">{title}</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">{subtitle}</p>
+          <h1 className="text-app-title font-bold text-slate-900 dark:text-white">{title}</h1>
+          <p className="text-app-body-sm text-slate-500 dark:text-slate-400">{subtitle}</p>
         </div>
       </div>
 

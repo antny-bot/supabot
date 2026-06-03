@@ -14,10 +14,10 @@ export default function StatCard({ label, value, icon, iconBg = 'bg-indigo-500' 
         {icon}
       </div>
       <div className="min-w-0">
-        <p className="text-2xl font-bold text-slate-900 dark:text-slate-100 leading-none">
+        <p className="text-app-metric font-bold text-slate-900 dark:text-slate-100 leading-none">
           {typeof value === 'number' ? value.toLocaleString() : value}
         </p>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">{label}</p>
+        <p className="mt-1 truncate text-app-caption text-slate-500 dark:text-slate-400">{label}</p>
       </div>
     </div>
   )

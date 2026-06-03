@@ -108,6 +108,54 @@ class ExchangeAdapter:
             _log.error("Upbit API exception", exc_info=e, extra={"event": "upbit_api_exception", "path": path})
             return None
 
+    async def _run_upbit_cli(self, resource, command, args=None, keys=None):
+        """업비트 CLI subprocess 호출 래퍼"""
+        cli_args = ["upbit", resource, command]
+        if args:
+            cli_args.extend(args)
+        if keys:
+            access_key = keys.get("access_key")
+            secret_key = keys.get("secret_key")
+            if access_key:
+                cli_args.extend(["--access-key", access_key])
+            if secret_key:
+                cli_args.extend(["--secret-key", secret_key])
+
+        try:
+            _t0 = time.monotonic()
+            process = await asyncio.create_subprocess_exec(
+                *cli_args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await process.communicate()
+            metrics.record_latency("upbit", (time.monotonic() - _t0) * 1000)
+
+            if process.returncode != 0:
+                _log.error(
+                    "Upbit CLI failed",
+                    extra={
+                        "event": "upbit_cli_failed",
+                        "resource": resource,
+                        "command": command,
+                        "returncode": process.returncode,
+                        "stderr": stderr.decode("utf-8", errors="ignore").strip(),
+                    },
+                )
+                return None
+
+            payload = stdout.decode("utf-8", errors="ignore").strip()
+            if not payload:
+                return None
+            return json.loads(payload)
+        except Exception as e:
+            _log.error(
+                "Upbit CLI exception",
+                exc_info=e,
+                extra={"event": "upbit_cli_exception", "resource": resource, "command": command},
+            )
+            return None
+
     def _get_bithumb_jwt(self, keys, query_string=None):
         """빗썸 V2 API 인증을 위한 JWT 토큰 생성"""
         access_key = keys.get("access_key")
@@ -285,19 +333,16 @@ class ExchangeAdapter:
 
         result = None
         if exchange == "upbit":
-            body = {
-                "market": ticker,
-                "side": side,
-                "volume": str(volume),
-                "price": str(price),
-                "ord_type": ord_type
-            }
-            if ord_type == "price":
-                body["volume"] = None
-            elif ord_type == "market":
-                body["price"] = None
-            body = {k: v for k, v in body.items() if v is not None}
-            res = await self._request_upbit("POST", "/v1/orders", keys=client, body=body)
+            args = [
+                "--market", ticker,
+                "--side", side,
+                "--ord-type", ord_type,
+            ]
+            if ord_type != "price":
+                args.extend(["--volume", str(volume)])
+            if ord_type != "market":
+                args.extend(["--price", str(price)])
+            res = await self._run_upbit_cli("orders", "create", args=args, keys=client)
             if res and not self._is_error_response(res):
                 result = res
             else:
@@ -440,14 +485,12 @@ class ExchangeAdapter:
         candles = None
         if exchange == "upbit":
             if interval == "day":
-                path = "/v1/candles/days"
-                params = {"market": ticker, "count": str(count)}
-                candles = await self._request_upbit("GET", path, params=params)
+                args = ["--market", ticker, "--count", str(count)]
+                candles = await self._run_upbit_cli("candles", "list-days", args=args)
             else:
                 unit = interval if interval in ["1", "3", "5", "10", "15", "30", "60", "240"] else "60"
-                path = f"/v1/candles/minutes/{unit}"
-                params = {"market": ticker, "count": str(count)}
-                candles = await self._request_upbit("GET", path, params=params)
+                args = ["--market", ticker, "--unit", unit, "--count", str(count)]
+                candles = await self._run_upbit_cli("candles", "list-minutes", args=args)
         elif exchange == "bithumb":
             if interval == "day":
                 path = "/v1/candles/days"

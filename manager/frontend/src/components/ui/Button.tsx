@@ -23,7 +23,7 @@ export default function Button({
   children,
   ...props
 }: ButtonProps) {
-  const sz = size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-4 py-2 text-sm'
+  const sz = size === 'sm' ? 'px-2.5 py-1 text-app-caption' : 'px-4 py-2 text-app-body-sm'
   return (
     <button
       className={`inline-flex items-center gap-1.5 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${variants[variant]} ${sz} ${className}`}

@@ -17,7 +17,7 @@ export default function ProgressBar({ value, className = '' }: ProgressBarProps)
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="text-xs text-slate-500 dark:text-slate-400 w-9 text-right shrink-0">
+      <span className="w-9 shrink-0 text-right text-app-caption text-slate-500 dark:text-slate-400">
         {pct}%
       </span>
     </div>

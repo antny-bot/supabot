@@ -1,17 +1,106 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&family=Noto+Serif+KR:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --app-font-size: 16px;
+    --app-font-family: 'Noto Sans KR', Pretendard, Inter, system-ui, sans-serif;
+  }
+
+  html[data-font-family='noto-serif-kr'] {
+    --app-font-family: 'Noto Serif KR', Georgia, serif;
+  }
+
+  html[data-font-family='noto-sans-kr'] {
+    --app-font-family: 'Noto Sans KR', Pretendard, Inter, system-ui, sans-serif;
+  }
+
   html {
     -webkit-tap-highlight-color: transparent;
   }
   body {
     @apply bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 antialiased;
+    font-family: var(--app-font-family);
   }
 }
 
 @layer utilities {
+  .font-app-ui {
+    font-family: var(--app-font-family);
+  }
+
+  .text-app-caption {
+    font-size: max(12px, calc(var(--app-font-size) * 0.78));
+    line-height: 1.35;
+  }
+
+  .text-app-label {
+    font-size: max(12px, calc(var(--app-font-size) * 0.84));
+    line-height: 1.4;
+  }
+
+  .text-app-body-sm {
+    font-size: max(13px, calc(var(--app-font-size) * 0.92));
+    line-height: 1.45;
+  }
+
+  .text-app-body {
+    font-size: var(--app-font-size);
+    line-height: 1.5;
+  }
+
+  .text-app-title {
+    font-size: clamp(18px, calc(var(--app-font-size) * 1.18), 26px);
+    line-height: 1.35;
+  }
+
+  .text-app-title-lg {
+    font-size: clamp(20px, calc(var(--app-font-size) * 1.36), 34px);
+    line-height: 1.25;
+  }
+
+  .text-app-metric {
+    font-size: clamp(22px, calc(var(--app-font-size) * 1.5), 40px);
+    line-height: 1.1;
+  }
+
+  .font-app-ui .text-xs,
+  .font-app-ui .text-\[8px\],
+  .font-app-ui .text-\[9px\],
+  .font-app-ui .text-\[10px\],
+  .font-app-ui .text-\[11px\] {
+    font-size: max(12px, calc(var(--app-font-size) * 0.78));
+    line-height: 1.35;
+  }
+
+  .font-app-ui .text-sm {
+    font-size: max(13px, calc(var(--app-font-size) * 0.92));
+    line-height: 1.45;
+  }
+
+  .font-app-ui .text-lg {
+    font-size: clamp(18px, calc(var(--app-font-size) * 1.12), 26px);
+    line-height: 1.35;
+  }
+
+  .font-app-ui .text-xl {
+    font-size: clamp(20px, calc(var(--app-font-size) * 1.24), 30px);
+    line-height: 1.3;
+  }
+
+  .font-app-ui .text-2xl {
+    font-size: clamp(24px, calc(var(--app-font-size) * 1.5), 38px);
+    line-height: 1.15;
+  }
+
+  .font-app-ui .text-3xl {
+    font-size: clamp(28px, calc(var(--app-font-size) * 1.8), 46px);
+    line-height: 1.1;
+  }
+
   .safe-bottom {
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }

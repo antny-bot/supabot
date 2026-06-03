@@ -1,12 +1,18 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { CheckCircle } from 'lucide-react'
 import { fetchConfig, saveConfig } from '../api/config'
+import DisplaySettingsCard from '../components/settings/DisplaySettingsCard'
 import MfaSettingsCard from '../components/settings/MfaSettingsCard'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import PageHeader from '../components/ui/PageHeader'
 import Spinner from '../components/ui/Spinner'
 import { PAGE_META } from '../config/pageMeta'
 import { useAuthContext } from '../contexts/AuthContext'
+import {
+  DISPLAY_PREFERENCES_EVENT,
+  readDisplayPreferences,
+  type DisplayPreferences,
+} from '../lib/displayPreferences'
 import type { ConfigItem } from '../types'
 
 export default function Config() {
@@ -18,10 +24,23 @@ export default function Config() {
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [mfaEnabled, setMfaEnabled] = useState(user?.mfa_enabled ?? false)
+  const [displayPreferences, setDisplayPreferences] = useState<DisplayPreferences>(
+    () => readDisplayPreferences(),
+  )
 
   useEffect(() => {
     setMfaEnabled(user?.mfa_enabled ?? false)
   }, [user])
+
+  useEffect(() => {
+    function syncPreferences() {
+      setDisplayPreferences(readDisplayPreferences())
+    }
+
+    syncPreferences()
+    window.addEventListener(DISPLAY_PREFERENCES_EVENT, syncPreferences)
+    return () => window.removeEventListener(DISPLAY_PREFERENCES_EVENT, syncPreferences)
+  }, [])
 
   useEffect(() => {
     if (!user?.is_admin) {
@@ -62,7 +81,7 @@ export default function Config() {
     ? PAGE_META.config
     : {
         ...PAGE_META.config,
-        subtitle: '보안 강화를 위해 2차 인증을 설정하고 관리합니다.',
+        subtitle: '보안 강화와 표시 설정을 함께 관리합니다.',
       }
 
   return (
@@ -78,12 +97,20 @@ export default function Config() {
         </div>
       )}
 
+      <DisplaySettingsCard
+        preferences={displayPreferences}
+        onChange={setDisplayPreferences}
+      />
+
       <MfaSettingsCard initialEnabled={mfaEnabled} onStatusChange={setMfaEnabled} />
 
       {user?.is_admin && (
         <form onSubmit={handleSubmit} className="space-y-4">
           {config.map((item) => (
-            <div key={item.key} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <div
+              key={item.key}
+              className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+            >
               <label className="mb-1 block text-sm font-semibold text-slate-800 dark:text-slate-200">
                 {item.label}
               </label>
@@ -112,7 +139,7 @@ export default function Config() {
             disabled={saving}
             className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-60"
           >
-            {saving ? '저장 중…' : '설정 저장'}
+            {saving ? '저장 중...' : '설정 저장'}
           </button>
         </form>
       )}

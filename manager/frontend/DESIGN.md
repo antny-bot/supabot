@@ -53,6 +53,7 @@ Prefer these shared building blocks before inventing new page-specific UI:
 - `Button`
 - `ProgressBar`
 - `MfaSettingsCard`
+- `DisplaySettingsCard`
 
 If a new repeated pattern appears on 2 or more pages, extract it into `src/components/ui` or another shared component folder instead of duplicating markup.
 
@@ -69,13 +70,45 @@ If a new repeated pattern appears on 2 or more pages, extract it into `src/compo
 
 ## Typography
 
-- Page title: `text-xl font-bold`
-- Subtitle: `text-sm text-slate-500 dark:text-slate-400`
-- Section title inside cards: `text-sm font-semibold`
-- Table header: `text-xs`
-- Supporting metadata: `text-xs`
+- The manager font system is user-adjustable from `Config > 표시`.
+- Display preferences are local browser preferences, not shared backend settings.
+- Storage and root application live in `src/lib/displayPreferences.ts`.
+- The app root must use `font-app-ui` so display preferences affect the whole manager surface.
+- Font choices:
+  - `Noto Sans KR`
+  - `Noto Serif KR`
+- Font size range:
+  - `12px` to `22px`
+  - default `16px`
+
+Prefer these app typography tokens over page-local `text-*` sizing when touching manager UI:
+
+- Page title: `text-app-title font-bold`
+- Subtitle: `text-app-body-sm text-slate-500 dark:text-slate-400`
+- Section title inside cards: `text-app-body font-semibold`
+- Body copy: `text-app-body`
+- Compact body: `text-app-body-sm`
+- Labels and table headers: `text-app-label`
+- Supporting metadata and badges: `text-app-caption`
+- Large metric values: `text-app-metric`
+
+Implementation note:
+
+- `src/index.css` also remaps legacy `text-xs`, `text-sm`, `text-lg`, `text-xl`, `text-2xl`, and `text-3xl` inside `.font-app-ui` so older screens still respond to display settings.
+- This remap is a compatibility layer, not the preferred long-term authoring style.
 
 Keep titles and subtitles visually consistent across all pages.
+
+## Display Settings
+
+- The `표시` card belongs on `Config`.
+- It controls:
+  - manager-wide font family
+  - manager-wide font size slider
+- Changes should apply immediately while editing.
+- Changes must persist through refresh using `localStorage`.
+- Do not route display settings through `/api/sysconfig` or other shared backend config.
+- Numeric/code-like cells should keep `font-mono`; only the surrounding size scale should change.
 
 ## Actions
 
@@ -91,6 +124,7 @@ Keep titles and subtitles visually consistent across all pages.
 - Header icon, title, and subtitle must stay visible on mobile.
 - Page header actions may wrap below the title block on smaller screens.
 - Mobile bottom navigation labels may be shorter than desktop labels, but they must still reference the same page metadata and icon.
+- When increasing font size toward the top of the allowed range, navigation labels, filter chips, and dense tables must remain readable without breaking the information hierarchy.
 
 ## Maintenance Rule
 
@@ -99,4 +133,6 @@ Keep titles and subtitles visually consistent across all pages.
   - its page file to use `PageHeader`
   - navigation config if the page is user-visible in nav
 - Any change to page-level titles, subtitles, or representative icons must update `pageMeta.ts` first.
+- Any shared typography change must be reflected in `src/index.css` and this document together.
+- Any new display-preference control must stay frontend-local unless there is an explicit product decision to sync it server-side.
 - Reviewers should treat missing subtitles or page-local icon drift as design regressions.
