@@ -1,21 +1,53 @@
 # supabot-manager
 
-봇과 Supabase DB를 공유하는 관리 웹 대시보드 (FastAPI + Jinja2 + HTMX).
+봇과 Supabase DB를 공유하는 관리 웹 대시보드 (FastAPI + React/TypeScript).
 Synology Docker에 배포한다. 봇과 직접 의존하지 않으며, Telegram 알림이 필요할 때만
 봇의 `/internal/notify`(포트 8765)를 단방향 호출한다.
 
+프론트엔드는 `manager/frontend/`의 React SPA(Vite + Tailwind + Recharts)이며,
+`npm run build`로 빌드한 `dist/`를 FastAPI가 정적 파일로 서빙한다.
+
 ## 라우터 / 라우트
 
-`manager/backend/routers/` 6개 라우터로 구성된다.
+`manager/backend/routers/` 10개 라우터로 구성된다.
 
-| 라우터 | 라우트 |
-|--------|--------|
-| `dashboard` | `GET /admin/dashboard` |
-| `users` | `GET /admin/users`, `POST /admin/users/{id}/approve`, `POST /admin/users/{id}/deactivate`, `POST /admin/users/{id}/activate`, `POST /admin/users/{id}/block`, `DELETE /admin/users/{id}` |
-| `orders` | `GET /admin/orders` |
-| `trades` | `GET /admin/trades` |
-| `events` | `GET /admin/events` |
-| `sysconfig` | `GET /admin/config`, `POST /admin/config` |
+| 라우터 | 주요 라우트 | 비고 |
+|--------|------------|------|
+| `dashboard` | `GET /api/dashboard` | admin: 전체 통계 / user: 개인 통계 |
+| `users` | `GET /api/users`, approve/deactivate/activate/block/DELETE | admin only |
+| `orders` | `GET /api/orders` | status·exchange 필터, 페이지네이션 |
+| `trades` | `GET /api/trades` | 기간 필터, 거래소·전략별 집계 |
+| `events` | `GET /api/events`, PATCH read/archive | admin only |
+| `sysconfig` | `GET /api/sysconfig`, `POST /api/sysconfig` | admin only |
+| `reports` | `GET /api/reports/{pnl,strategy,roi-ranking,monthly,holdings,pairs,win-stats}` | PnL·보유자산·승률 분석 |
+| `templates` | `GET/POST/PATCH/DELETE /api/templates`, execute | 전략 템플릿 CRUD·실행 |
+| `mfa` | MFA 설정·검증 | — |
+| `analytics` | `GET /api/analytics/{overview,activity,commands,users,heatmap}` | admin only, 사용 분석 |
+
+### Analytics 엔드포인트 상세
+
+| 엔드포인트 | 반환 | 데이터 소스 |
+|-----------|------|------------|
+| `GET /api/analytics/overview` | DAU / WAU / MAU / 30일 명령 수 | daily + today raw |
+| `GET /api/analytics/activity?days=30` | 날짜별 명령 건수 배열 | daily + today raw |
+| `GET /api/analytics/commands?period=7d` | 명령어별 빈도 상위 15 | daily + today raw |
+| `GET /api/analytics/users?period=7d` | 유저별 명령 수·마지막 활동 | daily + today raw |
+| `GET /api/analytics/heatmap` | 7×24 요일×시간 matrix (최근 90일) | daily + today raw |
+
+Analytics는 `command_log_daily`(집계 요약)와 `command_logs`(오늘 raw)를 union해 항상 오늘 데이터까지 포함한다.
+
+### Analytics 데이터 파이프라인
+
+```
+[봇 command_logs]  ──→  Supabase pg_cron (매일 01:00 KST)
+  raw 로그 1일 보관        aggregate_command_logs_daily()
+                                    │
+                                    ▼
+                         [command_log_daily]  ← Analytics 읽기
+                           영구 집계 보관
+```
+
+pg_cron 활성화 및 스케줄 등록은 `shared/schema.sql` 하단 주석 참조.
 
 ## Synology 배포 순서
 
