@@ -214,13 +214,14 @@ services:
 - `src/core/user_manager.py`: 멀티유저 권한·설정 관리 (DB 우선 + 파일 폴백)
 - `src/core/secret_crypto.py`: 사용자 API 키 Fernet 암복호화
 - `src/core/trade_log.py` · `operational_events.py` · `metrics.py` · `bot_logger.py`: 체결/운영 로그(DB+파일 이중기록), 메트릭, 구조화 로깅
+- `src/core/command_log.py`: 명령어 사용 로그 (`command_logs` DB 단방향 기록 — Analytics 집계 소스)
 - `src/core/formatters.py` · `parsers.py` · `natural_language.py`: 메시지 포매팅, 입력 파싱, 자연어 전처리
 
 **공유 데이터 (`shared/`)**
-- `shared/schema.sql`: Supabase 테이블 정의 — `users`, `orders`, `trade_logs`, `operational_events`, `nl_logs`, `system_config` (RLS 활성)
+- `shared/schema.sql`: Supabase 테이블 정의 — `users`, `orders`, `trade_logs`, `operational_events`, `nl_logs`, `system_config`, `command_logs`(raw 1일), `command_log_daily`(Analytics 요약, pg_cron 집계) (RLS 활성)
 
 **관리 UI (`manager/`)**
-- FastAPI + Jinja2 + HTMX 웹 대시보드. Synology Docker 배포. 상세: [`manager/README.md`](manager/README.md)
+- FastAPI + React(TypeScript/Recharts) 웹 대시보드. Synology Docker 배포. 상세: [`manager/README.md`](manager/README.md)
 
 ### 데이터 저장 방식
 

@@ -22,6 +22,7 @@ Docker on Oracle Cloud VM. 실거래 경로 포함 — 변경 전 반드시 `AGE
 | `src/core/order_manager.py` (162줄) | 주문 상태 기계 (DB 우선 + 파일 폴백) | `docs/impl/order_manager.md` |
 | `src/core/indicators.py` (154줄) | RSI/MACD/볼린저/스토캐스틱 계산 (`ta`) | — |
 | `src/core/trade_log.py` (94줄) | 체결 로그 (DB + 파일 이중기록) | — |
+| `src/core/command_log.py` (22줄) | 명령어 사용 로그 (`command_logs` DB 단방향 기록, 파일 폴백 없음) | — |
 | `src/core/metrics.py` (85줄) | 인메모리 운영 메트릭 | — |
 | `src/core/operational_events.py` (85줄) | 운영 이벤트 (DB + 파일 이중기록, 마스킹) | — |
 | `src/core/secret_crypto.py` (52줄) | 사용자 키 Fernet 암복호화 (`enc:v1:`) | — |
@@ -39,9 +40,9 @@ FastAPI + Jinja2 + HTMX 웹 대시보드. Synology Docker 배포 (`ghcr.io/antny
 | `manager/backend/db.py` | Supabase REST 클라이언트 (= `src/core/db.py`) |
 | `manager/backend/auth.py` | Supabase Auth 이메일/비번 로그인 |
 | `manager/backend/bot_client.py` | 봇 `/internal/notify` 단방향 호출 |
-| `manager/backend/routers/` | dashboard, users, orders, trades, events, sysconfig |
+| `manager/backend/routers/` | dashboard, users, orders, trades, events, sysconfig, reports, templates, mfa, analytics |
 
-라우트: `/admin/dashboard`, `/admin/users`(+approve/deactivate/activate/block/DELETE), `/admin/orders`, `/admin/trades`, `/admin/events`, `/admin/config`. 상세: `manager/README.md`.
+라우트: `/admin/dashboard`, `/admin/users`(+approve/deactivate/activate/block/DELETE), `/admin/orders`, `/admin/trades`, `/admin/events`, `/admin/config`, `/analytics`(admin only). 상세: `manager/README.md`.
 
 ## 핵심 데이터 스키마
 
@@ -119,6 +120,8 @@ FastAPI + Jinja2 + HTMX 웹 대시보드. Synology Docker 배포 (`ghcr.io/antny
 | `operational_events` | 운영 이벤트 로그 (DB+파일 이중기록) |
 | `nl_logs` | 미처리 자연어 익명 로그 |
 | `system_config` | 폴링/분석 간격 등 시스템 설정. `_get_admin_prefs()`가 우선 읽음 (key: poll_active_interval=60, poll_no_order_interval=300, signal_analysis_interval=300) |
+| `command_logs` | 명령어 사용 raw 로그 (오늘치만 보관, pg_cron이 매일 집계 후 삭제) |
+| `command_log_daily` | 명령어 사용 일별 요약 (date·user·command·hour·weekday·count). Analytics 분석 원본. |
 
 - 모든 테이블 RLS 활성. `service_role` 키(봇/manager 서버용)는 RLS 우회.
 - `src/core/db.py`는 supabase-py 대신 requests로 REST 호출 (Oracle Cloud의 HTTP/2 ALPN 차단 회피).
