@@ -158,6 +158,6 @@ docker compose run --rm supabot python -m pytest tests/ -v
 | 텔레그램 커맨드 추가 | `docs/impl/main_handlers.md` |
 | KIS 장외/재주문 로직 | `docs/detail/kis_market_policy.md` |
 | Gemini 자연어 흐름 | `docs/detail/gemini_intent.md` |
-| Supabase 스키마/마이그레이션 | `shared/schema.sql`, `scripts/migrate_to_supabase.py` |
+| Supabase 스키마 | `shared/schema.sql` |
 | 관리 웹 UI (manager) | `manager/README.md` |
 | Docker/배포 | `docs/oracle-cloud-deploy-sequence.md` |
