@@ -10,6 +10,7 @@ import Templates from './pages/Templates'
 import Config from './pages/Config'
 import Reports from './pages/Reports'
 import Admin from './pages/Admin'
+import Analytics from './pages/Analytics'
 import { readDefaultPage } from './lib/navPreferences'
 
 function AdminRoute({ children }: { children: ReactNode }) {
@@ -36,6 +37,7 @@ export default function App() {
           <Route path="/templates" element={<Templates />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
+          <Route path="/analytics" element={<AdminRoute><Analytics /></AdminRoute>} />
           <Route path="/events" element={<Navigate to="/admin" replace />} />
           <Route path="/users" element={<Navigate to="/admin" replace />} />
           <Route path="/config" element={<Config />} />

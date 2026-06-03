@@ -56,6 +56,7 @@ from core.formatters import (
 )
 from core.bot_logger import get_logger
 from core.metrics import metrics
+from core.command_log import log_command
 
 _log = get_logger("main")
 
@@ -2228,6 +2229,12 @@ async def global_debug_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         _log.debug("Telegram message received", extra={"event": "debug_message", "user_id": str(update.effective_user.id), "length": len(update.message.text)})
     return
 
+# --- 명령어 사용 로깅 핸들러 (group=-1, fire-and-forget) ---
+async def _command_usage_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message and update.message.text and update.effective_user:
+        cmd = update.message.text.split()[0].lstrip("/").split("@")[0].lower()
+        log_command(str(update.effective_user.id), cmd, source="direct")
+
 @check_auth
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     await update.message.reply_text(build_help_message(user), parse_mode="HTML")
@@ -2261,6 +2268,7 @@ async def natural_language_command(update: Update, context: ContextTypes.DEFAULT
     text = (update.message.text or "").strip()
     if not text or text.startswith("/"):
         return
+    log_command(str(update.effective_user.id), "nl", source="nl")
     prefs = user.get("preferences", {})
 
     preprocessed = preprocess_natural_language_intent(text, user)
@@ -2350,6 +2358,9 @@ def main():
 
     # post_init을 통해 백그라운드 태스크를 봇 생명주기에 안전하게 편입시킵니다.
     application = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).post_shutdown(post_shutdown).build()
+
+    # 명령어 사용 로깅 (group=-1: 모든 command 핸들러보다 먼저 실행)
+    application.add_handler(MessageHandler(filters.COMMAND, _command_usage_handler), group=-1)
 
     # 운영 기본값은 민감정보 보호를 위해 텔레그램 본문 로깅을 끕니다.
     if DEBUG_TELEGRAM_MESSAGES:
