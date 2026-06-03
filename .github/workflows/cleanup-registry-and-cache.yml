@@ -20,6 +20,9 @@ permissions:
   packages: write
   actions: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   cleanup-ghcr:
     name: Cleanup GHCR (${{ matrix.package_name }})
