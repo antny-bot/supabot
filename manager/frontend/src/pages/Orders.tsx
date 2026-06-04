@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { fetchOrders } from '../api/orders'
 import type { OrdersData } from '../types'
 import Badge from '../components/ui/Badge'
+import DateRangePicker, { type DateRangeValue } from '../components/ui/DateRangePicker'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import FilterBar from '../components/ui/FilterBar'
 import PageHeader from '../components/ui/PageHeader'
@@ -29,24 +30,37 @@ const EXCHANGE_OPTIONS = [
   { value: 'kis', label: 'KIS' },
 ]
 
+const SIDE_OPTIONS = [
+  { value: '', label: '전체' },
+  { value: 'bid', label: '매수' },
+  { value: 'ask', label: '매도' },
+]
+
+const DEFAULT_RANGE: DateRangeValue = { mode: 'all', from: '', to: '' }
+
 export default function Orders() {
   const [data, setData] = useState<OrdersData | null>(null)
   const [status, setStatus] = useState('')
   const [exchange, setExchange] = useState('')
+  const [side, setSide] = useState('')
+  const [dateRange, setDateRange] = useState<DateRangeValue>(DEFAULT_RANGE)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const pageSize = 50
 
+  const dateFrom = dateRange.mode === 'custom' ? dateRange.from : undefined
+  const dateTo = dateRange.mode === 'custom' ? dateRange.to : undefined
+
   const loadData = useCallback((showSpinner = false, targetPage = page) => {
     if (showSpinner) setLoading(true)
-    fetchOrders(status, exchange, targetPage, pageSize)
+    fetchOrders(status, exchange, side, dateFrom, dateTo, targetPage, pageSize)
       .then(setData)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류가 발생했습니다.'))
       .finally(() => {
         if (showSpinner) setLoading(false)
       })
-  }, [exchange, page, status])
+  }, [exchange, page, side, status, dateFrom, dateTo])
 
   useEffect(() => {
     loadData(true, page)
@@ -59,6 +73,11 @@ export default function Orders() {
     setPage(1)
   }
 
+  const handleDateRangeChange = (range: DateRangeValue) => {
+    setDateRange(range)
+    setPage(1)
+  }
+
   const totalPages = data ? Math.ceil(data.total / pageSize) : 0
 
   return (
@@ -67,7 +86,11 @@ export default function Orders() {
 
       <div className="flex flex-col gap-2">
         <FilterBar options={STATUS_OPTIONS} value={status} onChange={handleFilterChange(setStatus)} />
-        <FilterBar options={EXCHANGE_OPTIONS} value={exchange} onChange={handleFilterChange(setExchange)} />
+        <div className="flex flex-wrap gap-2">
+          <FilterBar options={EXCHANGE_OPTIONS} value={exchange} onChange={handleFilterChange(setExchange)} />
+          <FilterBar options={SIDE_OPTIONS} value={side} onChange={handleFilterChange(setSide)} />
+        </div>
+        <DateRangePicker value={dateRange} onChange={handleDateRangeChange} />
       </div>
 
       {error && <ErrorBanner message={error} />}
@@ -84,7 +107,7 @@ export default function Orders() {
                     <th className="px-4 py-3 text-left font-medium">시간</th>
                     <th className="px-4 py-3 text-left font-medium">거래소</th>
                     <th className="px-4 py-3 text-left font-medium">종목</th>
-                    <th className="px-4 py-3 text-left font-medium">방향</th>
+                    <th className="px-4 py-3 text-left font-medium">주문유형</th>
                     <th className="px-4 py-3 text-left font-medium">전략</th>
                     <th className="px-4 py-3 text-right font-medium">가격</th>
                     <th className="px-4 py-3 text-right font-medium">수량</th>

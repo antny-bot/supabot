@@ -1,6 +1,6 @@
 import time
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
@@ -20,16 +20,27 @@ def _fmt_ts(ts) -> str:
         return "—"
 
 
+def _parse_date_range(date_from: str | None, date_to: str | None) -> tuple[float | None, float | None]:
+    ts_from = ts_to = None
+    if date_from:
+        ts_from = datetime.strptime(date_from, "%Y-%m-%d").timestamp()
+    if date_to:
+        ts_to = (datetime.strptime(date_to, "%Y-%m-%d") + timedelta(days=1)).timestamp()
+    return ts_from, ts_to
+
+
 @router.get("/api/trades")
 async def api_list_trades(
-    period: str = "7d", 
-    page: int = 1, 
-    page_size: int = 50, 
+    period: str = "7d",
+    date_from: str | None = None,
+    date_to: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
     user: dict = Depends(get_current_user)
 ):
     if period not in _PERIODS:
         period = "7d"
-    
+
     if page < 1: page = 1
     if page_size > 200: page_size = 200
 
@@ -41,12 +52,21 @@ async def api_list_trades(
 
     try:
         db = get_db()
-        # 전체 카운트를 위해 count='exact' 사용
         q = db.table("trade_logs").select("*", count="exact").order("executed_at", desc=True)
-        
-        window = _PERIODS[period]
-        if window:
-            q._params["executed_at"] = f"gte.{time.time() - window}"
+
+        if date_from or date_to:
+            ts_from, ts_to = _parse_date_range(date_from, date_to)
+            date_conds = []
+            if ts_from is not None:
+                date_conds.append(f"executed_at.gte.{ts_from}")
+            if ts_to is not None:
+                date_conds.append(f"executed_at.lte.{ts_to}")
+            if date_conds:
+                q._params["and"] = f"({','.join(date_conds)})"
+        else:
+            window = _PERIODS[period]
+            if window:
+                q._params["executed_at"] = f"gte.{time.time() - window}"
         if not is_admin:
             q._params["user_id"] = f"eq.{bot_user_id}"
             

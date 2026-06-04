@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
@@ -27,10 +27,22 @@ def _fmt_ts(ts) -> str:
         return "—"
 
 
+def _parse_date_range(date_from: str | None, date_to: str | None) -> tuple[float | None, float | None]:
+    ts_from = ts_to = None
+    if date_from:
+        ts_from = datetime.strptime(date_from, "%Y-%m-%d").timestamp()
+    if date_to:
+        ts_to = (datetime.strptime(date_to, "%Y-%m-%d") + timedelta(days=1)).timestamp()
+    return ts_from, ts_to
+
+
 @router.get("/api/orders")
 async def api_list_orders(
-    status: str | None = None, 
+    status: str | None = None,
     exchange: str | None = None,
+    side: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
     page: int = 1,
     page_size: int = 50,
     user: dict = Depends(get_current_user)
@@ -53,9 +65,19 @@ async def api_list_orders(
             q._params["status"] = f"eq.{status}"
         if exchange:
             q._params["exchange"] = f"eq.{exchange}"
+        if side:
+            q._params["side"] = f"eq.{side}"
+        ts_from, ts_to = _parse_date_range(date_from, date_to)
+        date_conds = []
+        if ts_from is not None:
+            date_conds.append(f"created_at.gte.{ts_from}")
+        if ts_to is not None:
+            date_conds.append(f"created_at.lte.{ts_to}")
+        if date_conds:
+            q._params["and"] = f"({','.join(date_conds)})"
         if not is_admin:
             q._params["user_id"] = f"eq.{bot_user_id}"
-            
+
         offset = (page - 1) * page_size
         q._params["limit"] = page_size
         q._params["offset"] = offset

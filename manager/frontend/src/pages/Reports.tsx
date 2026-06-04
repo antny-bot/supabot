@@ -23,19 +23,12 @@ import type {
   WinStatsReport,
 } from '../types'
 import Badge from '../components/ui/Badge'
-import FilterBar from '../components/ui/FilterBar'
+import DateRangePicker, { type DateRangeValue } from '../components/ui/DateRangePicker'
 import ProgressBar from '../components/ui/ProgressBar'
 import Spinner from '../components/ui/Spinner'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import PageHeader from '../components/ui/PageHeader'
 import { PAGE_META } from '../config/pageMeta'
-
-const PERIOD_OPTIONS = [
-  { value: '1d',  label: '1일' },
-  { value: '7d',  label: '7일' },
-  { value: '30d', label: '30일' },
-  { value: 'all', label: '전체' },
-]
 
 const REPORT_TABS = [
   { id: 'holdings', label: '현재 투자중' },
@@ -70,7 +63,7 @@ const MEDALS = ['🥇', '🥈', '🥉']
 
 // ── PnlSection ────────────────────────────────────────────────────────────
 
-function PnlSection({ period }: { period: string }) {
+function PnlSection({ dateRange }: { dateRange: DateRangeValue }) {
   const [data, setData] = useState<PnlReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -78,11 +71,11 @@ function PnlSection({ period }: { period: string }) {
   useEffect(() => {
     setLoading(true)
     setError(null)
-    fetchReportPnl(period)
+    fetchReportPnl(dateRange)
       .then(setData)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류 발생'))
       .finally(() => setLoading(false))
-  }, [period])
+  }, [dateRange])
 
   if (loading) return <Spinner />
   if (error) return <ErrorBanner message={error} />
@@ -156,7 +149,7 @@ function PnlSection({ period }: { period: string }) {
 
 // ── StrategySection ───────────────────────────────────────────────────────
 
-function StrategySection({ period }: { period: string }) {
+function StrategySection({ dateRange }: { dateRange: DateRangeValue }) {
   const [data, setData] = useState<StrategyReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -164,11 +157,11 @@ function StrategySection({ period }: { period: string }) {
   useEffect(() => {
     setLoading(true)
     setError(null)
-    fetchReportStrategy(period)
+    fetchReportStrategy(dateRange)
       .then(setData)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류 발생'))
       .finally(() => setLoading(false))
-  }, [period])
+  }, [dateRange])
 
   if (loading) return <Spinner />
   if (error) return <ErrorBanner message={error} />
@@ -282,7 +275,7 @@ function StrategySection({ period }: { period: string }) {
 
 // ── RoiRankingSection ─────────────────────────────────────────────────────
 
-function RoiRankingSection({ period }: { period: string }) {
+function RoiRankingSection({ dateRange }: { dateRange: DateRangeValue }) {
   const [data, setData] = useState<RoiRankingReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -290,11 +283,11 @@ function RoiRankingSection({ period }: { period: string }) {
   useEffect(() => {
     setLoading(true)
     setError(null)
-    fetchReportRoiRanking(period)
+    fetchReportRoiRanking(dateRange)
       .then(setData)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류 발생'))
       .finally(() => setLoading(false))
-  }, [period])
+  }, [dateRange])
 
   if (loading) return <Spinner />
   if (error) return <ErrorBanner message={error} />
@@ -588,7 +581,7 @@ function HoldingsSection() {
 
 // ── PairsSection ──────────────────────────────────────────────────────────
 
-function PairsSection({ period }: { period: string }) {
+function PairsSection({ dateRange }: { dateRange: DateRangeValue }) {
   const [data, setData] = useState<PairsReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -596,11 +589,11 @@ function PairsSection({ period }: { period: string }) {
   useEffect(() => {
     setLoading(true)
     setError(null)
-    fetchReportPairs(period)
+    fetchReportPairs(dateRange)
       .then(setData)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류 발생'))
       .finally(() => setLoading(false))
-  }, [period])
+  }, [dateRange])
 
   if (loading) return <Spinner />
   if (error) return <ErrorBanner message={error} />
@@ -654,7 +647,7 @@ function PairsSection({ period }: { period: string }) {
 
 // ── WinStatsSection ───────────────────────────────────────────────────────
 
-function WinStatsSection({ period }: { period: string }) {
+function WinStatsSection({ dateRange }: { dateRange: DateRangeValue }) {
   const [data, setData] = useState<WinStatsReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -662,11 +655,11 @@ function WinStatsSection({ period }: { period: string }) {
   useEffect(() => {
     setLoading(true)
     setError(null)
-    fetchReportWinStats(period)
+    fetchReportWinStats(dateRange)
       .then(setData)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류 발생'))
       .finally(() => setLoading(false))
-  }, [period])
+  }, [dateRange])
 
   if (loading) return <Spinner />
   if (error) return <ErrorBanner message={error} />
@@ -777,20 +770,17 @@ function WinStatsSection({ period }: { period: string }) {
 
 // ── Reports (main page) ───────────────────────────────────────────────────
 
+const PERIOD_SENSITIVE_TABS = new Set(['pnl', 'strategy', 'ranking', 'pairs', 'winstats'])
+
+const DEFAULT_RANGE: DateRangeValue = { mode: '30d', from: '', to: '' }
+
 export default function Reports() {
   const [activeTab, setActiveTab] = useState('holdings')
-  const [period, setPeriod] = useState('30d')
+  const [dateRange, setDateRange] = useState<DateRangeValue>(DEFAULT_RANGE)
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        {...PAGE_META.reports}
-        actions={
-          activeTab !== 'monthly' && activeTab !== 'holdings'
-            ? <FilterBar options={PERIOD_OPTIONS} value={period} onChange={setPeriod} />
-            : undefined
-        }
-      />
+      <PageHeader {...PAGE_META.reports} />
 
       {/* Tab strip — desktop: underline tabs / mobile: horizontal scroll dial */}
       <div className="md:border-b md:border-slate-200 md:dark:border-slate-800">
@@ -828,15 +818,20 @@ export default function Reports() {
         </div>
       </div>
 
+      {/* 기간 선택기 — 탭 아래, 기간 민감 탭에만 표시 */}
+      {PERIOD_SENSITIVE_TABS.has(activeTab) && (
+        <DateRangePicker value={dateRange} onChange={setDateRange} />
+      )}
+
       {/* Tab content — lazy mount */}
       <div>
-        {activeTab === 'pnl'      && <PnlSection period={period} />}
-        {activeTab === 'strategy' && <StrategySection period={period} />}
-        {activeTab === 'ranking'  && <RoiRankingSection period={period} />}
+        {activeTab === 'pnl'      && <PnlSection dateRange={dateRange} />}
+        {activeTab === 'strategy' && <StrategySection dateRange={dateRange} />}
+        {activeTab === 'ranking'  && <RoiRankingSection dateRange={dateRange} />}
         {activeTab === 'monthly'  && <MonthlySection />}
         {activeTab === 'holdings' && <HoldingsSection />}
-        {activeTab === 'pairs'    && <PairsSection period={period} />}
-        {activeTab === 'winstats' && <WinStatsSection period={period} />}
+        {activeTab === 'pairs'    && <PairsSection dateRange={dateRange} />}
+        {activeTab === 'winstats' && <WinStatsSection dateRange={dateRange} />}
       </div>
     </div>
   )
