@@ -198,11 +198,29 @@ CMD_HELP = {
         "🤖 <b>/rsitrade 상세 가이드</b>\n\n"
         "<b>기능:</b> RSI 목표 구간을 기준으로 분할 매수하고, 체결 시 RSI 매도 목표 주문을 예약합니다.\n"
         "<b>구문:</b> <code>/rsitrade [거래소] [종목] [매수RSI] [매도RSI] [횟수] [예산]</code>\n\n"
-        "<b>기본값:</b> 종목만 입력하면 <code>/config</code>에 저장된 매수RSI, 매도RSI, 횟수, 예산을 사용합니다.\n\n"
+        "<b>기본값:</b> 종목만 입력하면 <code>/config</code>에 저장된 매수RSI, 매도RSI, 횟수, 예산을 사용합니다.\n"
+        "<b>매수만:</b> 매도RSI 자리에 <code>-</code>를 입력하면 자동 매도 예약 없이 매수만 진행합니다.\n\n"
         "<b>예시:</b>\n"
         "1. <code>/rsitrade BTC</code>\n"
         "2. <code>/rsitrade 빗썸 BTC</code>\n"
-        "3. <code>/rsitrade BTC 20-30 60-75 7 200만</code>"
+        "3. <code>/rsitrade BTC 20-30 60-75 7 200만</code>\n"
+        "4. <code>/rsitrade BTC 20-30 - 5 100만</code>  (매수만)"
+    ),
+    "gridrsi": (
+        "🤖 <b>/gridrsi 상세 가이드</b>\n\n"
+        "<b>기능:</b> RSI 목표 구간으로 분할 매수합니다 (<code>/rsitrade</code>의 alias). 매도RSI 지정 시 체결 후 자동 익절 예약.\n"
+        "<b>구문:</b> <code>/gridrsi [거래소] [종목] [매수RSI] [매도RSI] [횟수] [예산]</code>\n\n"
+        "<b>예시:</b>\n"
+        "1. <code>/gridrsi BTC 25-30 65-75 5 100만</code>\n"
+        "2. <code>/gridrsi ETH 20-30 - 5 100만</code>  (매도 없이 매수만)"
+    ),
+    "sgridrsi": (
+        "💰 <b>/sgridrsi 상세 가이드</b>\n\n"
+        "<b>기능:</b> 보유 코인을 RSI 목표 구간에서 분할 매도합니다. 매수 없이 직접 매도 주문만 생성합니다.\n"
+        "<b>구문:</b> <code>/sgridrsi [거래소] [종목] [RSI구간] [횟수] [예산]</code>\n\n"
+        "<b>예시:</b>\n"
+        "1. <code>/sgridrsi ETH 80-90 10 100만</code>\n"
+        "2. <code>/sgridrsi 빗썸 ETH 80-90 10 100만</code>"
     ),
     "info": (
         "ℹ️ <b>/info 상세 가이드</b>\n\n"
@@ -343,9 +361,10 @@ def build_help_message(user, bot_name=BOT_DISPLAY_NAME):
         ]),
         "",
         format_section("📈 자동 거래 및 순환 매매", [
-            f"<code>/rsitrade</code> [종목] [매수RSI] [매도RSI] [횟수] [예산]",
-            f"<code>/grid</code> [종목] [시작가] [종료가] [횟수] [예산] — 분할 매수",
-            f"<code>/sgrid</code> [종목] [시작가] [종료가] [횟수] [수량] — 분할 매도",
+            f"<code>/rsitrade</code> [종목] [매수RSI] [매도RSI] [횟수] [예산] — RSI 분할 매수+자동매도",
+            f"<code>/sgridrsi</code> [종목] [RSI구간] [횟수] [예산] — RSI 분할 매도 (보유 코인 직접 매도)",
+            f"<code>/grid</code> [종목] [시작가] [종료가] [횟수] [예산] — 가격 분할 매수",
+            f"<code>/sgrid</code> [종목] [시작가] [종료가] [횟수] [수량] — 가격 분할 매도",
             f"<code>/buy</code> / <code>/sell</code> [종목] [가격] [수량] — 단일 지정가 주문",
             f"<code>/orders</code> — 미체결 주문 및 추적 목록",
             f"<code>/cancel</code> [종목] — 해당 종목 주문 일괄 취소",

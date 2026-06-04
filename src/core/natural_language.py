@@ -14,6 +14,7 @@ NL_PREPROCESS_HIT_PATH = os.getenv("NL_PREPROCESS_HIT_PATH", "data/nl_preprocess
 NL_UNMATCHED_LOG_MAX_LINES = 500
 
 RSI_SPLIT_HINTS = ("거미줄", "분할", "나눠", "나누", "쪼개")
+SELL_INTENT_HINTS = ("매도", "팔아", "팔다", "팔래", "팔고")
 ORDER_STATUS_HINTS = (
     "주문대기",
     "대기중인주문",
@@ -247,9 +248,10 @@ def normalize_natural_language_intent(text, intent, user):
         return {**intent, "action": "status", "question": None}
 
     if _looks_like_rsi_split_request(text) and rsi_range and amount and count and ticker:
+        is_sell = any(hint in text for hint in SELL_INTENT_HINTS)
         return {
             **intent,
-            "action": "rsitrade",
+            "action": "sgridrsi" if is_sell else "rsitrade",
             "exchange": exchange,
             "ticker": ticker,
             "price": None,
@@ -258,8 +260,8 @@ def normalize_natural_language_intent(text, intent, user):
             "start_price": None,
             "end_price": None,
             "count": count,
-            "buy_rsi_range": rsi_range,
-            "sell_rsi_range": intent.get("sell_rsi_range"),
+            "buy_rsi_range": None if is_sell else rsi_range,
+            "sell_rsi_range": rsi_range if is_sell else intent.get("sell_rsi_range"),
             "config_key": None,
             "config_value": None,
             "question": None,

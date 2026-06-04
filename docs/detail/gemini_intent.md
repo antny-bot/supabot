@@ -28,6 +28,8 @@
 
 `취소`, `중지`, `매수`, `매도`, `사줘`, `설정해`, `변경`, `켜줘`, `꺼줘` 같은 변경성 표현은 전처리하지 않는다. 해당 문장은 Gemini와 확인 버튼 흐름으로 넘긴다.
 
+`normalize_natural_language_intent()`는 Gemini가 반환한 intent를 후처리한다. RSI + 분할 + 매도 힌트(`매도`, `팔아`, `팔다` 등)가 모두 감지되면 action을 `sgridrsi`로 설정하고 RSI 구간을 `sell_rsi_range`에 넣는다. 매도 힌트 없이 RSI + 분할만 있으면 기존대로 `rsitrade` + `buy_rsi_range` 처리한다.
+
 전처리로 처리된 문장은 Gemini를 호출하지 않고 로그에도 남기지 않는다.
 다만 action 단위 hit 카운터는 `data/nl_preprocess_hits.json`에 저장한다. 원문, 종목, 거래소명은 저장하지 않는다.
 `비트 봐줘`처럼 종목은 있으나 조회 의도가 불명확한 문장은 Gemini 호출 전에 시세/자산/전략 상태 중 무엇을 볼지 되묻는다.
@@ -40,7 +42,7 @@
 You parse Korean Telegram trading bot messages into one JSON object only.
 Do not execute anything. Use null for unknown fields.
 Supported actions: asset, price, orders, status, config_view, history,
-  buy, sell, grid, sgrid, rsitrade, watch, unwatch, config_set, cancel, help, clarify.
+  buy, sell, grid, sgrid, rsitrade, gridrsi, sgridrsi, watch, unwatch, config_set, cancel, help, clarify.
 Pending/reserved/tracked strategy orders => status. Real open/unfilled exchange orders => orders.
 Schema: { "action": str, "exchange": str|null, "ticker": str|null,
           "price": num|null, "volume": num|null, "amount_krw": num|null,
@@ -66,8 +68,8 @@ temperature=0.1, `response_mime_type="application/json"`.
     "start_price":    float|None,
     "end_price":      float|None,
     "count":          int|None,
-    "buy_rsi_range":  str|None,    # "25-30"
-    "sell_rsi_range": str|None,    # "65-75"
+    "buy_rsi_range":  str|None,    # "25-30" — rsitrade/gridrsi 매수 RSI 구간
+    "sell_rsi_range": str|None,    # "65-75" — sgridrsi 매도 RSI 구간 (rsitrade에서는 자동매도 목표)
     "config_key":     str|None,
     "config_value":   str|None,
     "question":       str|None,    # action=="clarify" 시 Gemini의 질문
@@ -85,7 +87,7 @@ IMMEDIATE = {"asset", "price", "orders", "status", "config_view", "history", "he
 | 구분 | 액션 목록 | 처리 |
 |------|-----------|------|
 | **읽기 (즉시)** | asset, price, orders, status, config_view, history, help | `execute_query_intent` |
-| **쓰기 (확인)** | buy, sell, grid, sgrid, rsitrade, watch, unwatch, config_set, cancel | 확인 버튼 표시 후 실행 |
+| **쓰기 (확인)** | buy, sell, grid, sgrid, rsitrade, gridrsi, sgridrsi, watch, unwatch, config_set, cancel | 확인 버튼 표시 후 실행 |
 
 ## 확인 플로우
 
