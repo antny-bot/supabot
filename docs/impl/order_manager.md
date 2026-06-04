@@ -37,9 +37,9 @@
 manager.add_order(
     user_id, exchange, ticker, uuid, price, volume,
     side="bid",           # "bid" | "ask"
-    strategy="manual",    # manual | grid | sgrid | rsitrade | rsitrade_sell
-    target_rsi=None,      # float, rsitrade 레그 전용
-    linked_to=None,       # rsitrade 매수 레그: 매도 목표 RSI(float)
+    strategy="manual",    # manual | grid | sgrid | rsitrade | rsitrade_sell | gridrsi | sgridrsi
+    target_rsi=None,      # float, rsitrade/gridrsi/sgridrsi 레그 전용
+    linked_to=None,       # rsitrade/gridrsi 매수 레그: 매도 목표 RSI(float). sgridrsi는 None
     status="wait"
 )
 
@@ -60,7 +60,7 @@ manager.get_strategy_orders(user_id, strategy)
 | 필드 | 설명 |
 |------|------|
 | `filled_volume` | 확인된 체결량. exchange의 `executed_volume`과 비교해 새 부분체결 감지 |
-| `linked_to` | rsitrade 매수 레그: 매도 목표 RSI(float). 체결 시 `sync_orders`가 읽어 매도가 계산 |
+| `linked_to` | rsitrade/gridrsi 매수 레그: 매도 목표 RSI(float). 체결 시 `sync_orders`가 읽어 매도가 계산. sgridrsi는 None |
 | `reorder_of` | `replace_order_uuid` 호출 시 이전 uuid 저장 (감사 체인) |
 | `next_check_at` | Unix timestamp; sync 루프가 이 시각까지 해당 주문 건너뜀 |
 

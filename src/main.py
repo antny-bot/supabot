@@ -82,7 +82,7 @@ _order_wake_event: asyncio.Event = None  # post_init에서 초기화
 _pending_nl_intents = {}
 _pending_manual_orders = {}
 MANUAL_ORDER_TTL_SECONDS = 600
-RSI_GRID_COMMAND_ALIASES = ("rsigrid", "rsitrade")
+RSI_GRID_COMMAND_ALIASES = ("rsigrid", "rsitrade", "gridrsi")
 ACCOUNT_COMMAND_ALIASES = ("whomai", "me")
 DEFAULT_BOT_COMMANDS = [
     # 시스템
@@ -226,6 +226,8 @@ LLM_COMMAND_CATALOG = "\n".join([
     "grid req=ticker,start_price,end_price,count,amount_krw opt=exchange run=confirm ex=grid buy btc 90m-95m 5 1m",
     "sgrid req=ticker,start_price,end_price,count,volume opt=exchange run=confirm ex=grid sell btc 100m-110m 5 qty 0.1",
     "rsitrade req=ticker,amount_krw opt=exchange,buy_rsi_range,sell_rsi_range,count run=confirm ex=btc rsi 25-30 budget 1m",
+    "gridrsi req=ticker,amount_krw opt=exchange,buy_rsi_range,sell_rsi_range,count run=confirm ex=btc rsi 25-30 100만 5분할",
+    "sgridrsi req=ticker,amount_krw opt=exchange,sell_rsi_range,count run=confirm ex=eth rsi 80-90 100만 10개 매도",
     "watch req=ticker opt=exchange run=confirm ex=watch btc",
     "unwatch req=ticker opt=exchange run=confirm ex=stop watching btc",
     "config_set req=config_key,config_value opt=- run=confirm ex=set max order 500000",
@@ -242,9 +244,10 @@ def _build_llm_prompt(user_text, user):
         "Missing required fields => clarify.\n"
         "Orders/cancel/config/watch need user confirm.\n"
         "Pending/reserved/tracked strategy orders => status. Real open/unfilled exchange orders => orders.\n"
-        "RSI + split/grid/거미줄 + budget => rsitrade.\n"
-        "grid is price-range only, not RSI.\n"
-        "Missing sell_rsi_range => null; server uses default.\n"
+        "매도/팔아 + RSI + 분할 => sgridrsi (sell_rsi_range only, buy_rsi_range=null).\n"
+        "매수/사줘 + RSI + 분할, or RSI + 분할 (no direction) => rsitrade (buy_rsi_range).\n"
+        "grid/gridrsi is price-range; RSI range goes to gridrsi/sgridrsi not grid.\n"
+        "Missing sell_rsi_range for rsitrade/gridrsi => null; server uses default.\n"
         "Schema: {\"action\": string, \"exchange\": string|null, \"ticker\": string|null, "
         "\"price\": number|null, \"volume\": number|null, \"amount_krw\": number|null, "
         "\"start_price\": number|null, \"end_price\": number|null, \"count\": integer|null, "
@@ -301,9 +304,16 @@ def _intent_args(intent, user):
         for key in ["start_price", "end_price", "count", "volume"]:
             if intent.get(key) is not None:
                 args.append(str(intent[key]))
-    elif action == "rsitrade":
+    elif action in ("rsitrade", "gridrsi"):
         if intent.get("buy_rsi_range"):
             args.append(str(intent["buy_rsi_range"]))
+        if intent.get("sell_rsi_range"):
+            args.append(str(intent["sell_rsi_range"]))
+        if intent.get("count") is not None:
+            args.append(str(intent["count"]))
+        if intent.get("amount_krw") is not None:
+            args.append(str(intent["amount_krw"]))
+    elif action == "sgridrsi":
         if intent.get("sell_rsi_range"):
             args.append(str(intent["sell_rsi_range"]))
         if intent.get("count") is not None:
@@ -321,7 +331,7 @@ def _intent_summary(intent):
     action = intent.get("action")
     if action == "config_set":
         return f"설정 변경: {intent.get('config_key')} = {intent.get('config_value')}"
-    if action == "rsitrade":
+    if action in ("rsitrade", "gridrsi"):
         exchange = intent.get("exchange") or "upbit"
         _, ticker = parse_exchange_and_ticker([exchange, intent.get("ticker")] if intent.get("ticker") else [exchange], exchange)
         buy_range = intent.get("buy_rsi_range") or "기본값"
@@ -334,6 +344,18 @@ def _intent_summary(intent):
             f"매수 RSI {buy_range} / 매도 RSI {sell_range} / "
             f"{count}분할 / 총 {amount_text}"
         )
+    if action == "sgridrsi":
+        exchange = intent.get("exchange") or "upbit"
+        _, ticker = parse_exchange_and_ticker([exchange, intent.get("ticker")] if intent.get("ticker") else [exchange], exchange)
+        sell_range = intent.get("sell_rsi_range") or "기본값"
+        count = intent.get("count") or "기본"
+        amount = intent.get("amount_krw")
+        amount_text = f"{float(amount):,.0f}원" if amount is not None else "기본 예산"
+        return (
+            f"{exchange_display_name(exchange)} {ticker} / "
+            f"매도 RSI {sell_range} / "
+            f"{count}분할 / 총 {amount_text}"
+        )
     pieces = [str(action or "unknown")]
     for key in ["exchange", "ticker", "price", "volume", "amount_krw", "start_price", "end_price", "count", "buy_rsi_range", "sell_rsi_range"]:
         if intent.get(key) is not None:
@@ -342,8 +364,10 @@ def _intent_summary(intent):
 
 def _clarify_message(text, intent):
     action = intent.get("action") if isinstance(intent, dict) else None
-    if action == "rsitrade" or _looks_like_rsi_split_request(text):
+    if action in ("rsitrade", "gridrsi") or _looks_like_rsi_split_request(text):
         return "⚠️ RSI 전략은 종목, 매수 RSI, 예산을 확인할 수 있어야 합니다."
+    if action == "sgridrsi":
+        return "⚠️ RSI 매도 전략은 종목, 매도 RSI, 예산을 확인할 수 있어야 합니다."
     return "⚠️ 요청을 명령으로 해석하지 못했습니다. 종목, 거래소, 가격/수량을 더 구체적으로 입력해 주세요."
 
 async def execute_query_intent(update, context, user, intent):
@@ -466,6 +490,38 @@ async def execute_confirmed_intent(query, context, user, intent):
         await context.bot.send_message(chat_id=user_id, text=f"✅ `{ticker}` 자연어 RSI 전략 가동 완료! ({success}/{count}건 예약됨)")
         return
 
+    if action == "sgridrsi":
+        if exchange == "kis" and get_user_rsi_interval(user) != "day":
+            await query.edit_message_text(_KIS_RSI_MINUTE_ERROR)
+            return
+        sell_range = intent.get("sell_rsi_range") or user["preferences"].get("rsi_sell_range", "65-75")
+        count = int(intent.get("count") or user["preferences"].get("rsi_order_count", 5))
+        budget = float(intent.get("amount_krw") or user["preferences"].get("rsi_budget_krw") or 0)
+        if budget <= 0:
+            await query.edit_message_text("❌ RSI 매도 전략 예산을 확인할 수 없어 주문을 중단합니다.")
+            return
+        await query.edit_message_text("🚀 자연어 RSI 매도 전략 주문을 전송 중입니다...")
+        s_start, s_end = parse_rsi_range(sell_range)
+        budget_per_order = budget / count
+        success = 0
+        for i in range(count):
+            target_rsi = interpolate_range(s_start, s_end, i, count)
+            price = await signal_engine.get_price_by_rsi(exchange, ticker, target_rsi, side="ask", interval=get_user_rsi_interval(user), user_id=user_id)
+            if not price:
+                continue
+            volume = round(budget_per_order / price, 4)
+            if exchange == "kis":
+                volume = int(volume)
+            if volume <= 0:
+                continue
+            res = await exchange_adapter.create_order(user_id, exchange, ticker, "ask", price, volume)
+            if res and "uuid" in res:
+                order_manager.add_order(user_id, exchange, ticker, res["uuid"], price, volume, side="ask", strategy="sgridrsi", target_rsi=target_rsi, linked_to=None)
+                success += 1
+            await asyncio.sleep(0.2)
+        await context.bot.send_message(chat_id=user_id, text=f"✅ `{ticker}` 자연어 RSI 매도 전략 가동 완료! ({success}/{count}건 예약됨)")
+        return
+
     await query.edit_message_text("⚠️ 이 자연어 요청은 아직 실행할 수 없습니다. /help에서 지원 명령을 확인해 주세요.")
 
 async def build_rsi_price_points(user_id, user, exchange, ticker, buy_rsi_range, count):
@@ -485,16 +541,53 @@ async def build_rsi_price_points(user_id, user, exchange, ticker, buy_rsi_range,
             points.append((target_rsi, price))
     return points
 
+async def build_rsi_sell_price_points(user_id, user, exchange, ticker, sell_rsi_range, count):
+    s_start, s_end = parse_rsi_range(sell_rsi_range)
+    points = []
+    for i in range(int(count)):
+        target_rsi = interpolate_range(s_start, s_end, i, int(count))
+        price = await signal_engine.get_price_by_rsi(
+            exchange,
+            ticker,
+            target_rsi,
+            side="ask",
+            interval=get_user_rsi_interval(user),
+            user_id=user_id,
+        )
+        if price:
+            points.append((target_rsi, price))
+    return points
+
 async def build_rsigrid_confirm_summary(user_id, user, intent):
+    action = intent.get("action")
     exchange = intent.get("exchange") or user.get("preferences", {}).get("default_exchange", "upbit")
     _, ticker = parse_exchange_and_ticker([exchange, intent.get("ticker")] if intent.get("ticker") else [exchange], exchange)
-    buy_range = intent.get("buy_rsi_range") or user["preferences"].get("rsi_buy_range", "25-30")
-    sell_range = intent.get("sell_rsi_range") or user["preferences"].get("rsi_sell_range", "65-75")
     count = int(intent.get("count") or user["preferences"].get("rsi_order_count", 5))
     budget = float(intent.get("amount_krw") or user["preferences"].get("rsi_budget_krw") or 0)
     if not ticker or budget <= 0 or count <= 0:
         return None
 
+    if action == "sgridrsi":
+        sell_range = intent.get("sell_rsi_range") or user["preferences"].get("rsi_sell_range", "65-75")
+        rsi_prices = await build_rsi_sell_price_points(user_id, user, exchange, ticker, sell_range, count)
+        if not rsi_prices:
+            return None
+        preview_text = "\n".join(build_rsi_preview_lines(ticker, rsi_prices, budget, count))
+        return (
+            f"💰 RSI 매도 전략 확인\n\n"
+            f"전략 설정\n"
+            f"- 거래소: {exchange_display_name(exchange)}\n"
+            f"- 종목: {ticker}\n"
+            f"- 매도 RSI: {sell_range}\n"
+            f"- 총예산: {budget:,.0f}원\n"
+            f"- 분할: {count}개\n\n"
+            f"예상 주문\n{preview_text}\n\n"
+            f"실행 시점에 가격은 다시 계산될 수 있습니다.\n"
+            f"위 내용으로 실행할까요?"
+        )
+
+    buy_range = intent.get("buy_rsi_range") or user["preferences"].get("rsi_buy_range", "25-30")
+    sell_range = intent.get("sell_rsi_range") or user["preferences"].get("rsi_sell_range", "65-75")
     rsi_prices = await build_rsi_price_points(user_id, user, exchange, ticker, buy_range, count)
     if not rsi_prices:
         return None
@@ -1670,7 +1763,8 @@ async def rsitrade_command(update: Update, context: ContextTypes.DEFAULT_TYPE, u
     try:
         preferences = user["preferences"]
         buy_rsi_range = args[offset] if len(args) > offset else preferences.get("rsi_buy_range", "25-30")
-        sell_rsi_range = args[offset+1] if len(args) > offset + 1 else preferences.get("rsi_sell_range", "65-75")
+        _sell_arg = args[offset+1] if len(args) > offset + 1 else None
+        sell_rsi_range = None if _sell_arg in ("-", "없음", "none") else (_sell_arg or preferences.get("rsi_sell_range", "65-75"))
         count = int(args[offset+2]) if len(args) > offset + 2 else int(preferences.get("rsi_order_count", 5))
         budget = parse_number(args[offset+3]) if len(args) > offset + 3 else preferences.get("rsi_budget_krw")
         if budget is None:
@@ -1679,9 +1773,10 @@ async def rsitrade_command(update: Update, context: ContextTypes.DEFAULT_TYPE, u
             )
             return
         budget = float(budget)
-        
+
         b_start, b_end = parse_rsi_range(buy_rsi_range)
-        parse_rsi_range(sell_rsi_range)
+        if sell_rsi_range:
+            parse_rsi_range(sell_rsi_range)
         if count <= 0:
             raise ValueError
     except (ValueError, TypeError, IndexError):
@@ -1721,20 +1816,22 @@ async def rsitrade_command(update: Update, context: ContextTypes.DEFAULT_TYPE, u
         return
 
     # 3. 요약 및 확인 버튼
-    confirm_data = f"rsitrun|{exchange}|{ticker}|{buy_rsi_range}|{sell_rsi_range}|{count}|{budget}"
+    confirm_data = f"rsitrun|{exchange}|{ticker}|{buy_rsi_range}|{sell_rsi_range or '-'}|{count}|{budget}"
     keyboard = [[InlineKeyboardButton("✅ 전략 가동 시작", callback_data=confirm_data),
                  InlineKeyboardButton("❌ 취소", callback_data="grid_cancel")]]
-    
+
     preview_text = "\n".join(build_rsi_preview_lines(ticker, buy_prices, budget, count))
+    sell_line = f"- 익절(RSI): {sell_rsi_range} 목표\n" if sell_rsi_range else "- 익절 예약: 없음 (매수만)\n"
+    auto_sell_note = "체결 시 자동으로 익절 주문이 예약됩니다. 시작할까요?" if sell_rsi_range else "매수만 진행합니다. 시작할까요?"
     summary = (
         f"🤖 RSI 순환 매매 전략 확인\n\n"
         f"전략 설정\n"
         f"- 거래소: {exchange.upper()}\n"
         f"- 종목: {ticker}\n"
         f"- 매집(RSI): {buy_rsi_range} ({buy_prices[0][1]:,.0f} ~ {buy_prices[-1][1]:,.0f}원)\n"
-        f"- 익절(RSI): {sell_rsi_range} 목표\n"
+        f"{sell_line}"
         f"- 분할: {count}회 | 총예산: {budget:,.0f}원\n\n"
-        "체결 시 자동으로 익절 주문이 예약됩니다. 시작할까요?"
+        f"{auto_sell_note}"
     )
     summary += f"\n\n예상 주문\n{preview_text}\n\n실행 시점에 가격은 다시 계산될 수 있습니다."
     await status_msg.edit_text(summary, reply_markup=InlineKeyboardMarkup(keyboard))
@@ -1758,16 +1855,17 @@ async def rsitrade_confirm_callback(update: Update, context: ContextTypes.DEFAUL
         await query.edit_message_text(error_msg)
         return
     
+    has_sell = s_rsi and s_rsi != "-"
     await query.edit_message_text(f"🚀 {tk} RSI 순환 매매를 시작합니다. 매수 주문 전송 중...")
-    
+
     b_start, b_end = parse_rsi_range(b_rsi)
-    s_start, s_end = parse_rsi_range(s_rsi)
+    s_start, s_end = parse_rsi_range(s_rsi) if has_sell else (0, 0)
     budget_per_order = bg / ct
-    
+
     success = 0
     for i in range(ct):
         target_rsi = interpolate_range(b_start, b_end, i, ct)
-        sell_target_rsi = interpolate_range(s_start, s_end, i, ct)
+        sell_target_rsi = interpolate_range(s_start, s_end, i, ct) if has_sell else None
         price = await signal_engine.get_price_by_rsi(
             ex,
             tk,
@@ -1785,15 +1883,14 @@ async def rsitrade_confirm_callback(update: Update, context: ContextTypes.DEFAUL
             if volume <= 0:
                 await asyncio.sleep(0.2)
                 continue
-        
+
         res = await exchange_adapter.create_order(user_id, ex, tk, "bid", price, volume)
-        if res and 'uuid' in res:
-            # linked_to에 매도 RSI 범위를 저장하여 체결 시 참고
-            order_manager.add_order(user_id, ex, tk, res['uuid'], price, volume, 
-                                 side="bid", strategy="rsitrade", target_rsi=target_rsi, linked_to=sell_target_rsi)
+        if res and "uuid" in res:
+            order_manager.add_order(user_id, ex, tk, res["uuid"], price, volume,
+                                    side="bid", strategy="rsitrade", target_rsi=target_rsi, linked_to=sell_target_rsi)
             success += 1
         await asyncio.sleep(0.2)
-    
+
     await context.bot.send_message(chat_id=user_id, text=f"✅ {tk} 전략 가동 완료! ({success}/{ct}건 예약됨)")
 
 async def grid_quick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1807,6 +1904,137 @@ async def grid_quick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"예: /grid {exchange} {ticker} [시작가] [종료가] [횟수] [예산]\n"
         f"또는 RSI 전략은 /rsitrade {exchange} {ticker} [매수RSI] [매도RSI] [횟수] [예산]"
     )
+
+@check_auth
+async def sgridrsi_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
+    """RSI 목표 구간 분할 매도 — 보유 코인을 RSI 가격에서 직접 매도"""
+    if await check_details_help(update, "sgridrsi"): return
+    args = context.args
+    if not args:
+        await update.message.reply_text("⚠️ 사용법: /sgridrsi [거래소] [종목] [RSI구간] [횟수] [예산]\n예: /sgridrsi 빗썸 ETH 80-90 10 100만")
+        return
+
+    user_id = str(update.effective_chat.id)
+    default_exchange = user["preferences"].get("default_exchange", "upbit")
+    exchange, ticker = parse_exchange_and_ticker(args, default_exchange)
+    if not ticker:
+        await update.message.reply_text("⚠️ 종목은 반드시 입력해야 합니다. 예: /sgridrsi ETH")
+        return
+    if not await ensure_rsi_supported(update, user, exchange):
+        return
+
+    offset = 2 if is_exchange_token(args[0], exchange) else 1
+
+    try:
+        preferences = user["preferences"]
+        sell_rsi_range = args[offset] if len(args) > offset else preferences.get("rsi_sell_range", "65-75")
+        count = int(args[offset+1]) if len(args) > offset + 1 else int(preferences.get("rsi_order_count", 5))
+        budget = parse_number(args[offset+2]) if len(args) > offset + 2 else preferences.get("rsi_budget_krw")
+        if budget is None:
+            await update.message.reply_text(
+                "⚠️ RSI 매도 전략 예산이 필요합니다. 명령어에 예산을 입력하거나 /config set rsi_budget_krw 100만으로 기본 예산을 저장하세요."
+            )
+            return
+        budget = float(budget)
+        s_start, s_end = parse_rsi_range(sell_rsi_range)
+        if count <= 0:
+            raise ValueError
+    except (ValueError, TypeError, IndexError):
+        await update.message.reply_text("⚠️ 파라미터 형식이 잘못되었습니다. (예: 80-90)")
+        return
+
+    ok, error_msg = validate_max_order(user, budget / count)
+    if not ok:
+        await update.message.reply_text(error_msg)
+        return
+
+    min_amt = exchange_adapter.get_min_order_amount(exchange)
+    if (budget / count) < min_amt:
+        await update.message.reply_text(f"❌ 예산이 너무 적습니다. 건당 최소 {min_amt:,.0f}원 이상이어야 합니다.")
+        return
+
+    status_msg = await update.message.reply_text(f"🔍 {ticker} RSI 매도 가격 분석 중...")
+
+    sell_prices = []
+    rsi_step = (s_end - s_start) / (count - 1) if count > 1 else 0
+    for i in range(count):
+        target_rsi = s_start + (rsi_step * i)
+        p = await signal_engine.get_price_by_rsi(
+            exchange, ticker, target_rsi, side="ask",
+            interval=get_user_rsi_interval(user), user_id=user_id,
+        )
+        if p: sell_prices.append((target_rsi, p))
+
+    if not sell_prices:
+        await status_msg.edit_text("❌ RSI 가격 역산에 실패했습니다. 데이터를 불러올 수 없습니다.")
+        return
+
+    confirm_data = f"sgridrsirun|{exchange}|{ticker}|{sell_rsi_range}|{count}|{budget}"
+    keyboard = [[InlineKeyboardButton("✅ 매도 전략 가동", callback_data=confirm_data),
+                 InlineKeyboardButton("❌ 취소", callback_data="grid_cancel")]]
+
+    preview_text = "\n".join(build_rsi_preview_lines(ticker, sell_prices, budget, count))
+    summary = (
+        f"💰 RSI 매도 전략 확인\n\n"
+        f"전략 설정\n"
+        f"- 거래소: {exchange.upper()}\n"
+        f"- 종목: {ticker}\n"
+        f"- 매도(RSI): {sell_rsi_range} ({sell_prices[0][1]:,.0f} ~ {sell_prices[-1][1]:,.0f}원)\n"
+        f"- 분할: {count}회 | 총예산: {budget:,.0f}원\n\n"
+        "보유 코인을 RSI 목표가에서 분할 매도합니다. 시작할까요?"
+    )
+    summary += f"\n\n예상 주문\n{preview_text}\n\n실행 시점에 가격은 다시 계산될 수 있습니다."
+    await status_msg.edit_text(summary, reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def sgridrsi_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    _, ex, tk, s_rsi, ct, bg = query.data.split("|")
+    ct, bg = int(ct), float(bg)
+    user_id = str(query.from_user.id)
+    user = user_manager.get_user(user_id)
+    if not user:
+        await query.edit_message_text("❌ 사용자 설정을 찾을 수 없어 주문을 중단합니다.")
+        return
+    if ex == "kis" and get_user_rsi_interval(user) != "day":
+        await query.edit_message_text(_KIS_RSI_MINUTE_ERROR)
+        return
+    ok, error_msg = validate_max_order(user, bg / ct)
+    if not ok:
+        await query.edit_message_text(error_msg)
+        return
+
+    await query.edit_message_text(f"🚀 {tk} RSI 매도 전략을 시작합니다. 매도 주문 전송 중...")
+
+    s_start, s_end = parse_rsi_range(s_rsi)
+    budget_per_order = bg / ct
+
+    success = 0
+    for i in range(ct):
+        target_rsi = interpolate_range(s_start, s_end, i, ct)
+        price = await signal_engine.get_price_by_rsi(
+            ex, tk, target_rsi, side="ask",
+            interval=get_user_rsi_interval(user), user_id=user_id,
+        )
+        if not price:
+            await asyncio.sleep(0.2)
+            continue
+        volume = round(budget_per_order / price, 4)
+        if ex == "kis":
+            volume = int(volume)
+            if volume <= 0:
+                await asyncio.sleep(0.2)
+                continue
+
+        res = await exchange_adapter.create_order(user_id, ex, tk, "ask", price, volume)
+        if res and "uuid" in res:
+            order_manager.add_order(user_id, ex, tk, res["uuid"], price, volume,
+                                    side="ask", strategy="sgridrsi", target_rsi=target_rsi, linked_to=None)
+            success += 1
+        await asyncio.sleep(0.2)
+
+    await context.bot.send_message(chat_id=user_id, text=f"✅ {tk} RSI 매도 전략 가동 완료! ({success}/{ct}건 예약됨)")
 
 async def signal_snooze_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from datetime import datetime, timedelta, timezone
@@ -2328,7 +2556,7 @@ async def natural_language_command(update: Update, context: ContextTypes.DEFAULT
         return
 
     confirm_text = f"🧠 자연어 요청 확인\n\n{_intent_summary(intent)}\n\n위 내용으로 실행할까요?"
-    if action == "rsitrade":
+    if action in ("rsitrade", "gridrsi", "sgridrsi"):
         status_msg = await update.message.reply_text(f"🔍 RSI 가격 분석 중...")
         confirm_text = await build_rsigrid_confirm_summary(str(update.effective_chat.id), user, intent)
         if not confirm_text:
@@ -2339,7 +2567,7 @@ async def natural_language_command(update: Update, context: ContextTypes.DEFAULT
     _pending_nl_intents[token] = {"user_id": str(update.effective_chat.id), "intent": intent}
     keyboard = [[InlineKeyboardButton("✅ 실행", callback_data=f"nlrun|{token}"),
                  InlineKeyboardButton("❌ 취소", callback_data=f"nlcancel|{token}")]]
-    if action == "rsitrade":
+    if action in ("rsitrade", "gridrsi", "sgridrsi"):
         await status_msg.edit_text(confirm_text, reply_markup=InlineKeyboardMarkup(keyboard))
     else:
         await update.message.reply_text(
@@ -2435,6 +2663,8 @@ def main():
     application.add_handler(CallbackQueryHandler(signal_snooze_callback, pattern="^signal_snooze_"))
     application.add_handler(CallbackQueryHandler(grid_confirm_callback, pattern="^(gridrun|sgridrun|grid_cancel)"))
     application.add_handler(CallbackQueryHandler(rsitrade_confirm_callback, pattern="^rsitrun"))
+    application.add_handler(CommandHandler("sgridrsi", sgridrsi_command))
+    application.add_handler(CallbackQueryHandler(sgridrsi_confirm_callback, pattern="^sgridrsirun"))
     application.add_handler(CallbackQueryHandler(manual_order_confirm_callback, pattern="^(manualrun|manualcancel)\\|"))
     application.add_handler(CallbackQueryHandler(natural_language_confirm_callback, pattern="^nl(run|cancel)\\|"))
     

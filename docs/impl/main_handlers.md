@@ -37,7 +37,8 @@ KST = timezone(timedelta(hours=9))
 | /sell | `sell_command` | 단일 지정가 매도 확인 후 전송; 확인 요청 10분 만료 |
 | /grid | `grid_command` | 가격 범위 → N개 분할 매수 |
 | /sgrid | `sgrid_command` | 보유 수량 기반 분할 매도 |
-| /rsitrade | `rsitrade_command` | RSI 역산 분할 전략 |
+| /rsitrade, /gridrsi | `rsitrade_command` | RSI 역산 분할 매수 전략 (gridrsi는 alias) |
+| /sgridrsi | `sgridrsi_command` | RSI 목표가 분할 매도 전략 (보유 코인 직접 매도) |
 | /cancel | `cancel_command` | 종목 전체 주문 취소 |
 | /watch | `watch_command` | RSI 감시 종목 추가 |
 | /unwatch | `unwatch_command` | 감시 종목 제거 |
@@ -89,7 +90,7 @@ API 키 포함 메시지는 캡처 즉시 삭제됨 (`delete_message`).
 1. KIS 장외 → `market_closed`/`pending_reorder` + `next_check_at` 설정
 2. KIS `pending_reorder` → 잔량 재주문 시도 (`replace_order_uuid`)
 3. 일반 → `get_order_status` 조회; 새 체결 시 `filled_volume` 업데이트
-4. rsitrade 매수 체결 → RSI 역산으로 매도가 계산, 매도 주문 생성
+4. rsitrade/gridrsi 매수 체결 + `linked_to` 있을 때 → RSI 역산으로 매도가 계산, 매도 주문 생성 (`rsitrade_sell`)
 5. `done`/`cancel` → 추적 제거 또는 `pending_reorder` 처리 (KIS 전략)
 
 ## Gemini 자연어 흐름 (요약)
@@ -106,7 +107,7 @@ API 키 포함 메시지는 캡처 즉시 삭제됨 (`delete_message`).
 5. 전처리 성공은 `data/nl_preprocess_hits.json`에 action 카운트만 기록하고, 원문은 저장하지 않음
 6. 전처리 실패로 Gemini까지 간 문장은 `append_natural_language_log()` 로 `data/nl_unmatched.jsonl`에 익명 기록
 7. **읽기 액션** (`asset`, `price`, `orders`, `status`, `history`, `config_view`, `help`): `execute_query_intent` 즉시 실행
-8. **쓰기 액션** (buy, sell, grid, rsitrade 등): 확인 버튼 표시 → 클릭 시 `execute_confirmed_intent`
+8. **쓰기 액션** (buy, sell, grid, rsitrade, gridrsi, sgridrsi 등): 확인 버튼 표시 → 클릭 시 `execute_confirmed_intent`
 
 자연어 전처리/미처리 로그는 `core.natural_language`가 관리하며 `nl_logs` 테이블(및 파일 폴백)에 기록한다. 로그에는 chat_id/user_id를 저장하지 않고 숫자, 6자리 주식코드, 긴 토큰을 마스킹한다. (`/nlstats` 명령은 제거됨.)
 
