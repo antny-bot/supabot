@@ -91,20 +91,38 @@ async def realtime_trigger(request: Request):
 @app.get("/api/me")
 async def api_me(user: dict = Depends(get_current_user)):
     mfa_enabled = False
+    username = ""
     user_id = user["bot_user_id"]
     if user_id:
         try:
             from .db import get_db
-            rows = (await get_db().table("users").select("mfa_enabled").eq("user_id", user_id).execute()).data
+            rows = (await get_db().table("users").select("mfa_enabled,username").eq("user_id", user_id).execute()).data
             if rows:
                 mfa_enabled = bool(rows[0].get("mfa_enabled", False))
+                username = rows[0].get("username", "")
         except Exception:
             pass
 
     return JSONResponse({
         **user,
         "mfa_enabled": mfa_enabled,
+        "username": username,
     })
+
+
+@app.patch("/api/me/profile")
+async def api_update_profile(request: Request, user: dict = Depends(get_current_user)):
+    user_id = user["bot_user_id"]
+    if not user_id:
+        return JSONResponse({"error": "대시보드와 연결된 봇 계정이 없습니다."}, status_code=403)
+    try:
+        body = await request.json()
+        username = body.get("username", "").strip()
+        from .db import get_db
+        await get_db().table("users").update({"username": username}).eq("user_id", user_id).execute()
+        return JSONResponse({"ok": True})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @app.post("/api/login")
@@ -161,7 +179,7 @@ async def api_login(request: Request):
         request.session["bot_user_id"] = None
         return JSONResponse({"ok": True})
 
-    return JSONResponse({"error": "매니저 사용 권한이 없습니다."}, status_code=403)
+    return JSONResponse({"error": "대시보드 접근 권한이 없습니다."}, status_code=403)
 
 
 @app.post("/api/logout")

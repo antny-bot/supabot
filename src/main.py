@@ -1643,7 +1643,8 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
             if len(tk_orders) > 3: msg += "  ▫️ ... 그 외 생략\n"
         msg += "\n"
 
-    msg += "ℹ️ 체결 및 외부 취소 시 실시간 알림이 전송됩니다."
+    msg += "ℹ️ 체결 및 외부 취소 시 실시간 알림이 전송됩니다.\n"
+    msg += "📊 더 상세한 내역과 리포트는 [웹 대시보드]에서 확인하실 수 있습니다."
     await update.message.reply_text(msg, parse_mode="HTML")
 
 @check_auth

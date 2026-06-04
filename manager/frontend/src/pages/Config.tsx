@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import ProfileSettingsCard from '../components/settings/ProfileSettingsCard'
 import DisplaySettingsCard from '../components/settings/DisplaySettingsCard'
 import MfaSettingsCard from '../components/settings/MfaSettingsCard'
 import PageHeader from '../components/ui/PageHeader'
@@ -13,6 +14,7 @@ import {
 
 const CONFIG_TABS = [
   { id: 'display', label: '화면 표시' },
+  { id: 'profile', label: '프로필' },
   { id: 'security', label: '보안' },
 ]
 
@@ -73,6 +75,9 @@ export default function Config() {
       <div>
         {activeTab === 'display' && (
           <DisplaySettingsCard preferences={displayPreferences} onChange={setDisplayPreferences} />
+        )}
+        {activeTab === 'profile' && (
+          <ProfileSettingsCard initialUsername={user?.username || ''} email={user?.email || ''} />
         )}
         {activeTab === 'security' && (
           <MfaSettingsCard initialEnabled={mfaEnabled} onStatusChange={setMfaEnabled} />

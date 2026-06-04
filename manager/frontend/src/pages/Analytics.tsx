@@ -373,7 +373,7 @@ export default function Analytics() {
 
       <ActivitySection days={days} onDaysChange={setDays} />
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_2fr] gap-6">
         <CommandsSection period={period} />
         <HeatmapSection />
       </div>

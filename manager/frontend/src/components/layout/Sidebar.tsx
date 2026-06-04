@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
-import { LogOut, Menu, Moon, Settings, ShieldCheck, Sun, Zap } from 'lucide-react'
+import { LogOut, Menu, Moon, Settings, ShieldCheck, Sun, Zap, Key } from 'lucide-react'
 import { APP_NAV_ITEMS } from '../../config/pageMeta'
 import { useAuthContext } from '../../contexts/AuthContext'
 import { useTheme } from '../../hooks/useTheme'
@@ -48,7 +48,7 @@ export default function Sidebar() {
     navigate('/login', { replace: true })
   }
 
-  const displayName = user?.email ?? ''
+  const displayName = user?.username || user?.email || ''
 
   return (
     <aside
@@ -94,7 +94,12 @@ export default function Sidebar() {
             }
           >
             <item.Icon size={18} className="shrink-0" />
-            {!collapsed && <span className="truncate">{item.label}</span>}
+            {!collapsed && (
+              <span className="truncate flex items-center gap-1">
+                {item.label}
+                {item.key === 'analytics' && <Key size={12} className="text-slate-400 dark:text-slate-500" />}
+              </span>
+            )}
           </NavLink>
         ))}
       </nav>

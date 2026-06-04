@@ -3,6 +3,7 @@ export interface AuthUser {
   is_admin: boolean
   bot_user_id: string | null
   mfa_enabled?: boolean
+  username?: string
 }
 
 export interface User {

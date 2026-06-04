@@ -1,12 +1,16 @@
-import { useState, FormEvent } from 'react'
+import { useState, FormEvent, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Zap, AlertCircle } from 'lucide-react'
 import { useTheme } from '../hooks/useTheme'
 import { Sun, Moon } from 'lucide-react'
 
+const SAVE_EMAIL_KEY = 'sbm_saved_email'
+const REMEMBER_KEY = 'sbm_remember_email'
+
 export default function Login() {
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(() => localStorage.getItem(SAVE_EMAIL_KEY) || '')
   const [password, setPassword] = useState('')
+  const [rememberEmail, setRememberEmail] = useState(() => localStorage.getItem(REMEMBER_KEY) === 'true')
   const [otpCode, setOtpCode] = useState('')
   const [trustDevice, setTrustDevice] = useState(false)
   const [isMfaRequired, setIsMfaRequired] = useState(false)
@@ -14,6 +18,22 @@ export default function Login() {
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
   const { isDark, toggle } = useTheme()
+
+  useEffect(() => {
+    localStorage.setItem(REMEMBER_KEY, String(rememberEmail))
+    if (!rememberEmail) {
+      localStorage.removeItem(SAVE_EMAIL_KEY)
+    }
+  }, [rememberEmail])
+
+  function handlePostLogin() {
+    if (rememberEmail) {
+      localStorage.setItem(SAVE_EMAIL_KEY, email)
+    } else {
+      localStorage.removeItem(SAVE_EMAIL_KEY)
+    }
+    navigate('/dashboard', { replace: true })
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -31,11 +51,11 @@ export default function Login() {
         if (body.mfa_required) {
           setIsMfaRequired(true)
         } else {
-          navigate('/dashboard', { replace: true })
+          handlePostLogin()
         }
       } else if (res.status === 403) {
         const body = await res.json().catch(() => ({})) as { error?: string }
-        setError(body.error ?? '매니저 사용 권한이 없습니다.')
+        setError(body.error ?? '대시보드 접근 권한이 없습니다.')
       } else {
         setError('이메일 또는 비밀번호가 올바르지 않습니다.')
       }
@@ -58,7 +78,7 @@ export default function Login() {
         body: JSON.stringify({ code: otpCode, trust_device: trustDevice }),
       })
       if (res.ok) {
-        navigate('/dashboard', { replace: true })
+        handlePostLogin()
       } else {
         const body = await res.json().catch(() => ({})) as { error?: string }
         setError(body.error ?? '인증 코드가 올바르지 않습니다.')
@@ -85,7 +105,7 @@ export default function Login() {
             <Zap size={28} className="text-white" />
           </div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">supabot manager</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">관리자 대시보드</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">통합 웹 대시보드</p>
         </div>
 
         <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-6">
@@ -183,6 +203,19 @@ export default function Login() {
                   placeholder="••••••••"
                   autoComplete="current-password"
                 />
+              </div>
+
+              <div className="flex items-center gap-2 px-1">
+                <input
+                  type="checkbox"
+                  id="rememberEmail"
+                  checked={rememberEmail}
+                  onChange={(e) => setRememberEmail(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 dark:border-slate-700 text-indigo-600 focus:ring-indigo-500 dark:bg-slate-800 transition-colors cursor-pointer"
+                />
+                <label htmlFor="rememberEmail" className="text-xs text-slate-600 dark:text-slate-400 cursor-pointer select-none">
+                  이메일 저장
+                </label>
               </div>
 
               <button

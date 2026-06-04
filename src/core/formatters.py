@@ -631,4 +631,6 @@ def build_report_view(trades: list, period: str = "all") -> str:
     lines.append(f"📈 총 손익(추정): {net_sign}{net:,.0f}원")
     lines.append("")
     lines.append("⚠️ 손익은 가격×수량 기준 추정치입니다. 수수료 미반영.")
+    lines.append("")
+    lines.append("📊 더 상세한 내역과 리포트는 [웹 대시보드]에서 확인하실 수 있습니다.")
     return "\n".join(lines)
