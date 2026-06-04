@@ -14,7 +14,7 @@ import { useRealtime } from '../hooks/useRealtime'
 import { krwFmt } from '../utils/formatters'
 
 const STATUS_OPTIONS = [
-  { value: '', label: '전체' },
+  { value: '', label: '전체 유형' },
   { value: 'open', label: '활성' },
   { value: 'wait', label: '대기' },
   { value: 'partial', label: '부분체결' },
@@ -31,7 +31,7 @@ const EXCHANGE_OPTIONS = [
 ]
 
 const SIDE_OPTIONS = [
-  { value: '', label: '전체' },
+  { value: '', label: '전체 구분' },
   { value: 'bid', label: '매수' },
   { value: 'ask', label: '매도' },
 ]
@@ -45,6 +45,7 @@ export default function Orders() {
   const [side, setSide] = useState('')
   const [dateRange, setDateRange] = useState<DateRangeValue>(DEFAULT_RANGE)
   const [page, setPage] = useState(1)
+  const [expandedFilter, setExpandedFilter] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const pageSize = 50
@@ -68,6 +69,10 @@ export default function Orders() {
 
   useRealtime(useCallback(() => loadData(false, page), [loadData, page]))
 
+  const toggleFilter = (name: string) => {
+    setExpandedFilter((prev) => (prev === name ? null : name))
+  }
+
   const handleFilterChange = (setter: (value: string) => void) => (value: string) => {
     setter(value)
     setPage(1)
@@ -84,13 +89,15 @@ export default function Orders() {
     <div className="space-y-4">
       <PageHeader {...PAGE_META.orders} />
 
-      <div className="flex flex-col gap-2">
-        <FilterBar options={STATUS_OPTIONS} value={status} onChange={handleFilterChange(setStatus)} />
-        <div className="flex flex-wrap gap-2">
-          <FilterBar options={EXCHANGE_OPTIONS} value={exchange} onChange={handleFilterChange(setExchange)} />
-          <FilterBar options={SIDE_OPTIONS} value={side} onChange={handleFilterChange(setSide)} />
-        </div>
-        <DateRangePicker value={dateRange} onChange={handleDateRangeChange} />
+      <div className="flex flex-wrap items-start gap-2">
+        <FilterBar collapsible isOpen={expandedFilter === 'status'} onToggle={() => toggleFilter('status')}
+          options={STATUS_OPTIONS} value={status} onChange={handleFilterChange(setStatus)} />
+        <FilterBar collapsible isOpen={expandedFilter === 'exchange'} onToggle={() => toggleFilter('exchange')}
+          options={EXCHANGE_OPTIONS} value={exchange} onChange={handleFilterChange(setExchange)} />
+        <FilterBar collapsible isOpen={expandedFilter === 'side'} onToggle={() => toggleFilter('side')}
+          options={SIDE_OPTIONS} value={side} onChange={handleFilterChange(setSide)} />
+        <DateRangePicker collapsible isOpen={expandedFilter === 'date'} onToggle={() => toggleFilter('date')}
+          value={dateRange} onChange={handleDateRangeChange} />
       </div>
 
       {error && <ErrorBanner message={error} />}

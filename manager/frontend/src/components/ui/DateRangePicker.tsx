@@ -1,3 +1,5 @@
+import { ChevronDown } from 'lucide-react'
+
 export interface DateRangeValue {
   mode: '1d' | '7d' | '30d' | 'all' | 'custom'
   from: string
@@ -5,11 +7,11 @@ export interface DateRangeValue {
 }
 
 const PRESETS: { value: DateRangeValue['mode']; label: string }[] = [
-  { value: '1d',    label: '1일'   },
-  { value: '7d',    label: '7일'   },
-  { value: '30d',   label: '30일'  },
-  { value: 'all',   label: '전체'  },
-  { value: 'custom',label: '커스텀'},
+  { value: '1d',     label: '1일'      },
+  { value: '7d',     label: '7일'      },
+  { value: '30d',    label: '30일'     },
+  { value: 'all',    label: '전체 기간' },
+  { value: 'custom', label: '커스텀'   },
 ]
 
 function toDateStr(d: Date) {
@@ -43,10 +45,20 @@ function getThisYear() {
 interface Props {
   value: DateRangeValue
   onChange: (v: DateRangeValue) => void
+  collapsible?: boolean
+  isOpen?: boolean
+  onToggle?: () => void
   className?: string
 }
 
-export default function DateRangePicker({ value, onChange, className = '' }: Props) {
+export default function DateRangePicker({
+  value,
+  onChange,
+  collapsible = false,
+  isOpen = false,
+  onToggle,
+  className = '',
+}: Props) {
   const handlePreset = (mode: DateRangeValue['mode']) => {
     if (mode === 'custom') {
       const today = toDateStr(new Date())
@@ -64,13 +76,33 @@ export default function DateRangePicker({ value, onChange, className = '' }: Pro
     onChange({ ...value, [field]: v })
   }
 
+  if (collapsible && !isOpen) {
+    const modeLabel = PRESETS.find((p) => p.value === value.mode)?.label ?? value.mode
+    return (
+      <button
+        onClick={onToggle}
+        className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-app-caption font-medium transition-colors ${
+          value.mode !== 'all'
+            ? 'bg-indigo-600 text-white shadow-sm'
+            : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+        } ${className}`}
+      >
+        {modeLabel}
+        <ChevronDown size={12} />
+      </button>
+    )
+  }
+
   return (
     <div className={`space-y-2 ${className}`}>
       <div className="flex flex-wrap gap-1.5">
         {PRESETS.map((p) => (
           <button
             key={p.value}
-            onClick={() => handlePreset(p.value)}
+            onClick={() => {
+              handlePreset(p.value)
+              if (collapsible && p.value !== 'custom') onToggle?.()
+            }}
             className={`px-3 py-1.5 rounded-lg text-app-caption font-medium transition-colors ${
               value.mode === p.value
                 ? 'bg-indigo-600 text-white shadow-sm'
