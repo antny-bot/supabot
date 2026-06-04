@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { usePersistedState } from '../hooks/usePersistedState'
 import { BarChart2, ChevronLeft, ChevronRight, DollarSign, TrendingDown, TrendingUp } from 'lucide-react'
 import { fetchTrades } from '../api/trades'
 import type { TradesData } from '../types'
@@ -15,7 +16,7 @@ const DEFAULT_RANGE: DateRangeValue = { mode: '7d', from: '', to: '' }
 
 export default function Trades() {
   const [data, setData] = useState<TradesData | null>(null)
-  const [dateRange, setDateRange] = useState<DateRangeValue>(DEFAULT_RANGE)
+  const [dateRange, setDateRange] = usePersistedState<DateRangeValue>('filter:trades:dateRange', DEFAULT_RANGE)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
