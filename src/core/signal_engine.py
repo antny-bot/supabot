@@ -96,13 +96,18 @@ class SignalEngine:
                 df = df.sort_values("candle_date_time_kst")
             df = df.reset_index(drop=True)
 
+            closes = df["close"].astype(float)
             return {
-                "rsi": RSIIndicator(period=14).compute(df["close"]),
-                "macd": MACDIndicator().compute(df["close"]),
-                "bbands": BollingerBandsIndicator().compute(df["close"]),
+                "rsi": RSIIndicator(period=14).compute(closes),
+                "macd": MACDIndicator().compute(closes),
+                "bbands": BollingerBandsIndicator().compute(closes),
                 "stoch": StochasticIndicator().compute_ohlcv(df),
-                "current_price": float(df["close"].astype(float).iloc[-1]),
+                "current_price": float(closes.iloc[-1]),
                 "interval": interval,
+                "ma7":  float(closes.iloc[-7:].mean())  if len(closes) >= 7  else None,
+                "ma14": float(closes.iloc[-14:].mean()) if len(closes) >= 14 else None,
+                "ma30": float(closes.iloc[-30:].mean()) if len(closes) >= 30 else None,
+                "ma90": float(closes.iloc[-90:].mean()) if len(closes) >= 90 else None,
             }
         except Exception as e:
             _log.error("Indicator calculation error", exc_info=e, extra={"event": "indicator_error", "exchange": exchange, "ticker": ticker})

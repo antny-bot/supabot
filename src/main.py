@@ -1086,10 +1086,17 @@ async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     default_exchange = user["preferences"].get("default_exchange", "upbit")
     exchange, ticker = parse_exchange_and_ticker(args, default_exchange)
 
-    ticker_data = await exchange_adapter.get_ticker(exchange, ticker, user_id=user_id)
-    if not ticker_data:
+    ticker_data, indicators = await asyncio.gather(
+        exchange_adapter.get_ticker(exchange, ticker, user_id=user_id),
+        signal_engine.get_indicators(exchange, ticker, interval="day", user_id=user_id),
+        return_exceptions=True,
+    )
+
+    if isinstance(ticker_data, Exception) or not ticker_data:
         await update.message.reply_text(f"❌ {exchange_display_name(exchange)}에서 {ticker} 정보를 찾을 수 없습니다.")
         return
+    if isinstance(indicators, Exception):
+        indicators = None
 
     # 업비트/빗썸 공통 필드 매핑
     price = float(ticker_data.get('trade_price', 0))
@@ -1100,7 +1107,7 @@ async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     volume = float(ticker_data.get('acc_trade_price_24h', 0))
 
     change_emoji = "📈" if change_rate > 0 else "📉" if change_rate < 0 else "➖"
-    
+
     msg = (
         f"📊 <b>[{exchange_display_name(exchange)}] {ticker}</b> 실시간 시세\n\n"
         f"현재가: <b>{price:,.0f}원</b> {change_emoji}\n"
@@ -1109,6 +1116,19 @@ async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
         f"저가(24H): {low:,.0f}원\n"
         f"거래대금: {volume/100000000:,.1f}억원"
     )
+
+    if indicators:
+        technical_parts = []
+        rsi = indicators.get("rsi")
+        if rsi is not None:
+            technical_parts.append(f"RSI(14): {rsi:.1f}")
+        for period in [7, 14, 30, 90]:
+            ma_val = indicators.get(f"ma{period}")
+            if ma_val is not None:
+                technical_parts.append(f"MA{period}: {ma_val:,.0f}원")
+        if technical_parts:
+            msg += "\n\n📈 <b>기술지표 (일봉)</b>\n" + "\n".join(technical_parts)
+
     await update.message.reply_text(msg, parse_mode="HTML")
 
 @check_auth
