@@ -771,19 +771,6 @@ class ExchangeAdapter:
 
     async def get_ticker(self, exchange, ticker, user_id=None):
         """특정 종목의 현재가 정보 조회"""
-        from core.websocket_client import ticker_engine
-        if ticker_engine:
-            price = ticker_engine.get_price(exchange, ticker)
-            if price is not None:
-                return {
-                    "market": ticker,
-                    "trade_price": price,
-                    "opening_price": price,
-                    "high_price": price,
-                    "low_price": price,
-                    "prev_closing_price": price,
-                }
-
         if exchange == "upbit":
             params = {"markets": ticker}
             res = await self._request_upbit("GET", "/v1/ticker", params=params)
