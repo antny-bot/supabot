@@ -3,24 +3,19 @@ import { BarChart2, ChevronLeft, ChevronRight, DollarSign, TrendingDown, Trendin
 import { fetchTrades } from '../api/trades'
 import type { TradesData } from '../types'
 import Badge from '../components/ui/Badge'
+import DateRangePicker, { type DateRangeValue } from '../components/ui/DateRangePicker'
 import ErrorBanner from '../components/ui/ErrorBanner'
-import FilterBar from '../components/ui/FilterBar'
 import PageHeader from '../components/ui/PageHeader'
 import Spinner from '../components/ui/Spinner'
 import { PAGE_META } from '../config/pageMeta'
 import { useRealtime } from '../hooks/useRealtime'
 import { krwFmt } from '../utils/formatters'
 
-const PERIOD_OPTIONS = [
-  { value: '1d', label: '1일' },
-  { value: '7d', label: '7일' },
-  { value: '30d', label: '30일' },
-  { value: 'all', label: '전체' },
-]
+const DEFAULT_RANGE: DateRangeValue = { mode: '7d', from: '', to: '' }
 
 export default function Trades() {
   const [data, setData] = useState<TradesData | null>(null)
-  const [period, setPeriod] = useState('7d')
+  const [dateRange, setDateRange] = useState<DateRangeValue>(DEFAULT_RANGE)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -28,13 +23,13 @@ export default function Trades() {
 
   const loadData = useCallback((showSpinner = false, targetPage = page) => {
     if (showSpinner) setLoading(true)
-    fetchTrades(period, targetPage, pageSize)
+    fetchTrades(dateRange, targetPage, pageSize)
       .then(setData)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류가 발생했습니다.'))
       .finally(() => {
         if (showSpinner) setLoading(false)
       })
-  }, [page, period])
+  }, [page, dateRange])
 
   useEffect(() => {
     loadData(true, page)
@@ -42,8 +37,8 @@ export default function Trades() {
 
   useRealtime(useCallback(() => loadData(false, page), [loadData, page]))
 
-  const handlePeriodChange = (value: string) => {
-    setPeriod(value)
+  const handleRangeChange = (range: DateRangeValue) => {
+    setDateRange(range)
     setPage(1)
   }
 
@@ -60,10 +55,9 @@ export default function Trades() {
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        {...PAGE_META.trades}
-        actions={<FilterBar options={PERIOD_OPTIONS} value={period} onChange={handlePeriodChange} />}
-      />
+      <PageHeader {...PAGE_META.trades} />
+
+      <DateRangePicker value={dateRange} onChange={handleRangeChange} />
 
       {error && <ErrorBanner message={error} />}
 
@@ -133,7 +127,7 @@ export default function Trades() {
                     <th className="px-4 py-2.5 text-left font-medium">체결시간</th>
                     <th className="px-4 py-2.5 text-left font-medium">거래소</th>
                     <th className="px-4 py-2.5 text-left font-medium">종목</th>
-                    <th className="px-4 py-2.5 text-left font-medium">방향</th>
+                    <th className="px-4 py-2.5 text-left font-medium">주문유형</th>
                     <th className="px-4 py-2.5 text-left font-medium">전략</th>
                     <th className="px-4 py-2.5 text-right font-medium">가격</th>
                     <th className="px-4 py-2.5 text-right font-medium">수량</th>

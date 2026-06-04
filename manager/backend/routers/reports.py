@@ -1,6 +1,6 @@
 import time
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import httpx
 
@@ -14,6 +14,23 @@ router = APIRouter()
 
 _PERIODS = {"1d": 86400, "7d": 604800, "30d": 2592000, "all": None}
 _EPSILON = 1e-12
+
+
+def _parse_date_range(date_from: str | None, date_to: str | None) -> tuple[float | None, float | None]:
+    ts_from = ts_to = None
+    if date_from:
+        ts_from = datetime.strptime(date_from, "%Y-%m-%d").timestamp()
+    if date_to:
+        ts_to = (datetime.strptime(date_to, "%Y-%m-%d") + timedelta(days=1)).timestamp()
+    return ts_from, ts_to
+
+
+def _resolve_window(period: str, date_from: str | None, date_to: str | None):
+    """Return (window_start, window_end) as Unix timestamps or None."""
+    if date_from or date_to:
+        return _parse_date_range(date_from, date_to)
+    window = _PERIODS.get(period)
+    return (time.time() - window if window else None), None
 
 
 def _fmt_ts(ts) -> str:
@@ -83,7 +100,7 @@ def _iter_trades_asc(trades):
     )
 
 
-def _build_report_state(trades, window_start=None):
+def _build_report_state(trades, window_start=None, window_end=None):
     positions: dict[tuple[str, str], dict] = defaultdict(_new_position)
     realized_events: list[dict] = []
 
@@ -135,6 +152,8 @@ def _build_report_state(trades, window_start=None):
             position["oversold_count"] += 1
 
         if window_start is not None and executed_at < window_start:
+            continue
+        if window_end is not None and executed_at >= window_end:
             continue
 
         realized_events.append({
@@ -407,7 +426,8 @@ def _auth_guard(request: Request):
 
 
 @router.get("/api/reports/pnl")
-async def api_reports_pnl(request: Request, period: str = "30d"):
+async def api_reports_pnl(request: Request, period: str = "30d",
+                          date_from: str | None = None, date_to: str | None = None):
     ctx, err = _auth_guard(request)
     if err:
         return err
@@ -417,8 +437,8 @@ async def api_reports_pnl(request: Request, period: str = "30d"):
     try:
         db = get_db()
         trades = await _fetch_trades(db, is_admin, bot_user_id, None)
-        window_start = time.time() - _PERIODS[period] if _PERIODS[period] else None
-        _, realized_events = _build_report_state(trades, window_start=window_start)
+        window_start, window_end = _resolve_window(period, date_from, date_to)
+        _, realized_events = _build_report_state(trades, window_start=window_start, window_end=window_end)
         rows = _build_pnl_rows(realized_events)
         rows.sort(key=lambda row: row["pnl"], reverse=True)
         total_bid = sum(row["bid_krw"] for row in rows)
@@ -439,7 +459,8 @@ async def api_reports_pnl(request: Request, period: str = "30d"):
 
 
 @router.get("/api/reports/strategy")
-async def api_reports_strategy(request: Request, period: str = "30d"):
+async def api_reports_strategy(request: Request, period: str = "30d",
+                               date_from: str | None = None, date_to: str | None = None):
     ctx, err = _auth_guard(request)
     if err:
         return err
@@ -449,8 +470,8 @@ async def api_reports_strategy(request: Request, period: str = "30d"):
     try:
         db = get_db()
         trades = await _fetch_trades(db, is_admin, bot_user_id, None)
-        window_start = time.time() - _PERIODS[period] if _PERIODS[period] else None
-        _, realized_events = _build_report_state(trades, window_start=window_start)
+        window_start, window_end = _resolve_window(period, date_from, date_to)
+        _, realized_events = _build_report_state(trades, window_start=window_start, window_end=window_end)
         rows = _build_strategy_rows(realized_events)
         rows.sort(key=lambda row: row["pnl"], reverse=True)
         return JSONResponse({"rows": rows})
@@ -459,7 +480,8 @@ async def api_reports_strategy(request: Request, period: str = "30d"):
 
 
 @router.get("/api/reports/roi-ranking")
-async def api_reports_roi_ranking(request: Request, period: str = "30d"):
+async def api_reports_roi_ranking(request: Request, period: str = "30d",
+                                  date_from: str | None = None, date_to: str | None = None):
     ctx, err = _auth_guard(request)
     if err:
         return err
@@ -469,8 +491,8 @@ async def api_reports_roi_ranking(request: Request, period: str = "30d"):
     try:
         db = get_db()
         trades = await _fetch_trades(db, is_admin, bot_user_id, None)
-        window_start = time.time() - _PERIODS[period] if _PERIODS[period] else None
-        _, realized_events = _build_report_state(trades, window_start=window_start)
+        window_start, window_end = _resolve_window(period, date_from, date_to)
+        _, realized_events = _build_report_state(trades, window_start=window_start, window_end=window_end)
         rows = _build_pnl_rows(realized_events)
         rows.sort(key=lambda row: row["roi_pct"], reverse=True)
         for index, row in enumerate(rows):
@@ -533,7 +555,8 @@ async def api_reports_holdings(request: Request):
 
 
 @router.get("/api/reports/pairs")
-async def api_reports_pairs(request: Request, period: str = "30d"):
+async def api_reports_pairs(request: Request, period: str = "30d",
+                            date_from: str | None = None, date_to: str | None = None):
     ctx, err = _auth_guard(request)
     if err:
         return err
@@ -543,15 +566,16 @@ async def api_reports_pairs(request: Request, period: str = "30d"):
     try:
         db = get_db()
         trades = await _fetch_trades(db, is_admin, bot_user_id, None)
-        window_start = time.time() - _PERIODS[period] if _PERIODS[period] else None
-        _, realized_events = _build_report_state(trades, window_start=window_start)
+        window_start, window_end = _resolve_window(period, date_from, date_to)
+        _, realized_events = _build_report_state(trades, window_start=window_start, window_end=window_end)
         return JSONResponse({"pairs": _build_pair_rows(realized_events)})
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
 @router.get("/api/reports/win-stats")
-async def api_reports_win_stats(request: Request, period: str = "30d"):
+async def api_reports_win_stats(request: Request, period: str = "30d",
+                                date_from: str | None = None, date_to: str | None = None):
     ctx, err = _auth_guard(request)
     if err:
         return err
@@ -561,8 +585,8 @@ async def api_reports_win_stats(request: Request, period: str = "30d"):
     try:
         db = get_db()
         trades = await _fetch_trades(db, is_admin, bot_user_id, None)
-        window_start = time.time() - _PERIODS[period] if _PERIODS[period] else None
-        _, realized_events = _build_report_state(trades, window_start=window_start)
+        window_start, window_end = _resolve_window(period, date_from, date_to)
+        _, realized_events = _build_report_state(trades, window_start=window_start, window_end=window_end)
         pairs = _build_pair_rows(realized_events)
 
         if not pairs:
