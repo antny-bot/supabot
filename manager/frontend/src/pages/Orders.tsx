@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { usePersistedState } from '../hooks/usePersistedState'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { fetchOrders } from '../api/orders'
 import type { OrdersData } from '../types'
@@ -40,10 +41,10 @@ const DEFAULT_RANGE: DateRangeValue = { mode: 'all', from: '', to: '' }
 
 export default function Orders() {
   const [data, setData] = useState<OrdersData | null>(null)
-  const [status, setStatus] = useState('')
-  const [exchange, setExchange] = useState('')
-  const [side, setSide] = useState('')
-  const [dateRange, setDateRange] = useState<DateRangeValue>(DEFAULT_RANGE)
+  const [status, setStatus] = usePersistedState('filter:orders:status', '')
+  const [exchange, setExchange] = usePersistedState('filter:orders:exchange', '')
+  const [side, setSide] = usePersistedState('filter:orders:side', '')
+  const [dateRange, setDateRange] = usePersistedState<DateRangeValue>('filter:orders:dateRange', DEFAULT_RANGE)
   const [page, setPage] = useState(1)
   const [expandedFilter, setExpandedFilter] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)

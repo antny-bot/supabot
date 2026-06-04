@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { usePersistedState } from '../hooks/usePersistedState'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
@@ -31,6 +32,12 @@ const PERIOD_OPTIONS = [
 ]
 
 const WEEKDAY_LABELS = ['월', '화', '수', '목', '금', '토', '일']
+
+function periodToDays(period: string): number {
+  if (period === '30d') return 30
+  if (period === 'all') return 90
+  return 7
+}
 
 const CARD = 'bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm'
 
@@ -73,11 +80,15 @@ function OverviewSection() {
 
 // ── Activity Chart ────────────────────────────────────────────────────────
 
-function ActivitySection() {
+interface ActivitySectionProps {
+  days: number
+  onDaysChange: (days: number) => void
+}
+
+function ActivitySection({ days, onDaysChange }: ActivitySectionProps) {
   const [activity, setActivity] = useState<ActivityItem[]>([])
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState<string | null>(null)
-  const [days, setDays]         = useState(30)
 
   useEffect(() => {
     setLoading(true)
@@ -107,7 +118,7 @@ function ActivitySection() {
         <FilterBar
           options={dayOptions}
           value={String(days)}
-          onChange={(v) => setDays(Number(v))}
+          onChange={(v) => onDaysChange(Number(v))}
         />
       </div>
       {loading ? <div className="h-48 flex items-center justify-center"><Spinner /></div>
@@ -176,6 +187,9 @@ function HeatmapSection() {
   const [maxVal, setMaxVal]  = useState(1)
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState<string | null>(null)
+  const [tooltip, setTooltip] = useState<{ label: string; h: number; val: number } | null>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const drag = useRef({ isDragging: false, startX: 0, scrollLeft: 0 })
 
   useEffect(() => {
     fetchAnalyticsHeatmap()
@@ -184,17 +198,48 @@ function HeatmapSection() {
       .finally(() => setLoading(false))
   }, [])
 
+  const onMouseDown = (e: React.MouseEvent) => {
+    drag.current = {
+      isDragging: true,
+      startX: e.pageX - (scrollRef.current?.offsetLeft ?? 0),
+      scrollLeft: scrollRef.current?.scrollLeft ?? 0,
+    }
+    if (scrollRef.current) scrollRef.current.style.cursor = 'grabbing'
+  }
+  const stopDrag = () => {
+    drag.current.isDragging = false
+    if (scrollRef.current) scrollRef.current.style.cursor = 'grab'
+  }
+  const onMouseMove = (e: React.MouseEvent) => {
+    if (!drag.current.isDragging || !scrollRef.current) return
+    e.preventDefault()
+    const x = e.pageX - scrollRef.current.offsetLeft
+    scrollRef.current.scrollLeft = drag.current.scrollLeft - (x - drag.current.startX)
+  }
+
   return (
-    <div className={`${CARD} p-5`}>
+    <div className={`${CARD} p-5 relative`}>
       <div className="flex items-center gap-2 mb-4">
         <Clock size={16} className="text-slate-400" />
         <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">시간대별 사용 히트맵 (최근 90일, KST)</h2>
       </div>
+      {tooltip && (
+        <div className="pointer-events-none absolute top-4 right-4 rounded-md bg-slate-900 dark:bg-slate-700 px-2.5 py-1.5 text-xs text-white shadow-lg z-10">
+          {tooltip.label} {tooltip.h}시: <span className="font-semibold">{tooltip.val}건</span>
+        </div>
+      )}
       {loading ? <div className="h-32 flex items-center justify-center"><Spinner /></div>
        : error  ? <ErrorBanner message={error} />
        : !matrix ? null
        : (
-        <div className="overflow-x-auto">
+        <div
+          ref={scrollRef}
+          className="overflow-x-auto scrollbar-none select-none cursor-grab"
+          onMouseDown={onMouseDown}
+          onMouseMove={onMouseMove}
+          onMouseUp={stopDrag}
+          onMouseLeave={stopDrag}
+        >
           <div className="min-w-max">
             {/* Hour header */}
             <div className="flex items-center mb-1">
@@ -214,8 +259,9 @@ function HeatmapSection() {
                   return (
                     <div
                       key={h}
-                      title={`${label} ${h}시: ${val}건`}
                       className={`w-6 h-5 rounded-sm mr-0.5 ${heatColor(val, maxVal)}`}
+                      onMouseEnter={() => setTooltip({ label, h, val })}
+                      onMouseLeave={() => setTooltip(null)}
                     />
                   )
                 })}
@@ -299,8 +345,14 @@ function UsersSection({ period }: { period: string }) {
 // ── Main Page ─────────────────────────────────────────────────────────────
 
 export default function Analytics() {
-  const [period, setPeriod] = useState('7d')
+  const [period, setPeriod] = usePersistedState('filter:analytics:period', '7d')
+  const [days, setDays] = usePersistedState('filter:analytics:days', 30)
   const meta = PAGE_META.analytics
+
+  const handlePeriodChange = (newPeriod: string) => {
+    setPeriod(newPeriod)
+    setDays(periodToDays(newPeriod))
+  }
 
   return (
     <div className="space-y-6 pb-12">
@@ -312,14 +364,14 @@ export default function Analytics() {
           <FilterBar
             options={PERIOD_OPTIONS}
             value={period}
-            onChange={setPeriod}
+            onChange={handlePeriodChange}
           />
         }
       />
 
       <OverviewSection />
 
-      <ActivitySection />
+      <ActivitySection days={days} onDaysChange={setDays} />
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <CommandsSection period={period} />

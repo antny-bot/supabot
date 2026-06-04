@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { usePersistedState } from '../hooks/usePersistedState'
 import { archiveEvent, fetchEvents, markEventRead, unarchiveEvent, unreadEvent } from '../api/events'
 import type { Event } from '../types'
 import Badge from '../components/ui/Badge'
@@ -27,8 +28,8 @@ function fmtTime(value: string) {
 
 export function EventsContent() {
   const [events, setEvents] = useState<Event[]>([])
-  const [level, setLevel] = useState('')
-  const [state, setState] = useState('unread')
+  const [level, setLevel] = usePersistedState('filter:events:level', '')
+  const [state, setState] = usePersistedState('filter:events:state', 'unread')
   const [loading, setLoading] = useState(true)
   const [pendingId, setPendingId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)

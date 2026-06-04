@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { usePersistedState } from '../hooks/usePersistedState'
 import { Pencil, ShieldCheck } from 'lucide-react'
 import { activateUser, approveUser, blockUser, deactivateUser, deleteUser, fetchUsers, setUserEmail } from '../api/users'
 import type { User } from '../types'
@@ -149,7 +150,7 @@ function EmailCell({ user, onUpdate }: EmailCellProps) {
 
 export function UsersContent() {
   const [users, setUsers] = useState<User[]>([])
-  const [statusFilter, setStatusFilter] = useState('')
+  const [statusFilter, setStatusFilter] = usePersistedState('filter:users:status', '')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
