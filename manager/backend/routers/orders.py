@@ -119,7 +119,8 @@ async def api_cancel_order(uuid: str, user: dict = Depends(get_current_user)):
 
     try:
         db = get_db()
-        rows = db.table("orders").select("uuid,user_id,exchange,ticker,status").eq("uuid", uuid).execute().data
+        res = await db.table("orders").select("uuid,user_id,exchange,ticker,status").eq("uuid", uuid).execute()
+        rows = res.data
         if not rows:
             raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다.")
         order = rows[0]

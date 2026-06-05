@@ -11,7 +11,7 @@ from manager.backend.routers import orders as orders_router
 
 
 class _FakeResponse:
-    def __init__(self, data, count):
+    def __init__(self, data, count=0):
         self.data = data
         self.count = count
 
@@ -24,6 +24,10 @@ class _FakeQuery:
 
     def order(self, column: str, desc: bool = False):
         self._params["order"] = f"{column}.{'desc' if desc else 'asc'}"
+        return self
+
+    def eq(self, column: str, value):
+        self._params[column] = f"eq.{value}"
         return self
 
     async def execute(self):
@@ -125,4 +129,80 @@ def test_api_list_orders_handles_missing_price_and_volume(monkeypatch):
 
     assert order["order_value"] == 0.0
     assert order["fill_pct"] == 0
-    assert order["created_fmt"] == "—"
+    assert order["created_fmt"] == orders_router._fmt_ts(None)
+
+
+def test_api_cancel_order_awaits_db_query_and_calls_bot(monkeypatch):
+    query = _FakeQuery(
+        [
+            {
+                "uuid": "C0101000003038914497",
+                "user_id": "1",
+                "exchange": "bithumb",
+                "ticker": "KRW-BTC",
+                "status": "wait",
+            }
+        ],
+        1,
+    )
+    monkeypatch.setattr(orders_router, "get_db", lambda: _FakeDB(query))
+    calls = {}
+
+    def fake_cancel_order(user_id: str, exchange: str, uuid: str, ticker: str):
+        calls.update({"user_id": user_id, "exchange": exchange, "uuid": uuid, "ticker": ticker})
+        return True, ""
+
+    monkeypatch.setattr(orders_router.bot_client, "cancel_order", fake_cancel_order)
+
+    response = asyncio.run(
+        orders_router.api_cancel_order(
+            "C0101000003038914497",
+            user={"is_admin": False, "bot_user_id": "1"},
+        )
+    )
+
+    payload = json.loads(response.body)
+
+    assert response.status_code == 200
+    assert payload == {"ok": True}
+    assert query._params["uuid"] == "eq.C0101000003038914497"
+    assert calls == {
+        "user_id": "1",
+        "exchange": "bithumb",
+        "uuid": "C0101000003038914497",
+        "ticker": "KRW-BTC",
+    }
+
+
+def test_api_cancel_order_rejects_closed_order_without_bot_call(monkeypatch):
+    query = _FakeQuery(
+        [
+            {
+                "uuid": "closed-order",
+                "user_id": "1",
+                "exchange": "bithumb",
+                "ticker": "KRW-BTC",
+                "status": "done",
+            }
+        ],
+        1,
+    )
+    monkeypatch.setattr(orders_router, "get_db", lambda: _FakeDB(query))
+    monkeypatch.setattr(
+        orders_router.bot_client,
+        "cancel_order",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("bot must not be called")),
+    )
+
+    response = asyncio.run(
+        orders_router.api_cancel_order(
+            "closed-order",
+            user={"is_admin": False, "bot_user_id": "1"},
+        )
+    )
+
+    payload = json.loads(response.body)
+
+    assert response.status_code == 400
+    assert payload["ok"] is False
+    assert payload["error"]
