@@ -18,6 +18,7 @@ export interface User {
 
 export interface Order {
   id?: number
+  uuid: string
   user_id: string
   exchange: string
   ticker: string
@@ -32,6 +33,7 @@ export interface Order {
   created_at: number
   created_fmt: string
   fill_pct: number
+  group_no: number | null
 }
 
 export interface Trade {

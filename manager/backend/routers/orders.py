@@ -1,10 +1,11 @@
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
 from ..db import get_db
 from ._auth import get_current_user
+from .. import bot_client
 
 router = APIRouter()
 
@@ -43,6 +44,7 @@ async def api_list_orders(
     side: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    group_no: int | None = None,
     page: int = 1,
     page_size: int = 50,
     user: dict = Depends(get_current_user)
@@ -75,6 +77,8 @@ async def api_list_orders(
             date_conds.append(f"created_at.lte.{ts_to}")
         if date_conds:
             q._params["and"] = f"({','.join(date_conds)})"
+        if group_no is not None:
+            q._params["group_no"] = f"eq.{group_no}"
         if not is_admin:
             q._params["user_id"] = f"eq.{bot_user_id}"
 
@@ -101,5 +105,41 @@ async def api_list_orders(
             "page": page,
             "page_size": page_size
         })
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.post("/api/orders/{uuid}/cancel")
+async def api_cancel_order(uuid: str, user: dict = Depends(get_current_user)):
+    is_admin = user["is_admin"]
+    bot_user_id = user["bot_user_id"]
+
+    if not is_admin and not bot_user_id:
+        raise HTTPException(status_code=403, detail="연결된 봇 계정이 없습니다.")
+
+    try:
+        db = get_db()
+        rows = db.table("orders").select("uuid,user_id,exchange,ticker,status").eq("uuid", uuid).execute().data
+        if not rows:
+            raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다.")
+        order = rows[0]
+
+        if not is_admin and order["user_id"] != bot_user_id:
+            raise HTTPException(status_code=403, detail="권한이 없습니다.")
+
+        if order["status"] not in _OPEN_STATUSES:
+            return JSONResponse({"ok": False, "error": "이미 완료되거나 취소된 주문입니다."}, status_code=400)
+
+        ok, err = bot_client.cancel_order(
+            user_id=order["user_id"],
+            exchange=order["exchange"],
+            uuid=order["uuid"],
+            ticker=order["ticker"],
+        )
+        if ok:
+            return JSONResponse({"ok": True})
+        return JSONResponse({"ok": False, "error": err}, status_code=502)
+    except HTTPException:
+        raise
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
