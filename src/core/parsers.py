@@ -103,9 +103,11 @@ def get_user_rsi_interval(user):
 
 
 def is_strategy_order(order):
+    strategy = str(order.get("strategy", ""))
     return (
-        str(order.get("strategy", "")).startswith("rsitrade")
-        or str(order.get("strategy", "")).startswith("grid")
+        strategy.startswith("rsitrade")
+        or strategy.startswith("grid")
+        or strategy.startswith("sgrid")
     )
 
 

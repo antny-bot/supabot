@@ -60,6 +60,27 @@ def execute_grid(user_id: str, exchange: str, ticker: str, start_price: float, e
     except Exception as e:
         return False, str(e)
 
+def execute_sgrid(user_id: str, exchange: str, ticker: str, start_price: float, end_price: float, count: int, total_volume: float) -> tuple[bool, str]:
+    """Send sGrid (split sell) execution request via the bot's /internal/execute_sgrid endpoint."""
+    try:
+        resp = _send_signed_request(
+            "/internal/execute_sgrid",
+            {
+                "user_id": user_id,
+                "exchange": exchange,
+                "ticker": ticker,
+                "start_price": start_price,
+                "end_price": end_price,
+                "count": count,
+                "total_volume": total_volume,
+            }
+        )
+        if resp.ok:
+            return True, "ok"
+        return False, resp.text or f"HTTP 에러 {resp.status_code}"
+    except Exception as e:
+        return False, str(e)
+
 def execute_rsitrade(user_id: str, exchange: str, ticker: str, buy_rsi_range: str, sell_rsi_range: str, count: int, budget: float) -> tuple[bool, str]:
     """Send RSITrade execution request via the bot's /internal/execute_rsitrade endpoint with signature."""
     try:

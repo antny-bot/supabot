@@ -30,7 +30,7 @@ export default function Templates() {
   // 폼 상태
   const [name, setName] = useState('')
   const [exchange, setExchange] = useState('upbit')
-  const [ticker, setTicker] = useState('KRW-BTC')
+  const [ticker, setTicker] = useState('BTC')
   const [startPrice, setStartPrice] = useState('')
   const [endPrice, setEndPrice] = useState('')
   const [count, setCount] = useState('10')
@@ -87,9 +87,10 @@ export default function Templates() {
         strategy_type: strategyType,
       }
 
-      if (strategyType === 'grid') {
+      if (strategyType === 'grid' || strategyType === 'sgrid') {
         payload.start_price = parseFloat(startPrice)
         payload.end_price = parseFloat(endPrice)
+        payload.params = {}
       } else {
         payload.start_price = 0
         payload.end_price = 0
@@ -187,7 +188,8 @@ export default function Templates() {
     setStrategyType(tpl.strategy_type || 'grid')
     setCount(String(tpl.count))
     setBudget(String(tpl.budget))
-    if (!tpl.strategy_type || tpl.strategy_type === 'grid') {
+    const stype = tpl.strategy_type || 'grid'
+    if (stype === 'grid' || stype === 'sgrid') {
       setStartPrice(String(tpl.start_price))
       setEndPrice(String(tpl.end_price))
       setBuyRsiRange('25-30')
@@ -209,7 +211,7 @@ export default function Templates() {
     setFormOpen(false)
     setName('')
     setExchange('upbit')
-    setTicker('KRW-BTC')
+    setTicker('BTC')
     setStartPrice('')
     setEndPrice('')
     setCount('10')
@@ -240,7 +242,7 @@ export default function Templates() {
         strategy_type: strategyType,
       }
 
-      if (strategyType === 'grid') {
+      if (strategyType === 'grid' || strategyType === 'sgrid') {
         payload.start_price = parseFloat(startPrice)
         payload.end_price = parseFloat(endPrice)
         payload.params = {}
@@ -358,16 +360,17 @@ export default function Templates() {
                   type="text"
                   value={ticker}
                   onChange={(e) => setTicker(e.target.value)}
-                  placeholder="KRW-BTC"
+                  placeholder="BTC"
                   className="w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-white focus:outline-none"
                   required
                 />
+                <p className="text-[10px] text-slate-400 dark:text-slate-500">업비트/빗썸은 BTC, ETH 등 — KRW- 자동 보완</p>
               </div>
             </div>
 
             <div className="space-y-1 col-span-1 md:col-span-2">
               <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">전략 유형</label>
-              <div className="flex gap-4 mt-1">
+              <div className="flex flex-wrap gap-4 mt-1">
                 <label className="inline-flex items-center text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
                   <input
                     type="radio"
@@ -383,6 +386,17 @@ export default function Templates() {
                   <input
                     type="radio"
                     name="strategyType"
+                    value="sgrid"
+                    checked={strategyType === 'sgrid'}
+                    onChange={() => setStrategyType('sgrid')}
+                    className="mr-1.5 accent-indigo-600"
+                  />
+                  거미줄 분할 매도 (sGrid)
+                </label>
+                <label className="inline-flex items-center text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="strategyType"
                     value="rsitrade"
                     checked={strategyType === 'rsitrade'}
                     onChange={() => setStrategyType('rsitrade')}
@@ -393,7 +407,7 @@ export default function Templates() {
               </div>
             </div>
 
-            {strategyType === 'grid' ? (
+            {(strategyType === 'grid' || strategyType === 'sgrid') ? (
               <div className="grid grid-cols-2 gap-2 col-span-1 md:col-span-2">
                 <div className="space-y-1">
                   <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">시작 가격</label>
@@ -460,12 +474,15 @@ export default function Templates() {
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">총 예산 (KRW)</label>
+                <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                  {strategyType === 'sgrid' ? '총 수량 (코인 개수)' : '총 예산 (KRW)'}
+                </label>
                 <input
                   type="number"
+                  step="any"
                   value={budget}
                   onChange={(e) => setBudget(e.target.value)}
-                  placeholder="100000"
+                  placeholder={strategyType === 'sgrid' ? '0.5' : '100000'}
                   className="w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-white focus:outline-none"
                   required
                 />
@@ -519,7 +536,8 @@ export default function Templates() {
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {templates.map((tpl) => {
-                  const isGrid = !tpl.strategy_type || tpl.strategy_type === 'grid';
+                  const stype = tpl.strategy_type || 'grid';
+                  const isPriceRange = stype === 'grid' || stype === 'sgrid';
                   return (
                     <tr key={tpl.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
                       <td className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-200">{tpl.name}</td>
@@ -530,25 +548,33 @@ export default function Templates() {
                       </td>
                       <td className="px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-300">{tpl.ticker}</td>
                       <td className="px-4 py-3">
-                        {isGrid ? (
+                        {stype === 'grid' && (
                           <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400">
                             Grid
                           </span>
-                        ) : (
+                        )}
+                        {stype === 'sgrid' && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400">
+                            sGrid
+                          </span>
+                        )}
+                        {stype === 'rsitrade' && (
                           <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400">
                             RSI
                           </span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-center font-mono text-xs text-slate-700 dark:text-slate-300">
-                        {isGrid ? (
+                        {isPriceRange ? (
                           `${tpl.start_price.toLocaleString()} ~ ${tpl.end_price.toLocaleString()}원`
                         ) : (
                           `매수: ${tpl.params?.buy_rsi_range || 'N/A'} / 매도: ${tpl.params?.sell_rsi_range || 'N/A'}`
                         )}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-xs text-slate-700 dark:text-slate-300">{tpl.count}회</td>
-                      <td className="px-4 py-3 text-right font-semibold font-mono text-xs text-indigo-600 dark:text-indigo-400">{tpl.budget.toLocaleString()}원</td>
+                      <td className="px-4 py-3 text-right font-semibold font-mono text-xs text-indigo-600 dark:text-indigo-400">
+                        {stype === 'sgrid' ? `${tpl.budget}개` : `${tpl.budget.toLocaleString()}원`}
+                      </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-center gap-2">
                           <button
@@ -599,18 +625,25 @@ export default function Templates() {
           {/* 모바일 리스트 뷰 (block md:hidden) */}
           <div className="block md:hidden space-y-3">
             {templates.map((tpl) => {
-              const isGrid = !tpl.strategy_type || tpl.strategy_type === 'grid';
+              const stype = tpl.strategy_type || 'grid';
+              const isPriceRange = stype === 'grid' || stype === 'sgrid';
               return (
                 <div key={tpl.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-sm space-y-3">
                   <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
                     <div>
                       <div className="flex items-center gap-1.5">
                         <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">{tpl.name}</h4>
-                        {isGrid ? (
+                        {stype === 'grid' && (
                           <span className="px-1.5 py-0.5 rounded text-[8px] font-semibold bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400">
                             Grid
                           </span>
-                        ) : (
+                        )}
+                        {stype === 'sgrid' && (
+                          <span className="px-1.5 py-0.5 rounded text-[8px] font-semibold bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400">
+                            sGrid
+                          </span>
+                        )}
+                        {stype === 'rsitrade' && (
                           <span className="px-1.5 py-0.5 rounded text-[8px] font-semibold bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400">
                             RSI
                           </span>
@@ -650,9 +683,9 @@ export default function Templates() {
 
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div className="col-span-2">
-                      <span className="text-[10px] text-slate-400">{isGrid ? '가격 범위' : 'RSI 설정'}</span>
+                      <span className="text-[10px] text-slate-400">{isPriceRange ? '가격 범위' : 'RSI 설정'}</span>
                       <p className="font-mono text-slate-700 dark:text-slate-300">
-                        {isGrid ? (
+                        {isPriceRange ? (
                           `${tpl.start_price.toLocaleString()} ~ ${tpl.end_price.toLocaleString()}원`
                         ) : (
                           `매수: ${tpl.params?.buy_rsi_range || 'N/A'} / 매도: ${tpl.params?.sell_rsi_range || 'N/A'}`
@@ -664,8 +697,10 @@ export default function Templates() {
                       <p className="font-mono text-slate-700 dark:text-slate-300">{tpl.count}회</p>
                     </div>
                     <div>
-                      <span className="text-[10px] text-slate-400">총 예산</span>
-                      <p className="font-bold font-mono text-indigo-600 dark:text-indigo-400">{tpl.budget.toLocaleString()}원</p>
+                      <span className="text-[10px] text-slate-400">{stype === 'sgrid' ? '총 수량' : '총 예산'}</span>
+                      <p className="font-bold font-mono text-indigo-600 dark:text-indigo-400">
+                        {stype === 'sgrid' ? `${tpl.budget}개` : `${tpl.budget.toLocaleString()}원`}
+                      </p>
                     </div>
                   </div>
 
@@ -708,17 +743,27 @@ export default function Templates() {
                   <span className="text-xs font-semibold text-slate-900 dark:text-white">{executeTargetTemplate.name}</span>
                 </div>
                 <div className="flex justify-between items-center border-t border-slate-200/50 dark:border-slate-700/50 pt-2">
-                  <span className="text-xs text-slate-500 dark:text-slate-400">총 예산</span>
-                  <span className="text-sm font-bold text-indigo-600 dark:text-indigo-400">{executeTargetTemplate.budget.toLocaleString()}원</span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    {executeTargetTemplate.strategy_type === 'sgrid' ? '총 수량' : '총 예산'}
+                  </span>
+                  <span className="text-sm font-bold text-indigo-600 dark:text-indigo-400">
+                    {executeTargetTemplate.strategy_type === 'sgrid'
+                      ? `${executeTargetTemplate.budget}개`
+                      : `${executeTargetTemplate.budget.toLocaleString()}원`}
+                  </span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-xs text-slate-500 dark:text-slate-400">주문 건수</span>
                   <span className="text-sm font-semibold text-slate-900 dark:text-white">{executeTargetTemplate.count}건</span>
                 </div>
                 <div className="flex justify-between items-center border-t border-slate-200/50 dark:border-slate-700/50 pt-2">
-                  <span className="text-xs text-slate-500 dark:text-slate-400">1회당 매수액</span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    {executeTargetTemplate.strategy_type === 'sgrid' ? '1회당 매도량' : '1회당 매수액'}
+                  </span>
                   <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
-                    {Math.floor(executeTargetTemplate.budget / executeTargetTemplate.count).toLocaleString()}원
+                    {executeTargetTemplate.strategy_type === 'sgrid'
+                      ? `${(executeTargetTemplate.budget / executeTargetTemplate.count).toFixed(4)}개`
+                      : `${Math.floor(executeTargetTemplate.budget / executeTargetTemplate.count).toLocaleString()}원`}
                   </span>
                 </div>
               </div>

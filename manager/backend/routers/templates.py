@@ -7,9 +7,19 @@ from pydantic import BaseModel
 
 from ..db import get_db
 from ._auth import get_current_user
-from ..bot_client import execute_grid, execute_rsitrade
+from ..bot_client import execute_grid, execute_sgrid, execute_rsitrade
 
 router = APIRouter()
+
+
+def _normalize_ticker(exchange: str, ticker: str) -> str:
+    t = ticker.strip().upper()
+    if exchange in ("upbit", "bithumb") and "-" not in t:
+        return f"KRW-{t}"
+    if exchange == "kis":
+        return t.replace("KRW-", "")
+    return t
+
 
 class TemplateCreate(BaseModel):
     name: str
@@ -72,11 +82,12 @@ async def api_create_template(payload: TemplateCreate, user: dict = Depends(get_
         return JSONResponse({"error": "총 예산은 0보다 커야 합니다."}, status_code=400)
 
     try:
+        exchange = payload.exchange.lower()
         template_data = {
             "user_id": user_id,
             "name": payload.name,
-            "exchange": payload.exchange.lower(),
-            "ticker": payload.ticker.upper(),
+            "exchange": exchange,
+            "ticker": _normalize_ticker(exchange, payload.ticker),
             "start_price": payload.start_price,
             "end_price": payload.end_price,
             "count": payload.count,
@@ -117,7 +128,8 @@ async def api_update_template(template_id: int, payload: TemplateUpdate, user: d
     if payload.exchange is not None:
         update_data["exchange"] = payload.exchange.lower()
     if payload.ticker is not None:
-        update_data["ticker"] = payload.ticker.upper()
+        ex = (payload.exchange or "").lower() if payload.exchange else ""
+        update_data["ticker"] = _normalize_ticker(ex, payload.ticker)
     if payload.start_price is not None:
         update_data["start_price"] = payload.start_price
     if payload.end_price is not None:
@@ -200,7 +212,6 @@ async def api_execute_template(template_id: int, user: dict = Depends(get_curren
         stype = tpl.get("strategy_type", "grid")
         
         if stype == "grid":
-            # 봇에게 거미줄 실행 요청 전송
             success, err_msg = execute_grid(
                 user_id=tpl["user_id"],
                 exchange=tpl["exchange"],
@@ -210,7 +221,18 @@ async def api_execute_template(template_id: int, user: dict = Depends(get_curren
                 count=tpl["count"],
                 budget=tpl["budget"]
             )
-            msg = "거미줄 전략이 가동되었습니다."
+            msg = "거미줄 분할 매수 전략이 가동되었습니다."
+        elif stype == "sgrid":
+            success, err_msg = execute_sgrid(
+                user_id=tpl["user_id"],
+                exchange=tpl["exchange"],
+                ticker=tpl["ticker"],
+                start_price=tpl["start_price"],
+                end_price=tpl["end_price"],
+                count=tpl["count"],
+                total_volume=tpl["budget"],
+            )
+            msg = "거미줄 분할 매도 전략이 가동되었습니다."
         elif stype == "rsitrade":
             # 봇에게 RSITrade 실행 요청 전송
             params = tpl.get("params") or {}
