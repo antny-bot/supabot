@@ -81,6 +81,20 @@ def execute_sgrid(user_id: str, exchange: str, ticker: str, start_price: float, 
     except Exception as e:
         return False, str(e)
 
+def cancel_order(user_id: str, exchange: str, uuid: str, ticker: str) -> tuple[bool, str]:
+    """Cancel a single order via the bot's /internal/cancel_order endpoint."""
+    try:
+        resp = _send_signed_request(
+            "/internal/cancel_order",
+            {"user_id": user_id, "exchange": exchange, "uuid": uuid, "ticker": ticker},
+        )
+        if resp.ok:
+            data = resp.json()
+            return data.get("ok", False), ""
+        return False, resp.text or f"HTTP 에러 {resp.status_code}"
+    except Exception as e:
+        return False, str(e)
+
 def execute_rsitrade(user_id: str, exchange: str, ticker: str, buy_rsi_range: str, sell_rsi_range: str, count: int, budget: float) -> tuple[bool, str]:
     """Send RSITrade execution request via the bot's /internal/execute_rsitrade endpoint with signature."""
     try:

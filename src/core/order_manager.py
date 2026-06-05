@@ -85,7 +85,7 @@ class OrderManager:
             except Exception as ex:
                 _log.error("Failed to enqueue delete task", exc_info=ex)
 
-    def add_order(self, user_id, exchange, ticker, uuid, price, volume, side="bid", strategy="manual", target_rsi=None, linked_to=None, status="wait", stop_price=None, trailing_stop_pct=None):
+    def add_order(self, user_id, exchange, ticker, uuid, price, volume, side="bid", strategy="manual", target_rsi=None, linked_to=None, status="wait", stop_price=None, trailing_stop_pct=None, group_no=None):
         self.remove_order(uuid, save=False)
         order = {
             "user_id": str(user_id),
@@ -105,6 +105,7 @@ class OrderManager:
             "reorder_of": None,
             "stop_price": float(stop_price) if stop_price is not None else None,
             "trailing_stop_pct": float(trailing_stop_pct) if trailing_stop_pct is not None else None,
+            "group_no": int(group_no) if group_no is not None else None,
         }
         self.orders.append(order)
         self._db_upsert(order)
@@ -181,3 +182,12 @@ class OrderManager:
 
     def get_strategy_orders(self, user_id, strategy):
         return [o for o in self.orders if o["user_id"] == str(user_id) and o["strategy"] == strategy]
+
+    def get_next_group_no(self, user_id) -> int:
+        nums = [o["group_no"] for o in self.orders
+                if o["user_id"] == str(user_id) and o.get("group_no")]
+        return (max(nums) + 1) if nums else 1
+
+    def get_orders_by_group_no(self, user_id, group_no) -> list:
+        return [o for o in self.orders
+                if o["user_id"] == str(user_id) and o.get("group_no") == int(group_no)]

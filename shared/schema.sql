@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS orders (
 
 -- 기존 DB 호환성 유지용 ALTER TABLE 구문
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS trailing_stop_pct DOUBLE PRECISION;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS group_no INTEGER;
 
 -- ── Trade Logs ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS trade_logs (

@@ -101,7 +101,8 @@ DEFAULT_BOT_COMMANDS = [
     ("orders", "미체결 주문 목록"),
     ("buy", "단일 지정가 매수"),
     ("sell", "단일 지정가 매도"),
-    ("cancel", "주문 일괄 취소"),
+    ("cancel", "종목 전체 주문 취소"),
+    ("cancelno", "배치 번호로 주문 취소"),
     ("grid", "가격 범위 분할 매수"),
     ("sgrid", "수량 분할 매도"),
     ("rsitrade", "RSI 순환 매매"),
@@ -708,10 +709,16 @@ async def orders_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
         return
 
     msg = "⏳ <b>현재 추적 중인 미체결 주문</b>\n\n"
+    _order_status_names = {"wait": "대기", "partial": "부분체결", "pending_reorder": "재주문대기", "market_closed": "장외대기"}
     for ord in orders:
-        msg += f"📌 <b>[{exchange_display_name(ord['exchange'])}]</b> {ord['ticker']}\n"
-        msg += f"   └ {ord['price']:,.0f}원 ({ord['volume']:.4f}개)\n"
+        group_tag = f" [<b>#{ord['group_no']}</b>]" if ord.get("group_no") else ""
+        side_str = "매수" if ord["side"] == "bid" else "매도"
+        status_str = _order_status_names.get(ord.get("status"), "")
+        status_tag = f" — {status_str}" if status_str else ""
+        msg += f"📌 <b>[{exchange_display_name(ord['exchange'])}]</b> {ord['ticker']}{group_tag}\n"
+        msg += f"   └ {ord['price']:,.0f}원 ({side_str}, {ord['volume']:.4f}개){status_tag}\n"
 
+    msg += "\n배치 번호로 취소: <code>/cancelno [번호]</code>"
     await update.message.reply_text(msg, parse_mode="HTML")
 
 @check_auth
@@ -741,6 +748,37 @@ async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
         await asyncio.sleep(0.1)
 
     await status_msg.edit_text(f"✅ {ticker} 취소 완료 ({success_count}/{len(orders)}건 성공)")
+
+@check_auth
+async def cancelno_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
+    if await check_details_help(update, "cancelno"): return
+    user_id = str(update.effective_chat.id)
+    args = context.args
+    if not args:
+        await update.message.reply_text("⚠️ 취소할 배치 번호를 입력하세요. 예: <code>/cancelno 1</code>", parse_mode="HTML")
+        return
+
+    try:
+        group_no = int(args[-1])
+    except ValueError:
+        await update.message.reply_text("⚠️ 배치 번호는 숫자여야 합니다. 예: <code>/cancelno 1</code>", parse_mode="HTML")
+        return
+
+    orders = order_manager.get_orders_by_group_no(user_id, group_no)
+    if not orders:
+        await update.message.reply_text(f"ℹ️ #{group_no} 배치 주문이 없습니다.")
+        return
+
+    status_msg = await update.message.reply_text(f"🛑 #{group_no} 배치 주문 {len(orders)}건 취소 중...")
+
+    success_count = 0
+    for ord in orders:
+        if await exchange_adapter.cancel_order(user_id, ord['exchange'], ord['uuid'], ord['ticker']):
+            order_manager.remove_order(ord['uuid'])
+            success_count += 1
+        await asyncio.sleep(0.1)
+
+    await status_msg.edit_text(f"✅ #{group_no} 배치 취소 완료 ({success_count}/{len(orders)}건 성공)")
 
 # --- /config: API 키 설정 대화형 핸들러 ---
 async def config_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1617,7 +1655,7 @@ async def sync_orders(application):
                         )
                         order_manager.add_order(user_id, exchange, ticker, s_res['uuid'], sell_price, sell_volume,
                                              side="ask", strategy="rsitrade_sell", target_rsi=target_rsi,
-                                             stop_price=stop_price)
+                                             stop_price=stop_price, group_no=ord.get("group_no"))
                         order_manager.update_order_fill(ord['uuid'], exec_vol, state)
                         await application.bot.send_message(
                             chat_id=user_id,
@@ -1704,36 +1742,46 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
     for ex in ["upbit", "bithumb", "kis"]:
         ex_orders = [o for o in orders if o['exchange'] == ex]
         if not ex_orders: continue
-        
+
         msg += f"🏛️ <b>{ex.upper()}</b>\n"
 
         tickers = sorted(list(set([o['ticker'] for o in ex_orders])))
         for tk in tickers:
             tk_orders = [o for o in ex_orders if o['ticker'] == tk]
-            total = len(tk_orders)
-            is_rsi = any(o['strategy'].startswith('rsitrade') for o in tk_orders)
-            strategy_name = "RSI 순환 매매" if is_rsi else "거미줄 분할 매매"
 
-            if is_rsi:
-                # rsitrade_sell 주문 수 = 매수 체결 완료 후 매도 대기 중인 슬롯
-                filled = len([o for o in tk_orders if o['strategy'] == 'rsitrade_sell'])
-            else:
-                filled = len([o for o in tk_orders if o['status'] == 'done'])
+            # group_no별 서브그룹 생성: None인 것은 하나로 묶어 먼저 표시
+            display_groups = []
+            ungrouped = [o for o in tk_orders if not o.get("group_no")]
+            if ungrouped:
+                display_groups.append((None, ungrouped))
+            for gno in sorted(set(o["group_no"] for o in tk_orders if o.get("group_no"))):
+                display_groups.append((gno, [o for o in tk_orders if o.get("group_no") == gno]))
 
-            prog_bar = "🔵" * filled + "⚪" * (total - filled)
+            for group_label, g_orders in display_groups:
+                total = len(g_orders)
+                is_rsi = any(o['strategy'].startswith('rsitrade') for o in g_orders)
+                strategy_name = "RSI 순환 매매" if is_rsi else "거미줄 분할 매매"
 
-            msg += f"• <b>{tk}</b> ({strategy_name})\n"
-            if is_rsi and filled > 0:
-                msg += f"  └ 진행: {prog_bar} ({total}건 추적, {filled}건 매수완료·매도대기)\n"
-            else:
-                msg += f"  └ 진행: {prog_bar} ({total}건 추적)\n"
+                if is_rsi:
+                    filled = len([o for o in g_orders if o['strategy'] == 'rsitrade_sell'])
+                else:
+                    filled = len([o for o in g_orders if o['status'] == 'done'])
 
-            for i, o in enumerate(tk_orders[:3]):
-                side_str = "매수" if o['side'] == 'bid' else "매도"
-                target = f"RSI {o['target_rsi']}" if o['target_rsi'] else f"{o['price']:,.0f}원"
-                state_text = status_names.get(o.get("status"), o.get("status", "대기"))
-                msg += f"  ▫️ {i+1}. {side_str}[{state_text}]: {target}\n"
-            if len(tk_orders) > 3: msg += "  ▫️ ... 그 외 생략\n"
+                prog_bar = "🔵" * filled + "⚪" * (total - filled)
+                group_tag = f" [<b>#{group_label}</b>]" if group_label is not None else ""
+
+                msg += f"• <b>{tk}</b> ({strategy_name}){group_tag}\n"
+                if is_rsi and filled > 0:
+                    msg += f"  └ 진행: {prog_bar} ({total}건 추적, {filled}건 매수완료·매도대기)\n"
+                else:
+                    msg += f"  └ 진행: {prog_bar} ({total}건 추적)\n"
+
+                for i, o in enumerate(g_orders[:3]):
+                    side_str = "매수" if o['side'] == 'bid' else "매도"
+                    target = f"RSI {o['target_rsi']}" if o['target_rsi'] else f"{o['price']:,.0f}원"
+                    state_text = status_names.get(o.get("status"), o.get("status", "대기"))
+                    msg += f"  ▫️ {i+1}. {side_str}[{state_text}]: {target}\n"
+                if len(g_orders) > 3: msg += "  ▫️ ... 그 외 생략\n"
         msg += "\n"
 
     msg += "ℹ️ 체결 및 외부 취소 시 실시간 알림이 전송됩니다.\n"
@@ -1861,6 +1909,7 @@ async def rsitrade_confirm_callback(update: Update, context: ContextTypes.DEFAUL
     b_start, b_end = parse_rsi_range(b_rsi)
     s_start, s_end = parse_rsi_range(s_rsi) if has_sell else (0, 0)
     budget_per_order = bg / ct
+    group_no = order_manager.get_next_group_no(user_id)
 
     success = 0
     for i in range(ct):
@@ -1887,11 +1936,12 @@ async def rsitrade_confirm_callback(update: Update, context: ContextTypes.DEFAUL
         res = await exchange_adapter.create_order(user_id, ex, tk, "bid", price, volume)
         if res and "uuid" in res:
             order_manager.add_order(user_id, ex, tk, res["uuid"], price, volume,
-                                    side="bid", strategy="rsitrade", target_rsi=target_rsi, linked_to=sell_target_rsi)
+                                    side="bid", strategy="rsitrade", target_rsi=target_rsi,
+                                    linked_to=sell_target_rsi, group_no=group_no)
             success += 1
         await asyncio.sleep(0.2)
 
-    await context.bot.send_message(chat_id=user_id, text=f"✅ {tk} 전략 가동 완료! ({success}/{ct}건 예약됨)")
+    await context.bot.send_message(chat_id=user_id, text=f"✅ {tk} 전략 가동 완료! ({success}/{ct}건 예약됨, 배치 #{group_no})")
 
 async def grid_quick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2009,6 +2059,7 @@ async def sgridrsi_confirm_callback(update: Update, context: ContextTypes.DEFAUL
 
     s_start, s_end = parse_rsi_range(s_rsi)
     budget_per_order = bg / ct
+    group_no = order_manager.get_next_group_no(user_id)
 
     success = 0
     for i in range(ct):
@@ -2030,11 +2081,12 @@ async def sgridrsi_confirm_callback(update: Update, context: ContextTypes.DEFAUL
         res = await exchange_adapter.create_order(user_id, ex, tk, "ask", price, volume)
         if res and "uuid" in res:
             order_manager.add_order(user_id, ex, tk, res["uuid"], price, volume,
-                                    side="ask", strategy="sgridrsi", target_rsi=target_rsi, linked_to=None)
+                                    side="ask", strategy="sgridrsi", target_rsi=target_rsi,
+                                    linked_to=None, group_no=group_no)
             success += 1
         await asyncio.sleep(0.2)
 
-    await context.bot.send_message(chat_id=user_id, text=f"✅ {tk} RSI 매도 전략 가동 완료! ({success}/{ct}건 예약됨)")
+    await context.bot.send_message(chat_id=user_id, text=f"✅ {tk} RSI 매도 전략 가동 완료! ({success}/{ct}건 예약됨, 배치 #{group_no})")
 
 async def signal_snooze_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from datetime import datetime, timedelta, timezone
@@ -2476,6 +2528,25 @@ async def _internal_execute_sgrid_handler(request: _web.Request) -> _web.Respons
         return _web.Response(status=500, text=str(e))
 
 
+async def _internal_cancel_order_handler(request: _web.Request) -> _web.Response:
+    if not await _verify_webhook_request(request):
+        return _web.Response(status=401)
+    try:
+        data = await request.json()
+        user_id = data["user_id"]
+        exchange = data["exchange"]
+        uuid = data["uuid"]
+        ticker = data["ticker"]
+        ok = await exchange_adapter.cancel_order(user_id, exchange, uuid, ticker)
+        if ok:
+            order_manager.remove_order(uuid)
+        import json as _json
+        return _web.Response(text=_json.dumps({"ok": bool(ok)}), content_type="application/json")
+    except Exception as e:
+        _log.warning("internal cancel_order failed", exc_info=e, extra={"event": "cancel_order_error"})
+        return _web.Response(status=500, text=str(e))
+
+
 async def post_init(application):
     """봇 초기화 후 백그라운드 태스크 실행"""
     global _order_wake_event, _notify_runner
@@ -2521,6 +2592,7 @@ async def post_init(application):
         notify_app.router.add_post("/internal/execute_grid", _internal_execute_grid_handler)
         notify_app.router.add_post("/internal/execute_sgrid", _internal_execute_sgrid_handler)
         notify_app.router.add_post("/internal/execute_rsitrade", _internal_execute_rsitrade_handler)
+        notify_app.router.add_post("/internal/cancel_order", _internal_cancel_order_handler)
         _notify_runner = _web.AppRunner(notify_app)
         await _notify_runner.setup()
         port = int(os.environ.get("INTERNAL_PORT", 8765))
@@ -2723,6 +2795,7 @@ def main():
     application.add_handler(CommandHandler("sell", sell_command))
     application.add_handler(CommandHandler("orders", orders_command))
     application.add_handler(CommandHandler("cancel", cancel_command))
+    application.add_handler(CommandHandler("cancelno", cancelno_command))
     application.add_handler(CommandHandler("grid", grid_command))
     application.add_handler(CommandHandler("sgrid", sgrid_command))
     for command_name in RSI_GRID_COMMAND_ALIASES:

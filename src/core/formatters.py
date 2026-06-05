@@ -183,6 +183,15 @@ CMD_HELP = {
         "1. <code>/cancel BTC</code> (업비트 비트코인 주문 취소)\n"
         "2. <code>/cancel 빗썸 SOL</code> (빗썸 솔라나 주문 취소)"
     ),
+    "cancelno": (
+        "🔢 <b>/cancelno 상세 가이드</b>\n\n"
+        "<b>기능:</b> 배치 번호(#N)로 전략 주문 묶음을 일괄 취소합니다.\n"
+        "<b>구문:</b> <code>/cancelno [배치번호]</code>\n\n"
+        "<b>예시:</b>\n"
+        "1. <code>/cancelno 1</code> — #1 배치 주문 전체 취소\n"
+        "2. <code>/cancelno 3</code> — #3 배치 주문 전체 취소\n\n"
+        "<b>배치 번호 확인:</b> <code>/status</code> 또는 <code>/orders</code>에서 [#N]으로 표시됩니다."
+    ),
     "watch": (
         "🔔 <b>/watch 상세 가이드</b>\n\n"
         "<b>기능:</b> 특정 종목의 RSI 지표를 실시간 감시하여 매수 시그널을 알립니다.\n"

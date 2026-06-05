@@ -9,6 +9,7 @@ export const fetchOrders = (
   dateTo?: string,
   page = 1,
   pageSize = 50,
+  groupNo?: number,
 ) => {
   const params = new URLSearchParams()
   if (status) params.set('status', status)
@@ -16,7 +17,11 @@ export const fetchOrders = (
   if (side) params.set('side', side)
   if (dateFrom) params.set('date_from', dateFrom)
   if (dateTo) params.set('date_to', dateTo)
+  if (groupNo !== undefined) params.set('group_no', String(groupNo))
   params.set('page', String(page))
   params.set('page_size', String(pageSize))
   return api.get<OrdersData>(`/api/orders?${params.toString()}`)
 }
+
+export const cancelOrder = (uuid: string) =>
+  api.post<{ ok: boolean; error?: string }>(`/api/orders/${encodeURIComponent(uuid)}/cancel`, {})
