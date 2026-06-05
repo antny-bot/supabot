@@ -59,9 +59,9 @@ def test_llm_prompt_uses_compact_english_command_catalog():
     assert "price req=ticker opt=exchange run=now" in prompt
     assert "Use help only for usage/capability questions." in prompt
     assert "Missing required fields => clarify." in prompt
-    assert "RSI + split/grid/거미줄 + budget => rsitrade." in prompt
-    assert "grid is price-range only, not RSI." in prompt
-    assert "Missing sell_rsi_range => null; server uses default." in prompt
+    assert "rsitrade (buy_rsi_range)." in prompt
+    assert "grid/gridrsi is price-range" in prompt
+    assert "Missing sell_rsi_range for rsitrade/gridrsi => null; server uses default." in prompt
     assert "Default exchange: bithumb." in prompt
 
 

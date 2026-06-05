@@ -720,7 +720,7 @@ async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
     user_id = str(update.effective_chat.id)
     args = context.args
     if not args:
-        await update.message.reply_text("⚠️ 취소할 종목을 입력하세요. 예: `/cancel KRW-BTC` 또는 `/cancel upbit KRW-BTC`")
+        await update.message.reply_text("⚠️ 취소할 종목을 입력하세요. 예: `/cancel BTC` 또는 `/cancel upbit BTC`")
         return
 
     default_exchange = user["preferences"].get("default_exchange", "upbit")
@@ -1133,7 +1133,7 @@ async def watch_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     user_id = str(update.effective_chat.id)
     args = context.args
     if not args:
-        await update.message.reply_text("⚠️ 감시할 종목을 입력하세요. 예: `/watch KRW-BTC` 또는 `/watch bithumb BTC`")
+        await update.message.reply_text("⚠️ 감시할 종목을 입력하세요. 예: `/watch BTC` 또는 `/watch 빗썸 SOL`")
         return
 
     default_exchange = user["preferences"].get("default_exchange", "upbit")
@@ -1153,7 +1153,7 @@ async def unwatch_command(update: Update, context: ContextTypes.DEFAULT_TYPE, us
     user_id = str(update.effective_chat.id)
     args = context.args
     if not args:
-        await update.message.reply_text("⚠️ 삭제할 종목을 입력하세요. 예: `/unwatch KRW-BTC`")
+        await update.message.reply_text("⚠️ 삭제할 종목을 입력하세요. 예: `/unwatch BTC`")
         return
 
     default_exchange = user["preferences"].get("default_exchange", "upbit")
@@ -1173,7 +1173,7 @@ async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     user_id = str(update.effective_chat.id)
     args = context.args
     if not args:
-        await update.message.reply_text("⚠️ 종목을 입력하세요. 예: /price KRW-BTC 또는 /p KRW-ETH")
+        await update.message.reply_text("⚠️ 종목을 입력하세요. 예: /price BTC 또는 /p ETH")
         return
 
     default_exchange = user["preferences"].get("default_exchange", "upbit")
@@ -2407,6 +2407,75 @@ async def _internal_execute_rsitrade_handler(request: _web.Request) -> _web.Resp
         return _web.Response(status=500, text=str(e))
 
 
+async def _internal_execute_sgrid_handler(request: _web.Request) -> _web.Response:
+    if not await _verify_webhook_request(request):
+        return _web.Response(status=401)
+    try:
+        data = await request.json()
+        user_id = str(data["user_id"])
+        ex = data["exchange"].lower()
+        tk = data["ticker"].upper()
+        s_p = float(data["start_price"])
+        e_p = float(data["end_price"])
+        ct = int(data["count"])
+        total_vol = float(data["total_volume"])
+
+        user = user_manager.get_user(user_id)
+        if not user:
+            return _web.Response(status=404, text="User not found")
+
+        if ex == "kis" and not is_kis_regular_session():
+            return _web.Response(status=400, text="한국투자증권 정규장 시간이 아닙니다.")
+
+        if ex == "kis" and int(total_vol) < ct:
+            return _web.Response(status=400, text=f"총 수량({int(total_vol)}주)이 주문 개수({ct})보다 작습니다.")
+
+        app = request.app["bot_application"]
+
+        async def run_sgrid():
+            price_step = (e_p - s_p) / (ct - 1) if ct > 1 else 0
+            success_count = 0
+            skipped_count = 0
+            for i in range(ct):
+                target_price = s_p + (price_step * i)
+                target_price = ExchangeAdapter.adjust_price_to_tick(target_price)
+                raw_vol = total_vol / ct
+                volume = int(raw_vol) if ex == "kis" else round(raw_vol, 4)
+
+                if ex == "kis" and volume <= 0:
+                    skipped_count += 1
+                    continue
+
+                try:
+                    res = await exchange_adapter.create_order(user_id, ex, tk, "ask", target_price, volume)
+                    if res and 'uuid' in res:
+                        order_manager.add_order(
+                            user_id, ex, tk, res['uuid'], target_price, volume,
+                            side="ask",
+                            strategy="sgrid",
+                        )
+                        success_count += 1
+                except Exception as e:
+                    _log.error(f"sGrid order placement failed at index {i}", exc_info=e)
+                await asyncio.sleep(0.2)
+
+            result_msg = f"✅ `{tk}` 거미줄 매도 완료! ({success_count}/{ct}건 성공)\n백그라운드에서 체결을 감시합니다."
+            if skipped_count:
+                result_msg += f"\n⚠️ {skipped_count}건은 수량 부족(0주)으로 건너뜀."
+
+            asyncio.create_task(trigger_realtime_sync())
+            try:
+                await app.bot.send_message(chat_id=user_id, text=result_msg)
+            except Exception as e:
+                _log.warning("Failed to send telegram sgrid execution message", exc_info=e)
+
+        asyncio.create_task(run_sgrid())
+        return _web.Response(text="sGrid execution started")
+    except Exception as e:
+        _log.warning("Internal sgrid execution failed", exc_info=e)
+        return _web.Response(status=500, text=str(e))
+
+
 async def post_init(application):
     """봇 초기화 후 백그라운드 태스크 실행"""
     global _order_wake_event, _notify_runner
@@ -2450,6 +2519,7 @@ async def post_init(application):
         notify_app["bot_application"] = application
         notify_app.router.add_post("/internal/notify", _internal_notify_handler)
         notify_app.router.add_post("/internal/execute_grid", _internal_execute_grid_handler)
+        notify_app.router.add_post("/internal/execute_sgrid", _internal_execute_sgrid_handler)
         notify_app.router.add_post("/internal/execute_rsitrade", _internal_execute_rsitrade_handler)
         _notify_runner = _web.AppRunner(notify_app)
         await _notify_runner.setup()

@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { GripVertical, Star, X, Key } from 'lucide-react'
+import { GripVertical, Star, X, Crown } from 'lucide-react'
 import {
   DndContext,
   closestCenter,
@@ -87,7 +87,7 @@ function SortableItem({
         </div>
         <span className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate flex items-center gap-1">
           {item.label}
-          {item.key === 'analytics' && <Key size={12} className="text-slate-400 dark:text-slate-500" />}
+          {item.key === 'analytics' && <>{' '}<Crown size={12} className="text-slate-400 dark:text-slate-500" /></>}
         </span>
       </Link>
 
