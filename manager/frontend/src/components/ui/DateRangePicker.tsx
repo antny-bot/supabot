@@ -76,79 +76,147 @@ export default function DateRangePicker({
     onChange({ ...value, [field]: v })
   }
 
-  if (collapsible && !isOpen) {
-    const modeLabel = PRESETS.find((p) => p.value === value.mode)?.label ?? value.mode
+  if (!collapsible) {
     return (
+      <div className={`space-y-2 ${className}`}>
+        <div className="flex flex-wrap gap-1.5">
+          {PRESETS.map((p) => (
+            <button
+              key={p.value}
+              onClick={() => handlePreset(p.value)}
+              className={`px-3 py-1.5 rounded-lg text-app-caption font-medium transition-colors ${
+                value.mode === p.value
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        {value.mode === 'custom' && (
+          <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/50">
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="date"
+                value={value.from}
+                onChange={(e) => handleDate('from', e.target.value)}
+                className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300"
+              />
+              <span className="text-xs text-slate-400">~</span>
+              <input
+                type="date"
+                value={value.to}
+                onChange={(e) => handleDate('to', e.target.value)}
+                className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300"
+              />
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              <span className="text-[10px] text-slate-400 self-center">빠른 선택:</span>
+              {[
+                { label: '이번달', fn: getThisMonth },
+                { label: '지난달', fn: getLastMonth },
+                { label: '올해',   fn: getThisYear  },
+              ].map(({ label, fn }) => (
+                <button
+                  key={label}
+                  onClick={() => handleQuick(fn())}
+                  className="rounded px-2 py-0.5 text-[10px] font-medium border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600 transition-colors"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  const modeLabel = PRESETS.find((p) => p.value === value.mode)?.label ?? value.mode
+
+  return (
+    <div className={className}>
       <button
         onClick={onToggle}
         className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-app-caption font-medium transition-colors ${
           value.mode !== 'all'
             ? 'bg-indigo-600 text-white shadow-sm'
             : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-        } ${className}`}
+        }`}
       >
         {modeLabel}
-        <ChevronDown size={12} />
+        <ChevronDown
+          size={12}
+          className={`transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+        />
       </button>
-    )
-  }
 
-  return (
-    <div className={`space-y-2 ${className}`}>
-      <div className="flex flex-wrap gap-1.5">
-        {PRESETS.map((p) => (
-          <button
-            key={p.value}
-            onClick={() => {
-              handlePreset(p.value)
-              if (collapsible && p.value !== 'custom') onToggle?.()
-            }}
-            className={`px-3 py-1.5 rounded-lg text-app-caption font-medium transition-colors ${
-              value.mode === p.value
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
-            }`}
-          >
-            {p.label}
-          </button>
-        ))}
-      </div>
+      <div
+        className={`grid transition-all duration-200 ease-in-out ${
+          isOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+        }`}
+      >
+        <div className="overflow-hidden min-h-0">
+          <div className="space-y-2 pt-2">
+            <div className="flex flex-wrap gap-1.5">
+              {PRESETS.map((p) => (
+                <button
+                  key={p.value}
+                  onClick={() => {
+                    handlePreset(p.value)
+                    if (p.value !== 'custom') onToggle?.()
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-app-caption font-medium transition-colors ${
+                    value.mode === p.value
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
 
-      {value.mode === 'custom' && (
-        <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/50">
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="date"
-              value={value.from}
-              onChange={(e) => handleDate('from', e.target.value)}
-              className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300"
-            />
-            <span className="text-xs text-slate-400">~</span>
-            <input
-              type="date"
-              value={value.to}
-              onChange={(e) => handleDate('to', e.target.value)}
-              className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300"
-            />
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            <span className="text-[10px] text-slate-400 self-center">빠른 선택:</span>
-            {[
-              { label: '이번달', fn: getThisMonth },
-              { label: '지난달', fn: getLastMonth },
-              { label: '올해',   fn: getThisYear  },
-            ].map(({ label, fn }) => (
-              <button
-                key={label}
-                onClick={() => handleQuick(fn())}
-                className="rounded px-2 py-0.5 text-[10px] font-medium border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600 transition-colors"
-              >
-                {label}
-              </button>
-            ))}
+            {value.mode === 'custom' && (
+              <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/50">
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="date"
+                    value={value.from}
+                    onChange={(e) => handleDate('from', e.target.value)}
+                    className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300"
+                  />
+                  <span className="text-xs text-slate-400">~</span>
+                  <input
+                    type="date"
+                    value={value.to}
+                    onChange={(e) => handleDate('to', e.target.value)}
+                    className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300"
+                  />
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <span className="text-[10px] text-slate-400 self-center">빠른 선택:</span>
+                  {[
+                    { label: '이번달', fn: getThisMonth },
+                    { label: '지난달', fn: getLastMonth },
+                    { label: '올해',   fn: getThisYear  },
+                  ].map(({ label, fn }) => (
+                    <button
+                      key={label}
+                      onClick={() => handleQuick(fn())}
+                      className="rounded px-2 py-0.5 text-[10px] font-medium border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600 transition-colors"
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
-      )}
+      </div>
     </div>
   )
 }

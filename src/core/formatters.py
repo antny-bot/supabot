@@ -350,6 +350,7 @@ def build_help_message(user, bot_name=BOT_DISPLAY_NAME):
     admin_lines = [
         f"<code>/nlstats</code> — 자연어 전처리 후보 통계 (관리자 전용)",
         f"<code>/diag</code> — 운영 진단 (관리자 전용)",
+        f"<code>/dbsync</code> — 주문 DB 수동 동기화 (관리자 전용)",
     ] if user.get("is_admin") else []
 
     system_lines = [
