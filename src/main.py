@@ -2354,6 +2354,7 @@ async def _internal_execute_grid_handler(request: _web.Request) -> _web.Response
                             user_id, ex, tk, res['uuid'], target_price, volume,
                             side="bid",
                             strategy="grid",
+                            group_no=group_no,
                         )
                         success_count += 1
                 except Exception as e:
@@ -2363,6 +2364,8 @@ async def _internal_execute_grid_handler(request: _web.Request) -> _web.Response
             result_msg = f"✅ `{tk}` 거미줄 매수 완료! ({success_count}/{ct}건 성공)\n백그라운드에서 체결을 감시합니다."
             if skipped_count:
                 result_msg += f"\n⚠️ {skipped_count}건은 수량 부족(0주)으로 건너뜀."
+            if success_count:
+                result_msg += f"\n배치 #{group_no}"
             
             asyncio.create_task(trigger_realtime_sync())
             try:
@@ -2405,6 +2408,7 @@ async def _internal_execute_rsitrade_handler(request: _web.Request) -> _web.Resp
             return _web.Response(status=400, text=f"건당 주문 금액이 거래소 최소 주문 금액({min_amt:,.0f}원)보다 작습니다.")
 
         app = request.app["bot_application"]
+        group_no = order_manager.get_next_group_no(user_id)
 
         async def run_rsitrade():
             b_start, b_end = parse_rsi_range(b_rsi)
@@ -2438,7 +2442,8 @@ async def _internal_execute_rsitrade_handler(request: _web.Request) -> _web.Resp
                     if res and 'uuid' in res:
                         order_manager.add_order(
                             user_id, ex, tk, res['uuid'], price, volume, 
-                            side="bid", strategy="rsitrade", target_rsi=target_rsi, linked_to=sell_target_rsi
+                            side="bid", strategy="rsitrade", target_rsi=target_rsi,
+                            linked_to=sell_target_rsi, group_no=group_no
                         )
                         success += 1
                 except Exception as e:
@@ -2446,6 +2451,8 @@ async def _internal_execute_rsitrade_handler(request: _web.Request) -> _web.Resp
                 await asyncio.sleep(0.2)
 
             result_msg = f"✅ `{tk}` RSI 순환 매매 전략 가동 완료! ({success}/{ct}건 예약됨)\n백그라운드에서 RSI 체결을 감시합니다."
+            if success:
+                result_msg += f"\n배치 #{group_no}"
             asyncio.create_task(trigger_realtime_sync())
             try:
                 await app.bot.send_message(chat_id=user_id, text=result_msg)
@@ -2483,6 +2490,7 @@ async def _internal_execute_sgrid_handler(request: _web.Request) -> _web.Respons
             return _web.Response(status=400, text=f"총 수량({int(total_vol)}주)이 주문 개수({ct})보다 작습니다.")
 
         app = request.app["bot_application"]
+        group_no = order_manager.get_next_group_no(user_id)
 
         async def run_sgrid():
             price_step = (e_p - s_p) / (ct - 1) if ct > 1 else 0
@@ -2505,6 +2513,7 @@ async def _internal_execute_sgrid_handler(request: _web.Request) -> _web.Respons
                             user_id, ex, tk, res['uuid'], target_price, volume,
                             side="ask",
                             strategy="sgrid",
+                            group_no=group_no,
                         )
                         success_count += 1
                 except Exception as e:
@@ -2514,6 +2523,8 @@ async def _internal_execute_sgrid_handler(request: _web.Request) -> _web.Respons
             result_msg = f"✅ `{tk}` 거미줄 매도 완료! ({success_count}/{ct}건 성공)\n백그라운드에서 체결을 감시합니다."
             if skipped_count:
                 result_msg += f"\n⚠️ {skipped_count}건은 수량 부족(0주)으로 건너뜀."
+            if success_count:
+                result_msg += f"\n배치 #{group_no}"
 
             asyncio.create_task(trigger_realtime_sync())
             try:
