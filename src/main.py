@@ -2139,6 +2139,7 @@ async def order_sync_loop(application):
         _write_heartbeat()
         try:
             prefs = _get_admin_prefs()
+            order_manager.reload_from_db()
             await sync_orders(application)
             metrics.record_poll_ok()
             interval = prefs["poll_active_interval"] if order_manager.orders \
