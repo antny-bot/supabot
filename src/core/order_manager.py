@@ -34,6 +34,19 @@ class OrderManager:
             _log.error("Failed to load orders from file", exc_info=e, extra={"event": "orders_load_error"})
             return []
 
+    def reload_from_db(self) -> bool:
+        """폴링 사이클 시작 시 DB 상태를 인메모리에 반영한다. DB 미사용 환경에서는 no-op."""
+        if not is_db_available():
+            return False
+        try:
+            rows = get_db().table("orders").select("*").execute().data
+            self.orders = rows or []
+            _log.info("Reloaded orders from DB", extra={"event": "orders_reloaded_db", "count": len(self.orders)})
+            return True
+        except Exception as e:
+            _log.error("Failed to reload orders from DB", exc_info=e, extra={"event": "db_orders_reload_error"})
+            return False
+
     def save_orders(self):
         if is_db_available():
             try:

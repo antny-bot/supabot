@@ -233,6 +233,42 @@ md+:  [ Sidebar (sticky, full-height) ] [ main content (flex-1) ]
 - Keep `Sidebar.tsx` as the single source of truth for desktop navigation, user identity display, and session actions.
 - The sidebar must use `overflow-visible` on the `<aside>` so the popup is not clipped.
 
+## Accordion / Collapsible Filter Animation
+
+모든 collapsible 필터 패널 (`collapsible` + `isOpen` + `onToggle` props를 가진 컴포넌트)은 반드시 열림/닫힘 애니메이션을 가져야 한다. 애니메이션 없는 즉시 전환은 디자인 리그레션으로 처리한다.
+
+### 기법: CSS `grid-template-rows` 전환 (0fr → 1fr)
+
+JS 높이 측정이나 외부 애니메이션 라이브러리 없이 브라우저 네이티브 CSS로 구현한다.
+
+필수 DOM 구조:
+
+```tsx
+<div className={`grid transition-all duration-200 ease-in-out ${
+  isOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+}`}>
+  <div className="overflow-hidden min-h-0">
+    {/* panel content */}
+  </div>
+</div>
+```
+
+- 바깥 div: `display: grid` + `grid-template-rows` 전환
+- 안쪽 div: `overflow-hidden`과 `min-h-0` 모두 필수 — 둘 중 하나라도 빠지면 0fr로 완전 수축 안 됨
+- `grid-rows-[0fr]` / `grid-rows-[1fr]`은 Tailwind JIT arbitrary value로 config 변경 없이 지원
+
+### 규칙
+
+- 표준 duration: **200ms ease-in-out** — 제품적 이유 없이 변경 금지
+- **트리거 칩은 항상 마운트 유지** — 열림/닫힘 양쪽에서 unmount/remount 금지
+- **ChevronDown 아이콘**은 열릴 때 180° 회전: `transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`
+- `className` prop은 outer wrapper div에 전달
+- 패널 내용 컨테이너에 `pt-2`로 트리거 칩과 시각적 간격 확보
+
+### 브라우저 지원
+
+Chrome 107+, Firefox 109+, Safari 16.4+ — 관리자 대시보드의 지원 범위에 해당.
+
 ## Maintenance Rule
 
 - Any new page must add or update:

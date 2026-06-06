@@ -6,11 +6,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI, Request, Depends
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from .auth import supabase_sign_in
+from .auth import supabase_sign_in, generate_pkce_pair, build_oauth_url, exchange_pkce_code
 from .routers import dashboard, events, orders, reports, sysconfig, trades, users, templates, mfa, analytics
 from .routers._auth import get_current_user
 
@@ -125,6 +125,55 @@ async def api_update_profile(request: Request, user: dict = Depends(get_current_
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+async def _create_session_for_email(request: Request, email: str, access_token: str) -> str:
+    """
+    Looks up the bot user by manager_email, handles MFA check, and populates the session.
+    Returns: 'ok' | 'mfa_required' | 'no_access'
+    """
+    from .db import get_db
+    from .crypto import verify_trusted_token
+
+    try:
+        rows = (
+            await get_db()
+            .table("users")
+            .select("user_id,is_admin,mfa_enabled")
+            .eq("manager_email", email)
+            .execute()
+        ).data
+    except Exception:
+        rows = []
+
+    if rows:
+        bot_user = rows[0]
+        if bool(bot_user.get("mfa_enabled", False)):
+            trusted_token = request.cookies.get("trusted_device_token")
+            trusted_user_id = verify_trusted_token(trusted_token)
+            if trusted_user_id != bot_user["user_id"]:
+                request.session["mfa_pending_email"] = email
+                request.session["mfa_pending_user_id"] = bot_user["user_id"]
+                request.session["mfa_pending_is_admin"] = bool(bot_user.get("is_admin", False))
+                request.session["mfa_pending_access_token"] = access_token
+                return "mfa_required"
+
+        request.session["user_email"] = email
+        request.session["access_token"] = access_token
+        request.session["is_admin"] = bool(bot_user.get("is_admin", False))
+        request.session["bot_user_id"] = bot_user["user_id"]
+        return "ok"
+
+    # MANAGER_SUPER_ADMIN_EMAIL: 봇 유저 없이도 어드민 접근 허용 (최초 설정/비상용)
+    super_admin = os.environ.get("MANAGER_SUPER_ADMIN_EMAIL", "").strip().lower()
+    if super_admin and email == super_admin:
+        request.session["user_email"] = email
+        request.session["access_token"] = access_token
+        request.session["is_admin"] = True
+        request.session["bot_user_id"] = None
+        return "ok"
+
+    return "no_access"
+
+
 @app.post("/api/login")
 async def api_login(request: Request):
     try:
@@ -138,48 +187,55 @@ async def api_login(request: Request):
     if not result or not result.get("access_token"):
         return JSONResponse({"error": "이메일 또는 비밀번호가 올바르지 않습니다."}, status_code=401)
 
-    # users 테이블에서 manager_email로 봇 유저 조회 (mfa_enabled도 함께 select)
-    try:
-        from .db import get_db
-        rows = (await get_db().table("users").select("user_id,is_admin,mfa_enabled").eq("manager_email", email).execute()).data
-    except Exception:
-        rows = []
-
-    if rows:
-        bot_user = rows[0]
-        # 만약 MFA가 활성화되어 있으면, 2차 인증 필요 여부 확인
-        if bool(bot_user.get("mfa_enabled", False)):
-            # "신뢰할 수 있는 기기" 쿠키 확인
-            from .crypto import verify_trusted_token
-            trusted_token = request.cookies.get("trusted_device_token")
-            trusted_user_id = verify_trusted_token(trusted_token)
-            
-            if trusted_user_id != bot_user["user_id"]:
-                # 신뢰 토큰이 없거나 다른 유저인 경우 MFA 대기 세션 설정
-                request.session["mfa_pending_email"] = email
-                request.session["mfa_pending_user_id"] = bot_user["user_id"]
-                request.session["mfa_pending_is_admin"] = bool(bot_user.get("is_admin", False))
-                request.session["mfa_pending_access_token"] = result["access_token"]
-                return JSONResponse({"mfa_required": True})
-            
-            # 신뢰 토큰이 유효하면 MFA 패스 (로그에 남길 수 있음)
-
-        request.session["user_email"] = email
-        request.session["access_token"] = result["access_token"]
-        request.session["is_admin"] = bool(bot_user.get("is_admin", False))
-        request.session["bot_user_id"] = bot_user["user_id"]
+    outcome = await _create_session_for_email(request, email, result["access_token"])
+    if outcome == "ok":
         return JSONResponse({"ok": True})
-
-    # MANAGER_SUPER_ADMIN_EMAIL: 봇 유저 없이도 어드민 접근 허용 (최초 설정/비상용)
-    super_admin = os.environ.get("MANAGER_SUPER_ADMIN_EMAIL", "").strip().lower()
-    if super_admin and email == super_admin:
-        request.session["user_email"] = email
-        request.session["access_token"] = result["access_token"]
-        request.session["is_admin"] = True
-        request.session["bot_user_id"] = None
-        return JSONResponse({"ok": True})
-
+    if outcome == "mfa_required":
+        return JSONResponse({"mfa_required": True})
     return JSONResponse({"error": "대시보드 접근 권한이 없습니다."}, status_code=403)
+
+
+@app.get("/api/auth/google")
+async def api_auth_google(request: Request):
+    """Google OAuth PKCE 플로우 시작."""
+    code_verifier, code_challenge = generate_pkce_pair()
+    request.session["oauth_code_verifier"] = code_verifier
+
+    base_url = os.environ.get("MANAGER_BASE_URL", "").rstrip("/")
+    if not base_url:
+        base_url = str(request.base_url).rstrip("/")
+    redirect_uri = f"{base_url}/api/auth/callback"
+    request.session["oauth_redirect_uri"] = redirect_uri
+
+    return RedirectResponse(build_oauth_url(redirect_uri, code_challenge), status_code=302)
+
+
+@app.get("/api/auth/callback")
+async def api_auth_callback(request: Request, code: str | None = None, error: str | None = None):
+    """Supabase Google OAuth 콜백 처리."""
+    if error or not code:
+        return RedirectResponse("/login?error=oauth_failed", status_code=302)
+
+    code_verifier = request.session.pop("oauth_code_verifier", None)
+    request.session.pop("oauth_redirect_uri", None)
+
+    if not code_verifier:
+        return RedirectResponse("/login?error=oauth_failed", status_code=302)
+
+    token_data = await exchange_pkce_code(code, code_verifier)
+    if not token_data or not token_data.get("access_token"):
+        return RedirectResponse("/login?error=oauth_failed", status_code=302)
+
+    email = (token_data.get("user") or {}).get("email", "").strip().lower()
+    if not email:
+        return RedirectResponse("/login?error=oauth_failed", status_code=302)
+
+    outcome = await _create_session_for_email(request, email, token_data["access_token"])
+    if outcome == "ok":
+        return RedirectResponse("/dashboard", status_code=302)
+    if outcome == "mfa_required":
+        return RedirectResponse("/login?oauth_mfa=1", status_code=302)
+    return RedirectResponse("/login?error=no_access", status_code=302)
 
 
 @app.post("/api/logout")
