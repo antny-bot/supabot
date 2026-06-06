@@ -2139,7 +2139,6 @@ async def order_sync_loop(application):
         _write_heartbeat()
         try:
             prefs = _get_admin_prefs()
-            order_manager.reload_from_db()
             await sync_orders(application)
             metrics.record_poll_ok()
             interval = prefs["poll_active_interval"] if order_manager.orders \
@@ -2632,6 +2631,20 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
     await update.message.reply_text(build_help_message(user), parse_mode="HTML")
 
 @check_auth
+async def dbsync_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
+    if not user.get("is_admin"):
+        await update.message.reply_text("❌ 어드민 전용 명령어입니다.")
+        return
+    ok = order_manager.reload_from_db()
+    if ok:
+        await update.message.reply_text(
+            f"✅ DB 동기화 완료 — 주문 {len(order_manager.orders)}건 로드됨.",
+            parse_mode="HTML",
+        )
+    else:
+        await update.message.reply_text("❌ DB 동기화 실패 (DB 미연결 또는 오류).")
+
+@check_auth
 async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     if await check_details_help(update, "info"): return
     short_sha = GIT_SHA[:7] if GIT_SHA != "unknown" else "unknown"
@@ -2781,6 +2794,7 @@ def main():
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("commands", help_command))
+    application.add_handler(CommandHandler("dbsync", dbsync_command))
     application.add_handler(CommandHandler("info", info_command))
     for command_name in ACCOUNT_COMMAND_ALIASES:
         application.add_handler(CommandHandler(command_name, whoami_command))
