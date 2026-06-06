@@ -34,6 +34,12 @@ def _kst_today_epoch() -> float:
     return datetime(today.year, today.month, today.day, tzinfo=KST).timestamp()
 
 
+def _kst_yesterday_epoch() -> float:
+    """어제 KST 자정의 Unix timestamp"""
+    yesterday = _kst_today() - timedelta(days=1)
+    return datetime(yesterday.year, yesterday.month, yesterday.day, tzinfo=KST).timestamp()
+
+
 async def _fetch_daily(db, days: int | None, columns: str) -> list[dict]:
     """command_log_daily에서 집계 행 조회"""
     q = db.table("command_log_daily").select(columns)
@@ -44,11 +50,12 @@ async def _fetch_daily(db, days: int | None, columns: str) -> list[dict]:
     return (await q.execute()).data or []
 
 
-async def _fetch_today_raw(db, columns: str) -> list[dict]:
-    """command_logs에서 오늘(KST) raw 로그 조회"""
+async def _fetch_today_raw(db, columns: str, since_epoch: float | None = None) -> list[dict]:
+    """command_logs에서 raw 로그 조회 (기본: 오늘 KST 자정 이후)"""
+    epoch = since_epoch if since_epoch is not None else _kst_today_epoch()
     q = db.table("command_logs").select(columns)
-    q._params["created_at"] = f"gte.{_kst_today_epoch()}"
-    q._params["limit"] = 5000
+    q._params["created_at"] = f"gte.{epoch}"
+    q._params["limit"] = 10000
     return (await q.execute()).data or []
 
 
@@ -190,7 +197,7 @@ async def analytics_heatmap(_=Depends(get_admin_user)):
 
     # 최근 90일 요약 — hour_of_day·weekday 컬럼 활용
     daily = await _fetch_daily(db, 90, "weekday,hour_of_day,count")
-    raw   = await _fetch_today_raw(db, "created_at")
+    raw   = await _fetch_today_raw(db, "created_at", since_epoch=_kst_yesterday_epoch())
 
     matrix = [[0] * 24 for _ in range(7)]
 
