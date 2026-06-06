@@ -1,4 +1,4 @@
-import { ChevronDown } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 
 interface Option {
   value: string
@@ -46,13 +46,13 @@ export default function FilterBar({
   const selected = options.find((o) => o.value === value) ?? options[0]
 
   return (
-    <div className={className}>
+    <div className={`flex items-center ${className}`}>
       <button
         onClick={onToggle}
-        className={`inline-flex items-center gap-1 ${btnClass(value !== '')}`}
+        className={`inline-flex shrink-0 items-center gap-1 ${btnClass(value !== '')}`}
       >
         {selected.label}
-        <ChevronDown
+        <ChevronRight
           size={12}
           className={`transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
         />
@@ -60,11 +60,11 @@ export default function FilterBar({
 
       <div
         className={`grid transition-all duration-200 ease-in-out ${
-          isOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+          isOpen ? 'grid-cols-[1fr] opacity-100 ml-1.5' : 'grid-cols-[0fr] opacity-0 ml-0'
         }`}
       >
-        <div className="overflow-hidden min-h-0">
-          <div className="flex flex-wrap gap-1.5 pt-2">
+        <div className="overflow-hidden min-w-0">
+          <div className="flex flex-nowrap gap-1.5 items-center">
             {options.map((opt) => (
               <button
                 key={opt.value}
@@ -72,7 +72,7 @@ export default function FilterBar({
                   onChange(opt.value)
                   onToggle?.()
                 }}
-                className={btnClass(value === opt.value)}
+                className={`whitespace-nowrap ${btnClass(value === opt.value)}`}
               >
                 {opt.label}
               </button>

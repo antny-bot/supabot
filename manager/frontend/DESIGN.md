@@ -233,37 +233,54 @@ md+:  [ Sidebar (sticky, full-height) ] [ main content (flex-1) ]
 - Keep `Sidebar.tsx` as the single source of truth for desktop navigation, user identity display, and session actions.
 - The sidebar must use `overflow-visible` on the `<aside>` so the popup is not clipped.
 
-## Accordion / Collapsible Filter Animation
+## Accordion / Collapsible Animation
 
-모든 collapsible 필터 패널 (`collapsible` + `isOpen` + `onToggle` props를 가진 컴포넌트)은 반드시 열림/닫힘 애니메이션을 가져야 한다. 애니메이션 없는 즉시 전환은 디자인 리그레션으로 처리한다.
+모든 collapsible 패널 (`collapsible` + `isOpen` + `onToggle` props를 가진 컴포넌트)은 반드시 열림/닫힘 애니메이션을 가져야 한다. 애니메이션 없는 즉시 전환은 디자인 리그레션으로 처리한다.
 
-### 기법: CSS `grid-template-rows` 전환 (0fr → 1fr)
+### 기법: CSS `grid-template` 전환 (0fr → 1fr)
 
-JS 높이 측정이나 외부 애니메이션 라이브러리 없이 브라우저 네이티브 CSS로 구현한다.
+JS 높이 측정이나 외부 애니메이션 라이브러리 없이 브라우저 네이티브 CSS로 구현한다. 방향에 따라 `grid-rows` 또는 `grid-cols`를 선택한다.
 
-필수 DOM 구조:
-
+#### 1. 세로 아코디언 (Vertical)
+- 일반적인 세로 배치 패널이나 설정 창 등에 사용한다.
+- 필수 구조:
 ```tsx
 <div className={`grid transition-all duration-200 ease-in-out ${
   isOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
 }`}>
   <div className="overflow-hidden min-h-0">
-    {/* panel content */}
+    <div className="pt-2">{/* content */}</div>
   </div>
 </div>
 ```
+- **아이콘**: `ChevronDown`을 사용하며, 열릴 때 180° 회전한다.
 
-- 바깥 div: `display: grid` + `grid-template-rows` 전환
-- 안쪽 div: `overflow-hidden`과 `min-h-0` 모두 필수 — 둘 중 하나라도 빠지면 0fr로 완전 수축 안 됨
-- `grid-rows-[0fr]` / `grid-rows-[1fr]`은 Tailwind JIT arbitrary value로 config 변경 없이 지원
+#### 2. 가로 아코디언 (Horizontal)
+- **다중 필터 바(`FilterBar`, `DateRangePicker`)**에서 필터 버튼들이 닫혀있을 때 밀착되게 하고, 펼쳐질 때 우측 공간을 확보하기 위해 사용한다.
+- 필수 구조:
+```tsx
+<div className={`flex items-center ${className}`}>
+  <button onClick={onToggle} className="shrink-0">{/* trigger chip */}</button>
+  <div className={`grid transition-all duration-200 ease-in-out ${
+    isOpen ? 'grid-cols-[1fr] opacity-100 ml-1.5' : 'grid-cols-[0fr] opacity-0 ml-0'
+  }`}>
+    <div className="overflow-hidden min-w-0">
+      <div className="flex flex-nowrap items-center gap-1.5 whitespace-nowrap">
+        {/* filter options */}
+      </div>
+    </div>
+  </div>
+</div>
+```
+- **아이콘**: `ChevronRight`를 사용하며, 열릴 때 180° 회전(좌측 방향)한다.
+- **주의**: 내용물이 펼쳐지는 동안 줄바꿈이 발생하면 애니메이션이 끊기므로 `flex-nowrap`과 `whitespace-nowrap`을 반드시 적용한다.
 
-### 규칙
+### 공통 규칙
 
-- 표준 duration: **200ms ease-in-out** — 제품적 이유 없이 변경 금지
-- **트리거 칩은 항상 마운트 유지** — 열림/닫힘 양쪽에서 unmount/remount 금지
-- **ChevronDown 아이콘**은 열릴 때 180° 회전: `transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`
-- `className` prop은 outer wrapper div에 전달
-- 패널 내용 컨테이너에 `pt-2`로 트리거 칩과 시각적 간격 확보
+- 표준 duration: **200ms ease-in-out** — 제품적 이유 없이 변경 금지.
+- **트리거 칩은 항상 마운트 유지** — 열림/닫힘 양쪽에서 unmount/remount 금지.
+- `overflow-hidden`과 `min-h-0` (또는 `min-w-0`)은 필수 — 누락 시 0fr로 완전 수축되지 않음.
+- `grid-rows-[0fr]` / `grid-cols-[1fr]` 등은 Tailwind JIT arbitrary value로 지원됨.
 
 ### 브라우저 지원
 
