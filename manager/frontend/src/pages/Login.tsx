@@ -26,6 +26,17 @@ export default function Login() {
     }
   }, [rememberEmail])
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const errSlug = params.get('error')
+    if (errSlug === 'no_access') setError('대시보드 접근 권한이 없습니다.')
+    else if (errSlug === 'oauth_failed') setError('Google 로그인에 실패했습니다. 다시 시도해주세요.')
+    if (params.get('oauth_mfa') === '1') setIsMfaRequired(true)
+    if (errSlug || params.get('oauth_mfa')) {
+      window.history.replaceState({}, '', '/login')
+    }
+  }, [])
+
   function handlePostLogin() {
     if (rememberEmail) {
       localStorage.setItem(SAVE_EMAIL_KEY, email)
@@ -224,6 +235,29 @@ export default function Login() {
                 className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white rounded-xl font-medium text-sm transition-colors mt-2"
               >
                 {loading ? '로그인 중…' : '로그인'}
+              </button>
+
+              <div className="relative my-2">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-slate-200 dark:border-slate-700" />
+                </div>
+                <div className="relative flex justify-center text-xs">
+                  <span className="px-2 bg-white dark:bg-slate-900 text-slate-400 dark:text-slate-500">또는</span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => { window.location.href = '/api/auth/google' }}
+                className="w-full py-2.5 flex items-center justify-center gap-2.5 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-sm font-medium transition-colors"
+              >
+                <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
+                  <path fill="#4285F4" d="M44.5 20H24v8.5h11.9C34.2 33.5 29.6 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 2.9l6.4-6.4C34.5 6.1 29.5 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20c11 0 19.6-7.7 19.6-20 0-1.3-.1-2.7-.1-4z"/>
+                  <path fill="#34A853" d="M6.3 14.7l7 5.1C15 16.5 19.2 14 24 14c3.1 0 5.8 1.1 8 2.9l6.4-6.4C34.5 6.1 29.5 4 24 4c-7.8 0-14.4 4.6-17.7 10.7z"/>
+                  <path fill="#FBBC05" d="M24 44c5.4 0 10.3-1.8 14.1-4.9l-6.5-5.4C29.6 35.4 27 36 24 36c-5.5 0-10.1-2.5-12-6.5l-7 5.4C8.6 41.3 15.8 44 24 44z"/>
+                  <path fill="#EA4335" d="M44.5 20H24v8.5h11.9c-1 2.7-2.9 4.9-5.4 6.5l6.5 5.4C41.4 36.4 44 30.9 44 24c0-1.3-.1-2.7-.5-4z"/>
+                </svg>
+                Google로 로그인
               </button>
             </form>
           )}
