@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { LogOut, Moon, Settings, Sun, Zap } from 'lucide-react'
+import { LogOut, Moon, Sun, Zap } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 import { useTheme } from '../../hooks/useTheme'
 import { useAuthContext } from '../../contexts/AuthContext'
