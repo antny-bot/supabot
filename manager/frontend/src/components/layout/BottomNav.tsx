@@ -30,6 +30,7 @@ export default function BottomNav() {
 
   // Top MAX_PINNED visible items from ordered list
   const pinnedItems = order
+    .filter((key) => key !== 'config') // Hide Settings from mobile bottom nav
     .map((key) => APP_NAV_ITEMS.find((n) => n.key === key))
     .filter((item): item is NonNullable<typeof item> =>
       !!item && (!item.adminOnly || isAdmin),

@@ -133,6 +133,7 @@ export default function AllMenuDrawer({
   }
 
   const visibleKeys = order.filter((k) => {
+    if (k === 'config') return false // Hide Settings from mobile drawer
     const item = APP_NAV_ITEMS.find((n) => n.key === k)
     return item && (!item.adminOnly || isAdmin)
   })

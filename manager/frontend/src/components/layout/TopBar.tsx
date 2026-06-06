@@ -25,20 +25,6 @@ export default function TopBar() {
         </NavLink>
 
         <div className="ml-auto flex items-center gap-1">
-          <NavLink
-            to="/config"
-            className={({ isActive }) =>
-              `rounded-lg p-2 transition-colors ${
-                isActive
-                  ? 'text-indigo-600 dark:text-indigo-400'
-                  : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200'
-              }`
-            }
-            title="설정"
-          >
-            <Settings size={16} />
-          </NavLink>
-
           <button
             onClick={toggle}
             className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
