@@ -102,6 +102,7 @@ def test_build_report_view_net_positive():
 async def test_report_command_no_trades_shows_empty_message(monkeypatch, tmp_path):
     """체결 기록이 없으면 '기록이 없습니다' 메시지를 반환해야 함."""
     import main
+    from handlers import query_handlers
     import core.trade_log as tl
     from core.user_manager import UserManager
 
@@ -121,7 +122,7 @@ async def test_report_command_no_trades_shows_empty_message(monkeypatch, tmp_pat
     context = MagicMock()
     context.args = []
 
-    await main.report_command(update, context)
+    await query_handlers.report_command(update, context)
 
     call_text = update.message.reply_text.call_args[0][0]
     assert "기록" in call_text
@@ -130,6 +131,7 @@ async def test_report_command_no_trades_shows_empty_message(monkeypatch, tmp_pat
 async def test_report_command_invalid_period_shows_usage(monkeypatch):
     """잘못된 period 인자 시 사용법을 안내해야 함."""
     import main
+    from handlers import query_handlers
     from core.user_manager import UserManager
 
     prefs = dict(UserManager.DEFAULT_PREFERENCES)
@@ -145,7 +147,7 @@ async def test_report_command_invalid_period_shows_usage(monkeypatch):
     context = MagicMock()
     context.args = ["badperiod"]
 
-    await main.report_command(update, context)
+    await query_handlers.report_command(update, context)
 
     call_text = update.message.reply_text.call_args[0][0]
     assert "사용법" in call_text
