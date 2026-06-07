@@ -1,7 +1,8 @@
 """자연어(Gemini NL) 라우팅 — 의도 파싱·확인·실행.
 
-`_pending_nl_intents`/`LLM_COMMAND_CATALOG`/`_log`/`help_command`/
-`_KIS_RSI_MINUTE_ERROR` 등은 main.py 소유 상태로 남는다 (main.<name>으로 접근).
+`_pending_nl_intents`/`LLM_COMMAND_CATALOG`/`_log`/`_KIS_RSI_MINUTE_ERROR` 등은
+main.py 소유 상태로 남는다 (main.<name>으로 접근). `help_command`는
+`handlers.system_handlers`로 이동했으므로 지연 임포트로 호출한다.
 """
 import asyncio
 import json
@@ -170,7 +171,7 @@ def _clarify_message(text, intent):
 
 
 async def execute_query_intent(update, context, user, intent):
-    from handlers import status_handlers, query_handlers
+    from handlers import status_handlers, query_handlers, system_handlers
     action = intent.get("action")
     context.args = _intent_args(intent, user)
     if action == "asset":
@@ -189,7 +190,7 @@ async def execute_query_intent(update, context, user, intent):
             parse_mode="HTML",
         )
     if action == "help":
-        return await main.help_command(update, context)
+        return await system_handlers.help_command(update, context)
     if action in ["rsi", "indicators"]:
         return await query_handlers.indicators_command(update, context)
     await update.message.reply_text("⚠️ 자연어 요청을 조회 명령으로 해석하지 못했습니다.")

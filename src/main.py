@@ -45,15 +45,9 @@ from core.parsers import (
     _format_seconds, get_dca_weights,
 )
 from core.formatters import (
-    _b, _i, _code,
     CMD_HELP,
-    format_optional_krw, format_bool, escape_markdown_text,
-    format_section, format_rsi_interval, format_config_value,
-    format_safety_status, format_api_validation_status, build_secret_security_status,
-    build_config_view, build_report_view,
-    build_start_menu_message, build_help_message,
-    build_account_summary, build_manual_order_confirm_message,
-    build_grid_preview_lines, build_rsi_preview_lines,
+    build_secret_security_status,
+    build_start_menu_message,
 )
 from core.bot_logger import get_logger
 from core.metrics import metrics
@@ -899,77 +893,23 @@ async def post_shutdown(application):
 
     await exchange_adapter.close()
 
-# --- 디버그용 글로벌 메시지 핸들러 ---
-async def global_debug_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message and update.message.text:
-        _log.debug("Telegram message received", extra={"event": "debug_message", "user_id": str(update.effective_user.id), "length": len(update.message.text)})
-    return
-
-# --- 명령어 사용 로깅 핸들러 (group=-1, fire-and-forget) ---
-async def _command_usage_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message and update.message.text and update.effective_user:
-        cmd = update.message.text.split()[0].lstrip("/").split("@")[0].lower()
-        log_command(str(update.effective_user.id), cmd, source="direct")
-
-@check_auth
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
-    await update.message.reply_text(build_help_message(user), parse_mode="HTML")
-
-@check_auth
-async def dbsync_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
-    if not user.get("is_admin"):
-        await update.message.reply_text("❌ 어드민 전용 명령어입니다.")
-        return
-    ok = order_manager.reload_from_db()
-    if ok:
-        await update.message.reply_text(
-            f"✅ DB 동기화 완료 — 주문 {len(order_manager.orders)}건 로드됨.",
-            parse_mode="HTML",
-        )
-    else:
-        await update.message.reply_text("❌ DB 동기화 실패 (DB 미연결 또는 오류).")
-
-@check_auth
-async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
-    if await check_details_help(update, "info"): return
-    short_sha = GIT_SHA[:7] if GIT_SHA != "unknown" else "unknown"
-    msg = (
-        f"ℹ️ <b>{_html.escape(BOT_DISPLAY_NAME)} 빌드 정보</b>\n\n"
-        f"- 버전: {_html.escape(VERSION)}\n"
-        f"- 빌드: {_html.escape(BUILD_DATE)}\n"
-        f"- 커밋: <code>{_html.escape(short_sha)}</code>"
-    )
-    await update.message.reply_text(msg, parse_mode="HTML")
-
-@check_auth
-async def whoami_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
-    user_id = str(update.effective_chat.id)
-    await update.message.reply_text(build_account_summary(user_id, user), parse_mode="HTML")
-
-async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """등록되지 않은 명령어가 입력되었을 때 호출됩니다."""
-    await update.message.reply_text(
-        "❓ 알 수 없는 명령어입니다.\n\n"
-        "사용 가능한 명령어 목록은 /help 를 입력하여 확인해 주세요."
-    )
-
 # ==========================================
 # 🚀 메인 실행부
 # ==========================================
 def main():
     _validate_env()
 
-    from handlers import watch_handlers, manual_order_handlers, status_handlers, query_handlers, config_handlers, strategy_handlers, nl_intent_handlers
+    from handlers import watch_handlers, manual_order_handlers, status_handlers, query_handlers, config_handlers, strategy_handlers, nl_intent_handlers, system_handlers
 
     # post_init을 통해 백그라운드 태스크를 봇 생명주기에 안전하게 편입시킵니다.
     application = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).post_shutdown(post_shutdown).build()
 
     # 명령어 사용 로깅 (group=-1: 모든 command 핸들러보다 먼저 실행)
-    application.add_handler(MessageHandler(filters.COMMAND, _command_usage_handler), group=-1)
+    application.add_handler(MessageHandler(filters.COMMAND, system_handlers._command_usage_handler), group=-1)
 
     # 운영 기본값은 민감정보 보호를 위해 텔레그램 본문 로깅을 끕니다.
     if DEBUG_TELEGRAM_MESSAGES:
-        application.add_handler(MessageHandler(filters.ALL, global_debug_handler), group=-1)
+        application.add_handler(MessageHandler(filters.ALL, system_handlers.global_debug_handler), group=-1)
 
     config_conv = ConversationHandler(
         entry_points=[CommandHandler("config", config_handlers.config_command)],
@@ -992,12 +932,12 @@ def main():
     application.add_handler(config_conv)
     application.add_handler(CommandHandler("cfg", config_handlers.config_command)) # 테스트용 단순 명령어
     application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("commands", help_command))
-    application.add_handler(CommandHandler("dbsync", dbsync_command))
-    application.add_handler(CommandHandler("info", info_command))
+    application.add_handler(CommandHandler("help", system_handlers.help_command))
+    application.add_handler(CommandHandler("commands", system_handlers.help_command))
+    application.add_handler(CommandHandler("dbsync", system_handlers.dbsync_command))
+    application.add_handler(CommandHandler("info", system_handlers.info_command))
     for command_name in ACCOUNT_COMMAND_ALIASES:
-        application.add_handler(CommandHandler(command_name, whoami_command))
+        application.add_handler(CommandHandler(command_name, system_handlers.whoami_command))
     application.add_handler(CommandHandler("asset", query_handlers.asset_command))
     application.add_handler(CommandHandler("status", status_handlers.status_command))
     application.add_handler(CommandHandler("price", query_handlers.price_command))
@@ -1027,7 +967,7 @@ def main():
     application.add_handler(CallbackQueryHandler(nl_intent_handlers.natural_language_confirm_callback, pattern="^nl(run|cancel)\\|"))
     
     # [중요] 알 수 없는 명령어 처리 (가장 마지막에 등록)
-    application.add_handler(MessageHandler(filters.COMMAND, unknown_command))
+    application.add_handler(MessageHandler(filters.COMMAND, system_handlers.unknown_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, nl_intent_handlers.natural_language_command))
 
     _log.info(f"{BOT_DISPLAY_NAME} starting", extra={"event": "bot_start", "version": VERSION})
