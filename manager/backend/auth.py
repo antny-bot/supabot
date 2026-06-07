@@ -28,6 +28,34 @@ def supabase_sign_in(email: str, password: str) -> dict | None:
     return None
 
 
+def invite_auth_user(email: str) -> tuple[bool, str | None]:
+    """Supabase Auth invite API로 계정 생성 + 초대 메일 발송. (성공여부, 에러메시지) 반환."""
+    url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    service_key = os.environ.get("SUPABASE_SERVICE_KEY", "")
+    if not url or not service_key:
+        return False, "SUPABASE_URL/SUPABASE_SERVICE_KEY가 설정되지 않았습니다."
+    try:
+        resp = requests.post(
+            f"{url}/auth/v1/invite",
+            json={"email": email},
+            headers={
+                "apikey": service_key,
+                "Authorization": f"Bearer {service_key}",
+                "Content-Type": "application/json",
+            },
+            timeout=15,
+        )
+        if resp.ok:
+            return True, None
+        try:
+            msg = resp.json().get("msg") or resp.json().get("message") or resp.text[:200]
+        except Exception:
+            msg = resp.text[:200]
+        return False, msg
+    except Exception as e:
+        return False, str(e)
+
+
 def generate_pkce_pair() -> tuple[str, str]:
     """Returns (code_verifier, code_challenge) for PKCE OAuth flow."""
     code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()

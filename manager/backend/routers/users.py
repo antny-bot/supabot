@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
+from ..auth import invite_auth_user
 from ..bot_client import notify
 from ..db import get_db
 from ._auth import get_admin_user
@@ -104,6 +105,24 @@ async def api_delete_user(user_id: str, _=Depends(get_admin_user)):
         if user:
             notify(user_id, _NOTIFY_MESSAGES["deleted"])
         return JSONResponse(user)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.post("/api/users/{user_id}/invite-auth-account")
+async def api_invite_auth_account(user_id: str, _=Depends(get_admin_user)):
+    try:
+        db = get_db()
+        rows = (await db.table("users").select("manager_email").eq("user_id", user_id).execute()).data
+        if not rows:
+            return JSONResponse({"error": "User not found"}, status_code=404)
+        email = rows[0].get("manager_email")
+        if not email:
+            return JSONResponse({"error": "먼저 매니저 이메일을 설정해야 합니다."}, status_code=400)
+        ok, err = invite_auth_user(email)
+        if not ok:
+            return JSONResponse({"error": f"초대 메일 발송 실패: {err}"}, status_code=409)
+        return JSONResponse({"email": email, "ok": True})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
