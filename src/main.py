@@ -30,6 +30,7 @@ from core.natural_language import (
     normalize_natural_language_intent,
     preprocess_natural_language_intent,
 )
+from core.order_execution import execute_grid_orders, execute_rsitrade_orders, execute_sgridrsi_orders
 from core.operational_events import append_operational_event
 from core.secret_crypto import can_decrypt_secrets, has_secret_key
 from core.parsers import (
@@ -1128,41 +1129,15 @@ async def grid_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TY
             await query.edit_message_text("⚠️ 현재 한국투자증권 정규장 시간이 아닙니다. 주문을 실행할 수 없습니다.")
             return
 
-        price_step = (e_p - s_p) / (ct - 1) if ct > 1 else 0
-        success_count = 0
-        skipped_count = 0
-
-        for i in range(ct):
-            target_price = s_p + (price_step * i)
-            target_price = ExchangeAdapter.adjust_price_to_tick(target_price)
-
-            if is_sell:
-                raw_vol = val / ct
-                volume = int(raw_vol) if ex == "kis" else round(raw_vol, 4)
-                res = await exchange_adapter.create_order(user_id, ex, tk, "ask", target_price, volume)
-            else:
-                raw_vol = (val / ct) / target_price if target_price else 0
-                volume = int(raw_vol) if ex == "kis" else round(raw_vol, 4)
-                res = await exchange_adapter.buy_limit_order(user_id, ex, tk, target_price, volume)
-
-            if ex == "kis" and volume <= 0:
-                skipped_count += 1
-                continue
-
-            if res and 'uuid' in res:
-                order_manager.add_order(
-                    user_id, ex, tk, res['uuid'], target_price, volume,
-                    side="ask" if is_sell else "bid",
-                    strategy="sgrid" if is_sell else "grid",
-                )
-                success_count += 1
-
-            await asyncio.sleep(0.2)
-
-        result_msg = f"✅ `{tk}` 거미줄 {action_name} 완료! ({success_count}/{ct}건 성공)\n백그라운드에서 체결을 감시합니다."
-        if skipped_count:
-            result_msg += f"\n⚠️ {skipped_count}건은 수량 부족(0주)으로 건너뜀."
-        await context.bot.send_message(chat_id=user_id, text=result_msg)
+        group_no = order_manager.get_next_group_no(user_id)
+        await execute_grid_orders(
+            exchange_adapter=exchange_adapter, order_manager=order_manager,
+            user_id=user_id, exchange=ex, ticker=tk,
+            start_price=s_p, end_price=e_p, count=ct, budget_or_volume=val,
+            is_sell=is_sell, group_no=group_no,
+            bot=context.bot, notify_chat_id=user_id,
+            trigger_sync_fn=trigger_realtime_sync,
+        )
 
 # --- /watch & /unwatch: 관심 종목 관리 ---
 @check_auth
@@ -1922,44 +1897,17 @@ async def rsitrade_confirm_callback(update: Update, context: ContextTypes.DEFAUL
         await query.edit_message_text(error_msg)
         return
 
-    has_sell = s_rsi and s_rsi != "-"
     await query.edit_message_text(f"🚀 {tk} RSI 순환 매매를 시작합니다. 매수 주문 전송 중...")
 
-    b_start, b_end = parse_rsi_range(b_rsi)
-    s_start, s_end = parse_rsi_range(s_rsi) if has_sell else (0, 0)
     group_no = order_manager.get_next_group_no(user_id)
-
-    success = 0
-    for i in range(ct):
-        target_rsi = interpolate_range(b_start, b_end, i, ct)
-        sell_target_rsi = interpolate_range(s_start, s_end, i, ct) if has_sell else None
-        price = await signal_engine.get_price_by_rsi(
-            ex,
-            tk,
-            target_rsi,
-            side="bid",
-            interval=get_user_rsi_interval(user),
-            user_id=user_id,
-        )
-        if not price:
-            await asyncio.sleep(0.2)
-            continue
-        volume = round(per_order_budgets[i] / price, 4)
-        if ex == "kis":
-            volume = int(volume)
-            if volume <= 0:
-                await asyncio.sleep(0.2)
-                continue
-
-        res = await exchange_adapter.create_order(user_id, ex, tk, "bid", price, volume)
-        if res and "uuid" in res:
-            order_manager.add_order(user_id, ex, tk, res["uuid"], price, volume,
-                                    side="bid", strategy="rsitrade", target_rsi=target_rsi,
-                                    linked_to=sell_target_rsi, group_no=group_no)
-            success += 1
-        await asyncio.sleep(0.2)
-
-    await context.bot.send_message(chat_id=user_id, text=f"✅ {tk} 전략 가동 완료! ({success}/{ct}건 예약됨, 배치 #{group_no})")
+    await execute_rsitrade_orders(
+        exchange_adapter=exchange_adapter, order_manager=order_manager, signal_engine=signal_engine,
+        user_id=user_id, exchange=ex, ticker=tk,
+        buy_rsi_range=b_rsi, sell_rsi_range=s_rsi,
+        count=ct, per_order_budgets=per_order_budgets,
+        user=user, group_no=group_no, bot=context.bot, notify_chat_id=user_id,
+        trigger_sync_fn=trigger_realtime_sync,
+    )
 
 async def grid_quick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2075,36 +2023,14 @@ async def sgridrsi_confirm_callback(update: Update, context: ContextTypes.DEFAUL
 
     await query.edit_message_text(f"🚀 {tk} RSI 매도 전략을 시작합니다. 매도 주문 전송 중...")
 
-    s_start, s_end = parse_rsi_range(s_rsi)
-    budget_per_order = bg / ct
     group_no = order_manager.get_next_group_no(user_id)
-
-    success = 0
-    for i in range(ct):
-        target_rsi = interpolate_range(s_start, s_end, i, ct)
-        price = await signal_engine.get_price_by_rsi(
-            ex, tk, target_rsi, side="ask",
-            interval=get_user_rsi_interval(user), user_id=user_id,
-        )
-        if not price:
-            await asyncio.sleep(0.2)
-            continue
-        volume = round(budget_per_order / price, 4)
-        if ex == "kis":
-            volume = int(volume)
-            if volume <= 0:
-                await asyncio.sleep(0.2)
-                continue
-
-        res = await exchange_adapter.create_order(user_id, ex, tk, "ask", price, volume)
-        if res and "uuid" in res:
-            order_manager.add_order(user_id, ex, tk, res["uuid"], price, volume,
-                                    side="ask", strategy="sgridrsi", target_rsi=target_rsi,
-                                    linked_to=None, group_no=group_no)
-            success += 1
-        await asyncio.sleep(0.2)
-
-    await context.bot.send_message(chat_id=user_id, text=f"✅ {tk} RSI 매도 전략 가동 완료! ({success}/{ct}건 예약됨, 배치 #{group_no})")
+    await execute_sgridrsi_orders(
+        exchange_adapter=exchange_adapter, order_manager=order_manager, signal_engine=signal_engine,
+        user_id=user_id, exchange=ex, ticker=tk,
+        sell_rsi_range=s_rsi, count=ct, budget=bg,
+        user=user, group_no=group_no, bot=context.bot, notify_chat_id=user_id,
+        trigger_sync_fn=trigger_realtime_sync,
+    )
 
 async def signal_snooze_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from datetime import datetime, timedelta, timezone
@@ -2350,46 +2276,17 @@ async def _internal_execute_grid_handler(request: _web.Request) -> _web.Response
             return _web.Response(status=400, text="한국투자증권 정규장 시간이 아닙니다.")
 
         app = request.app["bot_application"]
-        
+        group_no = order_manager.get_next_group_no(user_id)
+
         async def run_grid():
-            price_step = (e_p - s_p) / (ct - 1) if ct > 1 else 0
-            success_count = 0
-            skipped_count = 0
-            for i in range(ct):
-                target_price = s_p + (price_step * i)
-                target_price = ExchangeAdapter.adjust_price_to_tick(target_price)
-                raw_vol = (val / ct) / target_price if target_price else 0
-                volume = int(raw_vol) if ex == "kis" else round(raw_vol, 4)
-                
-                if ex == "kis" and volume <= 0:
-                    skipped_count += 1
-                    continue
-                
-                try:
-                    res = await exchange_adapter.buy_limit_order(user_id, ex, tk, target_price, volume)
-                    if res and 'uuid' in res:
-                        order_manager.add_order(
-                            user_id, ex, tk, res['uuid'], target_price, volume,
-                            side="bid",
-                            strategy="grid",
-                            group_no=group_no,
-                        )
-                        success_count += 1
-                except Exception as e:
-                    _log.error(f"Grid order placement failed at index {i}", exc_info=e)
-                await asyncio.sleep(0.2)
-            
-            result_msg = f"✅ `{tk}` 거미줄 매수 완료! ({success_count}/{ct}건 성공)\n백그라운드에서 체결을 감시합니다."
-            if skipped_count:
-                result_msg += f"\n⚠️ {skipped_count}건은 수량 부족(0주)으로 건너뜀."
-            if success_count:
-                result_msg += f"\n배치 #{group_no}"
-            
-            asyncio.create_task(trigger_realtime_sync())
-            try:
-                await app.bot.send_message(chat_id=user_id, text=result_msg)
-            except Exception as e:
-                _log.warning("Failed to send telegram grid execution message", exc_info=e)
+            await execute_grid_orders(
+                exchange_adapter=exchange_adapter, order_manager=order_manager,
+                user_id=user_id, exchange=ex, ticker=tk,
+                start_price=s_p, end_price=e_p, count=ct, budget_or_volume=val,
+                is_sell=False, group_no=group_no,
+                bot=app.bot, notify_chat_id=user_id,
+                trigger_sync_fn=trigger_realtime_sync,
+            )
 
         asyncio.create_task(run_grid())
         return _web.Response(text="Grid execution started")
@@ -2433,52 +2330,14 @@ async def _internal_execute_rsitrade_handler(request: _web.Request) -> _web.Resp
         group_no = order_manager.get_next_group_no(user_id)
 
         async def run_rsitrade():
-            b_start, b_end = parse_rsi_range(b_rsi)
-            s_start, s_end = parse_rsi_range(s_rsi)
-
-            success = 0
-            for i in range(ct):
-                target_rsi = interpolate_range(b_start, b_end, i, ct)
-                sell_target_rsi = interpolate_range(s_start, s_end, i, ct)
-                price = await signal_engine.get_price_by_rsi(
-                    ex,
-                    tk,
-                    target_rsi,
-                    side="bid",
-                    interval=get_user_rsi_interval(user),
-                    user_id=user_id,
-                )
-                if not price:
-                    await asyncio.sleep(0.2)
-                    continue
-                volume = round(per_order_budgets[i] / price, 4)
-                if ex == "kis":
-                    volume = int(volume)
-                    if volume <= 0:
-                        await asyncio.sleep(0.2)
-                        continue
-                
-                try:
-                    res = await exchange_adapter.create_order(user_id, ex, tk, "bid", price, volume)
-                    if res and 'uuid' in res:
-                        order_manager.add_order(
-                            user_id, ex, tk, res['uuid'], price, volume, 
-                            side="bid", strategy="rsitrade", target_rsi=target_rsi,
-                            linked_to=sell_target_rsi, group_no=group_no
-                        )
-                        success += 1
-                except Exception as e:
-                    _log.error(f"RSITrade order placement failed at index {i}", exc_info=e)
-                await asyncio.sleep(0.2)
-
-            result_msg = f"✅ `{tk}` RSI 순환 매매 전략 가동 완료! ({success}/{ct}건 예약됨)\n백그라운드에서 RSI 체결을 감시합니다."
-            if success:
-                result_msg += f"\n배치 #{group_no}"
-            asyncio.create_task(trigger_realtime_sync())
-            try:
-                await app.bot.send_message(chat_id=user_id, text=result_msg)
-            except Exception as e:
-                _log.warning("Failed to send telegram rsitrade execution message", exc_info=e)
+            await execute_rsitrade_orders(
+                exchange_adapter=exchange_adapter, order_manager=order_manager, signal_engine=signal_engine,
+                user_id=user_id, exchange=ex, ticker=tk,
+                buy_rsi_range=b_rsi, sell_rsi_range=s_rsi,
+                count=ct, per_order_budgets=per_order_budgets,
+                user=user, group_no=group_no, bot=app.bot, notify_chat_id=user_id,
+                trigger_sync_fn=trigger_realtime_sync,
+            )
 
         asyncio.create_task(run_rsitrade())
         return _web.Response(text="RSITrade execution started")
@@ -2514,44 +2373,14 @@ async def _internal_execute_sgrid_handler(request: _web.Request) -> _web.Respons
         group_no = order_manager.get_next_group_no(user_id)
 
         async def run_sgrid():
-            price_step = (e_p - s_p) / (ct - 1) if ct > 1 else 0
-            success_count = 0
-            skipped_count = 0
-            for i in range(ct):
-                target_price = s_p + (price_step * i)
-                target_price = ExchangeAdapter.adjust_price_to_tick(target_price)
-                raw_vol = total_vol / ct
-                volume = int(raw_vol) if ex == "kis" else round(raw_vol, 4)
-
-                if ex == "kis" and volume <= 0:
-                    skipped_count += 1
-                    continue
-
-                try:
-                    res = await exchange_adapter.create_order(user_id, ex, tk, "ask", target_price, volume)
-                    if res and 'uuid' in res:
-                        order_manager.add_order(
-                            user_id, ex, tk, res['uuid'], target_price, volume,
-                            side="ask",
-                            strategy="sgrid",
-                            group_no=group_no,
-                        )
-                        success_count += 1
-                except Exception as e:
-                    _log.error(f"sGrid order placement failed at index {i}", exc_info=e)
-                await asyncio.sleep(0.2)
-
-            result_msg = f"✅ `{tk}` 거미줄 매도 완료! ({success_count}/{ct}건 성공)\n백그라운드에서 체결을 감시합니다."
-            if skipped_count:
-                result_msg += f"\n⚠️ {skipped_count}건은 수량 부족(0주)으로 건너뜀."
-            if success_count:
-                result_msg += f"\n배치 #{group_no}"
-
-            asyncio.create_task(trigger_realtime_sync())
-            try:
-                await app.bot.send_message(chat_id=user_id, text=result_msg)
-            except Exception as e:
-                _log.warning("Failed to send telegram sgrid execution message", exc_info=e)
+            await execute_grid_orders(
+                exchange_adapter=exchange_adapter, order_manager=order_manager,
+                user_id=user_id, exchange=ex, ticker=tk,
+                start_price=s_p, end_price=e_p, count=ct, budget_or_volume=total_vol,
+                is_sell=True, group_no=group_no,
+                bot=app.bot, notify_chat_id=user_id,
+                trigger_sync_fn=trigger_realtime_sync,
+            )
 
         asyncio.create_task(run_sgrid())
         return _web.Response(text="sGrid execution started")
