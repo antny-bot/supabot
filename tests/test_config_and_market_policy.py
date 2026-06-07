@@ -10,6 +10,7 @@ if SRC not in sys.path:
 from core.order_manager import OrderManager
 from core.user_manager import UserManager
 import main
+from handlers import nl_intent_handlers
 
 
 def test_default_rsi_interval_is_day():
@@ -52,7 +53,7 @@ def test_bot_display_name_is_ttbot():
 def test_llm_prompt_uses_compact_english_command_catalog():
     user = {"preferences": {"default_exchange": "bithumb"}}
 
-    prompt = main._build_llm_prompt("BTC 9500만원에 0.01개 사줘", user)
+    prompt = nl_intent_handlers._build_llm_prompt("BTC 9500만원에 0.01개 사줘", user)
 
     assert "Commands:" in prompt
     assert "buy req=exchange,ticker,price,volume run=confirm" in prompt
@@ -66,7 +67,7 @@ def test_llm_prompt_uses_compact_english_command_catalog():
 
 
 def test_help_intent_runs_immediately():
-    assert main._is_immediate_intent("help") is True
+    assert nl_intent_handlers._is_immediate_intent("help") is True
 
 
 def test_whomai_is_registered_and_me_is_alias():
@@ -338,7 +339,7 @@ def test_rsitrade_intent_summary_is_user_friendly():
         "amount_krw": 1000000,
     }
 
-    summary = main._intent_summary(intent)
+    summary = nl_intent_handlers._intent_summary(intent)
 
     assert "BITHUMB KRW-BTC" in summary
     assert "매수 RSI 20-30" in summary
