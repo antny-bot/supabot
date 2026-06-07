@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { usePersistedState } from '../hooks/usePersistedState'
-import { Pencil, ShieldCheck } from 'lucide-react'
-import { activateUser, approveUser, blockUser, deactivateUser, deleteUser, fetchUsers, setUserEmail } from '../api/users'
+import { Mail, Pencil, ShieldCheck } from 'lucide-react'
+import { activateUser, approveUser, blockUser, deactivateUser, deleteUser, fetchUsers, inviteAuthAccount, setUserEmail } from '../api/users'
 import type { User } from '../types'
 import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
@@ -29,6 +29,7 @@ interface ActionButtonsProps {
 
 function ActionButtons({ user, onUpdate }: ActionButtonsProps) {
   const [busy, setBusy] = useState(false)
+  const [inviteResult, setInviteResult] = useState<{ ok: boolean; message: string } | null>(null)
 
   async function run(action: () => Promise<User>) {
     setBusy(true)
@@ -40,37 +41,66 @@ function ActionButtons({ user, onUpdate }: ActionButtonsProps) {
     }
   }
 
+  async function handleInvite() {
+    const email = user.manager_email
+    if (!email || !window.confirm(`${email} 으로 초대 메일을 발송할까요?\n사용자가 메일의 링크로 접속해 직접 비밀번호를 설정하게 됩니다.`)) {
+      return
+    }
+    setBusy(true)
+    setInviteResult(null)
+    try {
+      const res = await inviteAuthAccount(user.user_id)
+      setInviteResult({ ok: true, message: `${res.email}로 초대 메일을 발송했습니다.` })
+    } catch (e: unknown) {
+      setInviteResult({ ok: false, message: e instanceof Error ? e.message : '초대 메일 발송에 실패했습니다.' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const status = user.status
 
   return (
-    <div className="flex flex-wrap gap-1">
-      {status === 'pending' && (
-        <Button variant="success" disabled={busy} onClick={() => run(() => approveUser(user.user_id))}>승인</Button>
-      )}
-      {status === 'inactive' && (
-        <Button variant="success" disabled={busy} onClick={() => run(() => activateUser(user.user_id))}>활성화</Button>
-      )}
-      {status === 'active' && (
-        <Button variant="ghost" disabled={busy} onClick={() => run(() => deactivateUser(user.user_id))}>비활성화</Button>
-      )}
-      {(status === 'pending' || status === 'active' || status === 'inactive') && (
-        <Button variant="warning" disabled={busy} onClick={() => run(() => blockUser(user.user_id))}>차단</Button>
-      )}
-      {status === 'blocked' && (
-        <Button variant="ghost" disabled={busy} onClick={() => run(() => activateUser(user.user_id))}>차단 해제</Button>
-      )}
-      {status !== 'deleted' && !user.is_admin && (
-        <Button
-          variant="danger"
-          disabled={busy}
-          onClick={() => {
-            if (window.confirm(`${user.username || user.user_id} 사용자를 삭제하시겠습니까?`)) {
-              void run(() => deleteUser(user.user_id))
-            }
-          }}
-        >
-          삭제
-        </Button>
+    <div className="flex flex-col gap-1">
+      <div className="flex flex-wrap gap-1">
+        {status === 'pending' && (
+          <Button variant="success" disabled={busy} onClick={() => run(() => approveUser(user.user_id))}>승인</Button>
+        )}
+        {status === 'inactive' && (
+          <Button variant="success" disabled={busy} onClick={() => run(() => activateUser(user.user_id))}>활성화</Button>
+        )}
+        {status === 'active' && (
+          <Button variant="ghost" disabled={busy} onClick={() => run(() => deactivateUser(user.user_id))}>비활성화</Button>
+        )}
+        {(status === 'pending' || status === 'active' || status === 'inactive') && (
+          <Button variant="warning" disabled={busy} onClick={() => run(() => blockUser(user.user_id))}>차단</Button>
+        )}
+        {status === 'blocked' && (
+          <Button variant="ghost" disabled={busy} onClick={() => run(() => activateUser(user.user_id))}>차단 해제</Button>
+        )}
+        {user.manager_email && status !== 'deleted' && (
+          <Button variant="ghost" disabled={busy} onClick={() => void handleInvite()} title="Supabase 로그인 계정 초대 메일 발송">
+            <Mail size={11} /> 초대 메일 발송
+          </Button>
+        )}
+        {status !== 'deleted' && !user.is_admin && (
+          <Button
+            variant="danger"
+            disabled={busy}
+            onClick={() => {
+              if (window.confirm(`${user.username || user.user_id} 사용자를 삭제하시겠습니까?`)) {
+                void run(() => deleteUser(user.user_id))
+              }
+            }}
+          >
+            삭제
+          </Button>
+        )}
+      </div>
+      {inviteResult && (
+        <span className={`text-[11px] ${inviteResult.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500'}`}>
+          {inviteResult.message}
+        </span>
       )}
     </div>
   )
