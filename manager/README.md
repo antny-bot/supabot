@@ -6,6 +6,22 @@ Synology Docker에 배포한다. 봇과 직접 의존하지 않으며, Telegram 
 
 프론트엔드는 `manager/frontend/`의 React SPA(Vite + Tailwind + Recharts)이며,
 `npm run build`로 빌드한 `dist/`를 FastAPI가 정적 파일로 서빙한다.
+(`manager/frontend/templates/*.html`은 과거 Jinja2/HTMX 시절의 잔재로 더 이상 렌더링되지 않는 죽은 코드다.)
+
+## 프론트엔드 구조 (`manager/frontend/src/`)
+
+페이지·컴포넌트 작업 전 **`manager/frontend/DESIGN.md`**(페이지 헤더·아이콘·공통 컴포넌트·반응형 레이아웃 규칙) 필독.
+
+| 디렉터리 | 내용 |
+|---|---|
+| `pages/` | 11개 페이지: Dashboard, Orders, Trades, Templates, Reports, Events, Users, Admin, Config, Login, Analytics |
+| `components/layout/` | AppLayout, Sidebar, TopBar, BottomNav, AllMenuDrawer — 데스크톱/모바일 레이아웃 전환 |
+| `components/settings/` | DisplaySettingsCard, MfaSettingsCard, ProfileSettingsCard |
+| `components/ui/` | 공통 UI 빌딩블록: Button, Badge, Spinner, StatCard, PageHeader, ErrorBanner, FilterBar 등 |
+| `api/` | 라우터별 REST 클라이언트 — 아래 백엔드 라우터 표와 1:1 대응 (예: `api/orders.ts` ↔ `routers/orders.py`) |
+| `hooks/`, `contexts/` | useAuth, useTheme, usePersistedState, useRealtime / AuthContext |
+| `lib/`, `config/` | displayPreferences·navPreferences (localStorage 동기화), `pageMeta.ts` (네비게이션·아이콘 단일 소스) |
+| `types/`, `utils/` | 공유 TypeScript 타입, 포매터 |
 
 ## 라우터 / 라우트
 

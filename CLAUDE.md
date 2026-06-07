@@ -32,7 +32,7 @@ Docker on Oracle Cloud VM. 실거래 경로 포함 — 변경 전 반드시 `AGE
 
 ## 관리 UI 모듈 맵 (`manager/`)
 
-FastAPI + Jinja2 + HTMX 웹 대시보드. Synology Docker 배포 (`ghcr.io/antny-bot/supabot-manager`, 포트 8000).
+FastAPI 백엔드 + React/TypeScript(Vite+Tailwind) SPA 프론트엔드. Synology Docker 배포 (`ghcr.io/antny-bot/supabot-manager`, 포트 8000).
 
 | 파일 | 책임 |
 |------|------|
@@ -162,5 +162,8 @@ docker compose run --rm supabot python -m pytest tests/ -v
 | KIS 장외/재주문 로직 | `docs/detail/kis_market_policy.md` |
 | Gemini 자연어 흐름 | `docs/detail/gemini_intent.md` |
 | Supabase 스키마 | `shared/schema.sql` |
-| 관리 웹 UI (manager) | `manager/README.md` |
-| Docker/배포 | `docs/oracle-cloud-deploy-sequence.md` |
+| 관리 UI 백엔드 (라우터/API 추가·수정) | `manager/README.md` (라우터 표) |
+| 관리 UI 프론트엔드 (페이지/컴포넌트 추가·수정) | `manager/README.md` (프론트엔드 구조) → `manager/frontend/DESIGN.md` |
+| CI/CD 워크플로 수정 | `docs/github-actions-workflows.md` |
+| 신규 사용자 온보딩 | `docs/user-onboarding.md` |
+| Docker/배포 (Oracle VM) | `docs/oracle-cloud-deploy-sequence.md` (최초 VM 셋업은 `docs/oracle-cloud-vm-setup.md`) |

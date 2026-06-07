@@ -37,6 +37,16 @@
 ### NSG 아웃바운드 규칙
 - Telegram 및 거래소 API로 나갈 수 있도록 HTTPS 아웃바운드는 허용합니다.
 
+### Security List 경로 (NSG 대신 전통적 UI를 쓰는 경우)
+NSG 대신 서브넷의 기본 Security List에서 직접 제어하려면:
+
+1. 인스턴스의 기본 VNIC에서 공인 IP를 확인합니다.
+2. 같은 네트워킹 화면에서 서브넷(`subnet-...`) 링크로 이동합니다.
+3. 서브넷 상세 → 리소스 영역 → `Security Lists` → `Default Security List for ...`로 들어갑니다.
+4. **Ingress Rules**: 대상 포트 `22` 규칙을 편집해 소스 CIDR을 `0.0.0.0/0` 대신 **현재 작업 중인 PC의 공인 IP**로 제한합니다
+   (`내 아이피` 검색 → `/32` 부여, 예: `123.45.67.89/32`. **VM의 IP가 아니라 접속하는 PC의 IP**임에 주의).
+5. **Egress Rules**: 대상 `0.0.0.0/0`, `All Protocols` 허용 상태인지 확인합니다 (텔레그램/거래소 API 아웃바운드용 — 기본값이 보통 이미 허용).
+
 ### Oracle 측 백업
 - Boot volume backup policy를 켭니다.
 - 나중에 부트 디스크 밖에 중요한 데이터를 저장하면 그 저장소는 별도로 백업해야 합니다.
@@ -47,6 +57,16 @@
 - OCI Boot Volume Backups: <https://docs.oracle.com/iaas/Content/Block/Concepts/bootvolumebackups.htm>
 
 ## 2. VM 초기 설정
+
+### SSH 접속
+준비물: 위에서 확인한 VM 공인 IP + 생성 시 받은 SSH Private Key (`.key`/`.pem`).
+
+```bash
+ssh -i /path/to/your/private-key.key ubuntu@<VM_PUBLIC_IP>
+```
+
+처음 접속 시 `Are you sure you want to continue connecting (yes/no/[fingerprint])?` 프롬프트가 나오면 `yes`를 입력합니다.
+정상 접속되면 `ubuntu@...:~$` 프롬프트가 표시되며, 이후 아래 단계로 진행합니다.
 
 ### 이번 프로젝트에서 실제로 확인한 OCI 생성값
 
