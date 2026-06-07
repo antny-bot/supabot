@@ -143,6 +143,28 @@ docker image prune -f
 - build 워크플로와 cleanup 워크플로는 분리 유지합니다.
 - cleanup은 주기 실행으로 GHCR만 정리하고, cache 삭제는 필요할 때만 수동으로 켭니다.
 
+## 배포 트러블슈팅 (자동배포 실패 시 점검 포인트)
+
+`build-bot.yml`의 release 자동배포(`appleboy/ssh-action` → `docker compose pull && up -d`)가 실패하면 아래 순서로 점검합니다.
+
+1. **Oracle VM SSH 접근 제한**: NSG/Security List가 `22/tcp`를 특정 IP `/32`로 제한하면, 고정 IP가 아닌
+   GitHub Actions runner에서 SSH가 막힐 수 있습니다 (`OCI_HOST`/`OCI_USER`/`OCI_SSH_PRIVATE_KEY`/`OCI_SSH_PORT` 시크릿 대상 경로의
+   인바운드 규칙 확인 — `oracle-cloud-vm-setup.md` 참고).
+2. **GHCR pull 권한**: 서버에서 `Error response from daemon: error from registry: denied`가 뜨면 GHCR 패키지가
+   private인데 `docker login ghcr.io`가 안 되어 있거나 `read:packages` 토큰이 없는 경우입니다 → 패키지를 public으로
+   전환하거나 read 권한 토큰으로 로그인합니다.
+3. **빌드 방식 불일치**: `docker-compose.yml`이 `image:`(GHCR pull) 기준인지 `build: .`(로컬 빌드) 기준인지 먼저
+   맞춰야 합니다. 서버에서 `git pull` + `--build`로 로컬 빌드 운영 중이라면 워크플로의 GHCR pull 전제와 충돌합니다.
+
+긴급 fallback (자동배포가 막힌 경우): VM에 직접 SSH 접속 후 수동 배포
+
+```bash
+git pull
+docker compose up -d --build
+docker compose ps
+docker compose logs -f --tail=100
+```
+
 ## 운영 체크포인트
 
 - 새 워크플로 추가 시 이 문서의 목록과 트리거 설명을 먼저 갱신합니다.
