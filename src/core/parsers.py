@@ -154,6 +154,12 @@ def interpolate_range(start, end, index, count):
     return start + ((end - start) / (count - 1) * index)
 
 
+def get_dca_weights(count: int) -> list:
+    """선형 역수 가중치: index 0(낮은 RSI)에 가장 높은 비중."""
+    total = count * (count + 1) / 2
+    return [(count - i) / total for i in range(count)]
+
+
 def resolve_linked_rsi_target(linked_to):
     if linked_to is None:
         return None

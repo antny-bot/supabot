@@ -41,7 +41,7 @@ from core.parsers import (
     has_gemini_key, get_user_rsi_interval, is_strategy_order,
     is_kis_regular_session, next_kis_regular_session, kis_next_check_timestamp,
     interpolate_range, resolve_linked_rsi_target,
-    _format_seconds,
+    _format_seconds, get_dca_weights,
 )
 from core.formatters import (
     _b, _i, _code,
@@ -1792,7 +1792,13 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
 async def rsitrade_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     """RSI 기반 자동 순환 매매 설정"""
     if await check_details_help(update, "rsitrade"): return
-    args = context.args
+    raw_args = context.args
+    if not raw_args:
+        await update.message.reply_text("⚠️ 사용법: /rsitrade [거래소] [종목] [매수RSI구간] [매도RSI구간] [횟수] [예산]\n예: /rsitrade BTC 25-30 65-75 5 100만")
+        return
+
+    dca_mode = any(a in ("-dca", "-max") for a in raw_args)
+    args = [a for a in raw_args if a not in ("-dca", "-max")]
     if not args:
         await update.message.reply_text("⚠️ 사용법: /rsitrade [거래소] [종목] [매수RSI구간] [매도RSI구간] [횟수] [예산]\n예: /rsitrade BTC 25-30 65-75 5 100만")
         return
@@ -1831,19 +1837,24 @@ async def rsitrade_command(update: Update, context: ContextTypes.DEFAULT_TYPE, u
         await update.message.reply_text("⚠️ 파라미터 형식이 잘못되었습니다. (예: 25-30)")
         return
 
-    ok, error_msg = validate_max_order(user, budget / count)
+    dca_weights = get_dca_weights(count) if dca_mode else None
+    per_order_budgets = [budget * w for w in dca_weights] if dca_weights else None
+    max_per_order = max(per_order_budgets) if per_order_budgets else budget / count
+    min_per_order = min(per_order_budgets) if per_order_budgets else budget / count
+
+    ok, error_msg = validate_max_order(user, max_per_order)
     if not ok:
         await update.message.reply_text(error_msg)
         return
 
     # 1. 거래소 최소 주문 금액 검증
     min_amt = exchange_adapter.get_min_order_amount(exchange)
-    if (budget / count) < min_amt:
+    if min_per_order < min_amt:
         await update.message.reply_text(f"❌ 예산이 너무 적습니다. 건당 최소 {min_amt:,.0f}원 이상이어야 합니다.")
         return
 
     status_msg = await update.message.reply_text(f"🔍 {ticker} RSI 가격 분석 중...")
-    
+
     # 2. RSI 구간별 가격 역산
     buy_prices = []
     rsi_step = (b_end - b_start) / (count - 1) if count > 1 else 0
@@ -1858,18 +1869,20 @@ async def rsitrade_command(update: Update, context: ContextTypes.DEFAULT_TYPE, u
             user_id=user_id,
         )
         if p: buy_prices.append((target_rsi, p))
-    
+
     if not buy_prices:
         await status_msg.edit_text("❌ RSI 가격 역산에 실패했습니다. 데이터를 불러올 수 없습니다.")
         return
 
     # 3. 요약 및 확인 버튼
-    confirm_data = f"rsitrun|{exchange}|{ticker}|{buy_rsi_range}|{sell_rsi_range or '-'}|{count}|{budget}"
+    confirm_data = f"rsitrun|{exchange}|{ticker}|{buy_rsi_range}|{sell_rsi_range or '-'}|{count}|{budget}|{'1' if dca_mode else '0'}"
     keyboard = [[InlineKeyboardButton("✅ 전략 가동 시작", callback_data=confirm_data),
                  InlineKeyboardButton("❌ 취소", callback_data="grid_cancel")]]
 
-    preview_text = "\n".join(build_rsi_preview_lines(ticker, buy_prices, budget, count))
+    preview_budgets = per_order_budgets[:len(buy_prices)] if per_order_budgets else None
+    preview_text = "\n".join(build_rsi_preview_lines(ticker, buy_prices, budget, count, per_order_budgets=preview_budgets))
     sell_line = f"- 익절(RSI): {sell_rsi_range} 목표\n" if sell_rsi_range else "- 익절 예약: 없음 (매수만)\n"
+    dca_line = "- 배분: DCA 가중 (낮은 RSI 집중)\n" if dca_mode else ""
     auto_sell_note = "체결 시 자동으로 익절 주문이 예약됩니다. 시작할까요?" if sell_rsi_range else "매수만 진행합니다. 시작할까요?"
     summary = (
         f"🤖 RSI 순환 매매 전략 확인\n\n"
@@ -1878,6 +1891,7 @@ async def rsitrade_command(update: Update, context: ContextTypes.DEFAULT_TYPE, u
         f"- 종목: {ticker}\n"
         f"- 매집(RSI): {buy_rsi_range} ({buy_prices[0][1]:,.0f} ~ {buy_prices[-1][1]:,.0f}원)\n"
         f"{sell_line}"
+        f"{dca_line}"
         f"- 분할: {count}회 | 총예산: {budget:,.0f}원\n\n"
         f"{auto_sell_note}"
     )
@@ -1888,7 +1902,9 @@ async def rsitrade_confirm_callback(update: Update, context: ContextTypes.DEFAUL
     query = update.callback_query
     await query.answer()
     
-    _, ex, tk, b_rsi, s_rsi, ct, bg = query.data.split("|")
+    parts = query.data.split("|")
+    _, ex, tk, b_rsi, s_rsi, ct, bg = parts[:7]
+    dca_mode = len(parts) > 7 and parts[7] == "1"
     ct, bg = int(ct), float(bg)
     user_id = str(query.from_user.id)
     user = user_manager.get_user(user_id)
@@ -1898,17 +1914,19 @@ async def rsitrade_confirm_callback(update: Update, context: ContextTypes.DEFAUL
     if ex == "kis" and get_user_rsi_interval(user) != "day":
         await query.edit_message_text(_KIS_RSI_MINUTE_ERROR)
         return
-    ok, error_msg = validate_max_order(user, bg / ct)
+
+    dca_weights = get_dca_weights(ct) if dca_mode else None
+    per_order_budgets = [bg * w for w in dca_weights] if dca_weights else [bg / ct] * ct
+    ok, error_msg = validate_max_order(user, max(per_order_budgets))
     if not ok:
         await query.edit_message_text(error_msg)
         return
-    
+
     has_sell = s_rsi and s_rsi != "-"
     await query.edit_message_text(f"🚀 {tk} RSI 순환 매매를 시작합니다. 매수 주문 전송 중...")
 
     b_start, b_end = parse_rsi_range(b_rsi)
     s_start, s_end = parse_rsi_range(s_rsi) if has_sell else (0, 0)
-    budget_per_order = bg / ct
     group_no = order_manager.get_next_group_no(user_id)
 
     success = 0
@@ -1926,7 +1944,7 @@ async def rsitrade_confirm_callback(update: Update, context: ContextTypes.DEFAUL
         if not price:
             await asyncio.sleep(0.2)
             continue
-        volume = round(budget_per_order / price, 4)
+        volume = round(per_order_budgets[i] / price, 4)
         if ex == "kis":
             volume = int(volume)
             if volume <= 0:
@@ -2391,6 +2409,7 @@ async def _internal_execute_rsitrade_handler(request: _web.Request) -> _web.Resp
         s_rsi = str(data["sell_rsi_range"])
         ct = int(data["count"])
         bg = float(data["budget"])
+        dca_mode = bool(data.get("weighted", False))
 
         user = user_manager.get_user(user_id)
         if not user:
@@ -2399,12 +2418,15 @@ async def _internal_execute_rsitrade_handler(request: _web.Request) -> _web.Resp
         if ex == "kis" and get_user_rsi_interval(user) != "day":
             return _web.Response(status=400, text="한투 KIS는 일봉(day) 기준 RSI만 지원합니다.")
 
-        ok, error_msg = validate_max_order(user, bg / ct)
+        dca_weights = get_dca_weights(ct) if dca_mode else None
+        per_order_budgets = [bg * w for w in dca_weights] if dca_weights else [bg / ct] * ct
+
+        ok, error_msg = validate_max_order(user, max(per_order_budgets))
         if not ok:
             return _web.Response(status=400, text=error_msg)
 
         min_amt = exchange_adapter.get_min_order_amount(ex)
-        if (bg / ct) < min_amt:
+        if min(per_order_budgets) < min_amt:
             return _web.Response(status=400, text=f"건당 주문 금액이 거래소 최소 주문 금액({min_amt:,.0f}원)보다 작습니다.")
 
         app = request.app["bot_application"]
@@ -2413,8 +2435,7 @@ async def _internal_execute_rsitrade_handler(request: _web.Request) -> _web.Resp
         async def run_rsitrade():
             b_start, b_end = parse_rsi_range(b_rsi)
             s_start, s_end = parse_rsi_range(s_rsi)
-            budget_per_order = bg / ct
-            
+
             success = 0
             for i in range(ct):
                 target_rsi = interpolate_range(b_start, b_end, i, ct)
@@ -2430,7 +2451,7 @@ async def _internal_execute_rsitrade_handler(request: _web.Request) -> _web.Resp
                 if not price:
                     await asyncio.sleep(0.2)
                     continue
-                volume = round(budget_per_order / price, 4)
+                volume = round(per_order_budgets[i] / price, 4)
                 if ex == "kis":
                     volume = int(volume)
                     if volume <= 0:

@@ -212,12 +212,14 @@ CMD_HELP = {
         "<b>기능:</b> RSI 목표 구간을 기준으로 분할 매수하고, 체결 시 RSI 매도 목표 주문을 예약합니다.\n"
         "<b>구문:</b> <code>/rsitrade [거래소] [종목] [매수RSI] [매도RSI] [횟수] [예산]</code>\n\n"
         "<b>기본값:</b> 종목만 입력하면 <code>/config</code>에 저장된 매수RSI, 매도RSI, 횟수, 예산을 사용합니다.\n"
-        "<b>매수만:</b> 매도RSI 자리에 <code>-</code>를 입력하면 자동 매도 예약 없이 매수만 진행합니다.\n\n"
+        "<b>매수만:</b> 매도RSI 자리에 <code>-</code>를 입력하면 자동 매도 예약 없이 매수만 진행합니다.\n"
+        "<b>DCA 가중:</b> <code>-dca</code> 옵션을 추가하면 낮은 RSI(더 좋은 매수 타이밍)에 예산을 집중합니다 (<code>-max</code> 동일).\n\n"
         "<b>예시:</b>\n"
         "1. <code>/rsitrade BTC</code>\n"
         "2. <code>/rsitrade 빗썸 BTC</code>\n"
         "3. <code>/rsitrade BTC 20-30 60-75 7 200만</code>\n"
-        "4. <code>/rsitrade BTC 20-30 - 5 100만</code>  (매수만)"
+        "4. <code>/rsitrade BTC 20-30 - 5 100만</code>  (매수만)\n"
+        "5. <code>/rsitrade -dca 빗썸 BTC 20-30 60-70 5 100만</code>  (DCA 가중)"
     ),
     "gridrsi": (
         "🤖 <b>/gridrsi 상세 가이드</b>\n\n"
@@ -615,16 +617,17 @@ def build_grid_preview_lines(ticker, start_price, end_price, count, budget):
     return lines
 
 
-def build_rsi_preview_lines(ticker, rsi_prices, budget, total_count=None):
+def build_rsi_preview_lines(ticker, rsi_prices, budget, total_count=None, per_order_budgets=None):
     if not rsi_prices:
         return []
-    per_order_budget = float(budget) / int(total_count or len(rsi_prices))
+    default_per_order = float(budget) / int(total_count or len(rsi_prices))
     lines = []
     for i, (target_rsi, price) in enumerate(rsi_prices, start=1):
         price = float(price)
-        volume = per_order_budget / price
+        order_budget = float(per_order_budgets[i - 1]) if per_order_budgets else default_per_order
+        volume = order_budget / price
         lines.append(
-            f"{i}. RSI {float(target_rsi):g} → {price:,.0f}원 / 약 {_format_preview_volume(ticker, volume)} / {per_order_budget:,.0f}원"
+            f"{i}. RSI {float(target_rsi):g} → {price:,.0f}원 / 약 {_format_preview_volume(ticker, volume)} / {order_budget:,.0f}원"
         )
     return lines
 
