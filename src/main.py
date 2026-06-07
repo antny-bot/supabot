@@ -382,7 +382,8 @@ async def execute_query_intent(update, context, user, intent):
     if action == "orders":
         return await orders_command(update, context)
     if action == "status":
-        return await status_command(update, context)
+        from handlers import status_handlers
+        return await status_handlers.status_command(update, context)
     if action == "history":
         return await history_command(update, context)
     if action == "config_view":
@@ -1139,47 +1140,6 @@ async def grid_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TY
             trigger_sync_fn=trigger_realtime_sync,
         )
 
-# --- /watch & /unwatch: 관심 종목 관리 ---
-@check_auth
-async def watch_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
-    if await check_details_help(update, "watch"): return
-    user_id = str(update.effective_chat.id)
-    args = context.args
-    if not args:
-        await update.message.reply_text("⚠️ 감시할 종목을 입력하세요. 예: `/watch BTC` 또는 `/watch 빗썸 SOL`")
-        return
-
-    default_exchange = user["preferences"].get("default_exchange", "upbit")
-    exchange, ticker = parse_exchange_and_ticker(args, default_exchange)
-
-    if not await ensure_rsi_supported(update, user, exchange):
-        return
-
-    if user_manager.add_watchlist(user_id, exchange, ticker):
-        await update.message.reply_text(f"✅ {exchange.upper()}의 {ticker}가 관심 종목에 등록되었습니다. RSI 시그널을 감시합니다.")
-    else:
-        await update.message.reply_text(f"ℹ️ {ticker}는 이미 관심 종목에 등록되어 있습니다.")
-
-@check_auth
-async def unwatch_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
-    if await check_details_help(update, "unwatch"): return
-    user_id = str(update.effective_chat.id)
-    args = context.args
-    if not args:
-        await update.message.reply_text("⚠️ 삭제할 종목을 입력하세요. 예: `/unwatch BTC`")
-        return
-
-    default_exchange = user["preferences"].get("default_exchange", "upbit")
-    exchange, ticker = parse_exchange_and_ticker(args, default_exchange)
-
-    if not await ensure_rsi_supported(update, user, exchange):
-        return
-
-    if user_manager.remove_watchlist(user_id, exchange, ticker):
-        await update.message.reply_text(f"✅ {exchange.upper()}의 {ticker}가 관심 종목에서 삭제되었습니다.")
-    else:
-        await update.message.reply_text(f"ℹ️ 관심 종목 목록에 {ticker}가 없습니다.")
-
 @check_auth
 async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     if await check_details_help(update, "price"): return
@@ -1361,130 +1321,6 @@ def pop_valid_manual_order(token, user_id):
         return None, "주문 확인 요청이 만료되었습니다. 다시 입력해 주세요."
     _pending_manual_orders.pop(token, None)
     return pending, None
-
-@check_auth
-async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
-    if await check_details_help(update, "buy"): return
-    user_id = str(update.effective_chat.id)
-    args = context.args
-    if len(args) < 3:
-        await update.message.reply_text("⚠️ 사용법: /buy [거래소] [종목] [가격|market] [수량] (거래소 생략 시 업비트)")
-        return
-
-    default_exchange = user["preferences"].get("default_exchange", "upbit")
-    exchange, ticker = parse_exchange_and_ticker(args, default_exchange)
-    offset = 2 if is_exchange_token(args[0], exchange) else 1
-
-    try:
-        is_market = args[offset].lower() == "market"
-        if is_market:
-            price, volume, ord_type = 0.0, parse_number(args[offset + 1]), "market"
-        else:
-            price, volume, ord_type = parse_number(args[offset]), parse_number(args[offset + 1]), "limit"
-    except (ValueError, IndexError):
-        await update.message.reply_text("⚠️ 가격과 수량은 숫자여야 합니다.")
-        return
-
-    if not is_market:
-        ok, error_msg = validate_max_order(user, price * volume)
-        if not ok:
-            await update.message.reply_text(error_msg)
-            return
-
-    token = create_manual_order_token(user_id, exchange, "bid", ticker, price, volume, ord_type=ord_type)
-    confirm_data = f"manualrun|{token}"
-    keyboard = [[InlineKeyboardButton("✅ 매수 실행", callback_data=confirm_data),
-                 InlineKeyboardButton("❌ 취소", callback_data=f"manualcancel|{token}")]]
-    await update.message.reply_text(
-        build_manual_order_confirm_message(exchange, ticker, "bid", price, volume, user, ord_type=ord_type),
-        reply_markup=InlineKeyboardMarkup(keyboard),
-    )
-
-@check_auth
-async def sell_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
-    if await check_details_help(update, "sell"): return
-    user_id = str(update.effective_chat.id)
-    args = context.args
-    if len(args) < 3:
-        await update.message.reply_text("⚠️ 사용법: /sell [거래소] [종목] [가격|market] [수량] (거래소 생략 시 업비트)")
-        return
-
-    default_exchange = user["preferences"].get("default_exchange", "upbit")
-    exchange, ticker = parse_exchange_and_ticker(args, default_exchange)
-    offset = 2 if is_exchange_token(args[0], exchange) else 1
-
-    try:
-        is_market = args[offset].lower() == "market"
-        if is_market:
-            price, volume, ord_type = 0.0, parse_number(args[offset + 1]), "market"
-        else:
-            price, volume, ord_type = parse_number(args[offset]), parse_number(args[offset + 1]), "limit"
-    except (ValueError, IndexError):
-        await update.message.reply_text("⚠️ 가격과 수량은 숫자여야 합니다.")
-        return
-
-    token = create_manual_order_token(user_id, exchange, "ask", ticker, price, volume, ord_type=ord_type)
-    confirm_data = f"manualrun|{token}"
-    keyboard = [[InlineKeyboardButton("✅ 매도 실행", callback_data=confirm_data),
-                 InlineKeyboardButton("❌ 취소", callback_data=f"manualcancel|{token}")]]
-    await update.message.reply_text(
-        build_manual_order_confirm_message(exchange, ticker, "ask", price, volume, user, ord_type=ord_type),
-        reply_markup=InlineKeyboardMarkup(keyboard),
-    )
-
-async def manual_order_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    action, token = query.data.split("|", 1)
-    if action == "manualcancel":
-        _pending_manual_orders.pop(token, None)
-        await query.edit_message_text("❌ 주문이 취소되었습니다.")
-        return
-
-    user_id = str(query.from_user.id)
-    user = user_manager.get_user(user_id)
-    if not user:
-        await query.edit_message_text("❌ 사용자 설정을 찾을 수 없어 주문을 중단합니다.")
-        return
-    if not user.get("is_active"):
-        await query.edit_message_text("❌ 사용자 인증을 확인할 수 없습니다.")
-        return
-
-    pending, error = pop_valid_manual_order(token, user_id)
-    if error:
-        await query.edit_message_text(f"⚠️ {error}")
-        return
-    exchange = pending["exchange"]
-    side = pending["side"]
-    ticker = pending["ticker"]
-    price = float(pending["price"])
-    volume = float(pending["volume"])
-    ord_type = pending.get("ord_type", "limit")
-    is_market = ord_type == "market"
-    if side == "bid" and not is_market:
-        ok, error_msg = validate_max_order(user, price * volume)
-        if not ok:
-            await query.edit_message_text(error_msg)
-            return
-
-    env_notice = ""
-    if exchange == "kis":
-        env = user.get("exchanges", {}).get("kis", {}).get("env", "paper")
-        env_notice = f" ({'실전' if env == 'real' else '모의'})"
-    action = "매수" if side == "bid" else "매도"
-    order_type_label = "시장가 " if is_market else ""
-    await query.edit_message_text(f"🚀 {exchange_display_name(exchange)} {ticker} {order_type_label}{action} 주문 전송 중{env_notice}...")
-
-    res = await exchange_adapter.create_order(user_id, exchange, ticker, side, price, volume, ord_type=ord_type)
-    if res and "uuid" in res:
-        order_manager.add_order(user_id, exchange, ticker, res["uuid"], price, volume, side=side, strategy="manual")
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=f"✅ {exchange_display_name(exchange)} {ticker} {action} 주문 완료{env_notice}!\n주문ID: {res['uuid']}",
-        )
-    else:
-        append_operational_event("error", "manual_order", "manual order failed", f"{exchange} {ticker} {side}")
-        await context.bot.send_message(chat_id=user_id, text=f"❌ 주문 실패: {res}")
 
 # --- 주문 동기화 및 자동 대응 엔진 ---
 async def sync_orders(application):
@@ -1692,76 +1528,6 @@ async def sync_orders(application):
     final_state = [(o['uuid'], o.get('status'), o.get('filled_volume'), o.get('stop_price')) for o in order_manager.orders]
     if initial_state != final_state:
         asyncio.create_task(trigger_realtime_sync())
-
-@check_auth
-async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
-    if await check_details_help(update, "status"): return
-    user_id = str(update.effective_chat.id)
-    orders = order_manager.get_user_orders(user_id)
-    
-    if not orders:
-        await update.message.reply_text("📊 현재 가동 중인 트레이딩 전략이 없습니다.\n거래소 실제 미체결 주문은 /orders에서 확인하세요.")
-        return
-
-    msg = "📊 트레이딩 전략 통합 대시보드\n\n"
-    
-    # 거래소별 그룹화
-    status_names = {
-        "wait": "대기",
-        "partial": "부분체결",
-        "market_closed": "장외 대기",
-        "pending_reorder": "다음 정규장 재주문 예정",
-        "done": "완료",
-        "cancel": "취소",
-    }
-    for ex in ["upbit", "bithumb", "kis"]:
-        ex_orders = [o for o in orders if o['exchange'] == ex]
-        if not ex_orders: continue
-
-        msg += f"🏛️ <b>{ex.upper()}</b>\n"
-
-        tickers = sorted(list(set([o['ticker'] for o in ex_orders])))
-        for tk in tickers:
-            tk_orders = [o for o in ex_orders if o['ticker'] == tk]
-
-            # group_no별 서브그룹 생성: None인 것은 하나로 묶어 먼저 표시
-            display_groups = []
-            ungrouped = [o for o in tk_orders if not o.get("group_no")]
-            if ungrouped:
-                display_groups.append((None, ungrouped))
-            for gno in sorted(set(o["group_no"] for o in tk_orders if o.get("group_no"))):
-                display_groups.append((gno, [o for o in tk_orders if o.get("group_no") == gno]))
-
-            for group_label, g_orders in display_groups:
-                total = len(g_orders)
-                is_rsi = any(o['strategy'].startswith('rsitrade') for o in g_orders)
-                strategy_name = "RSI 순환 매매" if is_rsi else "거미줄 분할 매매"
-
-                if is_rsi:
-                    filled = len([o for o in g_orders if o['strategy'] == 'rsitrade_sell'])
-                else:
-                    filled = len([o for o in g_orders if o['status'] == 'done'])
-
-                prog_bar = "🔵" * filled + "⚪" * (total - filled)
-                group_tag = f" [<b>#{group_label}</b>]" if group_label is not None else ""
-
-                msg += f"• <b>{tk}</b> ({strategy_name}){group_tag}\n"
-                if is_rsi and filled > 0:
-                    msg += f"  └ 진행: {prog_bar} ({total}건 추적, {filled}건 매수완료·매도대기)\n"
-                else:
-                    msg += f"  └ 진행: {prog_bar} ({total}건 추적)\n"
-
-                for i, o in enumerate(g_orders[:3]):
-                    side_str = "매수" if o['side'] == 'bid' else "매도"
-                    target = f"RSI {o['target_rsi']}" if o['target_rsi'] else f"{o['price']:,.0f}원"
-                    state_text = status_names.get(o.get("status"), o.get("status", "대기"))
-                    msg += f"  ▫️ {i+1}. {side_str}[{state_text}]: {target}\n"
-                if len(g_orders) > 3: msg += "  ▫️ ... 그 외 생략\n"
-        msg += "\n"
-
-    msg += "ℹ️ 체결 및 외부 취소 시 실시간 알림이 전송됩니다.\n"
-    msg += "📊 더 상세한 내역과 리포트는 [웹 대시보드]에서 확인하실 수 있습니다."
-    await update.message.reply_text(msg, parse_mode="HTML")
 
 @check_auth
 async def rsitrade_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
@@ -2622,6 +2388,8 @@ async def natural_language_confirm_callback(update: Update, context: ContextType
 def main():
     _validate_env()
 
+    from handlers import watch_handlers, manual_order_handlers, status_handlers
+
     # post_init을 통해 백그라운드 태스크를 봇 생명주기에 안전하게 편입시킵니다.
     application = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).post_shutdown(post_shutdown).build()
 
@@ -2660,15 +2428,15 @@ def main():
     for command_name in ACCOUNT_COMMAND_ALIASES:
         application.add_handler(CommandHandler(command_name, whoami_command))
     application.add_handler(CommandHandler("asset", asset_command))
-    application.add_handler(CommandHandler("status", status_command))
+    application.add_handler(CommandHandler("status", status_handlers.status_command))
     application.add_handler(CommandHandler("price", price_command))
     application.add_handler(CommandHandler("p", price_command))
     application.add_handler(CommandHandler("indicators", indicators_command))
     application.add_handler(CommandHandler("ind", indicators_command))
     application.add_handler(CommandHandler("history", history_command))
     application.add_handler(CommandHandler("report", report_command))
-    application.add_handler(CommandHandler("buy", buy_command))
-    application.add_handler(CommandHandler("sell", sell_command))
+    application.add_handler(CommandHandler("buy", manual_order_handlers.buy_command))
+    application.add_handler(CommandHandler("sell", manual_order_handlers.sell_command))
     application.add_handler(CommandHandler("orders", orders_command))
     application.add_handler(CommandHandler("cancel", cancel_command))
     application.add_handler(CommandHandler("cancelno", cancelno_command))
@@ -2676,15 +2444,15 @@ def main():
     application.add_handler(CommandHandler("sgrid", sgrid_command))
     for command_name in RSI_GRID_COMMAND_ALIASES:
         application.add_handler(CommandHandler(command_name, rsitrade_command))
-    application.add_handler(CommandHandler("watch", watch_command))
-    application.add_handler(CommandHandler("unwatch", unwatch_command))
+    application.add_handler(CommandHandler("watch", watch_handlers.watch_command))
+    application.add_handler(CommandHandler("unwatch", watch_handlers.unwatch_command))
     application.add_handler(CallbackQueryHandler(grid_quick_callback, pattern="^grid_quick_"))
     application.add_handler(CallbackQueryHandler(signal_snooze_callback, pattern="^signal_snooze_"))
     application.add_handler(CallbackQueryHandler(grid_confirm_callback, pattern="^(gridrun|sgridrun|grid_cancel)"))
     application.add_handler(CallbackQueryHandler(rsitrade_confirm_callback, pattern="^rsitrun"))
     application.add_handler(CommandHandler("sgridrsi", sgridrsi_command))
     application.add_handler(CallbackQueryHandler(sgridrsi_confirm_callback, pattern="^sgridrsirun"))
-    application.add_handler(CallbackQueryHandler(manual_order_confirm_callback, pattern="^(manualrun|manualcancel)\\|"))
+    application.add_handler(CallbackQueryHandler(manual_order_handlers.manual_order_confirm_callback, pattern="^(manualrun|manualcancel)\\|"))
     application.add_handler(CallbackQueryHandler(natural_language_confirm_callback, pattern="^nl(run|cancel)\\|"))
     
     # [중요] 알 수 없는 명령어 처리 (가장 마지막에 등록)
