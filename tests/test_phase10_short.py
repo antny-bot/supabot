@@ -54,6 +54,7 @@ def test_config_view_shows_signal_bb_alert():
 async def test_config_command_no_args_shows_html_view(monkeypatch):
     """/config 인자 없이 호출 시 HTML 설정 뷰를 전송해야 함."""
     import main
+    from handlers import config_handlers
     from core.user_manager import UserManager
 
     prefs = dict(UserManager.DEFAULT_PREFERENCES)
@@ -75,7 +76,7 @@ async def test_config_command_no_args_shows_html_view(monkeypatch):
     context = MagicMock()
     context.args = []
 
-    await main.config_command(update, context)
+    await config_handlers.config_command(update, context)
 
     update.message.reply_text.assert_called_once()
     call_kwargs = update.message.reply_text.call_args
@@ -89,6 +90,7 @@ async def test_config_command_no_args_shows_html_view(monkeypatch):
 async def test_config_command_shorthand_sets_value(monkeypatch):
     """/config rsi_budget_krw 1000000 형식이 설정을 저장해야 함."""
     import main
+    from handlers import config_handlers
     from core.user_manager import UserManager
 
     prefs = dict(UserManager.DEFAULT_PREFERENCES)
@@ -110,7 +112,7 @@ async def test_config_command_shorthand_sets_value(monkeypatch):
     context = MagicMock()
     context.args = ["rsi_budget_krw", "1000000"]
 
-    await main.config_command(update, context)
+    await config_handlers.config_command(update, context)
 
     mock_um.update_preference.assert_called_once()
     call_args = mock_um.update_preference.call_args

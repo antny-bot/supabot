@@ -9,7 +9,13 @@ if SRC not in sys.path:
 
 from core.order_manager import OrderManager
 from core.user_manager import UserManager
+from core.formatters import (
+    build_account_summary, build_help_message, build_config_view,
+    escape_markdown_text, build_manual_order_confirm_message,
+    build_grid_preview_lines, build_rsi_preview_lines,
+)
 import main
+from handlers import nl_intent_handlers
 
 
 def test_default_rsi_interval_is_day():
@@ -52,7 +58,7 @@ def test_bot_display_name_is_ttbot():
 def test_llm_prompt_uses_compact_english_command_catalog():
     user = {"preferences": {"default_exchange": "bithumb"}}
 
-    prompt = main._build_llm_prompt("BTC 9500만원에 0.01개 사줘", user)
+    prompt = nl_intent_handlers._build_llm_prompt("BTC 9500만원에 0.01개 사줘", user)
 
     assert "Commands:" in prompt
     assert "buy req=exchange,ticker,price,volume run=confirm" in prompt
@@ -66,7 +72,7 @@ def test_llm_prompt_uses_compact_english_command_catalog():
 
 
 def test_help_intent_runs_immediately():
-    assert main._is_immediate_intent("help") is True
+    assert nl_intent_handlers._is_immediate_intent("help") is True
 
 
 def test_whomai_is_registered_and_me_is_alias():
@@ -86,7 +92,7 @@ def test_account_summary_does_not_include_secrets():
         "llm": {"gemini_api_key": "gemini-secret"},
     }
 
-    summary = main.build_account_summary("123", user)
+    summary = build_account_summary("123", user)
 
     assert "권한: 관리자" in summary
     assert "기본 거래소: bithumb" in summary
@@ -98,7 +104,7 @@ def test_account_summary_does_not_include_secrets():
 def test_help_message_uses_readable_plain_sections():
     user = {"is_admin": True}
 
-    message = main.build_help_message(user)
+    message = build_help_message(user)
 
     assert "⚙️ 시스템" in message
     assert "<code>/config</code> — 거래소, LLM API 설정" in message
@@ -125,7 +131,7 @@ def test_config_view_splits_basic_and_llm_sections():
         "api_validation": {"upbit": {"ok": True, "checked_at": "2026-05-30T22:10:00+09:00"}},
     }
 
-    message = main.build_config_view(user)
+    message = build_config_view(user)
 
     assert message.index("API 키 상태") < message.index("기본 설정")
     assert message.index("기본 설정") < message.index("LLM 설정")
@@ -151,14 +157,14 @@ def test_config_view_hides_admin_polling_for_regular_user():
         "llm": {"gemini_api_key": ""},
     }
 
-    message = main.build_config_view(user)
+    message = build_config_view(user)
 
     assert "LLM 설정" in message
     assert "폴링 설정" not in message
 
 
 def test_markdown_escape_helper_handles_problem_characters():
-    text = main.escape_markdown_text(r"KRW_BTC*[abc]`id`\path")
+    text = escape_markdown_text(r"KRW_BTC*[abc]`id`\path")
 
     assert r"\_" in text
     assert r"\*" in text
@@ -181,7 +187,7 @@ def test_telegram_responses_do_not_use_markdown_parse_mode():
 def test_manual_order_confirm_message_is_plain_and_requires_confirmation():
     user = {"exchanges": {"kis": {"env": "real"}}}
 
-    message = main.build_manual_order_confirm_message("upbit", "KRW-BTC", "bid", 100000, 0.01, user)
+    message = build_manual_order_confirm_message("upbit", "KRW-BTC", "bid", 100000, 0.01, user)
 
     assert "UPBIT 매수 주문 확인" in message
     assert "위 내용으로 주문을 전송할까요?" in message
@@ -338,7 +344,7 @@ def test_rsitrade_intent_summary_is_user_friendly():
         "amount_krw": 1000000,
     }
 
-    summary = main._intent_summary(intent)
+    summary = nl_intent_handlers._intent_summary(intent)
 
     assert "BITHUMB KRW-BTC" in summary
     assert "매수 RSI 20-30" in summary
@@ -348,7 +354,7 @@ def test_rsitrade_intent_summary_is_user_friendly():
 
 
 def test_grid_preview_lists_each_order_price_volume_and_budget():
-    lines = main.build_grid_preview_lines("KRW-BTC", 90000000, 95000000, 3, 600000)
+    lines = build_grid_preview_lines("KRW-BTC", 90000000, 95000000, 3, 600000)
 
     assert len(lines) == 3
     assert "1. 90,000,000원" in lines[0]
@@ -358,7 +364,7 @@ def test_grid_preview_lists_each_order_price_volume_and_budget():
 
 
 def test_rsi_preview_lists_each_order_rsi_price_volume_and_budget():
-    lines = main.build_rsi_preview_lines("KRW-BTC", [(20, 90000000), (25, 92500000)], 400000)
+    lines = build_rsi_preview_lines("KRW-BTC", [(20, 90000000), (25, 92500000)], 400000)
 
     assert len(lines) == 2
     assert "1. RSI 20" in lines[0]

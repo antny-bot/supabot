@@ -139,6 +139,7 @@ def _make_update_simple(args_text=""):
 async def test_grid_command_kis_rejected_outside_market_hours(monkeypatch):
     """정규장 외 시간에는 KIS grid 주문을 거부해야 함."""
     import main
+    from handlers import strategy_handlers
     _patch_auth_kis(monkeypatch)
     monkeypatch.setattr(main, "is_kis_regular_session", lambda: False)
 
@@ -146,7 +147,7 @@ async def test_grid_command_kis_rejected_outside_market_hours(monkeypatch):
     context = MagicMock()
     context.args = ["한투", "005930", "60000", "65000", "3", "300000"]
 
-    await main.grid_command(update, context)
+    await strategy_handlers.grid_command(update, context)
 
     call_text = update.message.reply_text.call_args[0][0]
     assert "정규장" in call_text
@@ -155,6 +156,7 @@ async def test_grid_command_kis_rejected_outside_market_hours(monkeypatch):
 async def test_grid_command_kis_allowed_during_market_hours(monkeypatch):
     """정규장 시간에는 KIS grid 확인 메시지를 정상 전송해야 함."""
     import main
+    from handlers import strategy_handlers
     _patch_auth_kis(monkeypatch)
     monkeypatch.setattr(main, "is_kis_regular_session", lambda: True)
 
@@ -162,7 +164,7 @@ async def test_grid_command_kis_allowed_during_market_hours(monkeypatch):
     context = MagicMock()
     context.args = ["한투", "005930", "60000", "65000", "3", "300000"]
 
-    await main.grid_command(update, context)
+    await strategy_handlers.grid_command(update, context)
 
     call_text = update.message.reply_text.call_args[0][0]
     assert "거미줄 매수 주문 확인" in call_text
@@ -171,6 +173,7 @@ async def test_grid_command_kis_allowed_during_market_hours(monkeypatch):
 async def test_sgrid_command_kis_rejected_outside_market_hours(monkeypatch):
     """정규장 외 시간에는 KIS sgrid 주문을 거부해야 함."""
     import main
+    from handlers import strategy_handlers
     _patch_auth_kis(monkeypatch)
     monkeypatch.setattr(main, "is_kis_regular_session", lambda: False)
 
@@ -178,7 +181,7 @@ async def test_sgrid_command_kis_rejected_outside_market_hours(monkeypatch):
     context = MagicMock()
     context.args = ["한투", "005930", "60000", "65000", "3", "30"]
 
-    await main.sgrid_command(update, context)
+    await strategy_handlers.sgrid_command(update, context)
 
     call_text = update.message.reply_text.call_args[0][0]
     assert "정규장" in call_text
@@ -187,6 +190,7 @@ async def test_sgrid_command_kis_rejected_outside_market_hours(monkeypatch):
 async def test_sgrid_command_kis_insufficient_volume(monkeypatch):
     """총 수량이 주문 개수보다 작을 때 오류를 반환해야 함."""
     import main
+    from handlers import strategy_handlers
     _patch_auth_kis(monkeypatch)
     monkeypatch.setattr(main, "is_kis_regular_session", lambda: True)
 
@@ -195,7 +199,7 @@ async def test_sgrid_command_kis_insufficient_volume(monkeypatch):
     # 총 수량 2주, 주문 개수 5 → 주문당 0주
     context.args = ["한투", "005930", "60000", "65000", "5", "2"]
 
-    await main.sgrid_command(update, context)
+    await strategy_handlers.sgrid_command(update, context)
 
     call_text = update.message.reply_text.call_args[0][0]
     assert "0주" in call_text

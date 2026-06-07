@@ -9,6 +9,7 @@ if SRC not in sys.path:
 
 from core.user_manager import UserManager
 import main
+from handlers import strategy_handlers
 
 
 def _make_update(user_id=111, text="/grid"):
@@ -55,7 +56,7 @@ async def test_grid_command_kis_outside_market_hours(monkeypatch):
     update = _make_update(text="/grid 한투 005930 70000 80000 3 1000000")
     ctx = _make_context(["한투", "005930", "70000", "80000", "3", "1000000"])
 
-    await main.grid_command(update, ctx)
+    await strategy_handlers.grid_command(update, ctx)
 
     update.message.reply_text.assert_called_once()
     reply_text = update.message.reply_text.call_args.args[0]
@@ -70,7 +71,7 @@ async def test_grid_command_valid_args_sends_preview(monkeypatch):
     update = _make_update(text="/grid KRW-BTC 90000000 95000000 3 600000")
     ctx = _make_context(["KRW-BTC", "90000000", "95000000", "3", "600000"])
 
-    await main.grid_command(update, ctx)
+    await strategy_handlers.grid_command(update, ctx)
 
     update.message.reply_text.assert_called_once()
     call_kwargs = update.message.reply_text.call_args
@@ -99,7 +100,7 @@ async def test_rsitrade_command_no_budget_shows_error(monkeypatch):
     update = _make_update(text="/rsitrade KRW-BTC")
     ctx = _make_context(["KRW-BTC"])
 
-    await main.rsitrade_command(update, ctx)
+    await strategy_handlers.rsitrade_command(update, ctx)
 
     update.message.reply_text.assert_called()
     all_texts = " ".join(
