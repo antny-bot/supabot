@@ -35,6 +35,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS users_manager_email_unique
   ON users (manager_email)
   WHERE manager_email IS NOT NULL;
 
+-- Supabase Auth 초대 메일 발송 시각. 설정되어 있으면 manager 화면은 "초대 메일 발송" 대신
+-- "비밀번호 재설정" 버튼을 보여준다 (중복 초대 방지). 기존 운영 DB에는 아래 SQL로 추가:
+-- ALTER TABLE users ADD COLUMN IF NOT EXISTS manager_invited_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS manager_invited_at TIMESTAMPTZ;
+
 -- ── Orders ─────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS orders (
   uuid          TEXT PRIMARY KEY,

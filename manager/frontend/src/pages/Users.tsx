@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { usePersistedState } from '../hooks/usePersistedState'
-import { Mail, Pencil, ShieldCheck } from 'lucide-react'
-import { activateUser, approveUser, blockUser, deactivateUser, deleteUser, fetchUsers, inviteAuthAccount, setUserEmail } from '../api/users'
+import { KeyRound, Mail, Pencil, ShieldCheck } from 'lucide-react'
+import { activateUser, approveUser, blockUser, deactivateUser, deleteUser, fetchUsers, inviteAuthAccount, resetAuthPassword, setUserEmail } from '../api/users'
 import type { User } from '../types'
 import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
@@ -29,7 +29,7 @@ interface ActionButtonsProps {
 
 function ActionButtons({ user, onUpdate }: ActionButtonsProps) {
   const [busy, setBusy] = useState(false)
-  const [inviteResult, setInviteResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const [authActionResult, setAuthActionResult] = useState<{ ok: boolean; message: string } | null>(null)
 
   async function run(action: () => Promise<User>) {
     setBusy(true)
@@ -47,12 +47,30 @@ function ActionButtons({ user, onUpdate }: ActionButtonsProps) {
       return
     }
     setBusy(true)
-    setInviteResult(null)
+    setAuthActionResult(null)
     try {
-      const res = await inviteAuthAccount(user.user_id)
-      setInviteResult({ ok: true, message: `${res.email}로 초대 메일을 발송했습니다.` })
+      const updated = await inviteAuthAccount(user.user_id)
+      onUpdate(updated)
+      setAuthActionResult({ ok: true, message: `${email}로 초대 메일을 발송했습니다.` })
     } catch (e: unknown) {
-      setInviteResult({ ok: false, message: e instanceof Error ? e.message : '초대 메일 발송에 실패했습니다.' })
+      setAuthActionResult({ ok: false, message: e instanceof Error ? e.message : '초대 메일 발송에 실패했습니다.' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleResetPassword() {
+    const email = user.manager_email
+    if (!email || !window.confirm(`${email} 으로 비밀번호 재설정 메일을 발송할까요?`)) {
+      return
+    }
+    setBusy(true)
+    setAuthActionResult(null)
+    try {
+      const res = await resetAuthPassword(user.user_id)
+      setAuthActionResult({ ok: true, message: `${res.email}로 비밀번호 재설정 메일을 발송했습니다.` })
+    } catch (e: unknown) {
+      setAuthActionResult({ ok: false, message: e instanceof Error ? e.message : '비밀번호 재설정 메일 발송에 실패했습니다.' })
     } finally {
       setBusy(false)
     }
@@ -79,9 +97,15 @@ function ActionButtons({ user, onUpdate }: ActionButtonsProps) {
           <Button variant="ghost" disabled={busy} onClick={() => run(() => activateUser(user.user_id))}>차단 해제</Button>
         )}
         {user.manager_email && status !== 'deleted' && (
-          <Button variant="ghost" disabled={busy} onClick={() => void handleInvite()} title="Supabase 로그인 계정 초대 메일 발송">
-            <Mail size={11} /> 초대 메일 발송
-          </Button>
+          user.manager_invited_at ? (
+            <Button variant="ghost" disabled={busy} onClick={() => void handleResetPassword()} title="Supabase 로그인 계정 비밀번호 재설정 메일 발송">
+              <KeyRound size={11} /> 비밀번호 재설정
+            </Button>
+          ) : (
+            <Button variant="ghost" disabled={busy} onClick={() => void handleInvite()} title="Supabase 로그인 계정 초대 메일 발송">
+              <Mail size={11} /> 초대 메일 발송
+            </Button>
+          )
         )}
         {status !== 'deleted' && !user.is_admin && (
           <Button
@@ -97,9 +121,9 @@ function ActionButtons({ user, onUpdate }: ActionButtonsProps) {
           </Button>
         )}
       </div>
-      {inviteResult && (
-        <span className={`text-[11px] ${inviteResult.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500'}`}>
-          {inviteResult.message}
+      {authActionResult && (
+        <span className={`text-[11px] ${authActionResult.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500'}`}>
+          {authActionResult.message}
         </span>
       )}
     </div>

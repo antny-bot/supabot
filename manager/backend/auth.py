@@ -56,6 +56,30 @@ def invite_auth_user(email: str) -> tuple[bool, str | None]:
         return False, str(e)
 
 
+def send_password_reset_email(email: str) -> tuple[bool, str | None]:
+    """Supabase Auth recover API로 비밀번호 재설정 메일 발송. (성공여부, 에러메시지) 반환."""
+    url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    anon_key = os.environ.get("SUPABASE_ANON_KEY", "")
+    if not url or not anon_key:
+        return False, "SUPABASE_URL/SUPABASE_ANON_KEY가 설정되지 않았습니다."
+    try:
+        resp = requests.post(
+            f"{url}/auth/v1/recover",
+            json={"email": email},
+            headers={"apikey": anon_key, "Content-Type": "application/json"},
+            timeout=15,
+        )
+        if resp.ok:
+            return True, None
+        try:
+            msg = resp.json().get("msg") or resp.json().get("message") or resp.text[:200]
+        except Exception:
+            msg = resp.text[:200]
+        return False, msg
+    except Exception as e:
+        return False, str(e)
+
+
 def generate_pkce_pair() -> tuple[str, str]:
     """Returns (code_verifier, code_challenge) for PKCE OAuth flow."""
     code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()

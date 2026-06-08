@@ -1,7 +1,9 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
-from ..auth import invite_auth_user
+from ..auth import invite_auth_user, send_password_reset_email
 from ..bot_client import notify
 from ..db import get_db
 from ._auth import get_admin_user
@@ -113,15 +115,44 @@ async def api_delete_user(user_id: str, _=Depends(get_admin_user)):
 async def api_invite_auth_account(user_id: str, _=Depends(get_admin_user)):
     try:
         db = get_db()
-        rows = (await db.table("users").select("manager_email").eq("user_id", user_id).execute()).data
+        rows = (await db.table("users").select("manager_email,manager_invited_at").eq("user_id", user_id).execute()).data
         if not rows:
             return JSONResponse({"error": "User not found"}, status_code=404)
         email = rows[0].get("manager_email")
         if not email:
             return JSONResponse({"error": "먼저 매니저 이메일을 설정해야 합니다."}, status_code=400)
+        if rows[0].get("manager_invited_at"):
+            return JSONResponse({"error": "이미 초대 메일을 발송했습니다. 비밀번호 재설정을 이용하세요."}, status_code=409)
         ok, err = invite_auth_user(email)
         if not ok:
             return JSONResponse({"error": f"초대 메일 발송 실패: {err}"}, status_code=409)
+        invited_at = datetime.now(timezone.utc).isoformat()
+        await db.table("users").update({"manager_invited_at": invited_at}).eq("user_id", user_id).execute()
+        updated = (await db.table("users").select("*").eq("user_id", user_id).execute()).data
+        if updated:
+            r = updated[0]
+            r["status_label"] = _STATUS_LABELS.get(r.get("status", ""), r.get("status", ""))
+            return JSONResponse(r)
+        return JSONResponse({"error": "User not found"}, status_code=404)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.post("/api/users/{user_id}/reset-auth-password")
+async def api_reset_auth_password(user_id: str, _=Depends(get_admin_user)):
+    try:
+        db = get_db()
+        rows = (await db.table("users").select("manager_email,manager_invited_at").eq("user_id", user_id).execute()).data
+        if not rows:
+            return JSONResponse({"error": "User not found"}, status_code=404)
+        email = rows[0].get("manager_email")
+        if not email:
+            return JSONResponse({"error": "먼저 매니저 이메일을 설정해야 합니다."}, status_code=400)
+        if not rows[0].get("manager_invited_at"):
+            return JSONResponse({"error": "아직 초대 메일을 발송하지 않았습니다. 초대 메일 발송을 먼저 이용하세요."}, status_code=400)
+        ok, err = send_password_reset_email(email)
+        if not ok:
+            return JSONResponse({"error": f"비밀번호 재설정 메일 발송 실패: {err}"}, status_code=409)
         return JSONResponse({"email": email, "ok": True})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
