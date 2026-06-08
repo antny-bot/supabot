@@ -30,6 +30,7 @@ export function EventsContent() {
   const [events, setEvents] = useState<Event[]>([])
   const [level, setLevel] = usePersistedState('filter:events:level', '')
   const [state, setState] = usePersistedState('filter:events:state', 'unread')
+  const [expandedFilter, setExpandedFilter] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [pendingId, setPendingId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -45,6 +46,10 @@ export function EventsContent() {
   useEffect(() => {
     loadEvents()
   }, [level, state])
+
+  const toggleFilter = (name: string) => {
+    setExpandedFilter((prev) => (prev === name ? null : name))
+  }
 
   async function runAction(eventId: number, action: () => Promise<Event>) {
     setPendingId(eventId)
@@ -62,8 +67,10 @@ export function EventsContent() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <FilterBar options={STATE_OPTIONS} value={state} onChange={setState} />
-        <FilterBar options={LEVEL_OPTIONS} value={level} onChange={setLevel} />
+        <FilterBar collapsible isOpen={expandedFilter === 'state'} onToggle={() => toggleFilter('state')}
+          options={STATE_OPTIONS} value={state} onChange={setState} />
+        <FilterBar collapsible isOpen={expandedFilter === 'level'} onToggle={() => toggleFilter('level')}
+          options={LEVEL_OPTIONS} value={level} onChange={setLevel} />
       </div>
 
       {error && <ErrorBanner message={error} />}
