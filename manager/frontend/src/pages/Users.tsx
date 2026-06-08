@@ -205,8 +205,13 @@ function EmailCell({ user, onUpdate }: EmailCellProps) {
 export function UsersContent() {
   const [users, setUsers] = useState<User[]>([])
   const [statusFilter, setStatusFilter] = usePersistedState('filter:users:status', '')
+  const [expandedFilter, setExpandedFilter] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  const toggleFilter = (name: string) => {
+    setExpandedFilter((prev) => (prev === name ? null : name))
+  }
 
   useEffect(() => {
     setLoading(true)
@@ -223,7 +228,8 @@ export function UsersContent() {
   return (
     <div className="space-y-4">
 
-      <FilterBar options={STATUS_OPTIONS} value={statusFilter} onChange={setStatusFilter} />
+      <FilterBar collapsible isOpen={expandedFilter === 'status'} onToggle={() => toggleFilter('status')}
+        options={STATUS_OPTIONS} value={statusFilter} onChange={setStatusFilter} />
 
 
       {error && <ErrorBanner message={error} />}

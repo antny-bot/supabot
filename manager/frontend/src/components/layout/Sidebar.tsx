@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
-import { LogOut, Menu, Moon, Settings, ShieldCheck, Sun, Zap, Crown } from 'lucide-react'
+import { LogOut, Menu, Moon, Settings, ShieldCheck, Sun, Zap } from 'lucide-react'
 import { APP_NAV_ITEMS } from '../../config/pageMeta'
 import { useAuthContext } from '../../contexts/AuthContext'
 import { useTheme } from '../../hooks/useTheme'
@@ -97,7 +97,7 @@ export default function Sidebar() {
             {!collapsed && (
               <span className="truncate flex items-center gap-1">
                 {item.label}
-                {item.key === 'analytics' && <>{' '}<Crown size={12} className="text-slate-400 dark:text-slate-500" /></>}
+                {item.key === 'analytics' && <ShieldCheck size={12} className="text-slate-400 dark:text-slate-500" />}
               </span>
             )}
           </NavLink>

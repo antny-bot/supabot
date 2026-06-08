@@ -777,6 +777,7 @@ const DEFAULT_RANGE: DateRangeValue = { mode: '30d', from: '', to: '' }
 export default function Reports() {
   const [activeTab, setActiveTab] = useState('holdings')
   const [dateRange, setDateRange] = useState<DateRangeValue>(DEFAULT_RANGE)
+  const [dateFilterOpen, setDateFilterOpen] = useState(false)
 
   return (
     <div className="space-y-5">
@@ -820,7 +821,8 @@ export default function Reports() {
 
       {/* 기간 선택기 — 탭 아래, 기간 민감 탭에만 표시 */}
       {PERIOD_SENSITIVE_TABS.has(activeTab) && (
-        <DateRangePicker value={dateRange} onChange={setDateRange} />
+        <DateRangePicker collapsible isOpen={dateFilterOpen} onToggle={() => setDateFilterOpen((v) => !v)}
+          value={dateRange} onChange={setDateRange} />
       )}
 
       {/* Tab content — lazy mount */}
