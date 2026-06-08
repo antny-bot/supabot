@@ -243,7 +243,8 @@ async def api_execute_template(template_id: int, user: dict = Depends(get_curren
                 buy_rsi_range=params.get("buy_rsi_range", "25-30"),
                 sell_rsi_range=params.get("sell_rsi_range", "65-75"),
                 count=tpl["count"],
-                budget=tpl["budget"]
+                budget=tpl["budget"],
+                weighted=params.get("weighted", False)
             )
             msg = "RSI 순환 매매 전략이 가동되었습니다."
         else:

@@ -95,7 +95,7 @@ def cancel_order(user_id: str, exchange: str, uuid: str, ticker: str) -> tuple[b
     except Exception as e:
         return False, str(e)
 
-def execute_rsitrade(user_id: str, exchange: str, ticker: str, buy_rsi_range: str, sell_rsi_range: str, count: int, budget: float) -> tuple[bool, str]:
+def execute_rsitrade(user_id: str, exchange: str, ticker: str, buy_rsi_range: str, sell_rsi_range: str, count: int, budget: float, weighted: bool = False) -> tuple[bool, str]:
     """Send RSITrade execution request via the bot's /internal/execute_rsitrade endpoint with signature."""
     try:
         resp = _send_signed_request(
@@ -108,6 +108,7 @@ def execute_rsitrade(user_id: str, exchange: str, ticker: str, buy_rsi_range: st
                 "sell_rsi_range": sell_rsi_range,
                 "count": count,
                 "budget": budget,
+                "weighted": weighted,
             }
         )
         if resp.ok:

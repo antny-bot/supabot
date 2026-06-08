@@ -1,4 +1,4 @@
-﻿// -*- coding: utf-8 -*-
+// -*- coding: utf-8 -*-
 import { useEffect, useState } from 'react'
 import { Play, Trash2, Plus, Loader2, Pencil, Copy } from 'lucide-react'
 import PageHeader from '../components/ui/PageHeader'
@@ -19,6 +19,7 @@ interface Template {
   params?: {
     buy_rsi_range?: string
     sell_rsi_range?: string
+    weighted?: boolean
   }
 }
 
@@ -45,6 +46,7 @@ export default function Templates() {
   const [strategyType, setStrategyType] = useState('grid')
   const [buyRsiRange, setBuyRsiRange] = useState('25-30')
   const [sellRsiRange, setSellRsiRange] = useState('65-75')
+  const [weighted, setWeighted] = useState(false)
 
   useEffect(() => {
     loadTemplates()
@@ -97,6 +99,7 @@ export default function Templates() {
         payload.params = {
           buy_rsi_range: buyRsiRange.trim(),
           sell_rsi_range: sellRsiRange.trim(),
+          weighted: weighted,
         }
       }
 
@@ -114,6 +117,7 @@ export default function Templates() {
         setStrategyType('grid')
         setBuyRsiRange('25-30')
         setSellRsiRange('65-75')
+        setWeighted(false)
         setFormOpen(false)
         setSuccessMessage('템플릿이 성공적으로 저장되었습니다.')
         loadTemplates()
@@ -199,6 +203,7 @@ export default function Templates() {
       setEndPrice('')
       setBuyRsiRange(tpl.params?.buy_rsi_range || '25-30')
       setSellRsiRange(tpl.params?.sell_rsi_range || '65-75')
+      setWeighted(tpl.params?.weighted || false)
     }
     setFormOpen(true)
     setError(null)
@@ -219,6 +224,7 @@ export default function Templates() {
     setStrategyType('grid')
     setBuyRsiRange('25-30')
     setSellRsiRange('65-75')
+    setWeighted(false)
   }
 
   async function handleUpdate(e: React.FormEvent) {
@@ -252,6 +258,7 @@ export default function Templates() {
         payload.params = {
           buy_rsi_range: buyRsiRange.trim(),
           sell_rsi_range: sellRsiRange.trim(),
+          weighted: weighted,
         }
       }
 
@@ -458,6 +465,17 @@ export default function Templates() {
                     required
                   />
                 </div>
+                <div className="col-span-2 flex items-center mt-1">
+                  <label className="inline-flex items-center text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={weighted}
+                      onChange={(e) => setWeighted(e.target.checked)}
+                      className="mr-1.5 accent-indigo-600 rounded"
+                    />
+                    DCA 가중 배분 (낮은 RSI에 더 많은 예산 배분)
+                  </label>
+                </div>
               </div>
             )}
 
@@ -568,7 +586,12 @@ export default function Templates() {
                         {isPriceRange ? (
                           `${tpl.start_price.toLocaleString()} ~ ${tpl.end_price.toLocaleString()}원`
                         ) : (
-                          `매수: ${tpl.params?.buy_rsi_range || 'N/A'} / 매도: ${tpl.params?.sell_rsi_range || 'N/A'}`
+                          <>
+                            <div>매수: {tpl.params?.buy_rsi_range || 'N/A'} / 매도: {tpl.params?.sell_rsi_range || 'N/A'}</div>
+                            {tpl.params?.weighted && (
+                              <div className="text-[10px] text-amber-500 font-semibold mt-0.5">DCA 가중 배분</div>
+                            )}
+                          </>
                         )}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-xs text-slate-700 dark:text-slate-300">{tpl.count}회</td>
@@ -688,7 +711,12 @@ export default function Templates() {
                         {isPriceRange ? (
                           `${tpl.start_price.toLocaleString()} ~ ${tpl.end_price.toLocaleString()}원`
                         ) : (
-                          `매수: ${tpl.params?.buy_rsi_range || 'N/A'} / 매도: ${tpl.params?.sell_rsi_range || 'N/A'}`
+                          <>
+                            매수: {tpl.params?.buy_rsi_range || 'N/A'} / 매도: {tpl.params?.sell_rsi_range || 'N/A'}
+                            {tpl.params?.weighted && (
+                              <span className="text-[10px] text-amber-500 font-semibold block mt-0.5">DCA 가중 배분</span>
+                            )}
+                          </>
                         )}
                       </p>
                     </div>
@@ -766,6 +794,12 @@ export default function Templates() {
                       : `${Math.floor(executeTargetTemplate.budget / executeTargetTemplate.count).toLocaleString()}원`}
                   </span>
                 </div>
+                {executeTargetTemplate.strategy_type === 'rsitrade' && executeTargetTemplate.params?.weighted && (
+                  <div className="flex justify-between items-center border-t border-slate-200/50 dark:border-slate-700/50 pt-2">
+                    <span className="text-xs text-slate-500 dark:text-slate-400">배분 방식</span>
+                    <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">DCA 가중 배분</span>
+                  </div>
+                )}
               </div>
 
               <p className="text-[11px] text-slate-500 dark:text-slate-400 text-center leading-relaxed">
