@@ -12,4 +12,6 @@ export const deleteUser = (id: string) => api.delete<User>(`/api/users/${id}`)
 export const setUserEmail = (id: string, email: string) =>
   api.patch<User>(`/api/users/${id}/email`, { email })
 export const inviteAuthAccount = (id: string) =>
-  api.post<{ email: string; ok: boolean }>(`/api/users/${id}/invite-auth-account`)
+  api.post<User>(`/api/users/${id}/invite-auth-account`)
+export const resetAuthPassword = (id: string) =>
+  api.post<{ email: string; ok: boolean }>(`/api/users/${id}/reset-auth-password`)

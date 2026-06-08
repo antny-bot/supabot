@@ -12,6 +12,7 @@ export interface User {
   status: 'pending' | 'active' | 'inactive' | 'blocked' | 'deleted'
   is_admin: boolean
   manager_email: string | null
+  manager_invited_at: string | null
   created_at: string
   status_label: string
 }
