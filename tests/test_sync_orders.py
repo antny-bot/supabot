@@ -206,3 +206,33 @@ async def test_stoploss_does_not_trigger_when_price_above_stop_price(tmp_path, m
     assert any(o["uuid"] == "sell-uuid4" for o in om.orders)
     mock_adapter.cancel_order.assert_not_called()
     app.bot.send_message.assert_not_called()
+
+
+# T7: 동기화 사이클 도중 /cancelno 등으로 이미 제거된 주문은 외부 개입 오탐을 발생시키지 않음
+async def test_concurrently_removed_order_skips_external_cancel_alert(tmp_path, monkeypatch):
+    om = _make_order_manager(tmp_path)
+    om.add_order("444", "bithumb", "KRW-BTC", "uuid-a", 50_000_000, 0.001, side="bid", strategy="manual")
+    om.add_order("444", "bithumb", "KRW-BTC", "uuid-b", 51_000_000, 0.001, side="bid", strategy="manual")
+    monkeypatch.setattr(main, "order_manager", om)
+
+    async def get_order_status(user_id, exchange, uuid, ticker):
+        if uuid == "uuid-a":
+            # uuid-a 처리 중 다른 코루틴(/cancelno)이 uuid-b를 취소·제거했다고 가정
+            om.remove_order("uuid-b")
+            return {"state": "wait", "executed_volume": 0.0}
+        return {"state": "cancel", "executed_volume": 0.0}
+
+    mock_adapter = MagicMock()
+    mock_adapter.get_order_status = AsyncMock(side_effect=get_order_status)
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    app = _make_app()
+    await main.sync_orders(app)
+
+    # uuid-b는 이미 제거되었으므로 거래소에 재조회하지 않아야 함
+    called_uuids = [c.args[2] for c in mock_adapter.get_order_status.call_args_list]
+    assert called_uuids == ["uuid-a"]
+
+    # "외부 개입" 오탐 알림이 발생하지 않아야 함
+    sent_texts = [c.kwargs.get("text", "") for c in app.bot.send_message.call_args_list]
+    assert not any("외부 개입" in t for t in sent_texts)

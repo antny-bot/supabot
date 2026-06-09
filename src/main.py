@@ -270,6 +270,11 @@ async def sync_orders(application):
     all_orders = list(order_manager.orders)
     _price_cache = {}  # 동일 sync 사이클 내 중복 API 호출 방지: {(exchange, ticker): price}
     for ord in all_orders:
+        # /cancel, /cancelno, NL 취소 등으로 이번 사이클 도중 이미 제거된 주문은
+        # 거래소 재조회를 건너뛴다 (외부 개입 오탐 방지)
+        if not any(o["uuid"] == ord["uuid"] for o in order_manager.orders):
+            continue
+
         user_id = ord['user_id']
         exchange = ord['exchange']
         ticker = ord['ticker']
