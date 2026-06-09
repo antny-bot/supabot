@@ -107,7 +107,9 @@ DEFAULT_BOT_COMMANDS = [
     # 설정
     ("config", "거래소, LLM API 설정"),
 ]
-ADMIN_BOT_COMMANDS = DEFAULT_BOT_COMMANDS
+ADMIN_BOT_COMMANDS = DEFAULT_BOT_COMMANDS + [
+    ("dbsync", "주문 DB 수동 동기화 (관리자)"),
+]
 
 # Conversation States
 SET_EXCHANGE, SET_ACCESS, SET_SECRET, SET_KIS_APP, SET_KIS_SECRET, SET_KIS_ACCOUNT, SET_KIS_PRODUCT, SET_KIS_ENV, SET_GEMINI_KEY = range(9)
@@ -501,6 +503,7 @@ async def order_sync_loop(application):
         _write_heartbeat()
         try:
             prefs = _get_admin_prefs()
+            order_manager.reload_from_db()
             await sync_orders(application)
             metrics.record_poll_ok()
             interval = prefs["poll_active_interval"] if order_manager.orders \
