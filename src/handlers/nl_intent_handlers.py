@@ -24,9 +24,10 @@ from core.natural_language import (
 from core.parsers import (
     POLL_INTERVAL_KEYS, parse_config_value, validate_config_update,
     parse_exchange_and_ticker, exchange_display_name, validate_max_order,
-    parse_rsi_range, interpolate_range, get_user_rsi_interval, has_gemini_key,
+    get_user_rsi_interval, has_gemini_key, get_dca_weights,
 )
 from core.formatters import build_config_view, format_config_value
+from core.order_execution import execute_rsitrade_orders, execute_sgridrsi_orders
 
 
 def _build_llm_prompt(user_text, user):
@@ -42,10 +43,11 @@ def _build_llm_prompt(user_text, user):
         "매수/사줘 + RSI + 분할, or RSI + 분할 (no direction) => rsitrade (buy_rsi_range).\n"
         "grid/gridrsi is price-range; RSI range goes to gridrsi/sgridrsi not grid.\n"
         "Missing sell_rsi_range for rsitrade/gridrsi => null; server uses default.\n"
+        "dca_mode=true only if user explicitly mentions DCA/물타기/가중치 분할 (rsitrade only); else null.\n"
         "Schema: {\"action\": string, \"exchange\": string|null, \"ticker\": string|null, "
         "\"price\": number|null, \"volume\": number|null, \"amount_krw\": number|null, "
         "\"start_price\": number|null, \"end_price\": number|null, \"count\": integer|null, "
-        "\"buy_rsi_range\": string|null, \"sell_rsi_range\": string|null, "
+        "\"buy_rsi_range\": string|null, \"sell_rsi_range\": string|null, \"dca_mode\": boolean|null, "
         "\"config_key\": string|null, \"config_value\": string|null, \"question\": string|null}.\n"
         "Exchange: upbit|bithumb|kis|null. Korean stock => kis. Samsung => 005930. Crypto ticker: BTC/ETH/XRP.\n"
         f"Default exchange: {prefs.get('default_exchange', 'upbit')}.\n"
@@ -137,10 +139,11 @@ def _intent_summary(intent):
         count = intent.get("count") or "기본"
         amount = intent.get("amount_krw")
         amount_text = f"{float(amount):,.0f}원" if amount is not None else "기본 예산"
+        dca_text = " / DCA 가중 배분" if intent.get("dca_mode") else ""
         return (
             f"{exchange_display_name(exchange)} {ticker} / "
             f"매수 RSI {buy_range} / 매도 RSI {sell_range} / "
-            f"{count}분할 / 총 {amount_text}"
+            f"{count}분할 / 총 {amount_text}{dca_text}"
         )
     if action == "sgridrsi":
         exchange = intent.get("exchange") or "upbit"
@@ -269,27 +272,20 @@ async def execute_confirmed_intent(query, context, user, intent):
             await query.edit_message_text("❌ RSI 전략 예산을 확인할 수 없어 주문을 중단합니다.")
             return
         await query.edit_message_text("🚀 자연어 RSI 전략 주문을 전송 중입니다...")
-        b_start, b_end = parse_rsi_range(buy_range)
-        s_start, s_end = parse_rsi_range(sell_range)
-        budget_per_order = budget / count
-        success = 0
-        for i in range(count):
-            target_rsi = interpolate_range(b_start, b_end, i, count)
-            sell_target_rsi = interpolate_range(s_start, s_end, i, count)
-            price = await main.signal_engine.get_price_by_rsi(exchange, ticker, target_rsi, side="bid", interval=get_user_rsi_interval(user), user_id=user_id)
-            if not price:
-                continue
-            volume = round(budget_per_order / price, 4)
-            if exchange == "kis":
-                volume = int(volume)
-            if volume <= 0:
-                continue
-            res = await main.exchange_adapter.create_order(user_id, exchange, ticker, "bid", price, volume)
-            if res and "uuid" in res:
-                main.order_manager.add_order(user_id, exchange, ticker, res["uuid"], price, volume, side="bid", strategy="rsitrade", target_rsi=target_rsi, linked_to=sell_target_rsi)
-                success += 1
-            await asyncio.sleep(0.2)
-        await context.bot.send_message(chat_id=user_id, text=f"✅ `{ticker}` 자연어 RSI 전략 가동 완료! ({success}/{count}건 예약됨)")
+        if intent.get("dca_mode"):
+            per_order_budgets = [budget * w for w in get_dca_weights(count)]
+        else:
+            per_order_budgets = [budget / count] * count
+        group_no = main.order_manager.get_next_group_no(user_id)
+        await execute_rsitrade_orders(
+            exchange_adapter=main.exchange_adapter, order_manager=main.order_manager,
+            signal_engine=main.signal_engine,
+            user_id=user_id, exchange=exchange, ticker=ticker,
+            buy_rsi_range=buy_range, sell_rsi_range=sell_range,
+            count=count, per_order_budgets=per_order_budgets,
+            user=user, group_no=group_no, bot=context.bot, notify_chat_id=user_id,
+            trigger_sync_fn=main.trigger_realtime_sync,
+        )
         return
 
     if action == "sgridrsi":
@@ -303,25 +299,15 @@ async def execute_confirmed_intent(query, context, user, intent):
             await query.edit_message_text("❌ RSI 매도 전략 예산을 확인할 수 없어 주문을 중단합니다.")
             return
         await query.edit_message_text("🚀 자연어 RSI 매도 전략 주문을 전송 중입니다...")
-        s_start, s_end = parse_rsi_range(sell_range)
-        budget_per_order = budget / count
-        success = 0
-        for i in range(count):
-            target_rsi = interpolate_range(s_start, s_end, i, count)
-            price = await main.signal_engine.get_price_by_rsi(exchange, ticker, target_rsi, side="ask", interval=get_user_rsi_interval(user), user_id=user_id)
-            if not price:
-                continue
-            volume = round(budget_per_order / price, 4)
-            if exchange == "kis":
-                volume = int(volume)
-            if volume <= 0:
-                continue
-            res = await main.exchange_adapter.create_order(user_id, exchange, ticker, "ask", price, volume)
-            if res and "uuid" in res:
-                main.order_manager.add_order(user_id, exchange, ticker, res["uuid"], price, volume, side="ask", strategy="sgridrsi", target_rsi=target_rsi, linked_to=None)
-                success += 1
-            await asyncio.sleep(0.2)
-        await context.bot.send_message(chat_id=user_id, text=f"✅ `{ticker}` 자연어 RSI 매도 전략 가동 완료! ({success}/{count}건 예약됨)")
+        group_no = main.order_manager.get_next_group_no(user_id)
+        await execute_sgridrsi_orders(
+            exchange_adapter=main.exchange_adapter, order_manager=main.order_manager,
+            signal_engine=main.signal_engine,
+            user_id=user_id, exchange=exchange, ticker=ticker,
+            sell_rsi_range=sell_range, count=count, budget=budget,
+            user=user, group_no=group_no, bot=context.bot, notify_chat_id=user_id,
+            trigger_sync_fn=main.trigger_realtime_sync,
+        )
         return
 
     await query.edit_message_text("⚠️ 이 자연어 요청은 아직 실행할 수 없습니다. /help에서 지원 명령을 확인해 주세요.")

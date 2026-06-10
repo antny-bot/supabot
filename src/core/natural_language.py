@@ -98,6 +98,14 @@ def _extract_split_count_from_text(text):
     return int(match.group(1)) if match else None
 
 
+DCA_HINTS = ("dca", "디씨에이", "물타기")
+
+
+def _extract_dca_flag_from_text(text):
+    lowered = text.lower()
+    return True if any(hint in lowered for hint in DCA_HINTS) else None
+
+
 def _extract_exchange_from_text(text):
     lowered = text.lower()
     if "빗썸" in lowered or "bithumb" in lowered:
@@ -243,6 +251,9 @@ def normalize_natural_language_intent(text, intent, user):
     count = intent.get("count") or _extract_split_count_from_text(text)
     ticker = intent.get("ticker") or _extract_ticker_from_text(text)
     exchange = intent.get("exchange") or _extract_exchange_from_text(text) or user.get("preferences", {}).get("default_exchange", "upbit")
+    dca_mode = intent.get("dca_mode")
+    if dca_mode is None:
+        dca_mode = _extract_dca_flag_from_text(text)
 
     if _looks_like_strategy_status_request(text):
         return {**intent, "action": "status", "question": None}
@@ -262,10 +273,14 @@ def normalize_natural_language_intent(text, intent, user):
             "count": count,
             "buy_rsi_range": None if is_sell else rsi_range,
             "sell_rsi_range": rsi_range if is_sell else intent.get("sell_rsi_range"),
+            "dca_mode": None if is_sell else dca_mode,
             "config_key": None,
             "config_value": None,
             "question": None,
         }
+
+    if intent.get("action") in ("rsitrade", "gridrsi") and dca_mode and intent.get("dca_mode") is None:
+        intent = {**intent, "dca_mode": dca_mode}
     return intent
 
 
