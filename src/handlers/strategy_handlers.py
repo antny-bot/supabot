@@ -86,7 +86,10 @@ async def build_rsigrid_confirm_summary(user_id, user, intent):
     rsi_prices = await build_rsi_price_points(user_id, user, exchange, ticker, buy_range, count)
     if not rsi_prices:
         return None
-    preview_text = "\n".join(build_rsi_preview_lines(ticker, rsi_prices, budget, count))
+    dca_mode = bool(intent.get("dca_mode"))
+    per_order_budgets = [budget * w for w in get_dca_weights(count)][:len(rsi_prices)] if dca_mode else None
+    preview_text = "\n".join(build_rsi_preview_lines(ticker, rsi_prices, budget, count, per_order_budgets=per_order_budgets))
+    dca_line = "- 배분: DCA 가중 (낮은 RSI 집중)\n" if dca_mode else ""
     return (
         f"🤖 RSI 거미줄 전략 확인\n\n"
         f"전략 설정\n"
@@ -95,7 +98,8 @@ async def build_rsigrid_confirm_summary(user_id, user, intent):
         f"- 매수 RSI: {buy_range}\n"
         f"- 매도 RSI: {sell_range}\n"
         f"- 총예산: {budget:,.0f}원\n"
-        f"- 분할: {count}개\n\n"
+        f"- 분할: {count}개\n"
+        f"{dca_line}\n"
         f"예상 주문\n{preview_text}\n\n"
         f"실행 시점에 가격은 다시 계산될 수 있습니다.\n"
         f"위 내용으로 실행할까요?"
