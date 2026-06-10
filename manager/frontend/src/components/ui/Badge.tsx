@@ -43,7 +43,7 @@ export default function Badge({ value, label, className = '' }: BadgeProps) {
   const color = colorMap[value] ?? 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
   const text = label ?? labelMap[value] ?? value
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-app-caption font-medium ${color} ${className}`}>
+    <span className={`inline-flex items-center whitespace-nowrap px-2 py-0.5 rounded-md text-app-caption font-medium ${color} ${className}`}>
       {text}
     </span>
   )
