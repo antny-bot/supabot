@@ -7,7 +7,7 @@ export default function ProgressBar({ value, className = '' }: ProgressBarProps)
   const pct = Math.min(100, Math.max(0, value))
   const color =
     pct >= 100 ? 'bg-emerald-500' :
-    pct >= 50  ? 'bg-indigo-500' :
+    pct >= 50  ? 'bg-primary-500' :
                  'bg-amber-500'
   return (
     <div className={`flex items-center gap-2 ${className}`}>

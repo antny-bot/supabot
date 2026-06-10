@@ -50,11 +50,15 @@ function pctFmt(v: number) {
   return `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`
 }
 
+// 한국식 손익 색상 컨벤션: 수익(상승)=빨강, 손실(하락)=파랑
 function pctColor(v: number) {
-  if (v > 0) return 'text-emerald-600 dark:text-emerald-400'
-  if (v < 0) return 'text-rose-600 dark:text-rose-400'
+  if (v > 0) return 'text-up-600 dark:text-up-400'
+  if (v < 0) return 'text-down-600 dark:text-down-400'
   return 'text-slate-500 dark:text-slate-400'
 }
+
+const PNL_UP_HEX = '#e52222'
+const PNL_DOWN_HEX = '#1666e0'
 
 const CARD = 'bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm'
 const TH = 'px-4 py-2.5 font-medium'
@@ -83,11 +87,11 @@ function PnlSection({ dateRange }: { dateRange: DateRangeValue }) {
 
   const { summary, rows } = data
   const summaryCards = [
-    { label: '총 실현원가', value: krwFmt(summary.total_bid), Icon: TrendingUp, bg: 'bg-blue-500' },
-    { label: '총 매도금액', value: krwFmt(summary.total_ask), Icon: TrendingDown, bg: 'bg-rose-500' },
+    { label: '총 실현원가', value: krwFmt(summary.total_bid), Icon: TrendingUp, bg: 'bg-up-500' },
+    { label: '총 매도금액', value: krwFmt(summary.total_ask), Icon: TrendingDown, bg: 'bg-down-500' },
     { label: '총 수수료', value: krwFmt(summary.total_fee), Icon: DollarSign, bg: 'bg-amber-500' },
     { label: '실현 손익', value: krwFmt(Math.abs(summary.total_pnl)), Icon: Award,
-      bg: summary.total_pnl >= 0 ? 'bg-emerald-500' : 'bg-rose-500',
+      bg: summary.total_pnl >= 0 ? 'bg-up-500' : 'bg-down-500',
       extra: pctFmt(summary.total_bid ? summary.total_pnl / summary.total_bid * 100 : 0),
       extraColor: pctColor(summary.total_pnl),
     },
@@ -195,7 +199,7 @@ function StrategySection({ dateRange }: { dateRange: DateRangeValue }) {
                 <ReferenceLine x={0} stroke="#64748b" />
                 <Bar dataKey="손익" radius={[0, 4, 4, 0]}>
                   {chartData.map((entry: any, index: number) => {
-                    const color = entry['손익'] >= 0 ? '#10b981' : '#f43f5e';
+                    const color = entry['손익'] >= 0 ? PNL_UP_HEX : PNL_DOWN_HEX;
                     return <Cell key={`cell-${index}`} fill={color} />;
                   })}
                 </Bar>
@@ -388,7 +392,7 @@ function MonthlySection() {
                 <ReferenceLine y={0} stroke="#64748b" />
                 <Bar dataKey="손익" radius={[4, 4, 0, 0]}>
                   {chartData.map((entry: any, index: number) => {
-                    const color = entry['손익'] >= 0 ? '#10b981' : '#f43f5e';
+                    const color = entry['손익'] >= 0 ? PNL_UP_HEX : PNL_DOWN_HEX;
                     return <Cell key={`cell-${index}`} fill={color} />;
                   })}
                 </Bar>
@@ -449,7 +453,7 @@ function MonthlySection() {
                     <div className="flex items-center gap-2">
                       <div className="flex-1 bg-slate-200 dark:bg-slate-700 rounded h-2 overflow-hidden">
                         <div
-                          className={`h-full rounded ${r.pnl >= 0 ? 'bg-emerald-500' : 'bg-rose-500'}`}
+                          className={`h-full rounded ${r.pnl >= 0 ? 'bg-up-500' : 'bg-down-500'}`}
                           style={{ width: `${r.bar_pct}%` }}
                         />
                       </div>
@@ -493,7 +497,7 @@ function HoldingsSection() {
       label: '평가손익',
       value: krwFmt(Math.abs(summary.total_pnl)),
       Icon: Award,
-      bg: summary.total_pnl >= 0 ? 'bg-emerald-500' : 'bg-rose-500',
+      bg: summary.total_pnl >= 0 ? 'bg-up-500' : 'bg-down-500',
       extra: pctFmt(summary.total_roi_pct),
       extraColor: pctColor(summary.total_pnl),
     },
@@ -501,7 +505,7 @@ function HoldingsSection() {
       label: '투자 종목',
       value: summary.asset_count.toLocaleString(),
       Icon: TrendingDown,
-      bg: 'bg-indigo-500',
+      bg: 'bg-primary-500',
       extra: summary.oversold_count > 0 ? `oversell ${summary.oversold_count}건` : undefined,
       extraColor: summary.oversold_count > 0 ? 'text-amber-600 dark:text-amber-400' : undefined,
     },
@@ -668,10 +672,10 @@ function WinStatsSection({ dateRange }: { dateRange: DateRangeValue }) {
   const { stats } = data
 
   const countCards = [
-    { label: '총 페어', value: stats.total_pairs.toLocaleString(), bg: 'bg-indigo-500' },
-    { label: '수익 거래', value: stats.win_count.toLocaleString(), bg: 'bg-emerald-500' },
-    { label: '손실 거래', value: stats.loss_count.toLocaleString(), bg: 'bg-rose-500' },
-    { label: '승률', value: `${stats.win_rate}%`, bg: stats.win_rate >= 50 ? 'bg-emerald-500' : 'bg-amber-500' },
+    { label: '총 페어', value: stats.total_pairs.toLocaleString(), bg: 'bg-primary-500' },
+    { label: '수익 거래', value: stats.win_count.toLocaleString(), bg: 'bg-up-500' },
+    { label: '손실 거래', value: stats.loss_count.toLocaleString(), bg: 'bg-down-500' },
+    { label: '승률', value: `${stats.win_rate}%`, bg: stats.win_rate >= 50 ? 'bg-up-500' : 'bg-amber-500' },
   ]
 
   const pieData = [
@@ -684,7 +688,7 @@ function WinStatsSection({ dateRange }: { dateRange: DateRangeValue }) {
     { name: '평균손실', '수익률': stats.avg_loss_pct },
   ]
 
-  const COLORS = ['#10b981', '#f43f5e']
+  const COLORS = [PNL_UP_HEX, PNL_DOWN_HEX]
 
   return (
     <div className="space-y-4">
@@ -701,7 +705,7 @@ function WinStatsSection({ dateRange }: { dateRange: DateRangeValue }) {
         {[
           { label: '평균 수익률 (win)', value: pctFmt(stats.avg_win_pct), color: pctColor(stats.avg_win_pct), desc: '수익 거래 평균' },
           { label: '평균 손실률 (loss)', value: pctFmt(stats.avg_loss_pct), color: pctColor(stats.avg_loss_pct), desc: '손실 거래 평균' },
-          { label: 'RR 비율', value: `${stats.rr_ratio}`, color: stats.rr_ratio >= 1 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400', desc: '평균수익 / 평균손실' },
+          { label: 'RR 비율', value: `${stats.rr_ratio}`, color: stats.rr_ratio >= 1 ? 'text-up-600 dark:text-up-400' : 'text-down-600 dark:text-down-400', desc: '평균수익 / 평균손실' },
         ].map(({ label, value, color, desc }) => (
           <div key={label} className={`${CARD} p-4`}>
             <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
@@ -755,7 +759,7 @@ function WinStatsSection({ dateRange }: { dateRange: DateRangeValue }) {
                 <ReferenceLine y={0} stroke="#64748b" />
                 <Bar dataKey="수익률" radius={4}>
                   {barData.map((entry: any, index: number) => {
-                    const color = entry['수익률'] >= 0 ? '#10b981' : '#f43f5e';
+                    const color = entry['수익률'] >= 0 ? PNL_UP_HEX : PNL_DOWN_HEX;
                     return <Cell key={`cell-${index}`} fill={color} />;
                   })}
                 </Bar>
@@ -793,7 +797,7 @@ export default function Reports() {
               onClick={() => setActiveTab(tab.id)}
               className={`flex-shrink-0 snap-start px-4 py-1.5 rounded-full text-sm font-medium transition-colors whitespace-nowrap ${
                 activeTab === tab.id
-                  ? 'bg-indigo-600 text-white'
+                  ? 'bg-primary-600 text-white'
                   : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
               }`}
             >
@@ -809,7 +813,7 @@ export default function Reports() {
               onClick={() => setActiveTab(tab.id)}
               className={`px-3.5 py-2 text-sm font-medium rounded-t-lg transition-colors border-b-2 -mb-px ${
                 activeTab === tab.id
-                  ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400'
+                  ? 'border-primary-600 text-primary-600 dark:text-primary-400 dark:border-primary-400'
                   : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
               }`}
             >

@@ -47,9 +47,9 @@ export default function Trades() {
 
   const summaryCards = data
     ? [
-        { label: '전체 거래(기간)', value: data.total.toLocaleString(), Icon: BarChart2, bg: 'bg-indigo-500' },
-        { label: '매수(현재)', value: data.summary.buy.toLocaleString(), Icon: TrendingUp, bg: 'bg-blue-500' },
-        { label: '매도(현재)', value: data.summary.sell.toLocaleString(), Icon: TrendingDown, bg: 'bg-rose-500' },
+        { label: '전체 거래(기간)', value: data.total.toLocaleString(), Icon: BarChart2, bg: 'bg-primary-500' },
+        { label: '매수(현재)', value: data.summary.buy.toLocaleString(), Icon: TrendingUp, bg: 'bg-up-500' },
+        { label: '매도(현재)', value: data.summary.sell.toLocaleString(), Icon: TrendingDown, bg: 'bg-down-500' },
         { label: '거래액(현재)', value: krwFmt(data.summary.volume_krw), Icon: DollarSign, bg: 'bg-emerald-500' },
       ]
     : []

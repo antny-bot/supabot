@@ -1,3 +1,4 @@
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-jp-dynamic-subset.css');
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&family=Noto+Serif+KR:wght@400;500;600;700&display=swap');
 
 @tailwind base;
@@ -17,7 +18,47 @@
 @layer base {
   :root {
     --app-font-size: 16px;
-    --app-font-family: 'Noto Sans KR', Pretendard, Inter, system-ui, sans-serif;
+    --app-font-family: 'Pretendard JP Variable', 'Pretendard', 'Noto Sans KR', Inter, system-ui, sans-serif;
+
+    /* Accent (primary) color — WDS Blue default. RGB triples for Tailwind <alpha-value> */
+    --color-primary-50: 234 242 254;
+    --color-primary-100: 201 222 254;
+    --color-primary-200: 158 197 255;
+    --color-primary-300: 105 165 255;
+    --color-primary-400: 51 133 255;
+    --color-primary-500: 0 102 255;
+    --color-primary-600: 0 84 209;
+    --color-primary-700: 0 62 156;
+    --color-primary-800: 0 41 102;
+    --color-primary-900: 0 21 54;
+  }
+
+  /* Accent — WDS Violet */
+  html[data-accent='violet'] {
+    --color-primary-50: 240 236 254;
+    --color-primary-100: 219 211 254;
+    --color-primary-200: 192 176 255;
+    --color-primary-300: 158 134 252;
+    --color-primary-400: 125 94 247;
+    --color-primary-500: 91 55 237;
+    --color-primary-600: 79 41 229;
+    --color-primary-700: 58 22 201;
+    --color-primary-800: 35 9 143;
+    --color-primary-900: 17 2 77;
+  }
+
+  /* Accent — WDS Green */
+  html[data-accent='green'] {
+    --color-primary-50: 217 255 230;
+    --color-primary-100: 172 252 199;
+    --color-primary-200: 125 245 165;
+    --color-primary-300: 73 229 125;
+    --color-primary-400: 30 212 90;
+    --color-primary-500: 0 191 64;
+    --color-primary-600: 0 150 50;
+    --color-primary-700: 0 110 37;
+    --color-primary-800: 0 69 23;
+    --color-primary-900: 0 36 12;
   }
 
   html[data-font-family='noto-serif-kr'] {
@@ -25,7 +66,7 @@
   }
 
   html[data-font-family='noto-sans-kr'] {
-    --app-font-family: 'Noto Sans KR', Pretendard, Inter, system-ui, sans-serif;
+    --app-font-family: 'Pretendard JP Variable', 'Pretendard', 'Noto Sans KR', Inter, system-ui, sans-serif;
   }
 
   html {

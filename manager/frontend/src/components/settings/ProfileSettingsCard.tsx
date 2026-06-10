@@ -42,7 +42,7 @@ export default function ProfileSettingsCard({ initialUsername, email }: Props) {
   return (
     <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
       <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2">
-        <User size={18} className="text-indigo-500" />
+        <User size={18} className="text-primary-500" />
         <h3 className="font-semibold text-slate-800 dark:text-slate-100">프로필 설정</h3>
       </div>
 
@@ -56,7 +56,7 @@ export default function ProfileSettingsCard({ initialUsername, email }: Props) {
             type="text"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 transition-shadow"
+            className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 transition-shadow"
             placeholder="홍길동"
           />
           <p className="text-xs text-slate-500 mt-1.5">대시보드 하단에 표시될 이름입니다.</p>
@@ -89,7 +89,7 @@ export default function ProfileSettingsCard({ initialUsername, email }: Props) {
             className={`flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-medium transition-all ${
               saved 
                 ? 'bg-emerald-500 text-white' 
-                : 'bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50 disabled:grayscale'
+                : 'bg-primary-600 hover:bg-primary-700 text-white disabled:opacity-50 disabled:grayscale'
             }`}
           >
             {loading ? (

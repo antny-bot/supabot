@@ -63,7 +63,7 @@ export default function Sidebar() {
             to="/dashboard"
             className="flex items-center gap-2 font-bold text-slate-900 dark:text-white min-w-0 flex-1"
           >
-            <div className="shrink-0 rounded-lg bg-indigo-600 p-1.5">
+            <div className="shrink-0 rounded-lg bg-primary-600 p-1.5">
               <Zap size={14} className="text-white" />
             </div>
             <span className="text-app-body-sm whitespace-nowrap truncate">supabot</span>
@@ -88,7 +88,7 @@ export default function Sidebar() {
             className={({ isActive }) =>
               `flex items-center gap-3 rounded-xl px-2.5 py-2 text-app-body-sm font-medium transition-colors ${
                 isActive
-                  ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400'
+                  ? 'bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-400'
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200'
               } ${collapsed ? 'justify-center' : ''}`
             }
@@ -119,7 +119,7 @@ export default function Sidebar() {
                 title={isDark ? '라이트 모드' : '다크 모드'}
                 className={`rounded-lg p-1.5 transition-colors ${
                   !isDark
-                    ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400'
+                    ? 'bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-400'
                     : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800'
                 }`}
               >
@@ -130,7 +130,7 @@ export default function Sidebar() {
                 title={isDark ? '라이트 모드' : '다크 모드'}
                 className={`rounded-lg p-1.5 transition-colors ${
                   isDark
-                    ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400'
+                    ? 'bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-400'
                     : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800'
                 }`}
               >
@@ -179,8 +179,8 @@ export default function Sidebar() {
           } ${menuOpen ? 'bg-slate-100 dark:bg-slate-800' : ''}`}
           title={collapsed ? displayName : undefined}
         >
-          <div className="shrink-0 h-7 w-7 rounded-full bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center">
-            <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">
+          <div className="shrink-0 h-7 w-7 rounded-full bg-primary-100 dark:bg-primary-900/40 flex items-center justify-center">
+            <span className="text-xs font-bold text-primary-600 dark:text-primary-400">
               {displayName.slice(0, 1).toUpperCase() || '?'}
             </span>
           </div>

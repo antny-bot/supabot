@@ -53,7 +53,7 @@ export default function Config() {
             <button
               key={tab.id} onClick={() => setActiveTab(tab.id)}
               className={`flex-shrink-0 snap-start px-4 py-1.5 rounded-full text-sm font-medium transition-colors whitespace-nowrap ${
-                activeTab === tab.id ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                activeTab === tab.id ? 'bg-primary-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
               }`}
             >{tab.label}</button>
           ))}
@@ -64,7 +64,7 @@ export default function Config() {
               key={tab.id} onClick={() => setActiveTab(tab.id)}
               className={`px-3.5 py-2 text-sm font-medium rounded-t-lg transition-colors border-b-2 -mb-px ${
                 activeTab === tab.id
-                  ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400'
+                  ? 'border-primary-600 text-primary-600 dark:text-primary-400 dark:border-primary-400'
                   : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
               }`}
             >{tab.label}</button>

@@ -18,7 +18,7 @@ const STAT_CONFIG: {
   bg: string
   adminOnly: boolean
 }[] = [
-  { key: 'users_total', label: '전체 사용자', Icon: Users, bg: 'bg-indigo-500', adminOnly: true },
+  { key: 'users_total', label: '전체 사용자', Icon: Users, bg: 'bg-primary-500', adminOnly: true },
   { key: 'users_active', label: '활성 사용자', Icon: UserCheck, bg: 'bg-emerald-500', adminOnly: true },
   { key: 'users_pending', label: '승인 대기', Icon: Clock, bg: 'bg-amber-500', adminOnly: true },
   { key: 'orders_open', label: '오픈 주문', Icon: ShoppingCart, bg: 'bg-blue-500', adminOnly: false },

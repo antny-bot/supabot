@@ -1,8 +1,10 @@
 export type ManagerFontFamily = 'noto-sans-kr' | 'noto-serif-kr'
+export type ManagerAccentColor = 'blue' | 'violet' | 'green'
 
 export interface DisplayPreferences {
   fontFamily: ManagerFontFamily
   fontSizePx: number
+  accentColor: ManagerAccentColor
 }
 
 export const DISPLAY_PREFERENCES_STORAGE_KEY = 'manager.display.preferences'
@@ -13,9 +15,16 @@ export const DISPLAY_FONT_OPTIONS: Array<{ value: ManagerFontFamily; label: stri
   { value: 'noto-serif-kr', label: 'Noto Serif KR' },
 ]
 
+export const DISPLAY_ACCENT_OPTIONS: Array<{ value: ManagerAccentColor; label: string; swatch: string }> = [
+  { value: 'blue', label: 'Blue', swatch: '#0066ff' },
+  { value: 'violet', label: 'Violet', swatch: '#5b37ed' },
+  { value: 'green', label: 'Green', swatch: '#00bf40' },
+]
+
 export const DEFAULT_DISPLAY_PREFERENCES: DisplayPreferences = {
   fontFamily: 'noto-sans-kr',
   fontSizePx: 16,
+  accentColor: 'blue',
 }
 
 function clampFontSize(value: number) {
@@ -27,12 +36,17 @@ function normalizeFontFamily(value: unknown): ManagerFontFamily {
   return value === 'noto-serif-kr' ? 'noto-serif-kr' : 'noto-sans-kr'
 }
 
+function normalizeAccentColor(value: unknown): ManagerAccentColor {
+  return value === 'violet' || value === 'green' ? value : 'blue'
+}
+
 export function normalizeDisplayPreferences(
   value: Partial<DisplayPreferences> | null | undefined,
 ): DisplayPreferences {
   return {
     fontFamily: normalizeFontFamily(value?.fontFamily),
     fontSizePx: clampFontSize(Number(value?.fontSizePx)),
+    accentColor: normalizeAccentColor(value?.accentColor),
   }
 }
 
@@ -55,6 +69,7 @@ export function applyDisplayPreferences(preferences: DisplayPreferences) {
   const next = normalizeDisplayPreferences(preferences)
   const root = document.documentElement
   root.dataset.fontFamily = next.fontFamily
+  root.dataset.accent = next.accentColor
   root.style.setProperty('--app-font-size', `${next.fontSizePx}px`)
   return next
 }

@@ -12,9 +12,9 @@ const colorMap: Record<string, string> = {
   cancel:          'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-400',
   pending_reorder: 'bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-400',
   stoploss:        'bg-rose-200 text-rose-900 dark:bg-rose-900/40 dark:text-rose-300',
-  // side
-  bid: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
-  ask: 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-400',
+  // side (한국식: 매수=빨강/up, 매도=파랑/down)
+  bid: 'bg-up-50 text-up-600 dark:bg-up-600/20 dark:text-up-400',
+  ask: 'bg-down-50 text-down-600 dark:bg-down-600/20 dark:text-down-400',
   // event level
   error:   'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-400',
   warning: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
@@ -22,7 +22,7 @@ const colorMap: Record<string, string> = {
   // exchange
   upbit:   'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400',
   bithumb: 'bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-400',
-  kis:     'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400',
+  kis:     'bg-primary-100 text-primary-800 dark:bg-primary-900/30 dark:text-primary-400',
 }
 
 const labelMap: Record<string, string> = {

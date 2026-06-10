@@ -1,5 +1,6 @@
-import { Monitor, RotateCcw, Type } from 'lucide-react'
+import { Check, Monitor, Palette, RotateCcw, Type } from 'lucide-react'
 import {
+  DISPLAY_ACCENT_OPTIONS,
   DISPLAY_FONT_OPTIONS,
   type DisplayPreferences,
   resetDisplayPreferences,
@@ -26,7 +27,7 @@ export default function DisplaySettingsCard({
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div className="mb-4 flex items-start gap-3">
-        <div className="rounded-lg bg-indigo-50 p-2.5 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400">
+        <div className="rounded-lg bg-primary-50 p-2.5 text-primary-600 dark:bg-primary-900/30 dark:text-primary-400">
           <Monitor size={18} />
         </div>
         <div className="min-w-0 flex-1">
@@ -65,11 +66,43 @@ export default function DisplaySettingsCard({
                   onClick={() => update({ fontFamily: option.value })}
                   className={`rounded-lg border px-3.5 py-2 text-app-body-sm font-medium transition-colors ${
                     active
-                      ? 'border-indigo-600 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-900/30 dark:text-indigo-300'
+                      ? 'border-primary-600 bg-primary-50 text-primary-700 dark:border-primary-400 dark:bg-primary-900/30 dark:text-primary-300'
                       : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-slate-100'
                   }`}
                 >
                   {option.label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-app-label font-semibold text-slate-800 dark:text-slate-200">
+            <Palette size={16} />
+            강조 색상
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {DISPLAY_ACCENT_OPTIONS.map((option) => {
+              const active = preferences.accentColor === option.value
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => update({ accentColor: option.value })}
+                  aria-label={option.label}
+                  className={`flex h-9 w-9 items-center justify-center rounded-full border-2 transition-colors ${
+                    active
+                      ? 'border-slate-900 dark:border-slate-100'
+                      : 'border-transparent hover:border-slate-300 dark:hover:border-slate-600'
+                  }`}
+                >
+                  <span
+                    className="flex h-7 w-7 items-center justify-center rounded-full"
+                    style={{ backgroundColor: option.swatch }}
+                  >
+                    {active && <Check size={14} className="text-white" />}
+                  </span>
                 </button>
               )
             })}
@@ -96,7 +129,7 @@ export default function DisplaySettingsCard({
             step={1}
             value={preferences.fontSizePx}
             onChange={(e) => update({ fontSizePx: Number(e.target.value) })}
-            className="h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-indigo-600 dark:bg-slate-700 dark:accent-indigo-400"
+            className="h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-primary-600 dark:bg-slate-700 dark:accent-primary-400"
           />
           <div className="flex justify-between text-app-caption text-slate-400 dark:text-slate-500">
             <span>12px</span>

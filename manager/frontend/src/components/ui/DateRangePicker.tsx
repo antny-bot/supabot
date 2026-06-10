@@ -86,7 +86,7 @@ export default function DateRangePicker({
               onClick={() => handlePreset(p.value)}
               className={`px-3 py-1.5 rounded-lg text-app-caption font-medium transition-colors ${
                 value.mode === p.value
-                  ? 'bg-indigo-600 text-white shadow-sm'
+                  ? 'bg-primary-600 text-white shadow-sm'
                   : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
               }`}
             >
@@ -102,14 +102,14 @@ export default function DateRangePicker({
                 type="date"
                 value={value.from}
                 onChange={(e) => handleDate('from', e.target.value)}
-                className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300"
+                className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300"
               />
               <span className="text-xs text-slate-400">~</span>
               <input
                 type="date"
                 value={value.to}
                 onChange={(e) => handleDate('to', e.target.value)}
-                className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300"
+                className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300"
               />
             </div>
             <div className="flex flex-wrap gap-1.5">
@@ -142,7 +142,7 @@ export default function DateRangePicker({
         onClick={onToggle}
         className={`inline-flex shrink-0 items-center gap-1 px-3 py-1.5 rounded-lg text-app-caption font-medium transition-colors ${
           value.mode !== 'all'
-            ? 'bg-indigo-600 text-white shadow-sm'
+            ? 'bg-primary-600 text-white shadow-sm'
             : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
         }`}
       >
@@ -170,7 +170,7 @@ export default function DateRangePicker({
                   }}
                   className={`whitespace-nowrap px-3 py-1.5 rounded-lg text-app-caption font-medium transition-colors ${
                     value.mode === p.value
-                      ? 'bg-indigo-600 text-white shadow-sm'
+                      ? 'bg-primary-600 text-white shadow-sm'
                       : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
                   }`}
                 >

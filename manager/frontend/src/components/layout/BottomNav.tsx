@@ -48,14 +48,14 @@ export default function BottomNav() {
               className={({ isActive }) =>
                 `min-h-[56px] flex-1 flex flex-col items-center justify-center gap-0.5 py-2 text-app-caption font-medium transition-colors ${
                   isActive
-                    ? 'text-indigo-600 dark:text-indigo-400'
+                    ? 'text-primary-600 dark:text-primary-400'
                     : 'text-slate-500 dark:text-slate-500'
                 }`
               }
             >
               {({ isActive }) => (
                 <>
-                  <div className={`rounded-xl p-1.5 transition-colors ${isActive ? 'bg-indigo-50 dark:bg-indigo-900/30' : ''}`}>
+                  <div className={`rounded-xl p-1.5 transition-colors ${isActive ? 'bg-primary-50 dark:bg-primary-900/30' : ''}`}>
                     <Icon size={20} />
                   </div>
                   {compactLabel}

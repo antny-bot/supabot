@@ -12,7 +12,7 @@ export default function PageHeader({ title, subtitle, Icon, actions }: PageHeade
   return (
     <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
       <div className="flex items-start gap-3">
-        <div className="rounded-2xl bg-indigo-50 p-3 text-indigo-600 shadow-sm dark:bg-indigo-900/30 dark:text-indigo-400">
+        <div className="rounded-2xl bg-primary-50 p-3 text-primary-600 shadow-sm dark:bg-primary-900/30 dark:text-primary-400">
           <Icon size={20} />
         </div>
         <div className="space-y-1">

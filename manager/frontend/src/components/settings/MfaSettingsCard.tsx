@@ -119,7 +119,7 @@ export default function MfaSettingsCard({ initialEnabled, onStatusChange }: MfaS
           <button
             onClick={handleMfaSetup}
             disabled={mfaLoading}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white rounded-lg text-xs font-medium transition-colors"
+            className="px-4 py-2 bg-primary-600 hover:bg-primary-700 disabled:opacity-60 text-white rounded-lg text-xs font-medium transition-colors"
           >
             {mfaLoading ? '준비 중…' : '2차 인증 활성화 설정'}
           </button>
@@ -157,12 +157,12 @@ export default function MfaSettingsCard({ initialEnabled, onStatusChange }: MfaS
                   value={otpConfirmCode}
                   onChange={(e) => setOtpConfirmCode(e.target.value)}
                   placeholder="000000"
-                  className="w-32 px-3 py-2 text-center font-bold tracking-widest border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-32 px-3 py-2 text-center font-bold tracking-widest border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 />
                 <button
                   type="submit"
                   disabled={mfaLoading}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white rounded-lg text-xs font-medium transition-colors"
+                  className="px-4 py-2 bg-primary-600 hover:bg-primary-700 disabled:opacity-60 text-white rounded-lg text-xs font-medium transition-colors"
                 >
                   {mfaLoading ? '확인 중…' : '인증 및 활성화'}
                 </button>
@@ -219,7 +219,7 @@ export default function MfaSettingsCard({ initialEnabled, onStatusChange }: MfaS
                 value={otpConfirmCode}
                 onChange={(e) => setOtpConfirmCode(e.target.value)}
                 placeholder="000000"
-                className="w-32 px-3 py-2 text-center font-bold tracking-widest border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-32 px-3 py-2 text-center font-bold tracking-widest border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               />
               <button
                 type="submit"

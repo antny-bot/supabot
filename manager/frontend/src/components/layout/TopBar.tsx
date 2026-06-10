@@ -18,7 +18,7 @@ export default function TopBar() {
     <header className="md:hidden sticky top-0 z-40 border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80">
       <div className="flex h-14 items-center gap-3 px-4">
         <NavLink to="/dashboard" className="flex items-center gap-2 font-bold text-slate-900 dark:text-white">
-          <div className="rounded-lg bg-indigo-600 p-1.5">
+          <div className="rounded-lg bg-primary-600 p-1.5">
             <Zap size={14} className="text-white" />
           </div>
           <span className="text-app-body-sm">supabot</span>

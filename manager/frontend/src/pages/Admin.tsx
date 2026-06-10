@@ -37,7 +37,7 @@ function ConfigNumberField({
         <input
           type="number" min={1} required value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="w-32 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:ring-indigo-400"
+          className="w-32 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:ring-primary-400"
         />
         <span className="text-sm text-slate-500 dark:text-slate-400">초</span>
       </div>
@@ -128,7 +128,7 @@ function MonitoringTab() {
         ))}
         <button
           type="submit" disabled={saving}
-          className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-60"
+          className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary-700 disabled:opacity-60"
         >
           {saving ? '저장 중...' : '설정 저장'}
         </button>
@@ -151,7 +151,7 @@ export default function Admin() {
             <button
               key={tab.id} onClick={() => setActiveTab(tab.id)}
               className={`flex-shrink-0 snap-start px-4 py-1.5 rounded-full text-sm font-medium transition-colors whitespace-nowrap ${
-                activeTab === tab.id ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                activeTab === tab.id ? 'bg-primary-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
               }`}
             >{tab.label}</button>
           ))}
@@ -162,7 +162,7 @@ export default function Admin() {
               key={tab.id} onClick={() => setActiveTab(tab.id)}
               className={`px-3.5 py-2 text-sm font-medium rounded-t-lg transition-colors border-b-2 -mb-px ${
                 activeTab === tab.id
-                  ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400'
+                  ? 'border-primary-600 text-primary-600 dark:text-primary-400 dark:border-primary-400'
                   : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
               }`}
             >{tab.label}</button>

@@ -169,7 +169,7 @@ function EmailCell({ user, onUpdate }: EmailCellProps) {
             type="email"
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            className="w-44 rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+            className="w-44 rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             placeholder="email@example.com"
             autoFocus
             disabled={busy}
@@ -193,7 +193,7 @@ function EmailCell({ user, onUpdate }: EmailCellProps) {
       </span>
       <button
         onClick={() => setEditing(true)}
-        className="rounded p-0.5 text-slate-400 opacity-0 transition-all group-hover:opacity-100 hover:text-indigo-500"
+        className="rounded p-0.5 text-slate-400 opacity-0 transition-all group-hover:opacity-100 hover:text-primary-500"
         title="이메일 수정"
       >
         <Pencil size={11} />
@@ -267,7 +267,7 @@ export function UsersContent() {
                         <Badge value={user.status} label={user.status_label} />
                       </td>
                       <td className="px-4 py-2.5">
-                        {user.is_admin && <ShieldCheck size={14} className="text-indigo-500" />}
+                        {user.is_admin && <ShieldCheck size={14} className="text-primary-500" />}
                       </td>
                       <td className="px-4 py-2.5">
                         <EmailCell user={user} onUpdate={handleUpdate} />
@@ -294,7 +294,7 @@ export function UsersContent() {
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-mono text-slate-500 dark:text-slate-400">{user.user_id}</span>
                     <div className="flex items-center gap-1">
-                      {user.is_admin && <ShieldCheck size={12} className="text-indigo-500" />}
+                      {user.is_admin && <ShieldCheck size={12} className="text-primary-500" />}
                       <Badge value={user.status} label={user.status_label} />
                     </div>
                   </div>

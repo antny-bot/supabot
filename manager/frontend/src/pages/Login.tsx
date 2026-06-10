@@ -112,7 +112,7 @@ export default function Login() {
 
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-8">
-          <div className="bg-indigo-600 rounded-xl p-3 mb-4">
+          <div className="bg-primary-600 rounded-xl p-3 mb-4">
             <Zap size={28} className="text-white" />
           </div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">supabot manager</h1>
@@ -141,7 +141,7 @@ export default function Login() {
                   maxLength={6}
                   value={otpCode}
                   onChange={(e) => setOtpCode(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 text-sm transition-shadow text-center text-lg tracking-widest font-bold"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 text-sm transition-shadow text-center text-lg tracking-widest font-bold"
                   placeholder="000000"
                   autoComplete="one-time-code"
                   autoFocus
@@ -157,7 +157,7 @@ export default function Login() {
                   id="trustDevice"
                   checked={trustDevice}
                   onChange={(e) => setTrustDevice(e.target.checked)}
-                  className="w-4 h-4 rounded border-slate-300 dark:border-slate-700 text-indigo-600 focus:ring-indigo-500 dark:bg-slate-800 transition-colors cursor-pointer"
+                  className="w-4 h-4 rounded border-slate-300 dark:border-slate-700 text-primary-600 focus:ring-primary-500 dark:bg-slate-800 transition-colors cursor-pointer"
                 />
                 <label htmlFor="trustDevice" className="text-xs text-slate-600 dark:text-slate-400 cursor-pointer select-none">
                   이 기기를 30일 동안 신뢰함 (2차 인증 생략)
@@ -167,7 +167,7 @@ export default function Login() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white rounded-xl font-medium text-sm transition-colors mt-2"
+                className="w-full py-2.5 bg-primary-600 hover:bg-primary-700 disabled:opacity-60 text-white rounded-xl font-medium text-sm transition-colors mt-2"
               >
                 {loading ? '인증 중…' : '인증 및 로그인'}
               </button>
@@ -195,7 +195,7 @@ export default function Login() {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 text-sm transition-shadow"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 text-sm transition-shadow"
                   placeholder="admin@example.com"
                   autoComplete="email"
                 />
@@ -210,7 +210,7 @@ export default function Login() {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 text-sm transition-shadow"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 text-sm transition-shadow"
                   placeholder="••••••••"
                   autoComplete="current-password"
                 />
@@ -222,7 +222,7 @@ export default function Login() {
                   id="rememberEmail"
                   checked={rememberEmail}
                   onChange={(e) => setRememberEmail(e.target.checked)}
-                  className="w-4 h-4 rounded border-slate-300 dark:border-slate-700 text-indigo-600 focus:ring-indigo-500 dark:bg-slate-800 transition-colors cursor-pointer"
+                  className="w-4 h-4 rounded border-slate-300 dark:border-slate-700 text-primary-600 focus:ring-primary-500 dark:bg-slate-800 transition-colors cursor-pointer"
                 />
                 <label htmlFor="rememberEmail" className="text-xs text-slate-600 dark:text-slate-400 cursor-pointer select-none">
                   이메일 저장
@@ -232,7 +232,7 @@ export default function Login() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white rounded-xl font-medium text-sm transition-colors mt-2"
+                className="w-full py-2.5 bg-primary-600 hover:bg-primary-700 disabled:opacity-60 text-white rounded-xl font-medium text-sm transition-colors mt-2"
               >
                 {loading ? '로그인 중…' : '로그인'}
               </button>

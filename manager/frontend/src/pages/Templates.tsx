@@ -309,7 +309,7 @@ export default function Templates() {
         actions={(
           <button
             onClick={() => editingTemplate ? cancelEdit() : setFormOpen(!formOpen)}
-            className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700"
+            className="flex items-center gap-1.5 rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-primary-700"
           >
             <Plus size={14} />
             템플릿 생성
@@ -343,7 +343,7 @@ export default function Templates() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="예: 비트코인 RSI 순환매매"
-                className="w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-primary-500"
                 required
               />
             </div>
@@ -385,7 +385,7 @@ export default function Templates() {
                     value="grid"
                     checked={strategyType === 'grid'}
                     onChange={() => setStrategyType('grid')}
-                    className="mr-1.5 accent-indigo-600"
+                    className="mr-1.5 accent-primary-600"
                   />
                   거미줄 분할 매수 (Grid)
                 </label>
@@ -396,7 +396,7 @@ export default function Templates() {
                     value="sgrid"
                     checked={strategyType === 'sgrid'}
                     onChange={() => setStrategyType('sgrid')}
-                    className="mr-1.5 accent-indigo-600"
+                    className="mr-1.5 accent-primary-600"
                   />
                   거미줄 분할 매도 (sGrid)
                 </label>
@@ -407,7 +407,7 @@ export default function Templates() {
                     value="rsitrade"
                     checked={strategyType === 'rsitrade'}
                     onChange={() => setStrategyType('rsitrade')}
-                    className="mr-1.5 accent-indigo-600"
+                    className="mr-1.5 accent-primary-600"
                   />
                   RSI 순환 매매 (RSI Trade)
                 </label>
@@ -471,7 +471,7 @@ export default function Templates() {
                       type="checkbox"
                       checked={weighted}
                       onChange={(e) => setWeighted(e.target.checked)}
-                      className="mr-1.5 accent-indigo-600 rounded"
+                      className="mr-1.5 accent-primary-600 rounded"
                     />
                     DCA 가중 배분 (낮은 RSI에 더 많은 예산 배분)
                   </label>
@@ -518,7 +518,7 @@ export default function Templates() {
             </button>
             <button
               type="submit"
-              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors"
+              className="px-3 py-1.5 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors"
             >
               {editingTemplate ? '수정 저장' : '저장하기'}
             </button>
@@ -595,7 +595,7 @@ export default function Templates() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-xs text-slate-700 dark:text-slate-300">{tpl.count}회</td>
-                      <td className="px-4 py-3 text-right font-semibold font-mono text-xs text-indigo-600 dark:text-indigo-400">
+                      <td className="px-4 py-3 text-right font-semibold font-mono text-xs text-primary-600 dark:text-primary-400">
                         {stype === 'sgrid' ? `${tpl.budget}개` : `${tpl.budget.toLocaleString()}원`}
                       </td>
                       <td className="px-4 py-3">
@@ -616,7 +616,7 @@ export default function Templates() {
                             onClick={() => handleDuplicate(tpl.id)}
                             disabled={actionLoadingId !== null}
                             title="복제"
-                            className="p-1 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded disabled:opacity-50 transition-colors"
+                            className="p-1 text-slate-400 hover:text-primary-600 dark:hover:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 rounded disabled:opacity-50 transition-colors"
                           >
                             {actionLoadingId === tpl.id ? <Loader2 size={14} className="animate-spin" /> : <Copy size={14} />}
                           </button>
@@ -681,7 +681,7 @@ export default function Templates() {
                         onClick={() => handleDuplicate(tpl.id)}
                         disabled={actionLoadingId !== null}
                         title="복제"
-                        className="p-1 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded disabled:opacity-50"
+                        className="p-1 text-slate-400 hover:text-primary-600 dark:hover:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 rounded disabled:opacity-50"
                       >
                         {actionLoadingId === tpl.id ? <Loader2 size={14} className="animate-spin" /> : <Copy size={14} />}
                       </button>
@@ -726,7 +726,7 @@ export default function Templates() {
                     </div>
                     <div>
                       <span className="text-[10px] text-slate-400">{stype === 'sgrid' ? '총 수량' : '총 예산'}</span>
-                      <p className="font-bold font-mono text-indigo-600 dark:text-indigo-400">
+                      <p className="font-bold font-mono text-primary-600 dark:text-primary-400">
                         {stype === 'sgrid' ? `${tpl.budget}개` : `${tpl.budget.toLocaleString()}원`}
                       </p>
                     </div>
@@ -774,7 +774,7 @@ export default function Templates() {
                   <span className="text-xs text-slate-500 dark:text-slate-400">
                     {executeTargetTemplate.strategy_type === 'sgrid' ? '총 수량' : '총 예산'}
                   </span>
-                  <span className="text-sm font-bold text-indigo-600 dark:text-indigo-400">
+                  <span className="text-sm font-bold text-primary-600 dark:text-primary-400">
                     {executeTargetTemplate.strategy_type === 'sgrid'
                       ? `${executeTargetTemplate.budget}개`
                       : `${executeTargetTemplate.budget.toLocaleString()}원`}

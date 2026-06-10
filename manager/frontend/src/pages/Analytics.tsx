@@ -44,10 +44,10 @@ const CARD = 'bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark
 function heatColor(val: number, max: number): string {
   if (max === 0 || val === 0) return 'bg-slate-100 dark:bg-slate-800'
   const ratio = val / max
-  if (ratio > 0.75) return 'bg-indigo-600'
-  if (ratio > 0.5)  return 'bg-indigo-400'
-  if (ratio > 0.25) return 'bg-indigo-200 dark:bg-indigo-700'
-  return 'bg-indigo-100 dark:bg-indigo-900'
+  if (ratio > 0.75) return 'bg-primary-600'
+  if (ratio > 0.5)  return 'bg-primary-400'
+  if (ratio > 0.25) return 'bg-primary-200 dark:bg-primary-700'
+  return 'bg-primary-100 dark:bg-primary-900'
 }
 
 // ── Overview ─────────────────────────────────────────────────────────────
@@ -70,7 +70,7 @@ function OverviewSection() {
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-      <StatCard label="DAU (오늘)"   value={data.dau}                 icon={<Users size={18} />}    iconBg="bg-indigo-500" />
+      <StatCard label="DAU (오늘)"   value={data.dau}                 icon={<Users size={18} />}    iconBg="bg-primary-500" />
       <StatCard label="WAU (7일)"    value={data.wau}                 icon={<Activity size={18} />} iconBg="bg-emerald-500" />
       <StatCard label="MAU (30일)"   value={data.mau}                 icon={<Users size={18} />}    iconBg="bg-sky-500" />
       <StatCard label="30일 명령 수" value={data.total_commands_30d}  icon={<BarChart2 size={18} />} iconBg="bg-amber-500" />
@@ -270,7 +270,7 @@ function HeatmapSection() {
             {/* Legend */}
             <div className="flex items-center gap-1 mt-3">
               <span className="text-[10px] text-slate-400 mr-1">적음</span>
-              {['bg-slate-100 dark:bg-slate-800', 'bg-indigo-100 dark:bg-indigo-900', 'bg-indigo-200 dark:bg-indigo-700', 'bg-indigo-400', 'bg-indigo-600'].map((c, i) => (
+              {['bg-slate-100 dark:bg-slate-800', 'bg-primary-100 dark:bg-primary-900', 'bg-primary-200 dark:bg-primary-700', 'bg-primary-400', 'bg-primary-600'].map((c, i) => (
                 <div key={i} className={`w-5 h-4 rounded-sm ${c}`} />
               ))}
               <span className="text-[10px] text-slate-400 ml-1">많음</span>

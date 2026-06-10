@@ -202,7 +202,7 @@ export default function Orders() {
                         {order.group_no != null ? (
                           <button
                             onClick={() => handleGroupNoClick(order.group_no!)}
-                            className="rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50"
+                            className="rounded-md bg-primary-50 px-2 py-0.5 text-xs font-semibold text-primary-600 hover:bg-primary-100 dark:bg-primary-900/30 dark:text-primary-400 dark:hover:bg-primary-900/50"
                             title={`#${order.group_no} 배치만 필터링`}
                           >
                             #{order.group_no}
