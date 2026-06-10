@@ -536,117 +536,7 @@ export default function Templates() {
           등록된 템플릿이 없습니다. 우측 상단의 '템플릿 생성' 버튼으로 추가해 보세요.
         </div>
       ) : (
-        <>
-          {/* 데스크톱 목록 뷰 (hidden md:block) */}
-          <div className="hidden md:block bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
-                  <th className="px-4 py-3 text-left font-medium">이름</th>
-                  <th className="px-4 py-3 text-left font-medium">거래소</th>
-                  <th className="px-4 py-3 text-left font-medium">종목</th>
-                  <th className="px-4 py-3 text-left font-medium">전략</th>
-                  <th className="px-4 py-3 text-center font-medium">타겟 범위 (가격 / RSI)</th>
-                  <th className="px-4 py-3 text-right font-medium">분할 수</th>
-                  <th className="px-4 py-3 text-right font-medium">총 예산</th>
-                  <th className="px-4 py-3 text-center font-medium">액션</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {templates.map((tpl) => {
-                  const stype = tpl.strategy_type || 'grid';
-                  const isPriceRange = stype === 'grid' || stype === 'sgrid';
-                  return (
-                    <tr key={tpl.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                      <td className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-200">{tpl.name}</td>
-                      <td className="px-4 py-3">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-300 uppercase">
-                          {tpl.exchange}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-300">{tpl.ticker}</td>
-                      <td className="px-4 py-3">
-                        {stype === 'grid' && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400">
-                            Grid
-                          </span>
-                        )}
-                        {stype === 'sgrid' && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400">
-                            sGrid
-                          </span>
-                        )}
-                        {stype === 'rsitrade' && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400">
-                            RSI
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-center font-mono text-xs text-slate-700 dark:text-slate-300">
-                        {isPriceRange ? (
-                          `${tpl.start_price.toLocaleString()} ~ ${tpl.end_price.toLocaleString()}원`
-                        ) : (
-                          <>
-                            <div>매수: {tpl.params?.buy_rsi_range || 'N/A'} / 매도: {tpl.params?.sell_rsi_range || 'N/A'}</div>
-                            {tpl.params?.weighted && (
-                              <div className="text-[10px] text-amber-500 font-semibold mt-0.5">DCA 가중 배분</div>
-                            )}
-                          </>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono text-xs text-slate-700 dark:text-slate-300">{tpl.count}회</td>
-                      <td className="px-4 py-3 text-right font-semibold font-mono text-xs text-primary-600 dark:text-primary-400">
-                        {stype === 'sgrid' ? `${tpl.budget}개` : `${tpl.budget.toLocaleString()}원`}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-center gap-2">
-                          <button
-                            onClick={() => openExecuteModal(tpl)}
-                            disabled={actionLoadingId !== null}
-                            className="flex items-center gap-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-medium disabled:opacity-50 transition-colors"
-                          >
-                            {actionLoadingId === tpl.id ? (
-                              <Loader2 size={12} className="animate-spin" />
-                            ) : (
-                              <Play size={12} />
-                            )}
-                            {actionLoadingId === tpl.id ? '가동 중...' : '가동'}
-                          </button>
-                          <button
-                            onClick={() => handleDuplicate(tpl.id)}
-                            disabled={actionLoadingId !== null}
-                            title="복제"
-                            className="p-1 text-slate-400 hover:text-primary-600 dark:hover:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 rounded disabled:opacity-50 transition-colors"
-                          >
-                            {actionLoadingId === tpl.id ? <Loader2 size={14} className="animate-spin" /> : <Copy size={14} />}
-                          </button>
-                          <button
-                            onClick={() => openEditForm(tpl)}
-                            disabled={actionLoadingId !== null}
-                            title="수정"
-                            className="p-1 text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded disabled:opacity-50 transition-colors"
-                          >
-                            <Pencil size={14} />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(tpl.id)}
-                            disabled={actionLoadingId !== null}
-                            title="삭제"
-                            className="p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded disabled:opacity-50 transition-colors"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          {/* 모바일 리스트 뷰 (block md:hidden) */}
-          <div className="block md:hidden space-y-3">
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
             {templates.map((tpl) => {
               const stype = tpl.strategy_type || 'grid';
               const isPriceRange = stype === 'grid' || stype === 'sgrid';
@@ -748,7 +638,6 @@ export default function Templates() {
               );
             })}
           </div>
-        </>
       )}
       {/* 가동 확인 모달 */}
       {executeTargetTemplate && (

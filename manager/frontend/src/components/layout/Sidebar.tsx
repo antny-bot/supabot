@@ -95,10 +95,12 @@ export default function Sidebar() {
           >
             <item.Icon size={18} className="shrink-0" />
             {!collapsed && (
-              <span className="truncate flex items-center gap-1">
-                {item.label}
-                {item.key === 'analytics' && <ShieldCheck size={12} className="text-slate-400 dark:text-slate-500" />}
-              </span>
+              <>
+                <span className="truncate">{item.label}</span>
+                {item.key === 'analytics' && (
+                  <ShieldCheck size={12} className="ml-auto shrink-0 text-slate-400 dark:text-slate-500" />
+                )}
+              </>
             )}
           </NavLink>
         ))}
