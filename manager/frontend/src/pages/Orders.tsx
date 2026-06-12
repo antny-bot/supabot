@@ -217,10 +217,10 @@ export default function Orders() {
                       <td className="px-4 py-2.5">
                         <Badge value={order.exchange} label={order.exchange.toUpperCase()} />
                       </td>
-                      <td className="px-4 py-2.5 text-xs font-medium text-slate-800 dark:text-slate-200">
+                      <td className="whitespace-nowrap px-4 py-2.5 text-xs font-medium text-slate-800 dark:text-slate-200">
                         {order.ticker}
                       </td>
-                      <td className="px-4 py-2.5">
+                      <td className="whitespace-nowrap px-4 py-2.5">
                         <Badge value={order.side} />
                       </td>
                       <td className="px-4 py-2.5 text-xs text-slate-500 dark:text-slate-400">{order.strategy}</td>
@@ -236,10 +236,10 @@ export default function Orders() {
                       <td className="w-32 px-4 py-2.5">
                         <ProgressBar value={order.fill_pct} />
                       </td>
-                      <td className="px-4 py-2.5">
+                      <td className="whitespace-nowrap px-4 py-2.5">
                         <Badge value={order.status} label={order.status_label} />
                       </td>
-                      <td className="px-4 py-2.5">
+                      <td className="whitespace-nowrap px-4 py-2.5">
                         {OPEN_STATUSES.has(order.status) ? (
                           <button
                             onClick={() => handleCancelOrder(order.uuid)}
