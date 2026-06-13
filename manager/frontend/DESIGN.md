@@ -95,7 +95,7 @@ Prefer these app tokens over page-local `text-*` sizing:
 ### Mobile navigation — Bottom Nav + 전체 Drawer
 - 하단 네비는 **최대 6개**: 고정 항목 최대 5개(`localStorage` nav 순서의 앞 `MAX_PINNED`개) + 고정 **"전체"** 버튼(햄버거, 맨 우측). 순서·기본 페이지는 `src/lib/navPreferences.ts`에 저장.
 - **전체 Drawer (`AllMenuDrawer`)**: "전체" 버튼으로 바텀시트 슬라이드업, admin 전용 항목은 비admin에 숨김.
-  - **드래그 재정렬**: `@dnd-kit/core`+`@dnd-kit/sortable` → `writeNavOrder`로 즉시 저장, 상위 5개가 고정 항목이 됨.
+  - **드래그 재정렬**: `@dnd-kit/core`+`@dnd-kit/sortable` → `writeNavOrder`로 즉시 저장, 상위 5개가 고정 항목이 됨. 이 패턴을 다른 화면에 재구현할 때는 `docs/drag-reorder-menu.md` 참고.
   - **별표(★) = 기본 페이지**: 탭하면 로그인 후 랜딩 페이지로 지정(`writeDefaultPage`), 동시에 하나만 가능.
   - `BottomNav`는 `sbm-navprefs-change` 커스텀 이벤트로 변경을 구독·재렌더링.
 - 모든 페이지는 `src/config/pageMeta.ts`의 `APP_NAV_ITEMS`에 선언. 현재 키: `dashboard`, `orders`, `trades`, `templates`, `reports`, `admin`(admin 전용), `config`. `adminOnly: true` 항목은 drawer에서 숨겨지고 비admin에 고정되지 않음.
