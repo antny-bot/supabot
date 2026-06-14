@@ -76,6 +76,7 @@ signal_engine = SignalEngine(user_manager, exchange_adapter)
 _order_wake_event: asyncio.Event = None  # post_init에서 초기화
 _pending_nl_intents = {}
 _pending_manual_orders = {}
+_pending_cancel_orders = {}
 MANUAL_ORDER_TTL_SECONDS = 600
 RSI_GRID_COMMAND_ALIASES = ("rsigrid", "rsitrade", "gridrsi")
 ACCOUNT_COMMAND_ALIASES = ("whomai", "me")
@@ -261,6 +262,30 @@ def pop_valid_manual_order(token, user_id):
         append_operational_event("warning", "manual_order", "manual order confirmation expired", pending.get("ticker"))
         return None, "주문 확인 요청이 만료되었습니다. 다시 입력해 주세요."
     _pending_manual_orders.pop(token, None)
+    return pending, None
+
+def create_cancel_token(user_id, orders):
+    token = str(len(_pending_cancel_orders) + 1)
+    while token in _pending_cancel_orders:
+        token = str(int(token) + 1)
+    _pending_cancel_orders[token] = {
+        "user_id": str(user_id),
+        "orders": [{"exchange": o["exchange"], "uuid": o["uuid"], "ticker": o["ticker"]} for o in orders],
+        "created_at": time.time(),
+    }
+    return token
+
+def pop_valid_cancel_token(token, user_id):
+    token = str(token)
+    pending = _pending_cancel_orders.get(token)
+    if not pending:
+        return None, "만료되었거나 찾을 수 없는 취소 요청입니다. 다시 시도해 주세요."
+    if pending.get("user_id") != str(user_id):
+        return None, "다른 사용자의 취소 요청은 실행할 수 없습니다."
+    if time.time() - float(pending.get("created_at", 0)) > MANUAL_ORDER_TTL_SECONDS:
+        _pending_cancel_orders.pop(token, None)
+        return None, "취소 요청이 만료되었습니다. 다시 시도해 주세요."
+    _pending_cancel_orders.pop(token, None)
     return pending, None
 
 # --- 주문 동기화 및 자동 대응 엔진 ---
@@ -972,6 +997,7 @@ def main():
     application.add_handler(CommandHandler("sgridrsi", strategy_handlers.sgridrsi_command))
     application.add_handler(CallbackQueryHandler(strategy_handlers.sgridrsi_confirm_callback, pattern="^sgridrsirun"))
     application.add_handler(CallbackQueryHandler(manual_order_handlers.manual_order_confirm_callback, pattern="^(manualrun|manualcancel)\\|"))
+    application.add_handler(CallbackQueryHandler(query_handlers.cancel_confirm_callback, pattern="^(cancelrun|cancelabort)\\|"))
     application.add_handler(CallbackQueryHandler(nl_intent_handlers.natural_language_confirm_callback, pattern="^nl(run|cancel)\\|"))
     
     # [중요] 알 수 없는 명령어 처리 (가장 마지막에 등록)
