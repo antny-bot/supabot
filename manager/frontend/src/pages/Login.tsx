@@ -111,7 +111,7 @@ export default function Login() {
       </button>
 
       <div className="w-full max-w-sm">
-        <div className="flex flex-col items-center mb-8">
+        <div className="animate-fade-in-up flex flex-col items-center mb-8">
           <div className="bg-primary-600 rounded-xl p-3 mb-4">
             <Zap size={28} className="text-white" />
           </div>
@@ -119,7 +119,7 @@ export default function Login() {
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">통합 웹 대시보드</p>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-6">
+        <div className="animate-fade-in-up bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-6" style={{ animationDelay: '80ms' }}>
           {error && (
             <div className="flex items-center gap-2 p-3 bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800 rounded-xl text-rose-700 dark:text-rose-400 text-sm mb-5">
               <AlertCircle size={14} className="shrink-0" />

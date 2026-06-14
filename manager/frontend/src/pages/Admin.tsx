@@ -6,6 +6,7 @@ import PageHeader from '../components/ui/PageHeader'
 import Spinner from '../components/ui/Spinner'
 import { PAGE_META } from '../config/pageMeta'
 import type { ConfigItem } from '../types'
+import { staggerDelay } from '../utils/animation'
 import { EventsContent } from './Events'
 import { UsersContent } from './Users'
 
@@ -95,14 +96,14 @@ function MonitoringTab() {
     <div className="space-y-4 max-w-xl">
       {error && <ErrorBanner message={error} />}
       {saved && (
-        <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-400">
+        <div className="animate-fade-in-up flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-400">
           <CheckCircle size={16} className="shrink-0" />
           설정이 저장되었습니다.
         </div>
       )}
       <form onSubmit={handleSubmit} className="space-y-4">
         {monitoringItems.length > 0 && (
-          <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <section className="animate-fade-in-up rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             <div className="mb-4">
               <h2 className="text-app-body font-semibold text-slate-900 dark:text-slate-100">주문 및 신호 주기</h2>
               <p className="mt-1 text-app-caption text-slate-500 dark:text-slate-400">
@@ -121,8 +122,8 @@ function MonitoringTab() {
             </div>
           </section>
         )}
-        {otherItems.map((item) => (
-          <div key={item.key} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        {otherItems.map((item, index) => (
+          <div key={item.key} className="animate-fade-in-up rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900" style={staggerDelay(index + 1)}>
             <ConfigNumberField item={item} value={values[item.key] ?? ''} onChange={(next) => setValues((prev) => ({ ...prev, [item.key]: next }))} />
           </div>
         ))}
@@ -170,7 +171,7 @@ export default function Admin() {
         </div>
       </div>
 
-      <div>
+      <div key={activeTab} className="animate-fade-in-up">
         {activeTab === 'users'      && <UsersContent />}
         {activeTab === 'events'     && <EventsContent />}
         {activeTab === 'monitoring' && <MonitoringTab />}

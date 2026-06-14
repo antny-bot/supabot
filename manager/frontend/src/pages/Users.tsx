@@ -8,6 +8,7 @@ import Button from '../components/ui/Button'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import FilterBar from '../components/ui/FilterBar'
 import Spinner from '../components/ui/Spinner'
+import { staggerDelay } from '../utils/animation'
 
 const STATUS_OPTIONS = [
   { value: '', label: '전체' },
@@ -259,8 +260,8 @@ export function UsersContent() {
                         유저가 없습니다.
                       </td>
                     </tr>
-                  ) : users.map((user) => (
-                    <tr key={user.user_id} className="transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                  ) : users.map((user, index) => (
+                    <tr key={user.user_id} className="animate-fade-in transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40" style={staggerDelay(index)}>
                       <td className="px-4 py-2.5 font-mono text-xs text-slate-500 dark:text-slate-400">{user.user_id}</td>
                       <td className="px-4 py-2.5 text-xs font-medium text-slate-800 dark:text-slate-200">{user.username || '--'}</td>
                       <td className="px-4 py-2.5">
@@ -289,8 +290,8 @@ export function UsersContent() {
                 <div className="px-4 py-10 text-center text-xs text-slate-400 dark:text-slate-500">
                   유저가 없습니다.
                 </div>
-              ) : users.map((user) => (
-                <div key={user.user_id} className="space-y-3 p-4 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40">
+              ) : users.map((user, index) => (
+                <div key={user.user_id} className="animate-fade-in-up space-y-3 p-4 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40" style={staggerDelay(index)}>
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-mono text-slate-500 dark:text-slate-400">{user.user_id}</span>
                     <div className="flex items-center gap-1">

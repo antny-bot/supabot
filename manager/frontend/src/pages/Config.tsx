@@ -72,7 +72,7 @@ export default function Config() {
         </div>
       </div>
 
-      <div>
+      <div key={activeTab} className="animate-fade-in-up">
         {activeTab === 'display' && (
           <DisplaySettingsCard preferences={displayPreferences} onChange={setDisplayPreferences} />
         )}

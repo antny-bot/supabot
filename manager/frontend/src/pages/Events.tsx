@@ -7,6 +7,7 @@ import Button from '../components/ui/Button'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import FilterBar from '../components/ui/FilterBar'
 import Spinner from '../components/ui/Spinner'
+import { staggerDelay } from '../utils/animation'
 
 const LEVEL_OPTIONS = [
   { value: '', label: '전체' },
@@ -99,12 +100,13 @@ export function EventsContent() {
                       이벤트가 없습니다.
                     </td>
                   </tr>
-                ) : events.map((event) => (
+                ) : events.map((event, index) => (
                   <tr
                     key={event.id}
-                    className={`transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40 ${
+                    className={`animate-fade-in transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40 ${
                       event.level === 'error' ? 'bg-rose-50/40 dark:bg-rose-950/20' : ''
                     }`}
+                    style={staggerDelay(index)}
                   >
                     <td className="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-slate-500 dark:text-slate-400">
                       {fmtTime(String(event.created_at))}

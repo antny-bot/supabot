@@ -22,6 +22,7 @@ import ErrorBanner from '../components/ui/ErrorBanner'
 import PageHeader from '../components/ui/PageHeader'
 import FilterBar from '../components/ui/FilterBar'
 import { PAGE_META } from '../config/pageMeta'
+import { staggerDelay, staggerDelayMs } from '../utils/animation'
 import { Users, Activity, BarChart2, Clock } from 'lucide-react'
 
 const PERIOD_OPTIONS = [
@@ -70,10 +71,18 @@ function OverviewSection() {
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-      <StatCard label="DAU (오늘)"   value={data.dau}                 icon={<Users size={18} />}    iconBg="bg-primary-500" />
-      <StatCard label="WAU (7일)"    value={data.wau}                 icon={<Activity size={18} />} iconBg="bg-emerald-500" />
-      <StatCard label="MAU (30일)"   value={data.mau}                 icon={<Users size={18} />}    iconBg="bg-sky-500" />
-      <StatCard label="30일 명령 수" value={data.total_commands_30d}  icon={<BarChart2 size={18} />} iconBg="bg-amber-500" />
+      <div className="animate-fade-in-up" style={staggerDelay(0)}>
+        <StatCard label="DAU (오늘)"   value={data.dau}                 icon={<Users size={18} />}    iconBg="bg-primary-500" />
+      </div>
+      <div className="animate-fade-in-up" style={staggerDelay(1)}>
+        <StatCard label="WAU (7일)"    value={data.wau}                 icon={<Activity size={18} />} iconBg="bg-emerald-500" />
+      </div>
+      <div className="animate-fade-in-up" style={staggerDelay(2)}>
+        <StatCard label="MAU (30일)"   value={data.mau}                 icon={<Users size={18} />}    iconBg="bg-sky-500" />
+      </div>
+      <div className="animate-fade-in-up" style={staggerDelay(3)}>
+        <StatCard label="30일 명령 수" value={data.total_commands_30d}  icon={<BarChart2 size={18} />} iconBg="bg-amber-500" />
+      </div>
     </div>
   )
 }
@@ -112,7 +121,7 @@ function ActivitySection({ days, onDaysChange }: ActivitySectionProps) {
   const tickInterval = days <= 7 ? 0 : days <= 30 ? 4 : 9
 
   return (
-    <div className={`${CARD} p-5`}>
+    <div className={`${CARD} animate-fade-in-up p-5`} style={staggerDelay(4)}>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">일별 명령 건수</h2>
         <FilterBar
@@ -130,7 +139,7 @@ function ActivitySection({ days, onDaysChange }: ActivitySectionProps) {
             <XAxis dataKey="label" tick={{ fontSize: 11 }} interval={tickInterval} />
             <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
             <Tooltip formatter={(v: number) => [`${v}건`, '명령']} />
-            <Bar dataKey="count" fill="#6366f1" radius={[2, 2, 0, 0]} />
+            <Bar dataKey="count" fill="#6366f1" radius={[2, 2, 0, 0]} animationBegin={staggerDelayMs(4)} animationDuration={600} />
           </BarChart>
         </ResponsiveContainer>
       )}
@@ -156,7 +165,7 @@ function CommandsSection({ period }: { period: string }) {
   }, [period])
 
   return (
-    <div className={`${CARD} p-5`}>
+    <div className={`${CARD} animate-fade-in-up p-5`} style={staggerDelay(6)}>
       <div className="flex items-center justify-between mb-1">
         <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">명령어 빈도 (상위 15)</h2>
         <span className="text-xs text-slate-400">총 {total.toLocaleString()}건</span>
@@ -172,7 +181,7 @@ function CommandsSection({ period }: { period: string }) {
             <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
             <YAxis type="category" dataKey="command" tick={{ fontSize: 12 }} width={60} />
             <Tooltip formatter={(v: number) => [`${v}건`, '횟수']} />
-            <Bar dataKey="count" fill="#6366f1" radius={[0, 2, 2, 0]} />
+            <Bar dataKey="count" fill="#6366f1" radius={[0, 2, 2, 0]} animationBegin={staggerDelayMs(6)} animationDuration={600} />
           </BarChart>
         </ResponsiveContainer>
       )}
@@ -218,7 +227,7 @@ function HeatmapSection() {
   }
 
   return (
-    <div className={`${CARD} p-5 relative`}>
+    <div className={`${CARD} animate-fade-in-up p-5 relative`} style={staggerDelay(5)}>
       <div className="flex items-center gap-2 mb-4">
         <Clock size={16} className="text-slate-400" />
         <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">시간대별 사용 히트맵 (최근 90일, KST)</h2>
@@ -302,7 +311,7 @@ function UsersSection({ period }: { period: string }) {
   const TD = 'px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200'
 
   return (
-    <div className={`${CARD} overflow-hidden`}>
+    <div className={`${CARD} animate-fade-in-up overflow-hidden`} style={staggerDelay(7)}>
       <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800">
         <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">사용자별 활동</h2>
       </div>
@@ -324,7 +333,7 @@ function UsersSection({ period }: { period: string }) {
             </thead>
             <tbody>
               {users.map((u, i) => (
-                <tr key={u.user_id} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                <tr key={u.user_id} className="animate-fade-in border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors" style={staggerDelay(i)}>
                   <td className={`${TD} text-slate-400`}>{i + 1}</td>
                   <td className={TD}>
                     <code className="text-xs bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">{u.user_id}</code>

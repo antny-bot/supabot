@@ -29,6 +29,7 @@ import Spinner from '../components/ui/Spinner'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import PageHeader from '../components/ui/PageHeader'
 import { PAGE_META } from '../config/pageMeta'
+import { staggerDelay, staggerDelayMs } from '../utils/animation'
 
 const REPORT_TABS = [
   { id: 'holdings', label: '현재 투자중' },
@@ -100,8 +101,8 @@ function PnlSection({ dateRange }: { dateRange: DateRangeValue }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {summaryCards.map(({ label, value, Icon, bg, extra, extraColor }) => (
-          <div key={label} className={`${CARD} p-4 flex items-center gap-3`}>
+        {summaryCards.map(({ label, value, Icon, bg, extra, extraColor }, index) => (
+          <div key={label} className={`${CARD} animate-fade-in-up p-4 flex items-center gap-3`} style={staggerDelay(index)}>
             <div className={`${bg} rounded-lg p-2 text-white shrink-0`}><Icon size={16} /></div>
             <div>
               <p className="text-xl font-bold text-slate-900 dark:text-white leading-none">{value}</p>
@@ -112,7 +113,7 @@ function PnlSection({ dateRange }: { dateRange: DateRangeValue }) {
         ))}
       </div>
 
-      <div className={`${CARD} overflow-hidden`}>
+      <div className={`${CARD} animate-fade-in-up overflow-hidden`} style={staggerDelay(4)}>
         <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800">
           <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">종목별 실현 손익</h3>
         </div>
@@ -133,7 +134,7 @@ function PnlSection({ dateRange }: { dateRange: DateRangeValue }) {
               {rows.length === 0 ? (
                 <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-400 text-xs">데이터 없음</td></tr>
               ) : rows.map((r, i) => (
-                <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                <tr key={i} className="animate-fade-in hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors" style={staggerDelay(i)}>
                   <td className={TD}><Badge value={r.exchange} label={r.exchange.toUpperCase()} /></td>
                   <td className={`${TD} font-medium text-xs text-slate-800 dark:text-slate-200`}>{r.ticker}</td>
                   <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(r.bid_krw)}</td>
@@ -184,7 +185,7 @@ function StrategySection({ dateRange }: { dateRange: DateRangeValue }) {
     <div className="space-y-4">
       {chartData.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className={`${CARD} p-4 h-64`}>
+          <div className={`${CARD} animate-fade-in-up p-4 h-64`} style={staggerDelay(0)}>
             <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-3">전략별 손익 비교</h4>
             <ResponsiveContainer width="100%" height="90%">
               <BarChart data={chartData} layout="vertical" margin={{ top: 5, right: 5, left: 10, bottom: 5 }}>
@@ -197,7 +198,7 @@ function StrategySection({ dateRange }: { dateRange: DateRangeValue }) {
                   formatter={(value: any) => [`${krwFmt(Number(value))}원`, '손익']}
                 />
                 <ReferenceLine x={0} stroke="#64748b" />
-                <Bar dataKey="손익" radius={[0, 4, 4, 0]}>
+                <Bar dataKey="손익" radius={[0, 4, 4, 0]} animationBegin={staggerDelayMs(0)} animationDuration={600}>
                   {chartData.map((entry: any, index: number) => {
                     const color = entry['손익'] >= 0 ? PNL_UP_HEX : PNL_DOWN_HEX;
                     return <Cell key={`cell-${index}`} fill={color} />;
@@ -207,7 +208,7 @@ function StrategySection({ dateRange }: { dateRange: DateRangeValue }) {
             </ResponsiveContainer>
           </div>
 
-          <div className={`${CARD} p-4 h-64`}>
+          <div className={`${CARD} animate-fade-in-up p-4 h-64`} style={staggerDelay(1)}>
             <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-3">전략별 거래 비중 (거래건수)</h4>
             <ResponsiveContainer width="100%" height="90%">
               <PieChart>
@@ -220,6 +221,8 @@ function StrategySection({ dateRange }: { dateRange: DateRangeValue }) {
                   outerRadius={65}
                   label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
                   labelLine={false}
+                  animationBegin={staggerDelayMs(1)}
+                  animationDuration={600}
                 >
                   {chartData.map((_, index) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
@@ -236,7 +239,7 @@ function StrategySection({ dateRange }: { dateRange: DateRangeValue }) {
         </div>
       )}
 
-      <div className={`${CARD} overflow-hidden`}>
+      <div className={`${CARD} animate-fade-in-up overflow-hidden`} style={staggerDelay(2)}>
         <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800">
           <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">전략별 손익</h3>
         </div>
@@ -258,7 +261,7 @@ function StrategySection({ dateRange }: { dateRange: DateRangeValue }) {
               {data.rows.length === 0 ? (
                 <tr><td colSpan={8} className="px-4 py-10 text-center text-slate-400 text-xs">데이터 없음</td></tr>
               ) : data.rows.map((r, i) => (
-                <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                <tr key={i} className="animate-fade-in hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors" style={staggerDelay(i)}>
                   <td className={`${TD} text-xs font-medium text-slate-700 dark:text-slate-300`}>{r.strategy}</td>
                   <td className={`${TD} text-right text-xs text-slate-500`}>{r.trade_count.toLocaleString()}</td>
                   <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(r.bid_krw)}</td>
@@ -319,8 +322,8 @@ function RoiRankingSection({ dateRange }: { dateRange: DateRangeValue }) {
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
             {data.rows.length === 0 ? (
               <tr><td colSpan={8} className="px-4 py-10 text-center text-slate-400 text-xs">데이터 없음</td></tr>
-            ) : data.rows.map((r) => (
-              <tr key={r.rank} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+            ) : data.rows.map((r, i) => (
+              <tr key={r.rank} className="animate-fade-in hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors" style={staggerDelay(i)}>
                 <td className={`${TD} text-center text-xs font-bold text-slate-500`}>
                   {r.rank <= 3 ? MEDALS[r.rank - 1] : r.rank}
                 </td>
@@ -376,7 +379,7 @@ function MonthlySection() {
     <div className="space-y-4">
       {chartData.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className={`${CARD} p-4 h-72`}>
+          <div className={`${CARD} animate-fade-in-up p-4 h-72`} style={staggerDelay(0)}>
             <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-3">월별 실현 손익 추이</h4>
             <ResponsiveContainer width="100%" height="90%">
               <BarChart data={chartData} margin={{ top: 5, right: 5, left: 10, bottom: 5 }}>
@@ -390,7 +393,7 @@ function MonthlySection() {
                   formatter={(value: any) => [`${krwFmt(Number(value))}원`, '손익']}
                 />
                 <ReferenceLine y={0} stroke="#64748b" />
-                <Bar dataKey="손익" radius={[4, 4, 0, 0]}>
+                <Bar dataKey="손익" radius={[4, 4, 0, 0]} animationBegin={staggerDelayMs(0)} animationDuration={600}>
                   {chartData.map((entry: any, index: number) => {
                     const color = entry['손익'] >= 0 ? PNL_UP_HEX : PNL_DOWN_HEX;
                     return <Cell key={`cell-${index}`} fill={color} />;
@@ -400,7 +403,7 @@ function MonthlySection() {
             </ResponsiveContainer>
           </div>
 
-          <div className={`${CARD} p-4 h-72`}>
+          <div className={`${CARD} animate-fade-in-up p-4 h-72`} style={staggerDelay(1)}>
             <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-3">누적 자산 성장 곡선 (Cumulative PnL)</h4>
             <ResponsiveContainer width="100%" height="90%">
               <LineChart data={chartData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
@@ -414,14 +417,14 @@ function MonthlySection() {
                   formatter={(value: any) => [`${krwFmt(Number(value))}원`, '누적 손익']}
                 />
                 <ReferenceLine y={0} stroke="#64748b" />
-                <Line type="monotone" dataKey="누적손익" stroke="#6366f1" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                <Line type="monotone" dataKey="누적손익" stroke="#6366f1" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} animationBegin={staggerDelayMs(1)} animationDuration={600} />
               </LineChart>
             </ResponsiveContainer>
           </div>
         </div>
       )}
 
-      <div className={`${CARD} overflow-hidden`}>
+      <div className={`${CARD} animate-fade-in-up overflow-hidden`} style={staggerDelay(2)}>
         <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800">
           <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">월별 손익</h3>
         </div>
@@ -440,8 +443,8 @@ function MonthlySection() {
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {data.rows.length === 0 ? (
                 <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-400 text-xs">데이터 없음</td></tr>
-              ) : [...data.rows].reverse().map((r) => (
-                <tr key={r.month} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+              ) : [...data.rows].reverse().map((r, i) => (
+                <tr key={r.month} className="animate-fade-in hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors" style={staggerDelay(i)}>
                   <td className={`${TD} font-mono text-xs font-medium text-slate-700 dark:text-slate-300`}>{r.month}</td>
                   <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(r.bid_krw)}</td>
                   <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(r.ask_krw)}</td>
@@ -514,8 +517,8 @@ function HoldingsSection() {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {summaryCards.map(({ label, value, Icon, bg, extra, extraColor }) => (
-          <div key={label} className={`${CARD} p-4 flex items-center gap-3`}>
+        {summaryCards.map(({ label, value, Icon, bg, extra, extraColor }, index) => (
+          <div key={label} className={`${CARD} animate-fade-in-up p-4 flex items-center gap-3`} style={staggerDelay(index)}>
             <div className={`${bg} rounded-lg p-2 text-white shrink-0`}><Icon size={16} /></div>
             <div>
               <p className="text-xl font-bold text-slate-900 dark:text-white leading-none">{value}</p>
@@ -526,7 +529,7 @@ function HoldingsSection() {
         ))}
       </div>
 
-      <div className={`${CARD} overflow-hidden`}>
+      <div className={`${CARD} animate-fade-in-up overflow-hidden`} style={staggerDelay(4)}>
         <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800">
           <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">현재 투자중인 자산</h3>
           <p className="text-xs text-slate-400 mt-0.5">supabot 트랜잭션 이력 기준 포지션</p>
@@ -550,7 +553,7 @@ function HoldingsSection() {
               {rows.length === 0 ? (
                 <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-400 text-xs">현재 투자중인 자산 없음</td></tr>
               ) : rows.map((row, index) => (
-                <tr key={`${row.exchange}-${row.ticker}-${index}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                <tr key={`${row.exchange}-${row.ticker}-${index}`} className="animate-fade-in hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors" style={staggerDelay(index)}>
                   <td className={TD}><Badge value={row.exchange} label={row.exchange.toUpperCase()} /></td>
                   <td className={`${TD} font-medium text-xs text-slate-800 dark:text-slate-200`}>
                     <div className="flex items-center gap-2">
@@ -628,7 +631,7 @@ function PairsSection({ dateRange }: { dateRange: DateRangeValue }) {
             {data.pairs.length === 0 ? (
               <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-400 text-xs">연결된 거래 페어 없음</td></tr>
             ) : data.pairs.map((p, i) => (
-              <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+              <tr key={i} className="animate-fade-in hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors" style={staggerDelay(i)}>
                 <td className={`${TD} font-medium text-xs text-slate-800 dark:text-slate-200`}>{p.ticker}</td>
                 <td className={TD}><Badge value={p.exchange} label={p.exchange.toUpperCase()} /></td>
                 <td className={`${TD} text-xs text-slate-500 dark:text-slate-400`}>{p.strategy}</td>
@@ -693,8 +696,8 @@ function WinStatsSection({ dateRange }: { dateRange: DateRangeValue }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {countCards.map(({ label, value, bg }) => (
-          <div key={label} className={`${CARD} p-4`}>
+        {countCards.map(({ label, value, bg }, index) => (
+          <div key={label} className={`${CARD} animate-fade-in-up p-4`} style={staggerDelay(index)}>
             <p className={`text-xs font-medium text-white ${bg} w-fit px-2 py-0.5 rounded-md mb-2`}>{label}</p>
             <p className="text-2xl font-bold text-slate-900 dark:text-white">{value}</p>
           </div>
@@ -706,8 +709,8 @@ function WinStatsSection({ dateRange }: { dateRange: DateRangeValue }) {
           { label: '평균 수익률 (win)', value: pctFmt(stats.avg_win_pct), color: pctColor(stats.avg_win_pct), desc: '수익 거래 평균' },
           { label: '평균 손실률 (loss)', value: pctFmt(stats.avg_loss_pct), color: pctColor(stats.avg_loss_pct), desc: '손실 거래 평균' },
           { label: 'RR 비율', value: `${stats.rr_ratio}`, color: stats.rr_ratio >= 1 ? 'text-up-600 dark:text-up-400' : 'text-down-600 dark:text-down-400', desc: '평균수익 / 평균손실' },
-        ].map(({ label, value, color, desc }) => (
-          <div key={label} className={`${CARD} p-4`}>
+        ].map(({ label, value, color, desc }, index) => (
+          <div key={label} className={`${CARD} animate-fade-in-up p-4`} style={staggerDelay(4 + index)}>
             <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
             <p className={`text-3xl font-bold mt-1 ${color}`}>{value}</p>
             <p className="text-xs text-slate-400 mt-1">{desc}</p>
@@ -717,7 +720,7 @@ function WinStatsSection({ dateRange }: { dateRange: DateRangeValue }) {
 
       {stats.total_pairs > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className={`${CARD} p-4 h-72`}>
+          <div className={`${CARD} animate-fade-in-up p-4 h-72`} style={staggerDelay(7)}>
             <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-3">거래 승률 비중</h4>
             <ResponsiveContainer width="100%" height="90%">
               <PieChart>
@@ -730,6 +733,8 @@ function WinStatsSection({ dateRange }: { dateRange: DateRangeValue }) {
                   outerRadius={65}
                   label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
                   labelLine={false}
+                  animationBegin={staggerDelayMs(7)}
+                  animationDuration={600}
                 >
                   {pieData.map((_, index) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
@@ -744,7 +749,7 @@ function WinStatsSection({ dateRange }: { dateRange: DateRangeValue }) {
             </ResponsiveContainer>
           </div>
 
-          <div className={`${CARD} p-4 h-72`}>
+          <div className={`${CARD} animate-fade-in-up p-4 h-72`} style={staggerDelay(8)}>
             <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-3">평균 수익/손실 비교</h4>
             <ResponsiveContainer width="100%" height="90%">
               <BarChart data={barData} margin={{ top: 5, right: 5, left: 10, bottom: 5 }}>
@@ -757,7 +762,7 @@ function WinStatsSection({ dateRange }: { dateRange: DateRangeValue }) {
                   formatter={(value: any) => [`${value >= 0 ? '+' : ''}${Number(value).toFixed(2)}%`, '수익률']}
                 />
                 <ReferenceLine y={0} stroke="#64748b" />
-                <Bar dataKey="수익률" radius={4}>
+                <Bar dataKey="수익률" radius={4} animationBegin={staggerDelayMs(8)} animationDuration={600}>
                   {barData.map((entry: any, index: number) => {
                     const color = entry['수익률'] >= 0 ? PNL_UP_HEX : PNL_DOWN_HEX;
                     return <Cell key={`cell-${index}`} fill={color} />;
@@ -830,7 +835,7 @@ export default function Reports() {
       )}
 
       {/* Tab content — lazy mount */}
-      <div>
+      <div key={activeTab} className="animate-fade-in-up">
         {activeTab === 'pnl'      && <PnlSection dateRange={dateRange} />}
         {activeTab === 'strategy' && <StrategySection dateRange={dateRange} />}
         {activeTab === 'ranking'  && <RoiRankingSection dateRange={dateRange} />}

@@ -12,6 +12,7 @@ import ProgressBar from '../components/ui/ProgressBar'
 import Spinner from '../components/ui/Spinner'
 import { PAGE_META } from '../config/pageMeta'
 import { useRealtime } from '../hooks/useRealtime'
+import { staggerDelay } from '../utils/animation'
 import { krwFmt } from '../utils/formatters'
 
 const OPEN_STATUSES = new Set(['wait', 'partial', 'pending_reorder'])
@@ -197,7 +198,7 @@ export default function Orders() {
                       </td>
                     </tr>
                   ) : data.orders.map((order, index) => (
-                    <tr key={index} className="transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                    <tr key={index} className="animate-fade-in transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40" style={staggerDelay(index)}>
                       <td className="px-4 py-2.5">
                         {order.group_no != null ? (
                           <button
