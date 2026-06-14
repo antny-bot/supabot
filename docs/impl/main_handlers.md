@@ -39,7 +39,8 @@ KST = timezone(timedelta(hours=9))
 | /sgrid | `sgrid_command` | 보유 수량 기반 분할 매도 |
 | /rsitrade, /gridrsi | `rsitrade_command` | RSI 역산 분할 매수 전략 (gridrsi는 alias) |
 | /sgridrsi | `sgridrsi_command` | RSI 목표가 분할 매도 전략 (보유 코인 직접 매도) |
-| /cancel | `cancel_command` | 종목 전체 주문 취소 |
+| /cancel | `cancel_command` | 종목 전체 주문 취소 (확인 버튼 후 실행) |
+| /cancelno | `cancelno_command` | 배치 번호(#N)로 주문 묶음 취소 (확인 버튼 후 실행) |
 | /watch | `watch_command` | RSI 감시 종목 추가 |
 | /unwatch | `unwatch_command` | 감시 종목 제거 |
 | (일반 텍스트) | `natural_language_command` | Gemini 자연어 처리 |
@@ -132,6 +133,8 @@ API 키 포함 메시지는 캡처 즉시 삭제됨 (`delete_message`).
 - API 키, secret, 긴 토큰, 계좌성 숫자는 마스킹
 
 수동 `/buy`, `/sell`은 callback_data에 주문값을 넣지 않고 `_pending_manual_orders` 서버 측 토큰을 사용한다. 토큰은 10분 후 만료되며 실행 직전 `max_order_krw`를 다시 검증한다.
+
+`/cancel`, `/cancelno`도 동일한 패턴(`_pending_cancel_orders`, `create_cancel_token`/`pop_valid_cancel_token`, 10분 만료)으로 취소 대상 주문 목록을 먼저 보여주고, `cancelrun|<token>`(확정) / `cancelabort|<token>`(취소) 콜백으로 실제 취소를 실행한다 (`query_handlers.cancel_confirm_callback`).
 
 상세 Intent 스키마 및 흐름: `docs/detail/gemini_intent.md`
 

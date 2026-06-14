@@ -181,7 +181,8 @@ CMD_HELP = {
         "<b>구문:</b> <code>/cancel [거래소] [종목]</code>\n\n"
         "<b>예시:</b>\n"
         "1. <code>/cancel BTC</code> (업비트 비트코인 주문 취소)\n"
-        "2. <code>/cancel 빗썸 SOL</code> (빗썸 솔라나 주문 취소)"
+        "2. <code>/cancel 빗썸 SOL</code> (빗썸 솔라나 주문 취소)\n\n"
+        "<b>안내:</b> 실행 전 취소 대상 주문 목록과 확인 버튼이 표시됩니다."
     ),
     "cancelno": (
         "🔢 <b>/cancelno 상세 가이드</b>\n\n"
@@ -190,7 +191,8 @@ CMD_HELP = {
         "<b>예시:</b>\n"
         "1. <code>/cancelno 1</code> — #1 배치 주문 전체 취소\n"
         "2. <code>/cancelno 3</code> — #3 배치 주문 전체 취소\n\n"
-        "<b>배치 번호 확인:</b> <code>/status</code> 또는 <code>/orders</code>에서 [#N]으로 표시됩니다."
+        "<b>배치 번호 확인:</b> <code>/status</code> 또는 <code>/orders</code>에서 [#N]으로 표시됩니다.\n"
+        "<b>안내:</b> 실행 전 취소 대상 주문 목록과 확인 버튼이 표시됩니다."
     ),
     "watch": (
         "🔔 <b>/watch 상세 가이드</b>\n\n"
@@ -603,6 +605,21 @@ def build_manual_order_confirm_message(exchange, ticker, side, price, volume, us
         f"{amount_line}\n"
         "위 내용으로 주문을 전송할까요?"
     )
+
+
+_ORDER_STATUS_NAMES = {"wait": "대기", "partial": "부분체결", "pending_reorder": "재주문대기", "market_closed": "장외대기"}
+
+
+def build_cancel_confirm_message(orders, title):
+    lines = [f"🛑 <b>{title} 주문 취소 확인</b>\n", f"다음 {len(orders)}건의 주문을 취소할까요?\n"]
+    for ord in orders:
+        side_str = "매수" if ord["side"] == "bid" else "매도"
+        status_str = _ORDER_STATUS_NAMES.get(ord.get("status"), "")
+        status_tag = f" — {status_str}" if status_str else ""
+        group_tag = f" [#{ord['group_no']}]" if ord.get("group_no") else ""
+        lines.append(f"📌 [{exchange_display_name(ord['exchange'])}] {ord['ticker']}{group_tag}")
+        lines.append(f"   └ {ord['price']:,.0f}원 ({side_str}, {ord['volume']:.4f}개){status_tag}")
+    return "\n".join(lines)
 
 
 def build_grid_preview_lines(ticker, start_price, end_price, count, budget):

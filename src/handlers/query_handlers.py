@@ -1,13 +1,13 @@
 """조회성 커맨드 — /asset, /orders, /cancel, /cancelno, /price, /indicators, /report, /history."""
 import asyncio
 
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 import main
 from main import check_auth, check_details_help
 from core.parsers import normalize_exchange, exchange_display_name, parse_exchange_and_ticker
-from core.formatters import build_report_view
+from core.formatters import build_report_view, build_cancel_confirm_message
 from core.trade_log import read_trades
 
 
@@ -144,16 +144,14 @@ async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
         await update.message.reply_text(f"ℹ️ {exchange_display_name(exchange)}에서 추적 중인 {ticker} 주문이 없습니다.")
         return
 
-    status_msg = await update.message.reply_text(f"🛑 {exchange_display_name(exchange)} {ticker} 주문 {len(orders)}건 취소 중...")
-
-    success_count = 0
-    for ord in orders:
-        if await main.exchange_adapter.cancel_order(user_id, exchange, ord['uuid'], ord['ticker']):
-            main.order_manager.remove_order(ord['uuid'])
-            success_count += 1
-        await asyncio.sleep(0.1)
-
-    await status_msg.edit_text(f"✅ {ticker} 취소 완료 ({success_count}/{len(orders)}건 성공)")
+    token = main.create_cancel_token(user_id, orders)
+    keyboard = [[InlineKeyboardButton("✅ 취소 확정", callback_data=f"cancelrun|{token}"),
+                 InlineKeyboardButton("❌ 그대로 두기", callback_data=f"cancelabort|{token}")]]
+    await update.message.reply_text(
+        build_cancel_confirm_message(orders, f"{exchange_display_name(exchange)} {ticker}"),
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="HTML",
+    )
 
 
 @check_auth
@@ -176,7 +174,33 @@ async def cancelno_command(update: Update, context: ContextTypes.DEFAULT_TYPE, u
         await update.message.reply_text(f"ℹ️ #{group_no} 배치 주문이 없습니다.")
         return
 
-    status_msg = await update.message.reply_text(f"🛑 #{group_no} 배치 주문 {len(orders)}건 취소 중...")
+    token = main.create_cancel_token(user_id, orders)
+    keyboard = [[InlineKeyboardButton("✅ 취소 확정", callback_data=f"cancelrun|{token}"),
+                 InlineKeyboardButton("❌ 그대로 두기", callback_data=f"cancelabort|{token}")]]
+    await update.message.reply_text(
+        build_cancel_confirm_message(orders, f"#{group_no} 배치"),
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="HTML",
+    )
+
+
+async def cancel_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    action, token = query.data.split("|", 1)
+    if action == "cancelabort":
+        main._pending_cancel_orders.pop(token, None)
+        await query.edit_message_text("ℹ️ 주문을 취소하지 않았습니다.")
+        return
+
+    user_id = str(query.from_user.id)
+    pending, error = main.pop_valid_cancel_token(token, user_id)
+    if error:
+        await query.edit_message_text(f"⚠️ {error}")
+        return
+
+    orders = pending["orders"]
+    await query.edit_message_text(f"🛑 주문 {len(orders)}건 취소 중...")
 
     success_count = 0
     for ord in orders:
@@ -185,7 +209,7 @@ async def cancelno_command(update: Update, context: ContextTypes.DEFAULT_TYPE, u
             success_count += 1
         await asyncio.sleep(0.1)
 
-    await status_msg.edit_text(f"✅ #{group_no} 배치 취소 완료 ({success_count}/{len(orders)}건 성공)")
+    await query.edit_message_text(f"✅ 취소 완료 ({success_count}/{len(orders)}건 성공)")
 
 
 @check_auth
