@@ -22,7 +22,7 @@ import ErrorBanner from '../components/ui/ErrorBanner'
 import PageHeader from '../components/ui/PageHeader'
 import FilterBar from '../components/ui/FilterBar'
 import { PAGE_META } from '../config/pageMeta'
-import { staggerDelay } from '../utils/animation'
+import { staggerDelay, staggerDelayMs } from '../utils/animation'
 import { Users, Activity, BarChart2, Clock } from 'lucide-react'
 
 const PERIOD_OPTIONS = [
@@ -139,7 +139,7 @@ function ActivitySection({ days, onDaysChange }: ActivitySectionProps) {
             <XAxis dataKey="label" tick={{ fontSize: 11 }} interval={tickInterval} />
             <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
             <Tooltip formatter={(v: number) => [`${v}건`, '명령']} />
-            <Bar dataKey="count" fill="#6366f1" radius={[2, 2, 0, 0]} />
+            <Bar dataKey="count" fill="#6366f1" radius={[2, 2, 0, 0]} animationBegin={staggerDelayMs(4)} animationDuration={600} />
           </BarChart>
         </ResponsiveContainer>
       )}
@@ -181,7 +181,7 @@ function CommandsSection({ period }: { period: string }) {
             <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
             <YAxis type="category" dataKey="command" tick={{ fontSize: 12 }} width={60} />
             <Tooltip formatter={(v: number) => [`${v}건`, '횟수']} />
-            <Bar dataKey="count" fill="#6366f1" radius={[0, 2, 2, 0]} />
+            <Bar dataKey="count" fill="#6366f1" radius={[0, 2, 2, 0]} animationBegin={staggerDelayMs(6)} animationDuration={600} />
           </BarChart>
         </ResponsiveContainer>
       )}
