@@ -10,6 +10,7 @@ import PageHeader from '../components/ui/PageHeader'
 import Spinner from '../components/ui/Spinner'
 import { PAGE_META } from '../config/pageMeta'
 import { useRealtime } from '../hooks/useRealtime'
+import { staggerDelay } from '../utils/animation'
 import { krwFmt } from '../utils/formatters'
 
 const DEFAULT_RANGE: DateRangeValue = { mode: '7d', from: '', to: '' }
@@ -67,8 +68,8 @@ export default function Trades() {
       {data && (
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {summaryCards.map(({ label, value, Icon, bg }) => (
-              <div key={label} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            {summaryCards.map(({ label, value, Icon, bg }, index) => (
+              <div key={label} className="animate-fade-in-up flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900" style={staggerDelay(index)}>
                 <div className={`${bg} rounded-lg p-2 text-white shrink-0`}>
                   <Icon size={16} />
                 </div>
@@ -84,8 +85,8 @@ export default function Trades() {
             {[
               { title: '거래소별 집계 (현재 페이지)', rows: data.by_exchange },
               { title: '전략별 집계 (현재 페이지)', rows: data.by_strategy },
-            ].map(({ title, rows }) => (
-              <div key={title} className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            ].map(({ title, rows }, sectionIndex) => (
+              <div key={title} className="animate-fade-in-up overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900" style={staggerDelay(4 + sectionIndex)}>
                 <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
                   <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">{title}</h3>
                 </div>
@@ -102,8 +103,8 @@ export default function Trades() {
                       <tr>
                         <td colSpan={3} className="px-4 py-6 text-center text-xs text-slate-400">데이터가 없습니다.</td>
                       </tr>
-                    ) : rows.map((row) => (
-                      <tr key={row.name} className="transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                    ) : rows.map((row, index) => (
+                      <tr key={row.name} className="animate-fade-in transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40" style={staggerDelay(index)}>
                         <td className="px-4 py-2.5 text-xs font-medium text-slate-700 dark:text-slate-300">{row.name}</td>
                         <td className="px-4 py-2.5 text-right text-xs text-slate-600 dark:text-slate-400">{row.count.toLocaleString()}</td>
                         <td className="px-4 py-2.5 text-right font-mono text-xs text-slate-600 dark:text-slate-400">{krwFmt(row.krw)}</td>
@@ -115,7 +116,7 @@ export default function Trades() {
             ))}
           </div>
 
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div className="animate-fade-in-up overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900" style={staggerDelay(6)}>
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-slate-800">
               <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">상세 내역</h3>
               <span className="font-mono text-[10px] text-slate-400">Total: {data.total.toLocaleString()}</span>
@@ -141,7 +142,7 @@ export default function Trades() {
                       <td colSpan={8} className="px-4 py-10 text-center text-xs text-slate-400">거래가 없습니다.</td>
                     </tr>
                   ) : data.trades.map((trade, index) => (
-                    <tr key={index} className="transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                    <tr key={index} className="animate-fade-in transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40" style={staggerDelay(index)}>
                       <td className="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-slate-500 dark:text-slate-400">{trade.executed_fmt}</td>
                       <td className="px-4 py-2.5"><Badge value={trade.exchange} label={trade.exchange.toUpperCase()} /></td>
                       <td className="px-4 py-2.5 text-xs font-medium text-slate-800 dark:text-slate-200">{trade.ticker}</td>
@@ -160,7 +161,7 @@ export default function Trades() {
               {data.trades.length === 0 ? (
                 <div className="px-4 py-10 text-center text-xs text-slate-400">거래가 없습니다.</div>
               ) : data.trades.map((trade, index) => (
-                <div key={index} className="space-y-3 p-4 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                <div key={index} className="animate-fade-in-up space-y-3 p-4 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40" style={staggerDelay(index)}>
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-mono text-slate-500 dark:text-slate-400">{trade.executed_fmt}</span>
                     <Badge value={trade.side} />

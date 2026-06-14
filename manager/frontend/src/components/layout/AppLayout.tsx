@@ -1,4 +1,4 @@
-import { Outlet } from 'react-router-dom'
+import { Outlet, useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import TopBar from './TopBar'
 import BottomNav from './BottomNav'
@@ -8,6 +8,7 @@ import Spinner from '../ui/Spinner'
 
 export default function AppLayout() {
   const { user, loading } = useAuth()
+  const location = useLocation()
 
   if (loading) {
     return (
@@ -29,7 +30,9 @@ export default function AppLayout() {
           <TopBar />
 
           <main className="flex-1 px-4 py-5 pb-24 md:pb-8 md:px-6 max-w-screen-xl w-full">
-            <Outlet />
+            <div key={location.pathname} className="animate-fade-in-up">
+              <Outlet />
+            </div>
           </main>
         </div>
 

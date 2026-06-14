@@ -10,6 +10,7 @@ import { PAGE_META } from '../config/pageMeta'
 import { useAuthContext } from '../contexts/AuthContext'
 import { useRealtime } from '../hooks/useRealtime'
 import type { DashboardData, DashboardStats } from '../types'
+import { staggerDelay } from '../utils/animation'
 
 const STAT_CONFIG: {
   key: keyof DashboardStats
@@ -60,14 +61,15 @@ export default function Dashboard() {
       {data && (
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
-            {visibleStats.map(({ key, label, Icon, bg }) => (
-              <StatCard
-                key={key}
-                label={label}
-                value={data.stats[key] ?? 0}
-                icon={<Icon size={16} />}
-                iconBg={bg}
-              />
+            {visibleStats.map(({ key, label, Icon, bg }, index) => (
+              <div key={key} className="animate-fade-in-up" style={staggerDelay(index)}>
+                <StatCard
+                  label={label}
+                  value={data.stats[key] ?? 0}
+                  icon={<Icon size={16} />}
+                  iconBg={bg}
+                />
+              </div>
             ))}
 
           </div>
@@ -95,8 +97,8 @@ export default function Dashboard() {
                           미확인 이벤트가 없습니다.
                         </td>
                       </tr>
-                    ) : data.recent_events.map((event) => (
-                      <tr key={event.id} className="transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                    ) : data.recent_events.map((event, index) => (
+                      <tr key={event.id} className="animate-fade-in transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50" style={staggerDelay(index)}>
                         <td className="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-slate-500 dark:text-slate-400">
                           {fmtTime(String(event.created_at))}
                         </td>
@@ -118,8 +120,8 @@ export default function Dashboard() {
                   <div className="px-4 py-8 text-center text-xs text-slate-400 dark:text-slate-500">
                     미확인 이벤트가 없습니다.
                   </div>
-                ) : data.recent_events.map((event) => (
-                  <div key={event.id} className="space-y-1.5 p-3 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                ) : data.recent_events.map((event, index) => (
+                  <div key={event.id} className="animate-fade-in-up space-y-1.5 p-3 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50" style={staggerDelay(index)}>
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-mono text-slate-500 dark:text-slate-400">{fmtTime(String(event.created_at))}</span>
                       <Badge value={event.level} />

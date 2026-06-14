@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Play, Trash2, Plus, Loader2, Pencil, Copy } from 'lucide-react'
 import PageHeader from '../components/ui/PageHeader'
 import { PAGE_META } from '../config/pageMeta'
+import { staggerDelay } from '../utils/animation'
 
 interface Template {
   id: number
@@ -332,7 +333,7 @@ export default function Templates() {
 
       {/* 템플릿 작성 폼 */}
       {formOpen && (
-        <form onSubmit={editingTemplate ? handleUpdate : handleCreate} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-4 shadow-sm">
+        <form onSubmit={editingTemplate ? handleUpdate : handleCreate} className="animate-fade-in-up bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-4 shadow-sm">
           <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200 border-b border-slate-100 dark:border-slate-800 pb-2">{editingTemplate ? '템플릿 수정' : '신규 템플릿 작성'}</h3>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -537,11 +538,11 @@ export default function Templates() {
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
-            {templates.map((tpl) => {
+            {templates.map((tpl, index) => {
               const stype = tpl.strategy_type || 'grid';
               const isPriceRange = stype === 'grid' || stype === 'sgrid';
               return (
-                <div key={tpl.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-sm space-y-3">
+                <div key={tpl.id} className="animate-fade-in-up bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-sm space-y-3" style={staggerDelay(index)}>
                   <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
                     <div>
                       <div className="flex items-center gap-1.5">

@@ -29,6 +29,7 @@ import Spinner from '../components/ui/Spinner'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import PageHeader from '../components/ui/PageHeader'
 import { PAGE_META } from '../config/pageMeta'
+import { staggerDelay } from '../utils/animation'
 
 const REPORT_TABS = [
   { id: 'holdings', label: '현재 투자중' },
@@ -100,8 +101,8 @@ function PnlSection({ dateRange }: { dateRange: DateRangeValue }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {summaryCards.map(({ label, value, Icon, bg, extra, extraColor }) => (
-          <div key={label} className={`${CARD} p-4 flex items-center gap-3`}>
+        {summaryCards.map(({ label, value, Icon, bg, extra, extraColor }, index) => (
+          <div key={label} className={`${CARD} animate-fade-in-up p-4 flex items-center gap-3`} style={staggerDelay(index)}>
             <div className={`${bg} rounded-lg p-2 text-white shrink-0`}><Icon size={16} /></div>
             <div>
               <p className="text-xl font-bold text-slate-900 dark:text-white leading-none">{value}</p>
@@ -112,7 +113,7 @@ function PnlSection({ dateRange }: { dateRange: DateRangeValue }) {
         ))}
       </div>
 
-      <div className={`${CARD} overflow-hidden`}>
+      <div className={`${CARD} animate-fade-in-up overflow-hidden`} style={staggerDelay(4)}>
         <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800">
           <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">종목별 실현 손익</h3>
         </div>
@@ -514,8 +515,8 @@ function HoldingsSection() {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {summaryCards.map(({ label, value, Icon, bg, extra, extraColor }) => (
-          <div key={label} className={`${CARD} p-4 flex items-center gap-3`}>
+        {summaryCards.map(({ label, value, Icon, bg, extra, extraColor }, index) => (
+          <div key={label} className={`${CARD} animate-fade-in-up p-4 flex items-center gap-3`} style={staggerDelay(index)}>
             <div className={`${bg} rounded-lg p-2 text-white shrink-0`}><Icon size={16} /></div>
             <div>
               <p className="text-xl font-bold text-slate-900 dark:text-white leading-none">{value}</p>
@@ -526,7 +527,7 @@ function HoldingsSection() {
         ))}
       </div>
 
-      <div className={`${CARD} overflow-hidden`}>
+      <div className={`${CARD} animate-fade-in-up overflow-hidden`} style={staggerDelay(4)}>
         <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800">
           <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">현재 투자중인 자산</h3>
           <p className="text-xs text-slate-400 mt-0.5">supabot 트랜잭션 이력 기준 포지션</p>
@@ -693,8 +694,8 @@ function WinStatsSection({ dateRange }: { dateRange: DateRangeValue }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {countCards.map(({ label, value, bg }) => (
-          <div key={label} className={`${CARD} p-4`}>
+        {countCards.map(({ label, value, bg }, index) => (
+          <div key={label} className={`${CARD} animate-fade-in-up p-4`} style={staggerDelay(index)}>
             <p className={`text-xs font-medium text-white ${bg} w-fit px-2 py-0.5 rounded-md mb-2`}>{label}</p>
             <p className="text-2xl font-bold text-slate-900 dark:text-white">{value}</p>
           </div>
@@ -706,8 +707,8 @@ function WinStatsSection({ dateRange }: { dateRange: DateRangeValue }) {
           { label: '평균 수익률 (win)', value: pctFmt(stats.avg_win_pct), color: pctColor(stats.avg_win_pct), desc: '수익 거래 평균' },
           { label: '평균 손실률 (loss)', value: pctFmt(stats.avg_loss_pct), color: pctColor(stats.avg_loss_pct), desc: '손실 거래 평균' },
           { label: 'RR 비율', value: `${stats.rr_ratio}`, color: stats.rr_ratio >= 1 ? 'text-up-600 dark:text-up-400' : 'text-down-600 dark:text-down-400', desc: '평균수익 / 평균손실' },
-        ].map(({ label, value, color, desc }) => (
-          <div key={label} className={`${CARD} p-4`}>
+        ].map(({ label, value, color, desc }, index) => (
+          <div key={label} className={`${CARD} animate-fade-in-up p-4`} style={staggerDelay(4 + index)}>
             <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
             <p className={`text-3xl font-bold mt-1 ${color}`}>{value}</p>
             <p className="text-xs text-slate-400 mt-1">{desc}</p>
@@ -830,7 +831,7 @@ export default function Reports() {
       )}
 
       {/* Tab content — lazy mount */}
-      <div>
+      <div key={activeTab} className="animate-fade-in-up">
         {activeTab === 'pnl'      && <PnlSection dateRange={dateRange} />}
         {activeTab === 'strategy' && <StrategySection dateRange={dateRange} />}
         {activeTab === 'ranking'  && <RoiRankingSection dateRange={dateRange} />}
