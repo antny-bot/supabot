@@ -295,10 +295,12 @@ def format_safety_status(user):
     max_order = prefs.get("max_order_krw")
     kis_env = user.get("exchanges", {}).get("kis", {}).get("env", "paper")
     configured = []
-    for exchange in ["upbit", "bithumb", "kis"]:
+    for exchange in ["upbit", "bithumb", "kis", "toss"]:
         keys = user.get("exchanges", {}).get(exchange, {})
         if exchange == "kis":
             is_set = bool(keys.get("app_key") and keys.get("app_secret") and keys.get("account_no"))
+        elif exchange == "toss":
+            is_set = bool(keys.get("client_id") and keys.get("client_secret"))
         else:
             is_set = bool(keys.get("access_key") and keys.get("secret_key"))
         if is_set:
@@ -401,7 +403,7 @@ def build_help_message(user, bot_name=BOT_DISPLAY_NAME):
 def build_config_view(user, active_order_count=0):
     preferences = user["preferences"]
     api_lines = []
-    for exchange in ["upbit", "bithumb", "kis"]:
+    for exchange in ["upbit", "bithumb", "kis", "toss"]:
         keys = user.get("exchanges", {}).get(exchange, {})
         status_text = format_api_validation_status(user, exchange)
         status_text = status_text.replace("마지막 검증 ", "").replace("2026-", "")
@@ -413,6 +415,15 @@ def build_config_view(user, active_order_count=0):
             api_lines.append(
                 f"🏛️ <b>{exchange_display_name(exchange)}</b> ({env_name})\n"
                 f"  ├ 계좌: {masked_account} ({'설정됨' if is_set else '미설정'})\n"
+                f"  └ 상태: {status_text}\n"
+            )
+        elif exchange == "toss":
+            is_set = bool(keys.get("client_id") and keys.get("client_secret"))
+            account_seq = keys.get("account_seq", "")
+            masked_seq = f"{account_seq[:2]}****{account_seq[-2:]}" if len(account_seq) >= 4 else ("미설정" if not account_seq else account_seq)
+            api_lines.append(
+                f"🏛️ <b>{exchange_display_name(exchange)}</b>\n"
+                f"  ├ 계좌번호: {masked_seq} ({'설정됨' if is_set else '미설정'})\n"
                 f"  └ 상태: {status_text}\n"
             )
         else:
@@ -504,7 +515,7 @@ def build_diag_view(user, env_info=None, recent_events=None, metrics_snapshot=No
     current_interval = active_interval if order_count > 0 else no_order_interval
 
     exchange_lines = []
-    for exchange in ["upbit", "bithumb", "kis"]:
+    for exchange in ["upbit", "bithumb", "kis", "toss"]:
         keys = user.get("exchanges", {}).get(exchange, {})
         if exchange == "kis":
             is_set = bool(keys.get("app_key") and keys.get("app_secret") and keys.get("account_no"))
@@ -512,6 +523,12 @@ def build_diag_view(user, env_info=None, recent_events=None, metrics_snapshot=No
             exchange_lines.append(
                 f"- {exchange_display_name(exchange)}: {'설정됨' if is_set else '미설정'}"
                 f" / {env_name} / {format_api_validation_status(user, exchange)}"
+            )
+        elif exchange == "toss":
+            is_set = bool(keys.get("client_id") and keys.get("client_secret"))
+            exchange_lines.append(
+                f"- {exchange_display_name(exchange)}: {'설정됨' if is_set else '미설정'}"
+                f" / {format_api_validation_status(user, exchange)}"
             )
         else:
             is_set = bool(keys.get("access_key") and keys.get("secret_key"))

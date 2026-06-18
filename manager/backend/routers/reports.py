@@ -665,3 +665,45 @@ async def api_reports_win_stats(request: Request, period: str = "30d",
         }})
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@router.get("/api/reports/nl-logs")
+async def api_reports_nl_logs(request: Request, limit: int = 100, offset: int = 0):
+    if not _require_login(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    session_user = get_session_user(request)
+    if not session_user.get("is_admin"):
+        return JSONResponse({"error": "Forbidden"}, status_code=403)
+    try:
+        db = get_db()
+        q = (
+            db.table("nl_logs")
+            .select("*")
+            .order("logged_at", desc=True)
+            .limit(limit)
+        )
+        if offset:
+            q._params["offset"] = offset
+        rows = (await q.execute()).data or []
+        result = []
+        for row in rows:
+            ts = row.get("logged_at")
+            try:
+                fmt = datetime.fromtimestamp(float(ts)).strftime("%m-%d %H:%M") if ts else "??"
+            except Exception:
+                fmt = "??"
+            result.append({
+                "id": row.get("id"),
+                "user_id": row.get("user_id"),
+                "raw_text": row.get("raw_text", ""),
+                "preprocessed": row.get("preprocessed"),
+                "llm_action": row.get("llm_action"),
+                "final_action": row.get("final_action"),
+                "logged_at": ts,
+                "logged_at_fmt": fmt,
+            })
+        total_res = await db.table("nl_logs").select("id", count="exact").execute()
+        total = total_res.count if hasattr(total_res, "count") and total_res.count is not None else len(result)
+        return JSONResponse({"rows": result, "total": total})
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)

@@ -278,18 +278,16 @@ export interface WinStatsReport {
 
 export interface NlLogRow {
   id: number
-  user_id: string
+  user_id: string | null
   raw_text: string
-  llm_action: string
-  final_action: string
+  preprocessed: string | null
+  llm_action: string | null
+  final_action: string | null
+  logged_at: number
   logged_at_fmt: string
 }
 
-export interface NlLogsData {
+export interface NlLogsReport {
   rows: NlLogRow[]
-  stats: {
-    total: number
-    final_actions: [string, number][]
-    llm_actions: [string, number][]
-  }
+  total: number
 }
