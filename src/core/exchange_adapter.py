@@ -440,7 +440,14 @@ class ExchangeAdapter:
                 return None
             result = res.get("result", {})
             items = result.get("items", [])
-            cash_krw = float((result.get("totalPurchaseAmount") or {}).get("krw") or 0)
+            mv = (result.get("marketValue") or {}).get("amount") or {}
+            market_value_krw = float(mv.get("krw") or 0)
+
+            bp_res = await self._request_toss(user_id, "GET", "/api/v1/buying-power", params={"currency": "KRW"})
+            cash_krw = 0.0
+            if isinstance(bp_res, dict):
+                cash_krw = float((bp_res.get("result") or {}).get("cashBuyingPower") or 0)
+
             stocks = []
             for item in items:
                 qty = float(item.get("quantity") or 0)
@@ -454,7 +461,7 @@ class ExchangeAdapter:
                     "value": float((item.get("marketValue") or {}).get("amount") or 0),
                     "currency": item.get("currency", "KRW"),
                 })
-            return {"cash": cash_krw, "stocks": stocks, "total_eval": 0}
+            return {"cash": cash_krw, "stocks": stocks, "total_eval": cash_krw + market_value_krw}
         return None
 
     async def create_order(self, user_id, exchange, ticker, side, price, volume, ord_type="limit"):

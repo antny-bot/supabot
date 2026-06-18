@@ -18,11 +18,11 @@ async def asset_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     if context.args:
         exchange = normalize_exchange(context.args[0])
         if not exchange:
-            await update.message.reply_text("⚠️ 거래소는 업비트, 빗썸, 한투 중 하나로 입력해 주세요.")
+            await update.message.reply_text("⚠️ 거래소는 업비트, 빗썸, 한투, 토스증권 중 하나로 입력해 주세요.")
             return
         exchanges = [exchange]
     else:
-        exchanges = ["upbit", "bithumb", "kis"]
+        exchanges = ["upbit", "bithumb", "kis", "toss"]
     min_display_krw = float(user["preferences"].get("asset_min_display_krw", 10000))
 
     status_msg = await update.message.reply_text("🔄 자산 정보를 불러오는 중입니다...")
@@ -31,29 +31,38 @@ async def asset_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     total_eval_krw = 0
 
     for ex in exchanges:
-        if ex not in ["upbit", "bithumb", "kis"]: continue
+        if ex not in ["upbit", "bithumb", "kis", "toss"]: continue
 
         balances = await main.exchange_adapter.get_balances(user_id, ex)
         if balances is None:
             full_msg += f"❌ <b>{exchange_display_name(ex)}</b>: API 키가 설정되지 않았거나 오류 발생\n\n"
             continue
 
-        if ex == "kis":
-            full_msg += f"🏛️ <b>{exchange_display_name(ex)}</b> ({'실전' if balances.get('env') == 'real' else '모의'})\n"
+        if ex in ("kis", "toss"):
+            if ex == "kis":
+                full_msg += f"🏛️ <b>{exchange_display_name(ex)}</b> ({'실전' if balances.get('env') == 'real' else '모의'})\n"
+            else:
+                full_msg += f"🏛️ <b>{exchange_display_name(ex)}</b>\n"
             cash = float(balances.get("cash", 0))
             ex_eval = float(balances.get("total_eval", 0))
             full_msg += f"- 💵 예수금: {cash:,.0f}원\n"
-            others_count = 0
-            others_value = 0
-            for stock in balances.get("stocks", []):
+
+            stocks = sorted(balances.get("stocks", []), key=lambda s: float(s.get("value", 0)), reverse=True)
+            top5 = stocks[:5]
+            rest = stocks[5:]
+            for stock in top5:
                 value = float(stock.get("value", 0))
-                if value > min_display_krw:
-                    name = stock.get('name') or stock.get('code')
-                    full_msg += f"- 📈 {name} ({stock.get('quantity', 0):,.0f}주)\n"
+                name = stock.get('name') or stock.get('code')
+                currency = stock.get("currency", "KRW")
+                qty = stock.get('quantity', 0)
+                if currency == "KRW":
+                    full_msg += f"- 📈 {name} ({qty:,.0f}주)\n"
                     full_msg += f"   └ {value:,.0f}원\n"
                 else:
-                    others_count += 1
-                    others_value += value
+                    full_msg += f"- 📈 {name} ({qty:,.2f}주, {currency})\n"
+                    full_msg += f"   └ {value:,.2f} {currency}\n"
+            others_count = len(rest)
+            others_value = sum(float(s.get("value", 0)) for s in rest if s.get("currency", "KRW") == "KRW")
             if others_count > 0:
                 full_msg += f"- 📦 기타 {others_count}개 종목: {others_value:,.0f}원\n"
             full_msg += f"   └ 계좌 평가액: {ex_eval:,.0f}원\n\n"
@@ -65,10 +74,9 @@ async def asset_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
 
         full_msg += f"🏛️ <b>{ex.upper()}</b>\n"
         ex_eval = 0
-        others_count = 0
-        others_value = 0
+        cash_krw = 0.0
+        coin_items = []
 
-        # 1차 루프: KRW 및 주요 자산 표시
         for b in balances:
             qty = float(b['balance']) + float(b['locked'])
             if qty <= 0: continue
@@ -76,21 +84,24 @@ async def asset_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
             currency = b['currency']
             if currency == "KRW":
                 ex_eval += qty
-                full_msg += f"- 💵 KRW: {qty:,.0f}원\n"
+                cash_krw += qty
             else:
                 price = ticker_prices.get(currency, 0)
                 value = qty * price
                 ex_eval += value
+                coin_items.append({"currency": currency, "qty": qty, "value": value})
 
-                if value > min_display_krw:
-                    full_msg += f"- 🪙 {currency} ({qty:.4f}개)\n"
-                    if price > 0:
-                        full_msg += f"   └ {value:,.0f}원\n"
-                else:
-                    others_count += 1
-                    others_value += value
+        full_msg += f"- 💵 KRW: {cash_krw:,.0f}원\n"
 
-        # 소액 자산 요약 표시
+        coin_items.sort(key=lambda x: x["value"], reverse=True)
+        top5 = coin_items[:5]
+        rest = coin_items[5:]
+        for item in top5:
+            full_msg += f"- 🪙 {item['currency']} ({item['qty']:.4f}개)\n"
+            if item['value'] > 0:
+                full_msg += f"   └ {item['value']:,.0f}원\n"
+        others_count = len(rest)
+        others_value = sum(i["value"] for i in rest)
         if others_count > 0:
             full_msg += f"- 📦 기타 {others_count}개 종목: {others_value:,.0f}원\n"
 
