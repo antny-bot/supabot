@@ -454,7 +454,8 @@ class ExchangeAdapter:
                     "value": float((item.get("marketValue") or {}).get("amount") or 0),
                     "currency": item.get("currency", "KRW"),
                 })
-            return {"cash": cash_krw, "stocks": stocks, "total_eval": 0}
+            total_eval = cash_krw + sum(s["value"] for s in stocks)
+            return {"cash": cash_krw, "stocks": stocks, "total_eval": total_eval}
         return None
 
     async def create_order(self, user_id, exchange, ticker, side, price, volume, ord_type="limit"):
