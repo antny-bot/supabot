@@ -573,6 +573,56 @@ async def api_reports_pairs(request: Request, period: str = "30d",
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
+@router.get("/api/nl-logs")
+async def api_nl_logs(request: Request, period: str = "7d", limit: int = 200):
+    if not _require_login(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    session_user = get_session_user(request)
+    if not session_user["is_admin"]:
+        return JSONResponse({"error": "Admin only"}, status_code=403)
+    if period not in _PERIODS:
+        period = "7d"
+    limit = max(1, min(limit, 500))
+    try:
+        db = get_db()
+        q = db.table("nl_logs").select("id,user_id,raw_text,llm_action,final_action,logged_at")
+        q = q.order("logged_at", desc=True).limit(limit)
+        window_start, _ = _resolve_window(period, None, None)
+        if window_start:
+            q._params["logged_at"] = f"gte.{window_start}"
+        rows = (await q.execute()).data or []
+
+        final_counts: dict[str, int] = {}
+        llm_counts: dict[str, int] = {}
+        for r in rows:
+            fa = r.get("final_action") or "unmatched"
+            la = r.get("llm_action") or "unmatched"
+            final_counts[fa] = final_counts.get(fa, 0) + 1
+            llm_counts[la] = llm_counts.get(la, 0) + 1
+
+        formatted = [
+            {
+                "id": r.get("id"),
+                "user_id": r.get("user_id") or "",
+                "raw_text": r.get("raw_text") or "",
+                "llm_action": r.get("llm_action") or "",
+                "final_action": r.get("final_action") or "",
+                "logged_at_fmt": _fmt_ts(r.get("logged_at")),
+            }
+            for r in rows
+        ]
+        return JSONResponse({
+            "rows": formatted,
+            "stats": {
+                "total": len(rows),
+                "final_actions": sorted(final_counts.items(), key=lambda x: -x[1]),
+                "llm_actions": sorted(llm_counts.items(), key=lambda x: -x[1]),
+            },
+        })
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
 @router.get("/api/reports/win-stats")
 async def api_reports_win_stats(request: Request, period: str = "30d",
                                 date_from: str | None = None, date_to: str | None = None):

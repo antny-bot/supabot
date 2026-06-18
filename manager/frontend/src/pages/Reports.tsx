@@ -12,6 +12,7 @@ import {
   fetchReportHoldings,
   fetchReportPairs,
   fetchReportWinStats,
+  fetchNlLogs,
 } from '../api/reports'
 import type {
   PnlReport,
@@ -21,6 +22,7 @@ import type {
   HoldingsReport,
   PairsReport,
   WinStatsReport,
+  NlLogsData,
 } from '../types'
 import Badge from '../components/ui/Badge'
 import DateRangePicker, { type DateRangeValue } from '../components/ui/DateRangePicker'
@@ -39,6 +41,7 @@ const REPORT_TABS = [
   { id: 'ranking',  label: '수익률 랭킹' },
   { id: 'pairs',    label: '거래 페어' },
   { id: 'winstats', label: '승률/손익비' },
+  { id: 'nlogs',    label: 'NL 로그' },
 ]
 
 function krwFmt(n: number) {
@@ -777,6 +780,155 @@ function WinStatsSection({ dateRange }: { dateRange: DateRangeValue }) {
   )
 }
 
+// ── NlLogsSection ────────────────────────────────────────────────────────
+
+const NL_PERIODS = ['7d', '30d', 'all'] as const
+type NlPeriod = typeof NL_PERIODS[number]
+
+function NlLogsSection() {
+  const [data, setData] = useState<NlLogsData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [period, setPeriod] = useState<NlPeriod>('7d')
+  const [limit, setLimit] = useState(200)
+
+  useEffect(() => {
+    setLoading(true)
+    setError(null)
+    fetchNlLogs(period, limit)
+      .then(setData)
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류 발생'))
+      .finally(() => setLoading(false))
+  }, [period, limit])
+
+  return (
+    <div className="space-y-4">
+      {/* Controls */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex gap-1">
+          {NL_PERIODS.map(p => (
+            <button
+              key={p}
+              onClick={() => setPeriod(p)}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                period === p
+                  ? 'bg-primary-600 text-white'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+              }`}
+            >
+              {p === 'all' ? '전체' : p}
+            </button>
+          ))}
+        </div>
+        <select
+          value={limit}
+          onChange={e => setLimit(Number(e.target.value))}
+          className="text-xs border border-slate-200 dark:border-slate-700 rounded px-2 py-1 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300"
+        >
+          {[50, 100, 200, 500].map(n => (
+            <option key={n} value={n}>{n}건</option>
+          ))}
+        </select>
+      </div>
+
+      {loading && <Spinner />}
+      {error && <ErrorBanner message={error} />}
+
+      {data && (
+        <>
+          {/* Stats cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className={`${CARD} p-4`}>
+              <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-3">
+                최종 액션 분포 <span className="text-slate-400 font-normal">(총 {data.stats.total}건)</span>
+              </h4>
+              <div className="space-y-1.5">
+                {data.stats.final_actions.slice(0, 12).map(([action, cnt]) => {
+                  const pct = data.stats.total > 0 ? Math.round(cnt / data.stats.total * 100) : 0
+                  return (
+                    <div key={action} className="flex items-center gap-2">
+                      <span className="text-xs text-slate-600 dark:text-slate-400 w-36 truncate shrink-0">{action}</span>
+                      <div className="flex-1 bg-slate-100 dark:bg-slate-800 rounded h-1.5 overflow-hidden">
+                        <div className="h-full bg-primary-500 rounded" style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className="text-xs font-mono text-slate-500 dark:text-slate-400 w-8 text-right shrink-0">{cnt}</span>
+                    </div>
+                  )
+                })}
+                {data.stats.final_actions.length === 0 && (
+                  <p className="text-xs text-slate-400">데이터 없음</p>
+                )}
+              </div>
+            </div>
+
+            <div className={`${CARD} p-4`}>
+              <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-3">LLM 액션 분포</h4>
+              <div className="space-y-1.5">
+                {data.stats.llm_actions.slice(0, 12).map(([action, cnt]) => {
+                  const pct = data.stats.total > 0 ? Math.round(cnt / data.stats.total * 100) : 0
+                  return (
+                    <div key={action} className="flex items-center gap-2">
+                      <span className="text-xs text-slate-600 dark:text-slate-400 w-36 truncate shrink-0">{action}</span>
+                      <div className="flex-1 bg-slate-100 dark:bg-slate-800 rounded h-1.5 overflow-hidden">
+                        <div className="h-full bg-indigo-500 rounded" style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className="text-xs font-mono text-slate-500 dark:text-slate-400 w-8 text-right shrink-0">{cnt}</span>
+                    </div>
+                  )
+                })}
+                {data.stats.llm_actions.length === 0 && (
+                  <p className="text-xs text-slate-400">데이터 없음</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Log table */}
+          <div className={`${CARD} overflow-hidden`}>
+            <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800">
+              <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">NL 로그 원본</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
+                    <th className={`${TH} text-left`}>시각</th>
+                    <th className={`${TH} text-left`}>유저</th>
+                    <th className={`${TH} text-left`}>입력</th>
+                    <th className={`${TH} text-left`}>LLM 액션</th>
+                    <th className={`${TH} text-left`}>최종 액션</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {data.rows.length === 0 ? (
+                    <tr><td colSpan={5} className="px-4 py-10 text-center text-slate-400 text-xs">데이터 없음</td></tr>
+                  ) : data.rows.map((r, i) => (
+                    <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors" style={staggerDelay(i)}>
+                      <td className={`${TD} font-mono text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap`}>{r.logged_at_fmt}</td>
+                      <td className={`${TD} text-xs text-slate-500 dark:text-slate-400`}>{r.user_id || '—'}</td>
+                      <td className={`${TD} text-xs text-slate-700 dark:text-slate-300 max-w-xs truncate`} title={r.raw_text}>{r.raw_text || '—'}</td>
+                      <td className={`${TD} text-xs`}>
+                        {r.llm_action
+                          ? <span className="bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-1.5 py-0.5 rounded text-xs">{r.llm_action}</span>
+                          : <span className="text-slate-400">—</span>}
+                      </td>
+                      <td className={`${TD} text-xs`}>
+                        {r.final_action
+                          ? <span className="bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 px-1.5 py-0.5 rounded text-xs">{r.final_action}</span>
+                          : <span className="bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded text-xs">unmatched</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 // ── Reports (main page) ───────────────────────────────────────────────────
 
 const PERIOD_SENSITIVE_TABS = new Set(['pnl', 'strategy', 'ranking', 'pairs', 'winstats'])
@@ -843,6 +995,7 @@ export default function Reports() {
         {activeTab === 'holdings' && <HoldingsSection />}
         {activeTab === 'pairs'    && <PairsSection dateRange={dateRange} />}
         {activeTab === 'winstats' && <WinStatsSection dateRange={dateRange} />}
+        {activeTab === 'nlogs'    && <NlLogsSection />}
       </div>
     </div>
   )

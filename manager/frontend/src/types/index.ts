@@ -275,3 +275,21 @@ export interface WinStats {
 export interface WinStatsReport {
   stats: WinStats
 }
+
+export interface NlLogRow {
+  id: number
+  user_id: string
+  raw_text: string
+  llm_action: string
+  final_action: string
+  logged_at_fmt: string
+}
+
+export interface NlLogsData {
+  rows: NlLogRow[]
+  stats: {
+    total: number
+    final_actions: [string, number][]
+    llm_actions: [string, number][]
+  }
+}
