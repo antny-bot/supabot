@@ -970,6 +970,7 @@ def main():
     application.add_handler(CommandHandler("help", system_handlers.help_command))
     application.add_handler(CommandHandler("commands", system_handlers.help_command))
     application.add_handler(CommandHandler("dbsync", system_handlers.dbsync_command))
+    application.add_handler(CommandHandler("nlstats", system_handlers.nlstats_command))
     application.add_handler(CommandHandler("info", system_handlers.info_command))
     for command_name in ACCOUNT_COMMAND_ALIASES:
         application.add_handler(CommandHandler(command_name, system_handlers.whoami_command))
