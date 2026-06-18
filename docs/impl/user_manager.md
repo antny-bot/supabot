@@ -1,6 +1,6 @@
 # user_manager.md
 
-**파일**: `src/core/user_manager.py` (370줄)
+**파일**: `src/core/user_manager.py` (~390줄)
 
 ## 역할
 유저별 설정을 로드·영속화·기본값 적용.
@@ -58,7 +58,11 @@
 "bithumb": { "access_key": str, "secret_key": str, "watchlist": [str] }
 "kis":     { "app_key": str, "app_secret": str, "account_no": str,
              "product_code": "01", "env": "paper|real", "watchlist": [str] }
+"toss":    { "client_id": str, "client_secret": str,
+             "account_seq": int|None, "watchlist": [str] }
 ```
+
+`account_seq`는 `validate_api_keys()` 호출 시 Toss API에서 자동 조회하여 저장된다. 키 입력 후 즉시 검증을 거치므로 사용자가 직접 입력할 필요 없다.
 
 ## 관리자 vs 일반 유저
 
@@ -79,6 +83,8 @@ manager.get_user(user_id)                      # 기본값 자동 적용, 저장
 manager.update_preference(user_id, key, value)
 manager.update_exchange_keys(user_id, exchange, access_key, secret_key)
 manager.update_kis_keys(user_id, app_key, app_secret, account_no, product_code, env)
+manager.update_toss_keys(user_id, client_id, client_secret)   # account_seq를 None으로 초기화
+manager.update_toss_account_seq(user_id, account_seq)         # validate 후 자동 저장
 manager.update_gemini_api_key(user_id, api_key)
 manager.set_active(user_id, status=True)   # True → status="active", False → status="inactive"
 manager.add_watchlist(user_id, exchange, ticker)

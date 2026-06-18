@@ -9,6 +9,7 @@ import time
 
 from core.bot_logger import get_logger
 from core.metrics import metrics
+from core.stock_resolver import is_kr_stock_name, resolve_kr_stock_name
 
 _log = get_logger("exchange_adapter")
 
@@ -418,6 +419,18 @@ class ExchangeAdapter:
             _log.error("KIS API exception", exc_info=e, extra={"event": "kis_api_exception", "path": path})
             return None
 
+    async def resolve_ticker(self, user_id: str, exchange: str, ticker: str) -> str:
+        """KIS·Toss 거래소에서 한글 종목명을 종목코드로 변환. 나머지는 그대로 반환."""
+        if exchange in ("kis", "toss") and is_kr_stock_name(ticker):
+            code = await resolve_kr_stock_name(ticker, self, user_id, exchange)
+            if code:
+                return code
+        return ticker
+
+    async def _resolve(self, user_id: str, exchange: str, ticker: str) -> str:
+        """내부 편의 메서드 — resolve_ticker 단축 호출."""
+        return await self.resolve_ticker(user_id, exchange, ticker)
+
     async def get_balances(self, user_id, exchange):
         """유저별 특정 거래소의 잔고 조회"""
         client = self._get_client(user_id, exchange)
@@ -459,6 +472,7 @@ class ExchangeAdapter:
 
     async def create_order(self, user_id, exchange, ticker, side, price, volume, ord_type="limit"):
         """지정가/시장가 매수 및 매도 주문 생성"""
+        ticker = await self._resolve(user_id, exchange, ticker)
         client = self._get_client(user_id, exchange)
         if not client:
             return None
@@ -529,6 +543,8 @@ class ExchangeAdapter:
 
     async def cancel_order(self, user_id, exchange, order_id, ticker=None):
         """주문 취소"""
+        if ticker and exchange in ("kis", "toss"):
+            ticker = await self._resolve(user_id, exchange, ticker)
         client = self._get_client(user_id, exchange)
         if not client:
             return False
@@ -550,6 +566,8 @@ class ExchangeAdapter:
 
     async def get_order_status(self, user_id, exchange, order_id, ticker=None):
         """주문 상세 정보 조회 및 상태 정규화"""
+        if ticker and exchange in ("kis", "toss"):
+            ticker = await self._resolve(user_id, exchange, ticker)
         client = self._get_client(user_id, exchange)
         if not client:
             return None
@@ -649,6 +667,8 @@ class ExchangeAdapter:
 
     async def get_candles(self, exchange, ticker, interval="day", count=200, user_id=None):
         """거래소별 캔들(OHLCV) 데이터 조회 (TTL 캐시 적용)"""
+        if user_id and exchange in ("kis", "toss"):
+            ticker = await self._resolve(user_id, exchange, ticker)
         interval = str(interval or "day").lower()
         cache_key = (exchange, ticker, interval, count)
         ttl = self._CANDLE_TTL.get(interval, self._CANDLE_TTL["default"])
@@ -981,6 +1001,8 @@ class ExchangeAdapter:
 
     async def get_ticker(self, exchange, ticker, user_id=None):
         """특정 종목의 현재가 정보 조회"""
+        if user_id and exchange in ("kis", "toss"):
+            ticker = await self._resolve(user_id, exchange, ticker)
         if exchange == "upbit":
             params = {"markets": ticker}
             res = await self._request_upbit("GET", "/v1/ticker", params=params)
@@ -1063,6 +1085,8 @@ class ExchangeAdapter:
 
     async def get_order_history(self, user_id, exchange, ticker=None):
         """사용자의 최근 완료(체결)된 주문 내역 조회"""
+        if ticker and exchange in ("kis", "toss"):
+            ticker = await self._resolve(user_id, exchange, ticker)
         client = self._get_client(user_id, exchange)
         if not client: return None
         if exchange == "upbit":
