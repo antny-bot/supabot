@@ -22,6 +22,8 @@ def normalize_exchange(value):
         return "bithumb"
     if text in ["kis", "한투", "한국투자", "한국투자증권"]:
         return "kis"
+    if text in ["toss", "토스", "토스증권", "tossinvest"]:
+        return "toss"
     return None
 
 
@@ -34,6 +36,7 @@ def exchange_display_name(exchange):
         "upbit": "UPBIT",
         "bithumb": "BITHUMB",
         "kis": "한국투자증권",
+        "toss": "토스증권",
     }.get(exchange, exchange.upper())
 
 
@@ -54,7 +57,7 @@ def parse_exchange_and_ticker(args, default_exchange):
     if raw_ticker:
         if exchange in ["upbit", "bithumb"] and "-" not in raw_ticker:
             raw_ticker = f"KRW-{raw_ticker}"
-        elif exchange == "kis":
+        elif exchange in ["kis", "toss"]:
             raw_ticker = raw_ticker.replace("KRW-", "")
 
     return exchange, raw_ticker
@@ -187,7 +190,7 @@ def parse_config_value(key, raw_value):
     if key == "default_exchange":
         exchange = normalize_exchange(raw_value)
         if not exchange:
-            raise ValueError("기본 거래소는 upbit, bithumb, kis, 업비트, 빗썸, 한투 중 하나여야 합니다.")
+            raise ValueError("기본 거래소는 upbit, bithumb, kis, toss, 업비트, 빗썸, 한투, 토스증권 중 하나여야 합니다.")
         return exchange
     if key == "asset_min_display_krw":
         amount = parse_number(raw_value)

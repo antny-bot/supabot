@@ -21,7 +21,9 @@ class ExchangeAdapter:
         self._bithumb_session = None
         self._kis_session = None
         self._upbit_session = None
+        self._toss_session = None
         self._kis_tokens = {}
+        self._toss_tokens = {}
         self._candle_cache = {}  # {(exchange, ticker, interval, count): (fetched_at, candles)}
 
     async def close(self):
@@ -35,6 +37,9 @@ class ExchangeAdapter:
         if self._upbit_session and not self._upbit_session.closed:
             await self._upbit_session.close()
         self._upbit_session = None
+        if self._toss_session and not self._toss_session.closed:
+            await self._toss_session.close()
+        self._toss_session = None
 
     async def _get_bithumb_session(self):
         if not self._bithumb_session or self._bithumb_session.closed:
@@ -211,6 +216,109 @@ class ExchangeAdapter:
             _log.error("Bithumb API exception", exc_info=e, extra={"event": "bithumb_api_exception", "path": path})
             return None
 
+    _TOSS_BASE_URL = "https://openapi.tossinvest.com"
+
+    async def _get_toss_session(self):
+        if not self._toss_session or self._toss_session.closed:
+            timeout = aiohttp.ClientTimeout(total=15)
+            self._toss_session = aiohttp.ClientSession(timeout=timeout)
+        return self._toss_session
+
+    async def _get_toss_token(self, user_id, keys):
+        cache_key = f"{user_id}:{keys.get('client_id')}"
+        cached = self._toss_tokens.get(cache_key)
+        if cached and cached["expires_at"] > time.time() + 60:
+            return cached["token"]
+
+        data = {
+            "grant_type": "client_credentials",
+            "client_id": keys.get("client_id"),
+            "client_secret": keys.get("client_secret"),
+        }
+        try:
+            session = await self._get_toss_session()
+            async with session.post(
+                f"{self._TOSS_BASE_URL}/oauth2/token",
+                data=data,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            ) as resp:
+                res = await resp.json()
+        except Exception as e:
+            _log.error("Toss token exception", exc_info=e, extra={"event": "toss_token_exception"})
+            return None
+
+        token = res.get("access_token") if isinstance(res, dict) else None
+        if not token:
+            _log.error("Toss token error: no access_token", extra={"event": "toss_token_error"})
+            return None
+
+        expires_in = int(res.get("expires_in", 86400))
+        self._toss_tokens[cache_key] = {"token": token, "expires_at": time.time() + expires_in}
+        return token
+
+    async def _request_toss(self, user_id, method, path, params=None, body=None, need_account=True):
+        keys = self._get_client(user_id, "toss")
+        if not keys:
+            return None
+
+        token = await self._get_toss_token(user_id, keys)
+        if not token:
+            return None
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+        }
+        if need_account:
+            account_seq = keys.get("account_seq")
+            if not account_seq:
+                return None
+            headers["X-Tossinvest-Account"] = str(account_seq)
+
+        try:
+            session = await self._get_toss_session()
+            _t0 = time.monotonic()
+            url = f"{self._TOSS_BASE_URL}{path}"
+            if method.upper() == "POST":
+                async with session.post(url, json=body, headers=headers) as resp:
+                    result = await resp.json()
+            else:
+                async with session.get(url, params=params, headers=headers) as resp:
+                    result = await resp.json()
+            metrics.record_latency("toss", (time.monotonic() - _t0) * 1000)
+            return result
+        except Exception as e:
+            _log.error("Toss API exception", exc_info=e, extra={"event": "toss_api_exception", "path": path})
+            return None
+
+    async def _get_toss_account_seq(self, user_id, keys):
+        """첫 validate 시 accountSeq를 조회해 user에 저장한다."""
+        token = await self._get_toss_token(user_id, keys)
+        if not token:
+            return None
+        headers = {"Authorization": f"Bearer {token}"}
+        try:
+            session = await self._get_toss_session()
+            async with session.get(f"{self._TOSS_BASE_URL}/api/v1/accounts", headers=headers) as resp:
+                res = await resp.json()
+        except Exception as e:
+            _log.error("Toss accounts exception", exc_info=e, extra={"event": "toss_accounts_exception"})
+            return None
+        accounts = res.get("result") if isinstance(res, dict) else None
+        if not accounts:
+            return None
+        return accounts[0].get("accountSeq")
+
+    @staticmethod
+    def _normalize_toss_status(status):
+        if status in ("FILLED",):
+            return "done"
+        if status in ("CANCELED", "REJECTED", "REPLACED", "CANCEL_REJECTED", "REPLACE_REJECTED"):
+            return "cancel"
+        if status in ("PARTIAL_FILLED",):
+            return "partial"
+        return "wait"
+
     def _get_client(self, user_id, exchange):
         """유저의 API 키를 사용하여 거래소 키 정보 반환"""
         user = self.user_manager.get_user(user_id)
@@ -227,9 +335,14 @@ class ExchangeAdapter:
                 return None
             return keys
 
+        if exchange == "toss":
+            if not keys.get("client_id") or not keys.get("client_secret"):
+                return None
+            return keys
+
         access = keys.get("access_key")
         secret = keys.get("secret_key")
-        
+
         if not access or not secret:
             return None
 
@@ -321,6 +434,27 @@ class ExchangeAdapter:
             return None
         elif exchange == "kis":
             return await self._get_kis_balances(user_id, client)
+        elif exchange == "toss":
+            res = await self._request_toss(user_id, "GET", "/api/v1/holdings")
+            if not isinstance(res, dict):
+                return None
+            result = res.get("result", {})
+            items = result.get("items", [])
+            cash_krw = float((result.get("totalPurchaseAmount") or {}).get("krw") or 0)
+            stocks = []
+            for item in items:
+                qty = float(item.get("quantity") or 0)
+                if qty <= 0:
+                    continue
+                stocks.append({
+                    "code": item.get("symbol", ""),
+                    "name": item.get("name", ""),
+                    "quantity": qty,
+                    "price": float(item.get("lastPrice") or 0),
+                    "value": float((item.get("marketValue") or {}).get("amount") or 0),
+                    "currency": item.get("currency", "KRW"),
+                })
+            return {"cash": cash_krw, "stocks": stocks, "total_eval": 0}
         return None
 
     async def create_order(self, user_id, exchange, ticker, side, price, volume, ord_type="limit"):
@@ -367,6 +501,23 @@ class ExchangeAdapter:
                 result = res
         elif exchange == "kis":
             result = await self._create_kis_order(user_id, client, ticker, side, price, volume, ord_type=ord_type)
+        elif exchange == "toss":
+            toss_side = "BUY" if side == "bid" else "SELL"
+            toss_order_type = "MARKET" if ord_type == "market" else "LIMIT"
+            body = {
+                "symbol": ticker,
+                "side": toss_side,
+                "orderType": toss_order_type,
+                "quantity": str(int(float(volume))),
+            }
+            if toss_order_type == "LIMIT":
+                body["price"] = str(price)
+            res = await self._request_toss(user_id, "POST", "/api/v1/orders", body=body)
+            if isinstance(res, dict) and res.get("result", {}).get("orderId"):
+                order_id = res["result"]["orderId"]
+                result = {"uuid": order_id, **res.get("result", {})}
+            else:
+                result = res
 
         ok = bool(result and "uuid" in result)
         metrics.record_order(exchange, ok)
@@ -392,6 +543,9 @@ class ExchangeAdapter:
             return True if res and not self._is_error_response(res) else False
         elif exchange == "kis":
             return await self._cancel_kis_order(user_id, client, order_id)
+        elif exchange == "toss":
+            res = await self._request_toss(user_id, "POST", f"/api/v1/orders/{order_id}/cancel", body={})
+            return isinstance(res, dict) and res.get("result", {}).get("orderId") is not None
         return False
 
     async def get_order_status(self, user_id, exchange, order_id, ticker=None):
@@ -438,6 +592,27 @@ class ExchangeAdapter:
             return None
         elif exchange == "kis":
             return await self._get_kis_order_status(user_id, client, order_id, ticker)
+        elif exchange == "toss":
+            res = await self._request_toss(user_id, "GET", f"/api/v1/orders/{order_id}")
+            if not isinstance(res, dict):
+                return None
+            order = res.get("result", {})
+            if not order:
+                return None
+            toss_status = order.get("status", "")
+            exec_qty = float((order.get("execution") or {}).get("filledQuantity") or 0)
+            total_qty = float(order.get("quantity") or 0)
+            norm_state = self._normalize_toss_status(toss_status)
+            toss_side = order.get("side", "")
+            side = "bid" if toss_side == "BUY" else "ask"
+            return {
+                "state": norm_state,
+                "ticker": order.get("symbol", ticker),
+                "side": side,
+                "executed_volume": exec_qty,
+                "remaining_volume": max(total_qty - exec_qty, 0),
+                "fee_amount": float((order.get("execution") or {}).get("commission") or 0),
+            }
         return None
 
     def get_min_order_amount(self, exchange):
@@ -445,6 +620,7 @@ class ExchangeAdapter:
         if exchange == "upbit": return 5000
         if exchange == "bithumb": return 1000
         if exchange == "kis": return 1
+        if exchange == "toss": return 1
         return 5000
 
     @staticmethod
@@ -503,6 +679,10 @@ class ExchangeAdapter:
             if interval != "day" or user_id is None:
                 return None
             candles = await self._get_kis_daily_candles(user_id, ticker, count)
+        elif exchange == "toss":
+            if user_id is None:
+                return None
+            candles = await self._get_toss_candles(user_id, ticker, interval, count)
 
         if candles:
             self._candle_cache[cache_key] = (time.time(), candles)
@@ -543,9 +723,39 @@ class ExchangeAdapter:
                 continue
         return candles
 
+    async def _get_toss_candles(self, user_id, ticker, interval, count):
+        toss_interval = "1d" if interval == "day" else "1m"
+        params = {"symbol": ticker, "interval": toss_interval, "count": min(count, 200)}
+        res = await self._request_toss(user_id, "GET", "/api/v1/candles", params=params, need_account=False)
+        if not isinstance(res, dict):
+            return None
+        raw_candles = (res.get("result") or {}).get("candles") or []
+        candles = []
+        for item in raw_candles:
+            try:
+                candles.append({
+                    "candle_date_time_kst": item.get("timestamp", ""),
+                    "trade_price": float(item.get("closePrice") or 0),
+                    "opening_price": float(item.get("openPrice") or 0),
+                    "high_price": float(item.get("highPrice") or 0),
+                    "low_price": float(item.get("lowPrice") or 0),
+                })
+            except (TypeError, ValueError):
+                continue
+        return candles or None
+
     async def validate_api_keys(self, user_id, exchange):
         """해당 거래소의 API 키가 유효한지 실제 호출을 통해 확인"""
         try:
+            if exchange == "toss":
+                keys = self._get_client(user_id, exchange)
+                if not keys:
+                    return False
+                account_seq = await self._get_toss_account_seq(user_id, keys)
+                if not account_seq:
+                    return False
+                self.user_manager.update_toss_account_seq(user_id, account_seq)
+                return True
             balances = await self.get_balances(user_id, exchange)
             if exchange == "kis":
                 return isinstance(balances, dict)
@@ -784,6 +994,27 @@ class ExchangeAdapter:
             if user_id is None:
                 return None
             return await self._get_kis_ticker(user_id, ticker)
+        elif exchange == "toss":
+            if user_id is None:
+                return None
+            params = {"symbols": ticker}
+            res = await self._request_toss(user_id, "GET", "/api/v1/prices", params=params, need_account=False)
+            if not isinstance(res, dict):
+                return None
+            items = res.get("result") or []
+            if not items:
+                return None
+            item = items[0]
+            price = float(item.get("lastPrice") or 0)
+            return {
+                "market": ticker,
+                "trade_price": price,
+                "change_rate": 0,
+                "change_price": 0,
+                "high_price": 0,
+                "low_price": 0,
+                "acc_trade_price_24h": 0,
+            }
         return None
 
     async def get_krw_ticker_prices(self, exchange):
@@ -825,6 +1056,9 @@ class ExchangeAdapter:
         if exchange == "kis":
             return {}
 
+        if exchange == "toss":
+            return {}
+
         return {}
 
     async def get_order_history(self, user_id, exchange, ticker=None):
@@ -844,6 +1078,33 @@ class ExchangeAdapter:
             return res if isinstance(res, list) else None
         elif exchange == "kis":
             return await self._get_kis_order_history(user_id, client, ticker)
+        elif exchange == "toss":
+            params = {"status": "CLOSED"}
+            if ticker:
+                params["symbol"] = ticker
+            res = await self._request_toss(user_id, "GET", "/api/v1/orders", params=params)
+            if not isinstance(res, dict):
+                return None
+            orders = (res.get("result") or {}).get("orders") or []
+            result = []
+            for o in orders:
+                exec_info = o.get("execution") or {}
+                qty = float(o.get("quantity") or 0)
+                exec_qty = float(exec_info.get("filledQuantity") or 0)
+                toss_side = o.get("side", "")
+                side = "bid" if toss_side == "BUY" else "ask"
+                result.append({
+                    "uuid": o.get("orderId"),
+                    "market": o.get("symbol", ticker),
+                    "side": side,
+                    "price": float(o.get("price") or 0),
+                    "volume": qty,
+                    "executed_volume": exec_qty,
+                    "status": self._normalize_toss_status(o.get("status", "")),
+                    "created_at": o.get("orderedAt", ""),
+                    "fee_amount": float(exec_info.get("commission") or 0),
+                })
+            return result
         return None
 
     @staticmethod

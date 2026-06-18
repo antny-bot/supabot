@@ -17,6 +17,7 @@ class UserManager:
         "upbit": ("access_key", "secret_key"),
         "bithumb": ("access_key", "secret_key"),
         "kis": ("app_key", "app_secret", "account_no"),
+        "toss": ("client_id", "client_secret"),
     }
     SECRET_LLM_FIELDS = ("gemini_api_key",)
 
@@ -186,6 +187,12 @@ class UserManager:
                 "env": "paper",
                 "watchlist": [],
             },
+            "toss": {
+                "client_id": "",
+                "client_secret": "",
+                "account_seq": None,
+                "watchlist": [],
+            },
         }
         for exchange, exchange_defaults in defaults.items():
             if exchange not in user["exchanges"]:
@@ -271,6 +278,12 @@ class UserManager:
                         "env": "paper",
                         "watchlist": [],
                     },
+                    "toss": {
+                        "client_id": "",
+                        "client_secret": "",
+                        "account_seq": None,
+                        "watchlist": [],
+                    },
                 },
                 "llm": {"gemini_api_key": ""},
                 "api_validation": {},
@@ -315,6 +328,24 @@ class UserManager:
         }
         self._upsert_user(user_id)
         return True
+
+    def update_toss_keys(self, user_id, client_id, client_secret):
+        user = self.users.get(str(user_id))
+        if user and "toss" in user["exchanges"]:
+            user["exchanges"]["toss"]["client_id"] = self._encrypt_secret_for_storage(client_id)
+            user["exchanges"]["toss"]["client_secret"] = self._encrypt_secret_for_storage(client_secret)
+            user["exchanges"]["toss"]["account_seq"] = None
+            self._upsert_user(user_id)
+            return True
+        return False
+
+    def update_toss_account_seq(self, user_id, account_seq):
+        user = self.users.get(str(user_id))
+        if user and "toss" in user["exchanges"]:
+            user["exchanges"]["toss"]["account_seq"] = account_seq
+            self._upsert_user(user_id)
+            return True
+        return False
 
     def update_kis_keys(self, user_id, app_key, app_secret, account_no, product_code="01", env="paper"):
         user = self.users.get(str(user_id))
