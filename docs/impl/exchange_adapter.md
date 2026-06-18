@@ -1,9 +1,9 @@
 # exchange_adapter.md
 
-**파일**: `src/core/exchange_adapter.py` (767줄)
+**파일**: `src/core/exchange_adapter.py` (1128줄)
 
 ## 역할
-Upbit(CLI), Bithumb(REST+JWT), KIS(OAuth2) 세 거래소를 단일 async 인터페이스로 추상화.
+Upbit(CLI), Bithumb(REST+JWT), KIS(OAuth2), Toss(OAuth2) 네 거래소를 단일 async 인터페이스로 추상화.
 
 `get_candles()`는 `(exchange, ticker, interval, count)` 키로 인메모리 TTL 캐시(`_candle_cache`)를 적용한다. interval별 TTL은 `_CANDLE_TTL`로 정의하며, 캐시가 유효하면 거래소 호출 없이 캐시된 캔들을 반환한다.
 
@@ -36,6 +36,7 @@ valid    = await adapter.validate_api_keys(user_id, exchange)
 | **Upbit** | CLI subprocess | `asyncio.create_subprocess_exec("upbit", ..., "--access-key", "--secret-key")`. Node.js 바이너리, 세션 없음. |
 | **Bithumb** | REST + JWT (HS256) | `_bithumb_session` (aiohttp) 재사용. `_get_bithumb_jwt()` 가 요청마다 JWT 생성; write endpoint는 SHA512 query hash 포함. |
 | **KIS** | OAuth2 client_credentials | `_kis_session` (aiohttp) 재사용. 토큰 `_kis_tokens["{user_id}:{env}:{app_key}"]` 캐시, 만료 60초 전 갱신. `env="paper"` → `openapivts.koreainvestment.com:29443`, `env="real"` → `openapi.koreainvestment.com:9443`. TR_ID는 paper/real별 상이. |
+| **Toss** | OAuth2 Bearer | `_toss_session` (aiohttp) 재사용. 토큰 `_toss_tokens["{user_id}:{client_id}"]` 캐시. 인증: `POST /api/v1/oauth2/token` (client_credentials). 주문·잔고 요청에 `X-Tossinvest-Account: {account_seq}` 헤더 첨부. `account_seq`는 최초 validate 시 `_get_toss_account_seq()`로 자동 조회·저장. 엔드포인트: `openapi.tossinvest.com`. |
 
 ## 정규화 캔들 형식
 

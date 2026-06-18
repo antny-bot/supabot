@@ -22,10 +22,17 @@ async def watch_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     if not await ensure_rsi_supported(update, user, exchange):
         return
 
-    if main.user_manager.add_watchlist(user_id, exchange, ticker):
-        await update.message.reply_text(f"✅ {exchange.upper()}의 {ticker}가 관심 종목에 등록되었습니다. RSI 시그널을 감시합니다.")
+    resolved = await main.exchange_adapter.resolve_ticker(user_id, exchange, ticker)
+    if resolved != ticker:
+        display_name = ticker
+        ticker = resolved
     else:
-        await update.message.reply_text(f"ℹ️ {ticker}는 이미 관심 종목에 등록되어 있습니다.")
+        display_name = ticker
+
+    if main.user_manager.add_watchlist(user_id, exchange, ticker):
+        await update.message.reply_text(f"✅ {exchange.upper()}의 {display_name}({ticker})가 관심 종목에 등록되었습니다. RSI 시그널을 감시합니다.")
+    else:
+        await update.message.reply_text(f"ℹ️ {display_name}({ticker})는 이미 관심 종목에 등록되어 있습니다.")
 
 
 @check_auth

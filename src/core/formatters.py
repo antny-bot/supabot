@@ -44,14 +44,15 @@ CMD_HELP = {
         "⚙️ <b>/config 상세 가이드</b>\n\n"
         "<b>기능:</b> 거래소 API 키와 사용자 기본 설정을 관리합니다.\n\n"
         "<b>API 키 설정:</b> <code>/config</code> 입력 후 버튼 클릭\n"
-        "1. 거래소 선택 (Upbit, Bithumb, 한국투자증권, Gemini)\n"
+        "1. 거래소 선택 (Upbit, Bithumb, 한국투자증권, 토스증권, Gemini)\n"
         "2. 거래소별 Key 입력 (메시지 삭제됨)\n"
         "3. 한국투자증권은 계좌번호, 상품코드, 모의/실전 환경까지 입력\n"
-        "4. 자동 유효성 검증 수행\n\n"
+        "4. 토스증권은 Client ID → Client Secret 순서로 입력 (account_seq 자동 조회)\n"
+        "5. 자동 유효성 검증 수행\n\n"
         "<b>설정 조회:</b> <code>/config -v</code>\n"
         "API 키 값은 표시하지 않고 설정 여부만 보여줍니다.\n\n"
         "<b>설정 변경:</b> <code>/config set [항목] [값]</code>\n"
-        "• <code>default_exchange</code>: upbit, bithumb, kis, 업비트, 빗썸, 한투\n"
+        "• <code>default_exchange</code>: upbit, bithumb, kis, toss, 업비트, 빗썸, 한투, 토스증권\n"
         "• <code>asset_min_display_krw</code>: <code>/asset</code> 개별 표시 최소 평가액\n"
         "• <code>rsi_buy_range</code>: 예: 25-30\n"
         "• <code>rsi_sell_range</code>: 예: 65-75\n"
@@ -81,10 +82,11 @@ CMD_HELP = {
         "<b>기능:</b> 내 거래소 잔고와 총 평가액을 조회합니다.\n"
         "<b>구문:</b> <code>/asset [거래소]</code>\n\n"
         "<b>옵션:</b>\n"
-        "• <code>업비트</code> 또는 <code>빗썸</code>: 특정 거래소만 조회 (생략 시 전체 조회)\n\n"
+        "• <code>거래소</code>: 업비트, 빗썸, 한투, 토스증권 (생략 시 전체 조회)\n\n"
         "<b>예시:</b>\n"
         "1. <code>/asset</code> (모든 거래소 조회)\n"
         "2. <code>/asset 빗썸</code> (빗썸 잔고만 조회)\n"
+        "3. <code>/asset 토스증권</code> (토스증권 잔고만 조회)\n"
         "⚠️ 설정한 최소 표시 금액 이하의 소액 자산은 '기타'로 합산 표시됩니다."
     ),
     "price": (
@@ -92,38 +94,41 @@ CMD_HELP = {
         "<b>기능:</b> 특정 종목의 실시간 시세를 조회합니다.\n"
         "<b>구문:</b> <code>/price [거래소] [종목]</code>\n\n"
         "<b>옵션:</b>\n"
-        "• <code>거래소</code>: 업비트, 빗썸, 한투 (생략 시 기본 거래소 우선)\n"
-        "• <code>종목</code>: 업비트/빗썸은 BTC, ETH 등 (KRW- 자동 보완), 한국투자증권은 005930 같은 국내주식 종목코드\n\n"
+        "• <code>거래소</code>: 업비트, 빗썸, 한투, 토스증권 (생략 시 기본 거래소 우선)\n"
+        "• <code>종목</code>: 업비트/빗썸은 BTC, ETH 등 (KRW- 자동 보완), 한국투자증권·토스증권은 005930 같은 국내주식 종목코드\n\n"
         "<b>예시:</b>\n"
         "1. <code>/p BTC</code> (업비트 비트코인 시세)\n"
         "2. <code>/price 빗썸 ETH</code> (빗썸 이더리움 시세)\n"
         "3. <code>/p KRW-XRP</code> (KRW- 포함 직접 입력도 가능)\n"
-        "4. <code>/price 한투 005930</code> (한국투자증권 삼성전자 시세)"
+        "4. <code>/price 한투 005930</code> (한국투자증권 삼성전자 시세)\n"
+        "5. <code>/price 토스증권 005930</code> (토스증권 삼성전자 시세)"
     ),
     "indicators": (
         "📈 <b>/indicators 상세 가이드</b>\n\n"
         "<b>기능:</b> RSI, MACD, 볼린저밴드, 스토캐스틱을 한 번에 조회합니다.\n"
         "<b>구문:</b> <code>/indicators [거래소] [종목] [봉기준]</code>\n\n"
         "<b>옵션:</b>\n"
-        "• <code>거래소</code>: 업비트, 빗썸, 한투 (생략 시 기본 거래소)\n"
+        "• <code>거래소</code>: 업비트, 빗썸, 한투, 토스증권 (생략 시 기본 거래소)\n"
         "• <code>종목</code>: BTC, ETH, 005930 등\n"
-        "• <code>봉기준</code>: day(일봉, 기본값), 60, 240 등 분봉\n\n"
+        "• <code>봉기준</code>: day(일봉, 기본값), 60, 240 등 분봉 (한투·토스증권은 일봉만 지원)\n\n"
         "<b>예시:</b>\n"
         "1. <code>/indicators BTC</code> (업비트 비트코인 일봉 지표)\n"
         "2. <code>/ind BTC 60</code> (업비트 비트코인 60분봉 지표)\n"
-        "3. <code>/indicators 빗썸 ETH</code> (빗썸 이더리움 지표)"
+        "3. <code>/indicators 빗썸 ETH</code> (빗썸 이더리움 지표)\n"
+        "4. <code>/indicators 토스증권 005930</code> (토스증권 삼성전자 일봉 지표)"
     ),
     "history": (
         "📜 <b>/history 상세 가이드</b>\n\n"
         "<b>기능:</b> 나의 최근 체결(완료)된 주문 내역을 보여줍니다.\n"
         "<b>구문:</b> <code>/history [거래소] [종목]</code>\n\n"
         "<b>옵션:</b>\n"
-        "• <code>거래소</code>: 업비트, 빗썸\n"
-        "• <code>종목</code>: 특정 코인 내역만 필터링 (생략 시 전체)\n\n"
+        "• <code>거래소</code>: 업비트, 빗썸, 한투, 토스증권\n"
+        "• <code>종목</code>: 특정 종목 내역만 필터링 (생략 시 전체)\n\n"
         "<b>예시:</b>\n"
         "1. <code>/history</code> (업비트 전체 최근 내역)\n"
         "2. <code>/history 빗썸</code> (빗썸 전체 최근 내역)\n"
-        "3. <code>/history BTC</code> (업비트 비트코인 거래 내역)"
+        "3. <code>/history BTC</code> (업비트 비트코인 거래 내역)\n"
+        "4. <code>/history 토스증권 005930</code> (토스증권 삼성전자 내역)"
     ),
     "buy": (
         "🛍️ <b>/buy 상세 가이드 (단일 매수)</b>\n\n"
@@ -131,15 +136,17 @@ CMD_HELP = {
         "<b>구문:</b> <code>/buy [거래소] [종목] [가격] [수량]</code>\n\n"
         "<b>예시:</b>\n"
         "<code>/buy 빗썸 BTC 95000000 0.1</code> (빗썸에서 0.1 BTC를 9500만원에 매수)\n"
-        "<code>/buy 한투 005930 70000 1</code> (한국투자증권에서 삼성전자 1주 매수 확인)\n\n"
-        "⚠️ 한국투자증권 주문은 확인 버튼을 거친 뒤 전송됩니다."
+        "<code>/buy 한투 005930 70000 1</code> (한국투자증권에서 삼성전자 1주 매수 확인)\n"
+        "<code>/buy 토스증권 005930 70000 1</code> (토스증권에서 삼성전자 1주 매수 확인)\n\n"
+        "⚠️ 한국투자증권·토스증권 주문은 확인 버튼을 거친 뒤 전송됩니다."
     ),
     "sell": (
         "🛍️ <b>/sell 상세 가이드 (단일 매도)</b>\n\n"
         "<b>기능:</b> 지정한 거래소에 단일 매도 주문을 즉시 전송합니다.\n"
         "<b>구문:</b> <code>/sell [거래소] [종목] [가격] [수량]</code>\n\n"
         "<b>예시:</b>\n"
-        "<code>/sell BTC 120000000 0.5</code> (업비트에서 0.5 BTC를 1.2억원에 매도)\n\n"
+        "<code>/sell BTC 120000000 0.5</code> (업비트에서 0.5 BTC를 1.2억원에 매도)\n"
+        "<code>/sell 토스증권 005930 72000 1</code> (토스증권에서 삼성전자 1주 매도)\n\n"
         "⚠️ 보유 수량이 주문 수량보다 많아야 합니다."
     ),
     "grid": (
@@ -171,7 +178,7 @@ CMD_HELP = {
         "<b>기능:</b> 현재 거래소에 걸려있는 미체결 주문 목록을 확인합니다.\n"
         "<b>구문:</b> <code>/orders [거래소]</code>\n\n"
         "<b>옵션:</b>\n"
-        "• <code>업비트</code> 또는 <code>빗썸</code> (생략 시 기본 거래소)\n\n"
+        "• <code>거래소</code>: 업비트, 빗썸, 한투, 토스증권 (생략 시 기본 거래소)\n\n"
         "<b>안내:</b>\n"
         "봇을 통해 생성한 주문뿐만 아니라 직접 거래소에서 건 미체결 주문도 모두 조회됩니다."
     ),
@@ -181,7 +188,8 @@ CMD_HELP = {
         "<b>구문:</b> <code>/cancel [거래소] [종목]</code>\n\n"
         "<b>예시:</b>\n"
         "1. <code>/cancel BTC</code> (업비트 비트코인 주문 취소)\n"
-        "2. <code>/cancel 빗썸 SOL</code> (빗썸 솔라나 주문 취소)\n\n"
+        "2. <code>/cancel 빗썸 SOL</code> (빗썸 솔라나 주문 취소)\n"
+        "3. <code>/cancel 토스증권 005930</code> (토스증권 삼성전자 주문 취소)\n\n"
         "<b>안내:</b> 실행 전 취소 대상 주문 목록과 확인 버튼이 표시됩니다."
     ),
     "cancelno": (
@@ -200,7 +208,8 @@ CMD_HELP = {
         "<b>구문:</b> <code>/watch [거래소] [종목]</code>\n\n"
         "<b>예시:</b>\n"
         "1. <code>/watch BTC</code> (업비트 비트코인 감시 시작)\n"
-        "2. <code>/watch 빗썸 SOL</code> (빗썸 솔라나 감시 시작)"
+        "2. <code>/watch 빗썸 SOL</code> (빗썸 솔라나 감시 시작)\n"
+        "3. <code>/watch 토스증권 005930</code> (토스증권 삼성전자 일봉 RSI 감시)"
     ),
     "unwatch": (
         "🔕 <b>/unwatch 상세 가이드</b>\n\n"
@@ -221,7 +230,8 @@ CMD_HELP = {
         "2. <code>/rsitrade 빗썸 BTC</code>\n"
         "3. <code>/rsitrade BTC 20-30 60-75 7 200만</code>\n"
         "4. <code>/rsitrade BTC 20-30 - 5 100만</code>  (매수만)\n"
-        "5. <code>/rsitrade -dca 빗썸 BTC 20-30 60-70 5 100만</code>  (DCA 가중)"
+        "5. <code>/rsitrade -dca 빗썸 BTC 20-30 60-70 5 100만</code>  (DCA 가중)\n"
+        "6. <code>/rsitrade 토스증권 005930 20-30 60-75 5 100만</code>  (토스증권 일봉)"
     ),
     "gridrsi": (
         "🤖 <b>/gridrsi 상세 가이드</b>\n\n"
@@ -419,11 +429,11 @@ def build_config_view(user, active_order_count=0):
             )
         elif exchange == "toss":
             is_set = bool(keys.get("client_id") and keys.get("client_secret"))
-            account_seq = keys.get("account_seq", "")
-            masked_seq = f"{account_seq[:2]}****{account_seq[-2:]}" if len(account_seq) >= 4 else ("미설정" if not account_seq else account_seq)
+            account_seq = keys.get("account_seq")
+            seq_text = str(account_seq) if account_seq is not None else "미조회"
             api_lines.append(
                 f"🏛️ <b>{exchange_display_name(exchange)}</b>\n"
-                f"  ├ 계좌번호: {masked_seq} ({'설정됨' if is_set else '미설정'})\n"
+                f"  ├ 키: {'설정됨' if is_set else '미설정'} / account_seq: {seq_text}\n"
                 f"  └ 상태: {status_text}\n"
             )
         else:

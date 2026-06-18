@@ -31,18 +31,14 @@ async def asset_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     total_eval_krw = 0
 
     for ex in exchanges:
-        if ex not in ["upbit", "bithumb", "kis", "toss"]: continue
-
         balances = await main.exchange_adapter.get_balances(user_id, ex)
         if balances is None:
             full_msg += f"❌ <b>{exchange_display_name(ex)}</b>: API 키가 설정되지 않았거나 오류 발생\n\n"
             continue
 
         if ex in ("kis", "toss"):
-            if ex == "kis":
-                full_msg += f"🏛️ <b>{exchange_display_name(ex)}</b> ({'실전' if balances.get('env') == 'real' else '모의'})\n"
-            else:
-                full_msg += f"🏛️ <b>{exchange_display_name(ex)}</b>\n"
+            env_label = f" ({'실전' if balances.get('env') == 'real' else '모의'})" if ex == "kis" else ""
+            full_msg += f"🏛️ <b>{exchange_display_name(ex)}</b>{env_label}\n"
             cash = float(balances.get("cash", 0))
             ex_eval = float(balances.get("total_eval", 0))
             full_msg += f"- 💵 예수금: {cash:,.0f}원\n"
@@ -233,7 +229,9 @@ async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
         return
 
     default_exchange = user["preferences"].get("default_exchange", "upbit")
-    exchange, ticker = parse_exchange_and_ticker(args, default_exchange)
+    exchange, raw_ticker = parse_exchange_and_ticker(args, default_exchange)
+    ticker = await main.exchange_adapter.resolve_ticker(user_id, exchange, raw_ticker)
+    display_ticker = f"{raw_ticker}({ticker})" if ticker != raw_ticker else ticker
 
     ticker_data, indicators = await asyncio.gather(
         main.exchange_adapter.get_ticker(exchange, ticker, user_id=user_id),
@@ -242,7 +240,7 @@ async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     )
 
     if isinstance(ticker_data, Exception) or not ticker_data:
-        await update.message.reply_text(f"❌ {exchange_display_name(exchange)}에서 {ticker} 정보를 찾을 수 없습니다.")
+        await update.message.reply_text(f"❌ {exchange_display_name(exchange)}에서 {display_ticker} 정보를 찾을 수 없습니다.")
         return
     if isinstance(indicators, Exception):
         indicators = None
@@ -258,7 +256,7 @@ async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     change_emoji = "📈" if change_rate > 0 else "📉" if change_rate < 0 else "➖"
 
     msg = (
-        f"📊 <b>[{exchange_display_name(exchange)}] {ticker}</b> 실시간 시세\n\n"
+        f"📊 <b>[{exchange_display_name(exchange)}] {display_ticker}</b> 실시간 시세\n\n"
         f"현재가: <b>{price:,.0f}원</b> {change_emoji}\n"
         f"전일대비: {change_rate:+.2f}% ({change_price:,.0f}원)\n"
         f"고가(24H): {high:,.0f}원\n"
