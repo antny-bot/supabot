@@ -37,19 +37,19 @@ def test_toss_token_cached():
     ]
     call_count = [0]
 
-    async def fake_post(*args, **kwargs):
-        class FakeResp:
-            async def json(self):
-                idx = call_count[0]
-                call_count[0] += 1
-                return token_responses[idx] if idx < len(token_responses) else {}
+    class FakeResp:
+        async def json(self):
+            idx = call_count[0]
+            call_count[0] += 1
+            return token_responses[idx] if idx < len(token_responses) else {}
 
-            async def __aenter__(self):
-                return self
+        async def __aenter__(self):
+            return self
 
-            async def __aexit__(self, *a):
-                pass
+        async def __aexit__(self, *a):
+            pass
 
+    def fake_post(*args, **kwargs):
         return FakeResp()
 
     async def run():
