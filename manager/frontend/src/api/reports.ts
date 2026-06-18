@@ -7,6 +7,7 @@ import type {
   HoldingsReport,
   PairsReport,
   WinStatsReport,
+  NlLogsReport,
 } from '../types'
 import type { DateRangeValue } from '../components/ui/DateRangePicker'
 
@@ -28,3 +29,4 @@ export const fetchReportMonthly    = ()                      => api.get<MonthlyR
 export const fetchReportHoldings   = ()                      => api.get<HoldingsReport>('/api/reports/holdings')
 export const fetchReportPairs      = (range: DateRangeValue) => api.get<PairsReport>(`/api/reports/pairs?${buildPeriodParams(range)}`)
 export const fetchReportWinStats   = (range: DateRangeValue) => api.get<WinStatsReport>(`/api/reports/win-stats?${buildPeriodParams(range)}`)
+export const fetchReportNlLogs     = (limit = 100, offset = 0) => api.get<NlLogsReport>(`/api/reports/nl-logs?limit=${limit}&offset=${offset}`)
