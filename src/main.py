@@ -113,7 +113,7 @@ ADMIN_BOT_COMMANDS = DEFAULT_BOT_COMMANDS + [
 ]
 
 # Conversation States
-SET_EXCHANGE, SET_ACCESS, SET_SECRET, SET_KIS_APP, SET_KIS_SECRET, SET_KIS_ACCOUNT, SET_KIS_PRODUCT, SET_KIS_ENV, SET_GEMINI_KEY = range(9)
+SET_EXCHANGE, SET_ACCESS, SET_SECRET, SET_KIS_APP, SET_KIS_SECRET, SET_KIS_ACCOUNT, SET_KIS_PRODUCT, SET_KIS_ENV, SET_GEMINI_KEY, SET_TOSS_CLIENT_ID, SET_TOSS_SECRET = range(11)
 
 async def check_details_help(update: Update, command_name: str):
     if update.message and update.message.text:
@@ -956,6 +956,8 @@ def main():
             SET_KIS_PRODUCT: [MessageHandler(filters.TEXT & ~filters.COMMAND, config_handlers.set_kis_product)],
             SET_KIS_ENV: [MessageHandler(filters.TEXT & ~filters.COMMAND, config_handlers.set_kis_env)],
             SET_GEMINI_KEY: [MessageHandler(filters.TEXT & ~filters.COMMAND, config_handlers.set_gemini_key)],
+            SET_TOSS_CLIENT_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, config_handlers.set_toss_client_id)],
+            SET_TOSS_SECRET: [MessageHandler(filters.TEXT & ~filters.COMMAND, config_handlers.set_toss_secret)],
         },
         fallbacks=[CommandHandler("cancel", config_handlers.cancel_config)],
         allow_reentry=True  # /config 중복 입력 허용

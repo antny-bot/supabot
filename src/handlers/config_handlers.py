@@ -65,7 +65,8 @@ async def config_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("Upbit", callback_data="conf_upbit"),
          InlineKeyboardButton("Bithumb", callback_data="conf_bithumb")],
-        [InlineKeyboardButton("한국투자증권", callback_data="conf_kis")],
+        [InlineKeyboardButton("한국투자증권", callback_data="conf_kis"),
+         InlineKeyboardButton("토스증권", callback_data="conf_toss")],
         [InlineKeyboardButton("Gemini API 키", callback_data="conf_gemini")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -88,6 +89,9 @@ async def config_exchange_callback(update: Update, context: ContextTypes.DEFAULT
     if exchange == "kis":
         await query.edit_message_text("🔑 한국투자증권 App Key를 입력해 주세요.")
         return main.SET_KIS_APP
+    if exchange == "toss":
+        await query.edit_message_text("🔑 토스증권 Client ID를 입력해 주세요.")
+        return main.SET_TOSS_CLIENT_ID
     await query.edit_message_text(f"🔑 {exchange.upper()}의 Access Key를 입력해 주세요.")
     return main.SET_ACCESS
 
@@ -215,6 +219,40 @@ async def set_kis_env(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for key in ["temp_kis_app", "temp_kis_secret", "temp_kis_account", "temp_kis_product"]:
         context.user_data.pop(key, None)
+    return ConversationHandler.END
+
+
+async def set_toss_client_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["temp_toss_client_id"] = update.message.text.strip()
+    try: await update.message.delete()
+    except: pass
+    await update.message.reply_text("🔒 토스증권 Client Secret을 입력해 주세요.")
+    return main.SET_TOSS_SECRET
+
+
+async def set_toss_secret(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_chat.id)
+    client_id = context.user_data.get("temp_toss_client_id", "")
+    client_secret = update.message.text.strip()
+    try: await update.message.delete()
+    except: pass
+
+    try:
+        main.user_manager.update_toss_keys(user_id, client_id, client_secret)
+    except ValueError as e:
+        await update.message.reply_text(f"❌ 보안 키 설정 오류: {e}")
+        return ConversationHandler.END
+
+    status_msg = await update.message.reply_text("⏳ 토스증권 API 설정을 검증하는 중...")
+    is_valid = await main.exchange_adapter.validate_api_keys(user_id, "toss")
+    main.user_manager.update_api_validation_status(user_id, "toss", is_valid)
+    if is_valid:
+        await status_msg.edit_text("✅ 토스증권 API 설정이 완료되었습니다.")
+    else:
+        append_operational_event("warning", "api_validation", "Toss API validation failed", "toss")
+        await status_msg.edit_text("⚠️ 토스증권 API 검증에 실패했습니다. Client ID와 Client Secret을 확인해 주세요.")
+
+    context.user_data.pop("temp_toss_client_id", None)
     return ConversationHandler.END
 
 
