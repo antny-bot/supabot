@@ -4,6 +4,7 @@
 `order_manager` 등은 main.py 소유 상태로 남는다 (main.<name>으로 접근).
 """
 import html as _html
+import time
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -11,6 +12,7 @@ from telegram.ext import ContextTypes
 from main import check_auth, check_details_help
 import main
 from core.command_log import log_command
+from core.db import get_db, is_db_available
 from core.formatters import build_help_message, build_account_summary
 
 
@@ -65,6 +67,47 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
 async def whoami_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     user_id = str(update.effective_chat.id)
     await update.message.reply_text(build_account_summary(user_id, user), parse_mode="HTML")
+
+
+@check_auth
+async def nlstats_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
+    if not user.get("is_admin"):
+        await update.message.reply_text("❌ 어드민 전용 명령어입니다.")
+        return
+    if not is_db_available():
+        await update.message.reply_text("❌ DB 미연결.")
+        return
+    try:
+        now = time.time()
+        since_7d = now - 7 * 86400
+
+        q = get_db().table("nl_logs").select("final_action,llm_action,logged_at")
+        q._params.update({"logged_at": f"gte.{since_7d}", "order": "logged_at.desc", "limit": "500"})
+        rows = q.execute().data or []
+
+        total = len(rows)
+        final_counts: dict[str, int] = {}
+        llm_counts: dict[str, int] = {}
+        for r in rows:
+            fa = r.get("final_action") or "unmatched"
+            la = r.get("llm_action") or "unmatched"
+            final_counts[fa] = final_counts.get(fa, 0) + 1
+            llm_counts[la] = llm_counts.get(la, 0) + 1
+
+        top_final = sorted(final_counts.items(), key=lambda x: -x[1])[:10]
+        top_llm = sorted(llm_counts.items(), key=lambda x: -x[1])[:10]
+
+        lines = [f"📊 <b>NL 로그 통계</b> (최근 7일, 최대 500건)\n총 {total}건\n"]
+        lines.append("<b>최종 액션 Top 10</b>")
+        for action, cnt in top_final:
+            lines.append(f"  {_html.escape(action)}: {cnt}")
+        lines.append("\n<b>LLM 액션 Top 10</b>")
+        for action, cnt in top_llm:
+            lines.append(f"  {_html.escape(action)}: {cnt}")
+
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+    except Exception as e:
+        await update.message.reply_text(f"❌ 조회 실패: {_html.escape(str(e))}", parse_mode="HTML")
 
 
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
