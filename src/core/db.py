@@ -62,9 +62,10 @@ class _Table:
             params["count"] = count
         return _Query(self._session, "GET", self._url, params=params)
 
-    def insert(self, data) -> _Query:
+    def insert(self, data, returning: bool = False) -> _Query:
+        prefer = "return=representation" if returning else "return=minimal"
         return _Query(self._session, "POST", self._url, json=data,
-                      extra_headers={"Prefer": "return=minimal"})
+                      extra_headers={"Prefer": prefer})
 
     def upsert(self, data) -> _Query:
         return _Query(self._session, "POST", self._url, json=data,

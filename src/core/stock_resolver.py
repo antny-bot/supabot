@@ -165,7 +165,13 @@ async def resolve_kr_stock_name(
 
 
 async def _search_via_kis(adapter, user_id: str, name: str) -> str | None:
-    """KIS CTPF1702R — 종목명으로 종목코드 검색 (KOSPI+KOSDAQ)."""
+    """KIS CTPF1702R — 종목명으로 종목코드 검색 (KOSPI+KOSDAQ).
+
+    정확히 일치하는 종목명을 최우선으로 채택한다. 정확 일치가 없으면 접두
+    일치 후보가 단 하나일 때만 채택하고, 모호하면(0개 또는 2개 이상) None을
+    반환한다 — 실거래 봇에서 추측으로 다른 종목을 매수/매도하는 것을 막기 위함.
+    """
+    candidates = []
     for mket in ("STK", "KSQ"):  # KOSPI → KOSDAQ 순
         res = await adapter._request_kis(
             user_id,
@@ -184,14 +190,21 @@ async def _search_via_kis(adapter, user_id: str, name: str) -> str | None:
         output = res.get("output") or []
         if isinstance(output, dict):
             output = [output]
-        for item in output:
-            code = item.get("pdno") or item.get("PDNO")
-            item_name = item.get("prdt_abrv_name") or item.get("PRDT_ABRV_NAME") or ""
-            if code and (item_name == name or item_name.startswith(name)):
-                return code
-        # 첫 번째 결과라도 반환 (유사 검색)
-        if output:
-            code = output[0].get("pdno") or output[0].get("PDNO")
-            if code:
-                return code
+        candidates.extend(output)
+
+    for item in candidates:
+        code = item.get("pdno") or item.get("PDNO")
+        item_name = item.get("prdt_abrv_name") or item.get("PRDT_ABRV_NAME") or ""
+        if code and item_name == name:
+            return code
+
+    prefix_matches = {
+        item.get("pdno") or item.get("PDNO")
+        for item in candidates
+        if (item.get("prdt_abrv_name") or item.get("PRDT_ABRV_NAME") or "").startswith(name)
+        and (item.get("pdno") or item.get("PDNO"))
+    }
+    if len(prefix_matches) == 1:
+        return next(iter(prefix_matches))
+
     return None

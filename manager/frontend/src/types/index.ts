@@ -283,6 +283,7 @@ export interface NlLogRow {
   preprocessed: string | null
   llm_action: string | null
   final_action: string | null
+  confirm_status: string | null
   logged_at: number
   logged_at_fmt: string
 }

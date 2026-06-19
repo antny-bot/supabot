@@ -105,6 +105,7 @@ CREATE TABLE IF NOT EXISTS nl_logs (
   final_action TEXT,
   logged_at    DOUBLE PRECISION NOT NULL  -- Unix timestamp
 );
+ALTER TABLE nl_logs ADD COLUMN IF NOT EXISTS confirm_status TEXT;  -- auto|pending|confirmed|rejected|expired
 
 -- ── System Config ──────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS system_config (
