@@ -46,6 +46,19 @@ def test_natural_language_export_limits_and_uses_sanitized_text(tmp_path):
     assert "TOKENabcdef" not in str(rows)
 
 
+def test_extract_ticker_from_text_prefers_longer_specific_name():
+    # "포스코퓨처엠"이 "포스코"(그 자체로도 유효한 별칭)의 부분 문자열이므로,
+    # 길이 내림차순 매칭이 없으면 짧은 "포스코"(005490)가 먼저 잡혀버린다.
+    assert nl._extract_ticker_from_text("포스코퓨처엠 시세 알려줘") == "003670"
+    assert nl._extract_ticker_from_text("포스코 시세 알려줘") == "005490"
+
+
+def test_extract_ticker_from_text_covers_expanded_kr_stock_map():
+    # stock_resolver._KR_NAME_MAP과 통합되면서 새로 인식 가능해진 종목명들.
+    assert nl._extract_ticker_from_text("카카오 시세 알려줘") == "035720"
+    assert nl._extract_ticker_from_text("SK하이닉스 시세 알려줘") == "000660"
+
+
 def test_clear_natural_language_operational_logs(tmp_path):
     log_path = tmp_path / "nl_unmatched.jsonl"
     hit_path = tmp_path / "hits.json"

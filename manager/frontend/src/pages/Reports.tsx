@@ -816,11 +816,12 @@ function NlLogsSection() {
               <th className={TH}>전처리</th>
               <th className={TH}>LLM 액션</th>
               <th className={TH}>최종 액션</th>
+              <th className={TH}>상태</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
             {rows.length === 0 ? (
-              <tr><td colSpan={6} className={`${TD} text-center text-slate-400`}>데이터 없음</td></tr>
+              <tr><td colSpan={7} className={`${TD} text-center text-slate-400`}>데이터 없음</td></tr>
             ) : rows.map((row) => (
               <tr key={row.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                 <td className={`${TD} whitespace-nowrap font-mono text-slate-500`}>{row.logged_at_fmt}</td>
@@ -829,6 +830,7 @@ function NlLogsSection() {
                 <td className={`${TD} max-w-[180px] truncate text-slate-500`} title={row.preprocessed ?? ''}>{row.preprocessed ?? '—'}</td>
                 <td className={`${TD} whitespace-nowrap`}>{row.llm_action ?? '—'}</td>
                 <td className={`${TD} whitespace-nowrap font-medium`}>{row.final_action ?? '—'}</td>
+                <td className={`${TD} whitespace-nowrap`}>{row.confirm_status ? <Badge value={row.confirm_status} /> : '—'}</td>
               </tr>
             ))}
           </tbody>

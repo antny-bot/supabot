@@ -585,7 +585,7 @@ async def api_nl_logs(request: Request, period: str = "7d", limit: int = 200):
     limit = max(1, min(limit, 500))
     try:
         db = get_db()
-        q = db.table("nl_logs").select("id,user_id,raw_text,llm_action,final_action,logged_at")
+        q = db.table("nl_logs").select("id,user_id,raw_text,llm_action,final_action,confirm_status,logged_at")
         q = q.order("logged_at", desc=True).limit(limit)
         window_start, _ = _resolve_window(period, None, None)
         if window_start:
@@ -607,6 +607,7 @@ async def api_nl_logs(request: Request, period: str = "7d", limit: int = 200):
                 "raw_text": r.get("raw_text") or "",
                 "llm_action": r.get("llm_action") or "",
                 "final_action": r.get("final_action") or "",
+                "confirm_status": r.get("confirm_status") or "",
                 "logged_at_fmt": _fmt_ts(r.get("logged_at")),
             }
             for r in rows
@@ -699,6 +700,7 @@ async def api_reports_nl_logs(request: Request, limit: int = 100, offset: int = 
                 "preprocessed": row.get("preprocessed"),
                 "llm_action": row.get("llm_action"),
                 "final_action": row.get("final_action"),
+                "confirm_status": row.get("confirm_status"),
                 "logged_at": ts,
                 "logged_at_fmt": fmt,
             })

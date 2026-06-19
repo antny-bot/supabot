@@ -6,6 +6,7 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 from core.db import get_db, is_db_available
+from core.stock_resolver import _KR_NAME_MAP
 
 
 KST = timezone(timedelta(hours=9))
@@ -57,8 +58,12 @@ TICKER_ALIASES = {
     "이더": "ETH",
     "이더리움": "ETH",
     "리플": "XRP",
-    "삼성전자": "005930",
+    # 한국 주식 종목명은 stock_resolver._KR_NAME_MAP을 단일 소스로 재사용.
+    # _compact_text()가 입력을 소문자화하므로 "SK하이닉스" 같은 영문 포함 키도 소문자로 맞춘다.
+    **{k.lower(): v for k, v in _KR_NAME_MAP.items()},
 }
+# 긴 종목명이 짧은 별칭에 잘못 흡수되지 않도록(예: "삼성전자우"가 "삼성전자"로 매칭) 길이 내림차순으로 검사
+_TICKER_ALIAS_KEYS_DESC = sorted(TICKER_ALIASES.keys(), key=len, reverse=True)
 
 
 def _extract_rsi_range_from_text(text):
@@ -126,9 +131,9 @@ def _extract_ticker_from_text(text):
     if stock_match:
         return stock_match.group(1)
     compact = _compact_text(text)
-    for label, ticker in TICKER_ALIASES.items():
+    for label in _TICKER_ALIAS_KEYS_DESC:
         if label in compact:
-            return ticker
+            return TICKER_ALIASES[label]
     for match in re.finditer(r"[A-Za-z]{2,10}", text):
         token = match.group(0).upper()
         if token not in {"RSI", "KRW", "UPBIT", "BITHUMB", "KIS"}:
@@ -305,7 +310,8 @@ def _trim_jsonl_file(path, max_lines):
         print(f"NL log trim error: {e}")
 
 
-def append_natural_language_log(text, llm_intent, final_intent, path=NL_UNMATCHED_LOG_PATH, user_id=None):
+def append_natural_language_log(text, llm_intent, final_intent, path=NL_UNMATCHED_LOG_PATH, user_id=None, confirm_status=None):
+    """nl_logs에 기록하고, DB 사용 시 삽입된 행의 id를 반환한다(추후 accept/reject 상태 갱신용)."""
     ts = time.time()
     row = {
         "ts": datetime.now(KST).isoformat(timespec="seconds"),
@@ -313,15 +319,19 @@ def append_natural_language_log(text, llm_intent, final_intent, path=NL_UNMATCHE
         "llm_action": (llm_intent or {}).get("action"),
         "final_action": (final_intent or {}).get("action"),
     }
+    log_id = None
     if is_db_available():
         try:
-            get_db().table("nl_logs").insert({
+            res = get_db().table("nl_logs").insert({
                 "user_id": str(user_id) if user_id else None,
                 "raw_text": sanitize_natural_language_log_text(text),
                 "llm_action": row["llm_action"],
                 "final_action": row["final_action"],
+                "confirm_status": confirm_status,
                 "logged_at": ts,
-            }).execute()
+            }, returning=True).execute()
+            if res.data:
+                log_id = res.data[0].get("id")
         except Exception:
             pass
     try:
@@ -334,6 +344,17 @@ def append_natural_language_log(text, llm_intent, final_intent, path=NL_UNMATCHE
         _trim_jsonl_file(path, NL_UNMATCHED_LOG_MAX_LINES)
     except Exception as e:
         print(f"NL log append error: {e}")
+    return log_id
+
+
+def update_natural_language_log_outcome(log_id, confirm_status):
+    """확인 버튼(✅실행/❌취소) 결과를 nl_logs.confirm_status에 반영한다."""
+    if not log_id or not is_db_available():
+        return
+    try:
+        get_db().table("nl_logs").update({"confirm_status": confirm_status}).eq("id", log_id).execute()
+    except Exception:
+        pass
 
 
 def append_preprocess_hit(intent, path=NL_PREPROCESS_HIT_PATH):
