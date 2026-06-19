@@ -95,6 +95,7 @@ async def test_rsitrade_command_no_budget_shows_error(monkeypatch):
 
     # RSI 지원 여부 확인용 (KIS 아니므로 통과)
     mock_adapter = MagicMock()
+    mock_adapter.resolve_ticker = AsyncMock(side_effect=lambda user_id, exchange, ticker: ticker)
     monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
 
     update = _make_update(text="/rsitrade KRW-BTC")

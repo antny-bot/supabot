@@ -7,7 +7,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 import main
-from main import check_auth, check_details_help, ensure_rsi_supported
+from main import check_auth, check_details_help, ensure_rsi_supported, resolve_ticker_for_command
 from core.parsers import (
     parse_exchange_and_ticker, is_exchange_token, parse_number, validate_max_order,
     parse_rsi_range, interpolate_range, get_user_rsi_interval, get_dca_weights,
@@ -117,8 +117,13 @@ async def grid_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
         )
         return
 
+    user_id = str(update.effective_chat.id)
     default_exchange = user["preferences"].get("default_exchange", "upbit")
-    exchange, ticker = parse_exchange_and_ticker(args, default_exchange)
+    exchange, ticker = await resolve_ticker_for_command(
+        update, user_id, args, default_exchange, "/grid kis 000250 50000 60000 5 100만"
+    )
+    if ticker is None:
+        return
 
     # args 인덱스 보정 (거래소 명시 여부에 따라 파라미터 위치가 다름)
     offset = 2 if is_exchange_token(args[0], exchange) else 1
@@ -182,8 +187,13 @@ async def sgrid_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
         )
         return
 
+    user_id = str(update.effective_chat.id)
     default_exchange = user["preferences"].get("default_exchange", "upbit")
-    exchange, ticker = parse_exchange_and_ticker(args, default_exchange)
+    exchange, ticker = await resolve_ticker_for_command(
+        update, user_id, args, default_exchange, "/sgrid kis 000250 50000 60000 5 10"
+    )
+    if ticker is None:
+        return
     offset = 2 if is_exchange_token(args[0], exchange) else 1
 
     try:
@@ -298,9 +308,14 @@ async def rsitrade_command(update: Update, context: ContextTypes.DEFAULT_TYPE, u
 
     user_id = str(update.effective_chat.id)
     default_exchange = user["preferences"].get("default_exchange", "upbit")
-    exchange, ticker = parse_exchange_and_ticker(args, default_exchange)
-    if not ticker:
+    _, raw_ticker = parse_exchange_and_ticker(args, default_exchange)
+    if not raw_ticker:
         await update.message.reply_text("⚠️ 종목은 반드시 입력해야 합니다. 예: /rsitrade BTC")
+        return
+    exchange, ticker = await resolve_ticker_for_command(
+        update, user_id, args, default_exchange, "/rsitrade kis 000250"
+    )
+    if ticker is None:
         return
     if not await ensure_rsi_supported(update, user, exchange):
         return
@@ -440,9 +455,14 @@ async def sgridrsi_command(update: Update, context: ContextTypes.DEFAULT_TYPE, u
 
     user_id = str(update.effective_chat.id)
     default_exchange = user["preferences"].get("default_exchange", "upbit")
-    exchange, ticker = parse_exchange_and_ticker(args, default_exchange)
-    if not ticker:
+    _, raw_ticker = parse_exchange_and_ticker(args, default_exchange)
+    if not raw_ticker:
         await update.message.reply_text("⚠️ 종목은 반드시 입력해야 합니다. 예: /sgridrsi ETH")
+        return
+    exchange, ticker = await resolve_ticker_for_command(
+        update, user_id, args, default_exchange, "/sgridrsi kis 000250"
+    )
+    if ticker is None:
         return
     if not await ensure_rsi_supported(update, user, exchange):
         return

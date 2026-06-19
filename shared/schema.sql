@@ -212,6 +212,27 @@ $$;
 --   'SELECT aggregate_command_logs_daily()'
 -- );
 
+-- ── Korean Stock Name Cache ────────────────────────────────────────────────
+-- 종목명 → 종목코드 캐시. KIS API 호출 최소화 목적.
+-- updated_at 기준 TTL(90일) 초과 시 KIS API 재검증 후 upsert.
+-- 종목명 변경·코드 재배정 시나리오 모두 TTL로 처리.
+CREATE TABLE IF NOT EXISTS kr_stock_cache (
+  name       TEXT PRIMARY KEY,          -- 한글 종목명 (e.g. 삼천당제약)
+  code       TEXT NOT NULL,             -- 종목코드 6자리 (e.g. 000250)
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- updated_at 자동 갱신 트리거
+CREATE OR REPLACE FUNCTION update_kr_stock_cache_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN NEW.updated_at = now(); RETURN NEW; END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS kr_stock_cache_updated_at ON kr_stock_cache;
+CREATE TRIGGER kr_stock_cache_updated_at
+  BEFORE UPDATE ON kr_stock_cache
+  FOR EACH ROW EXECUTE FUNCTION update_kr_stock_cache_updated_at();
+
 -- ── Row Level Security ─────────────────────────────────────────────────────
 ALTER TABLE users             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE orders            ENABLE ROW LEVEL SECURITY;
@@ -222,6 +243,7 @@ ALTER TABLE system_config     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE strategy_templates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE command_logs       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE command_log_daily  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE kr_stock_cache     ENABLE ROW LEVEL SECURITY;
 
 -- ── Grants (SQL로 생성 시 자동 부여되지 않으므로 명시 필요) ────────────────
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;

@@ -5,7 +5,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 import main
-from main import check_auth, check_details_help
+from main import check_auth, check_details_help, resolve_ticker_for_command
 from core.parsers import normalize_exchange, exchange_display_name, parse_exchange_and_ticker
 from core.formatters import build_report_view, build_cancel_confirm_message
 from core.trade_log import read_trades
@@ -144,7 +144,9 @@ async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
         return
 
     default_exchange = user["preferences"].get("default_exchange", "upbit")
-    exchange, ticker = parse_exchange_and_ticker(args, default_exchange)
+    exchange, ticker = await resolve_ticker_for_command(update, user_id, args, default_exchange)
+    if ticker is None:
+        return
 
     orders = [o for o in main.order_manager.get_user_orders(user_id, exchange) if o['ticker'] == ticker]
     if not orders:
@@ -299,10 +301,16 @@ async def indicators_command(update: Update, context: ContextTypes.DEFAULT_TYPE,
     # 마지막 인자가 봉기준(숫자 또는 day)이면 분리
     if len(args) >= 2 and args[-1].lower() in ("day", "1", "3", "5", "10", "15", "30", "60", "240"):
         interval = args[-1].lower()
-        exchange, ticker = parse_exchange_and_ticker(args[:-1], default_exchange)
+        ticker_args = args[:-1]
     else:
         interval = user["preferences"].get("rsi_interval", "day")
-        exchange, ticker = parse_exchange_and_ticker(args, default_exchange)
+        ticker_args = args
+
+    exchange, ticker = await resolve_ticker_for_command(
+        update, user_id, ticker_args, default_exchange, f"/indicators {default_exchange} 000250"
+    )
+    if ticker is None:
+        return
 
     await update.message.reply_text(f"⏳ {exchange_display_name(exchange)} {ticker} 지표 계산 중...")
 
@@ -362,7 +370,9 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE, us
     user_id = str(update.effective_chat.id)
     default_exchange = user["preferences"].get("default_exchange", "upbit")
 
-    exchange, ticker = parse_exchange_and_ticker(context.args, default_exchange)
+    exchange, ticker = await resolve_ticker_for_command(update, user_id, context.args or [], default_exchange)
+    if context.args and ticker is None:
+        return
 
     history = await main.exchange_adapter.get_order_history(user_id, exchange, ticker)
     if not history:

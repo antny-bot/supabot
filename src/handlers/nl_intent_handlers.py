@@ -206,6 +206,8 @@ async def execute_confirmed_intent(query, context, user, intent):
     exchange = intent.get("exchange") or user.get("preferences", {}).get("default_exchange", "upbit")
     raw_ticker = intent.get("ticker")
     _, ticker = parse_exchange_and_ticker([exchange, raw_ticker] if raw_ticker else [exchange], exchange)
+    if ticker:
+        ticker = await main.exchange_adapter.resolve_ticker(user_id, exchange, ticker)
 
     if action == "config_set":
         key = str(intent.get("config_key") or "").strip().lower()

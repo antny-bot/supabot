@@ -213,6 +213,27 @@ async def ensure_rsi_supported(update, user, exchange):
         return False
     return True
 
+
+async def resolve_ticker_for_command(
+    update, user_id: str, args: list, default_exchange: str, cmd_hint: str = ""
+):
+    """parse_exchange_and_ticker + resolve_ticker 를 합친 핸들러 공통 헬퍼.
+
+    Returns (exchange, ticker) on success, ticker may be None if not provided in args.
+    Returns (exchange, None) with error already sent if Korean name resolution failed.
+    """
+    exchange, raw = parse_exchange_and_ticker(args, default_exchange)
+    if not raw:
+        return exchange, None
+    ticker = await exchange_adapter.resolve_ticker(user_id, exchange, raw)
+    if exchange in ("kis", "toss") and ticker and any('가' <= c <= '힣' for c in ticker):
+        hint = f"\n예: {cmd_hint}" if cmd_hint else ""
+        await update.message.reply_text(
+            f"⚠️ {exchange_display_name(exchange)}은 종목코드로 입력하세요.{hint}"
+        )
+        return exchange, None
+    return exchange, ticker
+
 LLM_COMMAND_CATALOG = "\n".join([
     "asset req=- opt=exchange run=now ex=show my assets",
     "price req=ticker opt=exchange run=now ex=btc price",

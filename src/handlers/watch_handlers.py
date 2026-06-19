@@ -3,7 +3,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 import main
-from main import check_auth, check_details_help, ensure_rsi_supported
+from main import check_auth, check_details_help, ensure_rsi_supported, resolve_ticker_for_command
 from core.parsers import parse_exchange_and_ticker
 
 
@@ -17,22 +17,21 @@ async def watch_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
         return
 
     default_exchange = user["preferences"].get("default_exchange", "upbit")
-    exchange, ticker = parse_exchange_and_ticker(args, default_exchange)
+    _, raw_ticker = parse_exchange_and_ticker(args, default_exchange)
+    exchange, ticker = await resolve_ticker_for_command(update, user_id, args, default_exchange)
+    if ticker is None:
+        return
 
     if not await ensure_rsi_supported(update, user, exchange):
         return
 
-    resolved = await main.exchange_adapter.resolve_ticker(user_id, exchange, ticker)
-    if resolved != ticker:
-        display_name = ticker
-        ticker = resolved
-    else:
-        display_name = ticker
-
+    display_name = raw_ticker if raw_ticker != ticker else ticker
     if main.user_manager.add_watchlist(user_id, exchange, ticker):
-        await update.message.reply_text(f"✅ {exchange.upper()}의 {display_name}({ticker})가 관심 종목에 등록되었습니다. RSI 시그널을 감시합니다.")
+        label = f"{display_name}({ticker})" if display_name != ticker else ticker
+        await update.message.reply_text(f"✅ {exchange.upper()}의 {label}가 관심 종목에 등록되었습니다. RSI 시그널을 감시합니다.")
     else:
-        await update.message.reply_text(f"ℹ️ {display_name}({ticker})는 이미 관심 종목에 등록되어 있습니다.")
+        label = f"{display_name}({ticker})" if display_name != ticker else ticker
+        await update.message.reply_text(f"ℹ️ {label}는 이미 관심 종목에 등록되어 있습니다.")
 
 
 @check_auth
@@ -45,9 +44,8 @@ async def unwatch_command(update: Update, context: ContextTypes.DEFAULT_TYPE, us
         return
 
     default_exchange = user["preferences"].get("default_exchange", "upbit")
-    exchange, ticker = parse_exchange_and_ticker(args, default_exchange)
-
-    if not await ensure_rsi_supported(update, user, exchange):
+    exchange, ticker = await resolve_ticker_for_command(update, user_id, args, default_exchange)
+    if ticker is None:
         return
 
     if main.user_manager.remove_watchlist(user_id, exchange, ticker):
