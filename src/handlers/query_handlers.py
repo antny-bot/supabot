@@ -260,18 +260,25 @@ async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     low = float(ticker_data.get('low_price', 0))
     volume = float(ticker_data.get('acc_trade_price_24h', 0))
     stock_name = ticker_data.get('stock_name', '')
+    currency = ticker_data.get('currency', 'KRW')
+    unit = "원" if currency == "KRW" else f" {currency}"
+    price_fmt = "{:,.0f}" if currency == "KRW" else "{:,.2f}"
 
     change_emoji = "📈" if change_rate > 0 else "📉" if change_rate < 0 else "➖"
 
     ticker_label = f"{stock_name} ({ticker})" if stock_name else ticker
     msg = (
         f"📊 <b>[{exchange_display_name(exchange)}] {ticker_label}</b> 실시간 시세\n\n"
-        f"현재가: <b>{price:,.0f}원</b> {change_emoji}\n"
-        f"전일대비: {change_rate:+.2f}% ({change_price:,.0f}원)\n"
-        f"고가(24H): {high:,.0f}원\n"
-        f"저가(24H): {low:,.0f}원\n"
-        f"거래대금: {volume/100000000:,.1f}억원"
+        f"현재가: <b>{price_fmt.format(price)}{unit}</b> {change_emoji}\n"
+        f"전일대비: {change_rate:+.2f}% ({price_fmt.format(change_price)}{unit})"
     )
+    if high or low:
+        msg += (
+            f"\n고가(24H): {price_fmt.format(high)}{unit}\n"
+            f"저가(24H): {price_fmt.format(low)}{unit}"
+        )
+    if volume:
+        msg += f"\n거래대금: {volume/100000000:,.1f}억{unit}" if currency == "KRW" else f"\n거래대금: {volume:,.0f}{unit}"
 
     if indicators:
         technical_parts = []
@@ -281,7 +288,7 @@ async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
         for period in [7, 14, 30, 90]:
             ma_val = indicators.get(f"ma{period}")
             if ma_val is not None:
-                technical_parts.append(f"MA{period}: {ma_val:,.0f}원")
+                technical_parts.append(f"MA{period}: {price_fmt.format(ma_val)}{unit}")
         if technical_parts:
             msg += "\n\n📈 <b>기술지표 (일봉)</b>\n" + "\n".join(technical_parts)
 
