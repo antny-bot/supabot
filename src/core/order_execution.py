@@ -64,15 +64,19 @@ async def execute_grid_orders(
 
     for i in range(count):
         target_price = start_price + (price_step * i)
-        target_price = ExchangeAdapter.adjust_price_to_tick(target_price)
+        target_price = (
+            ExchangeAdapter.adjust_krx_price_to_tick(target_price)
+            if exchange in ("kis", "toss")
+            else ExchangeAdapter.adjust_price_to_tick(target_price)
+        )
 
         if is_sell:
             raw_vol = budget_or_volume / count
         else:
             raw_vol = (budget_or_volume / count) / target_price if target_price else 0
-        volume = int(raw_vol) if exchange == "kis" else round(raw_vol, 4)
+        volume = int(raw_vol) if exchange in ("kis", "toss") else round(raw_vol, 4)
 
-        if exchange == "kis" and volume <= 0:
+        if exchange in ("kis", "toss") and volume <= 0:
             skipped_count += 1
             continue
 
@@ -140,6 +144,7 @@ async def execute_rsitrade_orders(
     interval = get_user_rsi_interval(user)
 
     success = 0
+    skipped_count = 0
     for i in range(count):
         target_rsi = interpolate_range(b_start, b_end, i, count)
         sell_target_rsi = interpolate_range(s_start, s_end, i, count) if has_sell else None
@@ -151,9 +156,10 @@ async def execute_rsitrade_orders(
             await asyncio.sleep(ORDER_PLACEMENT_SLEEP_SECONDS)
             continue
         volume = round(per_order_budgets[i] / price, 4)
-        if exchange == "kis":
+        if exchange in ("kis", "toss"):
             volume = int(volume)
             if volume <= 0:
+                skipped_count += 1
                 await asyncio.sleep(ORDER_PLACEMENT_SLEEP_SECONDS)
                 continue
 
@@ -172,13 +178,15 @@ async def execute_rsitrade_orders(
         await asyncio.sleep(ORDER_PLACEMENT_SLEEP_SECONDS)
 
     result_msg = f"✅ `{ticker}` RSI 순환 매매 전략 가동 완료! ({success}/{count}건 예약됨)\n백그라운드에서 RSI 체결을 감시합니다."
+    if skipped_count:
+        result_msg += f"\n⚠️ {skipped_count}건은 예산으로 1주도 매수할 수 없어 건너뜀."
     if success:
         result_msg += f"\n배치 #{group_no}"
 
     _trigger_sync(trigger_sync_fn)
     await _send_result_message(bot, notify_chat_id, result_msg, log)
 
-    return {"success": success, "ct": count, "group_no": group_no}
+    return {"success": success, "skipped_count": skipped_count, "ct": count, "group_no": group_no}
 
 
 async def execute_sgridrsi_orders(
@@ -210,6 +218,7 @@ async def execute_sgridrsi_orders(
     interval = get_user_rsi_interval(user)
 
     success = 0
+    skipped_count = 0
     for i in range(count):
         target_rsi = interpolate_range(s_start, s_end, i, count)
         price = await signal_engine.get_price_by_rsi(
@@ -220,9 +229,10 @@ async def execute_sgridrsi_orders(
             await asyncio.sleep(ORDER_PLACEMENT_SLEEP_SECONDS)
             continue
         volume = round(budget_per_order / price, 4)
-        if exchange == "kis":
+        if exchange in ("kis", "toss"):
             volume = int(volume)
             if volume <= 0:
+                skipped_count += 1
                 await asyncio.sleep(ORDER_PLACEMENT_SLEEP_SECONDS)
                 continue
 
@@ -241,8 +251,10 @@ async def execute_sgridrsi_orders(
         await asyncio.sleep(ORDER_PLACEMENT_SLEEP_SECONDS)
 
     result_msg = f"✅ {ticker} RSI 매도 전략 가동 완료! ({success}/{count}건 예약됨, 배치 #{group_no})"
+    if skipped_count:
+        result_msg += f"\n⚠️ {skipped_count}건은 예산으로 1주도 매도할 수 없어 건너뜀."
 
     _trigger_sync(trigger_sync_fn)
     await _send_result_message(bot, notify_chat_id, result_msg, log)
 
-    return {"success": success, "ct": count, "group_no": group_no}
+    return {"success": success, "skipped_count": skipped_count, "ct": count, "group_no": group_no}

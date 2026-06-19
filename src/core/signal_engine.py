@@ -182,6 +182,8 @@ class SignalEngine:
         else:
             target_price *= 1 + buffer
 
+        if exchange in ("kis", "toss"):
+            return self.exchange_adapter.adjust_krx_price_to_tick(target_price)
         return self.exchange_adapter.adjust_price_to_tick(target_price)
 
     async def analyze_watchlist(self, application):

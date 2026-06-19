@@ -12,6 +12,7 @@ import {
   fetchReportHoldings,
   fetchReportPairs,
   fetchReportWinStats,
+  fetchReportNlLogs,
 } from '../api/reports'
 import type {
   PnlReport,
@@ -21,7 +22,9 @@ import type {
   HoldingsReport,
   PairsReport,
   WinStatsReport,
+  NlLogRow,
 } from '../types'
+import { useAuthContext } from '../contexts/AuthContext'
 import Badge from '../components/ui/Badge'
 import DateRangePicker, { type DateRangeValue } from '../components/ui/DateRangePicker'
 import ProgressBar from '../components/ui/ProgressBar'
@@ -32,13 +35,14 @@ import { PAGE_META } from '../config/pageMeta'
 import { staggerDelay, staggerDelayMs } from '../utils/animation'
 
 const REPORT_TABS = [
-  { id: 'holdings', label: '현재 투자중' },
-  { id: 'pnl',      label: '실현 손익' },
-  { id: 'monthly',  label: '월별 손익' },
-  { id: 'strategy', label: '전략별 분석' },
-  { id: 'ranking',  label: '수익률 랭킹' },
-  { id: 'pairs',    label: '거래 페어' },
-  { id: 'winstats', label: '승률/손익비' },
+  { id: 'holdings', label: '현재 투자중', adminOnly: false },
+  { id: 'pnl',      label: '실현 손익',   adminOnly: false },
+  { id: 'monthly',  label: '월별 손익',   adminOnly: false },
+  { id: 'strategy', label: '전략별 분석', adminOnly: false },
+  { id: 'ranking',  label: '수익률 랭킹', adminOnly: false },
+  { id: 'pairs',    label: '거래 페어',   adminOnly: false },
+  { id: 'winstats', label: '승률/손익비', adminOnly: false },
+  { id: 'nllogs',   label: 'NL 로그',     adminOnly: true  },
 ]
 
 function krwFmt(n: number) {
@@ -777,6 +781,65 @@ function WinStatsSection({ dateRange }: { dateRange: DateRangeValue }) {
   )
 }
 
+// ── NlLogsSection ─────────────────────────────────────────────────────────
+
+function NlLogsSection() {
+  const [rows, setRows] = useState<NlLogRow[]>([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setLoading(true)
+    setError(null)
+    fetchReportNlLogs(200)
+      .then((data) => { setRows(data.rows); setTotal(data.total) })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류 발생'))
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading) return <Spinner />
+  if (error) return <ErrorBanner message={error} />
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-slate-500 dark:text-slate-400">
+        총 {total.toLocaleString()}건 (최근 200건 표시) — 미처리 자연어 익명 로그
+      </p>
+      <div className={`${CARD} overflow-x-auto`}>
+        <table className="w-full text-xs">
+          <thead className="border-b border-slate-200 dark:border-slate-800 text-left text-slate-500 dark:text-slate-400">
+            <tr>
+              <th className={TH}>시각</th>
+              <th className={TH}>유저</th>
+              <th className={TH}>원문</th>
+              <th className={TH}>전처리</th>
+              <th className={TH}>LLM 액션</th>
+              <th className={TH}>최종 액션</th>
+              <th className={TH}>상태</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+            {rows.length === 0 ? (
+              <tr><td colSpan={7} className={`${TD} text-center text-slate-400`}>데이터 없음</td></tr>
+            ) : rows.map((row) => (
+              <tr key={row.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                <td className={`${TD} whitespace-nowrap font-mono text-slate-500`}>{row.logged_at_fmt}</td>
+                <td className={`${TD} whitespace-nowrap text-slate-500`}>{row.user_id ?? '—'}</td>
+                <td className={`${TD} max-w-[200px] truncate`} title={row.raw_text}>{row.raw_text}</td>
+                <td className={`${TD} max-w-[180px] truncate text-slate-500`} title={row.preprocessed ?? ''}>{row.preprocessed ?? '—'}</td>
+                <td className={`${TD} whitespace-nowrap`}>{row.llm_action ?? '—'}</td>
+                <td className={`${TD} whitespace-nowrap font-medium`}>{row.final_action ?? '—'}</td>
+                <td className={`${TD} whitespace-nowrap`}>{row.confirm_status ? <Badge value={row.confirm_status} /> : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 // ── Reports (main page) ───────────────────────────────────────────────────
 
 const PERIOD_SENSITIVE_TABS = new Set(['pnl', 'strategy', 'ranking', 'pairs', 'winstats'])
@@ -784,6 +847,9 @@ const PERIOD_SENSITIVE_TABS = new Set(['pnl', 'strategy', 'ranking', 'pairs', 'w
 const DEFAULT_RANGE: DateRangeValue = { mode: '30d', from: '', to: '' }
 
 export default function Reports() {
+  const { user } = useAuthContext()
+  const isAdmin = user?.is_admin ?? false
+  const visibleTabs = REPORT_TABS.filter((t) => !t.adminOnly || isAdmin)
   const [activeTab, setActiveTab] = useState('holdings')
   const [dateRange, setDateRange] = useState<DateRangeValue>(DEFAULT_RANGE)
   const [dateFilterOpen, setDateFilterOpen] = useState(false)
@@ -796,7 +862,7 @@ export default function Reports() {
       <div className="md:border-b md:border-slate-200 md:dark:border-slate-800">
         {/* mobile */}
         <div className="flex md:hidden overflow-x-auto gap-2 pb-2 scrollbar-none snap-x snap-mandatory">
-          {REPORT_TABS.map((tab) => (
+          {visibleTabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
@@ -812,7 +878,7 @@ export default function Reports() {
         </div>
         {/* desktop */}
         <div className="hidden md:flex gap-1.5 pb-0">
-          {REPORT_TABS.map((tab) => (
+          {visibleTabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
@@ -843,6 +909,7 @@ export default function Reports() {
         {activeTab === 'holdings' && <HoldingsSection />}
         {activeTab === 'pairs'    && <PairsSection dateRange={dateRange} />}
         {activeTab === 'winstats' && <WinStatsSection dateRange={dateRange} />}
+        {activeTab === 'nllogs'   && isAdmin && <NlLogsSection />}
       </div>
     </div>
   )

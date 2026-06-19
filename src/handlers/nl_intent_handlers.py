@@ -19,6 +19,7 @@ from core.natural_language import (
     append_preprocess_hit,
     normalize_natural_language_intent,
     preprocess_natural_language_intent,
+    update_natural_language_log_outcome,
     _looks_like_rsi_split_request,
 )
 from core.parsers import (
@@ -318,7 +319,8 @@ async def natural_language_command(update: Update, context: ContextTypes.DEFAULT
     text = (update.message.text or "").strip()
     if not text or text.startswith("/"):
         return
-    log_command(str(update.effective_user.id), "nl", source="nl")
+    user_id = str(update.effective_user.id)
+    log_command(user_id, "nl", source="nl")
     prefs = user.get("preferences", {})
 
     preprocessed = preprocess_natural_language_intent(text, user)
@@ -328,12 +330,14 @@ async def natural_language_command(update: Update, context: ContextTypes.DEFAULT
             await update.message.reply_text(preprocessed.get("question") or _clarify_message(text, preprocessed))
             return
         if _is_immediate_intent(preprocessed.get("action")):
+            append_natural_language_log(text, None, preprocessed, user_id=user_id, confirm_status="auto")
             await execute_query_intent(update, context, user, preprocessed)
             return
         intent = normalize_natural_language_intent(text, preprocessed, user)
+        log_id = append_natural_language_log(text, None, intent, user_id=user_id, confirm_status="pending")
         confirm_text = f"🧠 자연어 요청 확인\n\n{_intent_summary(intent)}\n\n위 내용으로 실행할까요?"
         token = str(len(main._pending_nl_intents) + 1)
-        main._pending_nl_intents[token] = {"user_id": str(update.effective_chat.id), "intent": intent}
+        main._pending_nl_intents[token] = {"user_id": str(update.effective_chat.id), "intent": intent, "log_id": log_id}
         keyboard = [[InlineKeyboardButton("✅ 실행", callback_data=f"nlrun|{token}"),
                      InlineKeyboardButton("❌ 취소", callback_data=f"nlcancel|{token}")]]
         await update.message.reply_text(confirm_text, reply_markup=InlineKeyboardMarkup(keyboard))
@@ -345,14 +349,16 @@ async def natural_language_command(update: Update, context: ContextTypes.DEFAULT
 
     llm_intent = await parse_natural_language_intent(text, user)
     intent = normalize_natural_language_intent(text, llm_intent, user)
-    append_natural_language_log(text, llm_intent, intent)
-    if not intent or intent.get("action") in [None, "clarify"]:
+    action = intent.get("action") if isinstance(intent, dict) else None
+    is_immediate = _is_immediate_intent(action)
+    confirm_status = "auto" if (not intent or action in [None, "clarify"] or is_immediate) else "pending"
+    log_id = append_natural_language_log(text, llm_intent, intent, user_id=user_id, confirm_status=confirm_status)
+    if not intent or action in [None, "clarify"]:
         question = intent.get("question") if isinstance(intent, dict) else None
         await update.message.reply_text(question or _clarify_message(text, intent))
         return
 
-    action = intent.get("action")
-    if _is_immediate_intent(action):
+    if is_immediate:
         await execute_query_intent(update, context, user, intent)
         return
 
@@ -366,7 +372,7 @@ async def natural_language_command(update: Update, context: ContextTypes.DEFAULT
             return
 
     token = str(len(main._pending_nl_intents) + 1)
-    main._pending_nl_intents[token] = {"user_id": str(update.effective_chat.id), "intent": intent}
+    main._pending_nl_intents[token] = {"user_id": str(update.effective_chat.id), "intent": intent, "log_id": log_id}
     keyboard = [[InlineKeyboardButton("✅ 실행", callback_data=f"nlrun|{token}"),
                  InlineKeyboardButton("❌ 취소", callback_data=f"nlcancel|{token}")]]
     if action in ("rsitrade", "gridrsi", "sgridrsi"):
@@ -387,16 +393,19 @@ async def natural_language_confirm_callback(update: Update, context: ContextType
         await query.edit_message_text("⚠️ 만료된 자연어 요청입니다. 다시 입력해 주세요.")
         return
     if action == "nlcancel":
+        update_natural_language_log_outcome(pending.get("log_id"), "rejected")
         await query.edit_message_text("❌ 자연어 요청을 취소했습니다.")
         return
     user_id = str(query.from_user.id)
     if pending.get("user_id") != user_id:
+        update_natural_language_log_outcome(pending.get("log_id"), "expired")
         await query.edit_message_text("❌ 다른 사용자의 요청은 실행할 수 없습니다.")
         return
     user = main.user_manager.get_user(user_id)
     if not user or not user.get("is_active"):
         await query.edit_message_text("❌ 사용자 인증을 확인할 수 없습니다.")
         return
+    update_natural_language_log_outcome(pending.get("log_id"), "confirmed")
     try:
         await execute_confirmed_intent(query, context, user, pending["intent"])
     except Exception as e:

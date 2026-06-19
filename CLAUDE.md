@@ -1,7 +1,7 @@
 # CLAUDE.md — supabot 에이전트 진입점
 
 ## 프로젝트
-멀티유저·멀티거래소 텔레그램 자동매매 봇 (Upbit, Bithumb, KIS).
+멀티유저·멀티거래소 텔레그램 자동매매 봇 (Upbit, Bithumb, KIS, Toss).
 Docker on Oracle Cloud VM. 실거래 경로 포함 — 변경 전 반드시 `AGENTS.md` 확인.
 
 **모노레포 구조**: 봇은 `src/`, 관리 웹 UI는 `manager/`, 공유 DB 스키마는 `shared/schema.sql`.
@@ -13,9 +13,9 @@ Docker on Oracle Cloud VM. 실거래 경로 포함 — 변경 전 반드시 `AGE
 |------|------|-----------------|
 | `src/main.py` (~2134줄) | 텔레그램 핸들러, 폴링 루프, Gemini NL 라우팅, `/internal/notify` 서버 | `docs/impl/main_handlers.md` |
 | `src/core/db.py` (106줄) | Supabase REST 클라이언트 (requests 기반, httpx ALPN 회피) | — |
-| `src/core/exchange_adapter.py` (767줄) | 3거래소 통합 API 추상화 (+캔들 캐싱) | `docs/impl/exchange_adapter.md` |
+| `src/core/exchange_adapter.py` (1128줄) | 4거래소 통합 API 추상화 — Upbit/Bithumb/KIS/Toss (+캔들 캐싱) | `docs/impl/exchange_adapter.md` |
 | `src/core/formatters.py` (631줄) | Telegram 메시지 포매팅 (CMD_HELP 등) | — |
-| `src/core/user_manager.py` (370줄) | 유저 설정·권한 (DB 우선 + 파일 폴백, `status` 문자열) | `docs/impl/user_manager.md` |
+| `src/core/user_manager.py` (~390줄) | 유저 설정·권한 (DB 우선 + 파일 폴백, `status` 문자열) | `docs/impl/user_manager.md` |
 | `src/core/natural_language.py` (414줄) | NL 전처리 + `nl_logs` 기록 | `docs/detail/gemini_intent.md` |
 | `src/core/parsers.py` (275줄) | 거래소명·숫자(억/만)·RSI 파싱, KIS 세션 판정 | — |
 | `src/core/signal_engine.py` (207줄) | RSI 계산 + 목표가 역산 | `docs/impl/signal_engine.md` |
@@ -54,7 +54,7 @@ FastAPI 백엔드 + React/TypeScript(Vite+Tailwind) SPA 프론트엔드. Synolog
 ```jsonc
 {
   "user_id": "str",
-  "exchange": "upbit|bithumb|kis",
+  "exchange": "upbit|bithumb|kis|toss",
   "ticker": "KRW-BTC",
   "uuid": "exchange_order_id",
   "price": 50000000.0,
@@ -103,7 +103,8 @@ FastAPI 백엔드 + React/TypeScript(Vite+Tailwind) SPA 프론트엔드. Synolog
     "exchanges": {
       "upbit":   { "access_key": "", "secret_key": "", "watchlist": [] },
       "bithumb": { "access_key": "", "secret_key": "", "watchlist": [] },
-      "kis":     { "app_key": "", "app_secret": "", "account_no": "", "product_code": "01", "env": "paper|real", "watchlist": [] }
+      "kis":     { "app_key": "", "app_secret": "", "account_no": "", "product_code": "01", "env": "paper|real", "watchlist": [] },
+      "toss":    { "client_id": "", "client_secret": "", "account_seq": null, "watchlist": [] }
     },
     "llm": { "gemini_api_key": "" }
   }
@@ -133,6 +134,7 @@ FastAPI 백엔드 + React/TypeScript(Vite+Tailwind) SPA 프론트엔드. Synolog
 | Upbit | CLI subprocess (`upbit` 명령) | Node.js, async subprocess |
 | Bithumb | REST + JWT (SHA512 query hash) | aiohttp 세션 재사용 |
 | KIS | OAuth2 (client_credentials) | 토큰 캐시 per user/env/key |
+| Toss | OAuth2 Bearer (`/api/v1/oauth2/token`) | 토큰 캐시 per user/client_id; account_seq 자동 조회 |
 
 ## 주요 제약사항
 
@@ -140,7 +142,7 @@ FastAPI 백엔드 + React/TypeScript(Vite+Tailwind) SPA 프론트엔드. Synolog
 |------|------|
 | KIS 정규장 | 평일 09:00-15:35 KST만 주문 조회. 장외 전략 주문 → `pending_reorder` |
 | 수수료 버퍼 | 매수 `×0.999`, 매도 `×1.001` 적용 후 tick 반올림 |
-| KIS 분봉 미지원 | `rsi_interval`이 분봉이면 KIS RSI 명령 거부 |
+| KIS/Toss 분봉 미지원 | `rsi_interval`이 분봉이면 KIS·Toss RSI 명령 거부 |
 | 실거래 경로 | 모든 order 관련 코드 = 실머니. 테스트에서 live API 호출 금지 |
 | 재주문 | KIS 전략 주문 만료 시 `volume - filled_volume` 잔량만 재주문 |
 

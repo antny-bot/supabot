@@ -23,6 +23,11 @@ const colorMap: Record<string, string> = {
   upbit:   'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400',
   bithumb: 'bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-400',
   kis:     'bg-primary-100 text-primary-800 dark:bg-primary-900/30 dark:text-primary-400',
+  // nl_logs confirm_status
+  auto:      'bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-400',
+  confirmed: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400',
+  rejected:  'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-400',
+  expired:   'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
 }
 
 const labelMap: Record<string, string> = {
@@ -31,6 +36,7 @@ const labelMap: Record<string, string> = {
   pending_reorder: '재주문대기', stoploss: '손절',
   bid: '매수', ask: '매도',
   error: '오류', warning: '경고', info: '정보',
+  auto: '즉시실행', confirmed: '실행', rejected: '취소', expired: '만료',
 }
 
 interface BadgeProps {
