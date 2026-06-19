@@ -825,6 +825,7 @@ class ExchangeAdapter:
             return None
         return {
             "market": self._normalize_kis_ticker(ticker),
+            "stock_name": output.get("hts_kor_isnm", ""),
             "trade_price": float(output.get("stck_prpr", 0) or 0),
             "change_rate": float(output.get("prdy_ctrt", 0) or 0) / 100,
             "change_price": float(output.get("prdy_vrss", 0) or 0),
@@ -1053,14 +1054,16 @@ class ExchangeAdapter:
                 return None
             item = items[0]
             price = float(item.get("lastPrice") or 0)
+            change_rate = float(item.get("changeRate") or item.get("changeRatio") or 0)
             return {
                 "market": ticker,
+                "stock_name": item.get("name") or item.get("stockName") or item.get("issueName") or "",
                 "trade_price": price,
-                "change_rate": 0,
-                "change_price": 0,
-                "high_price": 0,
-                "low_price": 0,
-                "acc_trade_price_24h": 0,
+                "change_rate": change_rate / 100 if abs(change_rate) > 1 else change_rate,
+                "change_price": float(item.get("changePrice") or item.get("priceChange") or 0),
+                "high_price": float(item.get("highPrice") or item.get("high") or 0),
+                "low_price": float(item.get("lowPrice") or item.get("low") or 0),
+                "acc_trade_price_24h": float(item.get("tradingValue") or item.get("volume") or item.get("tradeAmount") or 0),
             }
         return None
 

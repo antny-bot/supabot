@@ -233,6 +233,12 @@ async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     ticker = await main.exchange_adapter.resolve_ticker(user_id, exchange, raw_ticker)
     display_ticker = f"{raw_ticker}({ticker})" if ticker != raw_ticker else ticker
 
+    if exchange in ("kis", "toss") and ticker and any('가' <= c <= '힣' for c in ticker):
+        await update.message.reply_text(
+            f"⚠️ {exchange_display_name(exchange)}은 종목코드로 입력하세요.\n예: /price {exchange} 000250"
+        )
+        return
+
     ticker_data, indicators = await asyncio.gather(
         main.exchange_adapter.get_ticker(exchange, ticker, user_id=user_id),
         main.signal_engine.get_indicators(exchange, ticker, interval="day", user_id=user_id),
@@ -245,18 +251,19 @@ async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     if isinstance(indicators, Exception):
         indicators = None
 
-    # 업비트/빗썸 공통 필드 매핑
     price = float(ticker_data.get('trade_price', 0))
     change_rate = float(ticker_data.get('change_rate', 0)) * 100
     change_price = float(ticker_data.get('change_price', 0))
     high = float(ticker_data.get('high_price', 0))
     low = float(ticker_data.get('low_price', 0))
     volume = float(ticker_data.get('acc_trade_price_24h', 0))
+    stock_name = ticker_data.get('stock_name', '')
 
     change_emoji = "📈" if change_rate > 0 else "📉" if change_rate < 0 else "➖"
 
+    ticker_label = f"{stock_name} ({ticker})" if stock_name else ticker
     msg = (
-        f"📊 <b>[{exchange_display_name(exchange)}] {display_ticker}</b> 실시간 시세\n\n"
+        f"📊 <b>[{exchange_display_name(exchange)}] {ticker_label}</b> 실시간 시세\n\n"
         f"현재가: <b>{price:,.0f}원</b> {change_emoji}\n"
         f"전일대비: {change_rate:+.2f}% ({change_price:,.0f}원)\n"
         f"고가(24H): {high:,.0f}원\n"
