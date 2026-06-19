@@ -77,17 +77,67 @@ def test_toss_get_ticker():
              "timestamp": "2026-06-18T09:30:00+09:00"}
         ]
     }
+    FAKE_CANDLE_RESPONSE = {
+        "result": {
+            "candles": [
+                {"timestamp": "2026-06-18T09:00:00+09:00", "openPrice": "71600", "highPrice": "72300",
+                 "lowPrice": "71500", "closePrice": "72000", "volume": "3521000", "currency": "KRW"},
+                {"timestamp": "2026-06-17T09:00:00+09:00", "openPrice": "71200", "highPrice": "71800",
+                 "lowPrice": "71000", "closePrice": "71600", "volume": "2984000", "currency": "KRW"},
+            ],
+            "nextBefore": "2026-06-17T09:00:00+09:00",
+        }
+    }
 
     async def fake_request_toss(user_id, method, path, params=None, body=None, need_account=True):
-        assert "prices" in path
-        assert params == {"symbols": "005930"}
-        return FAKE_PRICE_RESPONSE
+        if "prices" in path:
+            assert params == {"symbols": "005930"}
+            return FAKE_PRICE_RESPONSE
+        assert "candles" in path
+        return FAKE_CANDLE_RESPONSE
 
     adapter._request_toss = fake_request_toss
     result = asyncio.run(adapter.get_ticker("toss", "005930", user_id="u1"))
     assert result is not None
     assert result["trade_price"] == 72000.0
     assert result["market"] == "005930"
+    assert result["high_price"] == 72300.0
+    assert result["low_price"] == 71500.0
+    assert result["acc_trade_price_24h"] == 72000.0 * 3521000
+    assert result["change_price"] == 72000.0 - 71600.0
+    assert result["change_rate"] == (72000.0 - 71600.0) / 71600.0
+
+
+def test_toss_get_ticker_us_stock_volume_is_share_count():
+    adapter = make_adapter()
+
+    FAKE_PRICE_RESPONSE = {
+        "result": [
+            {"symbol": "AAPL", "lastPrice": "185.70", "currency": "USD",
+             "timestamp": "2026-06-18T22:30:00+09:00"}
+        ]
+    }
+    FAKE_CANDLE_RESPONSE = {
+        "result": {
+            "candles": [
+                {"timestamp": "2026-06-18T09:00:00+09:00", "openPrice": "184.00", "highPrice": "186.00",
+                 "lowPrice": "183.50", "closePrice": "185.70", "volume": "1200000", "currency": "USD"},
+            ],
+            "nextBefore": None,
+        }
+    }
+
+    async def fake_request_toss(user_id, method, path, params=None, body=None, need_account=True):
+        if "prices" in path:
+            return FAKE_PRICE_RESPONSE
+        return FAKE_CANDLE_RESPONSE
+
+    adapter._request_toss = fake_request_toss
+    result = asyncio.run(adapter.get_ticker("toss", "AAPL", user_id="u1"))
+    assert result is not None
+    assert result["high_price"] == 186.0
+    assert result["low_price"] == 183.5
+    assert result["acc_trade_price_24h"] == 1200000.0
 
 
 # ── get_candles ────────────────────────────────────────────────────────────────
