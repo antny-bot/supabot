@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from 'react'
-import { CheckCircle, Download, Trash2, Upload } from 'lucide-react'
+import { CheckCircle, ChevronLeft, ChevronRight, Download, Trash2, Upload } from 'lucide-react'
 import { fetchConfig, saveConfig } from '../api/config'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import PageHeader from '../components/ui/PageHeader'
@@ -158,6 +158,8 @@ function StockCacheTab() {
   const [overwrite, setOverwrite] = useState(true)
   const [uploadStatus, setUploadStatus] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
 
   const load = async (q = search) => {
     setLoading(true)
@@ -167,6 +169,7 @@ function StockCacheTab() {
       const res = await fetch(`/api/stock-cache${params}`)
       if (!res.ok) throw new Error(await res.text())
       setRows(await res.json())
+      setPage(1)
     } catch (e: any) {
       setError(e.message)
     } finally {
@@ -241,6 +244,9 @@ function StockCacheTab() {
   const inputCls = 'rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100'
   const btnPrimary = 'rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50'
 
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize))
+  const pagedRows = rows.slice((page - 1) * pageSize, page * pageSize)
+
   return (
     <div className="space-y-5">
       {error && <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-400">{error}</div>}
@@ -291,6 +297,13 @@ function StockCacheTab() {
             <button type="submit" className={btnPrimary}>검색</button>
           </form>
           <span className="text-xs text-slate-400">{rows.length}건</span>
+          <select
+            className={`${inputCls} text-xs py-1.5`}
+            value={pageSize}
+            onChange={e => { setPageSize(Number(e.target.value)); setPage(1) }}
+          >
+            {[10, 20, 50].map(n => <option key={n} value={n}>{n}개씩</option>)}
+          </select>
         </div>
 
         {loading ? (
@@ -308,7 +321,7 @@ function StockCacheTab() {
               </tr>
             </thead>
             <tbody>
-              {rows.map(r => (
+              {pagedRows.map(r => (
                 <tr key={r.name} className="border-b border-slate-50 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/50">
                   <td className="px-4 py-2 font-medium text-slate-800 dark:text-slate-200">{r.name}</td>
                   <td className="px-4 py-2 font-mono text-slate-600 dark:text-slate-400">{r.code}</td>
@@ -322,6 +335,30 @@ function StockCacheTab() {
               ))}
             </tbody>
           </table>
+        )}
+
+        {!loading && rows.length > 0 && (
+          <div className="flex items-center justify-between border-t border-slate-100 px-4 py-3 dark:border-slate-800">
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              <span className="font-semibold text-slate-900 dark:text-white">{page}</span> / {totalPages} 페이지
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="rounded-lg border border-slate-200 bg-white p-1.5 transition-colors disabled:opacity-30 dark:border-slate-700 dark:bg-slate-800"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <button
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                className="rounded-lg border border-slate-200 bg-white p-1.5 transition-colors disabled:opacity-30 dark:border-slate-700 dark:bg-slate-800"
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
         )}
       </div>
     </div>
