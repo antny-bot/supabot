@@ -187,7 +187,7 @@ def test_exchange_adapter_records_upbit_latency():
     mock_process.returncode = 0
     mock_process.communicate = _AsyncMock(return_value=(b'[{"trade_price": 50000000}]', b''))
 
-    with patch("core.exchange_adapter.metrics") as mock_metrics:
+    with patch("core.exchanges.upbit.metrics") as mock_metrics:
         with patch("asyncio.create_subprocess_exec", new_callable=_AsyncMock) as mock_exec:
             mock_exec.return_value = mock_process
             asyncio.run(adapter._run_upbit_cli("candles", "list-days"))

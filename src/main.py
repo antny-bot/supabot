@@ -30,19 +30,29 @@ from core.natural_language import (
     normalize_natural_language_intent,
     preprocess_natural_language_intent,
 )
-from core.order_execution import execute_grid_orders, execute_rsitrade_orders, execute_sgridrsi_orders
 from core.operational_events import append_operational_event
+from core.manual_order_tokens import (
+    MANUAL_ORDER_TTL_SECONDS,
+    create_manual_order_token,
+    pop_valid_manual_order,
+    create_cancel_token,
+    pop_valid_cancel_token,
+    _pending_manual_orders,
+    _pending_cancel_orders,
+)
+import internal_api
+from internal_api import trigger_realtime_sync
 from core.secret_crypto import can_decrypt_secrets, has_secret_key
 from core.parsers import (
     KST,
     RSI_INTERVAL_ALIASES, RSI_MINUTE_INTERVALS, POLL_INTERVAL_KEYS,
     normalize_exchange, is_exchange_token, exchange_display_name,
     parse_exchange_and_ticker, parse_number, parse_rsi_range, parse_optional_krw,
-    parse_rsi_interval, parse_config_value, validate_max_order, validate_config_update,
+    parse_rsi_interval, parse_config_value, validate_config_update,
     has_gemini_key, get_user_rsi_interval, is_strategy_order,
     is_kis_regular_session, next_kis_regular_session, kis_next_check_timestamp,
     interpolate_range, resolve_linked_rsi_target,
-    _format_seconds, get_dca_weights,
+    _format_seconds,
 )
 from core.formatters import (
     CMD_HELP,
@@ -75,9 +85,6 @@ order_manager = OrderManager()
 signal_engine = SignalEngine(user_manager, exchange_adapter)
 _order_wake_event: asyncio.Event = None  # post_init에서 초기화
 _pending_nl_intents = {}
-_pending_manual_orders = {}
-_pending_cancel_orders = {}
-MANUAL_ORDER_TTL_SECONDS = 600
 RSI_GRID_COMMAND_ALIASES = ("rsigrid", "rsitrade", "gridrsi")
 ACCOUNT_COMMAND_ALIASES = ("whomai", "me")
 DEFAULT_BOT_COMMANDS = [
@@ -254,60 +261,6 @@ LLM_COMMAND_CATALOG = "\n".join([
     "cancel req=ticker opt=exchange run=confirm ex=cancel btc orders",
     "help req=- opt=- run=now ex=what can you do",
 ])
-
-def create_manual_order_token(user_id, exchange, side, ticker, price, volume, ord_type="limit"):
-    token = str(len(_pending_manual_orders) + 1)
-    while token in _pending_manual_orders:
-        token = str(int(token) + 1)
-    _pending_manual_orders[token] = {
-        "user_id": str(user_id),
-        "exchange": exchange,
-        "side": side,
-        "ticker": ticker,
-        "price": float(price),
-        "volume": float(volume),
-        "ord_type": ord_type,
-        "created_at": time.time(),
-    }
-    return token
-
-def pop_valid_manual_order(token, user_id):
-    token = str(token)
-    pending = _pending_manual_orders.get(token)
-    if not pending:
-        return None, "만료되었거나 찾을 수 없는 주문 확인 요청입니다. 다시 입력해 주세요."
-    if pending.get("user_id") != str(user_id):
-        return None, "다른 사용자의 주문 확인 요청은 실행할 수 없습니다."
-    if time.time() - float(pending.get("created_at", 0)) > MANUAL_ORDER_TTL_SECONDS:
-        _pending_manual_orders.pop(token, None)
-        append_operational_event("warning", "manual_order", "manual order confirmation expired", pending.get("ticker"))
-        return None, "주문 확인 요청이 만료되었습니다. 다시 입력해 주세요."
-    _pending_manual_orders.pop(token, None)
-    return pending, None
-
-def create_cancel_token(user_id, orders):
-    token = str(len(_pending_cancel_orders) + 1)
-    while token in _pending_cancel_orders:
-        token = str(int(token) + 1)
-    _pending_cancel_orders[token] = {
-        "user_id": str(user_id),
-        "orders": [{"exchange": o["exchange"], "uuid": o["uuid"], "ticker": o["ticker"]} for o in orders],
-        "created_at": time.time(),
-    }
-    return token
-
-def pop_valid_cancel_token(token, user_id):
-    token = str(token)
-    pending = _pending_cancel_orders.get(token)
-    if not pending:
-        return None, "만료되었거나 찾을 수 없는 취소 요청입니다. 다시 시도해 주세요."
-    if pending.get("user_id") != str(user_id):
-        return None, "다른 사용자의 취소 요청은 실행할 수 없습니다."
-    if time.time() - float(pending.get("created_at", 0)) > MANUAL_ORDER_TTL_SECONDS:
-        _pending_cancel_orders.pop(token, None)
-        return None, "취소 요청이 만료되었습니다. 다시 시도해 주세요."
-    _pending_cancel_orders.pop(token, None)
-    return pending, None
 
 # --- 주문 동기화 및 자동 대응 엔진 ---
 async def sync_orders(application):
@@ -663,247 +616,6 @@ async def notify_admin_security_status(application):
 
 _notify_runner: "_web.AppRunner | None" = None
 
-async def _verify_webhook_request(request: _web.Request) -> bool:
-    """웹훅 요청의 HMAC 서명 및 IP 화이트리스트 검증"""
-    import hmac
-    import hashlib
-    import time
-
-    # 1. IP 화이트리스팅 검증
-    allowed_ips_str = os.environ.get("ALLOWED_WEBHOOK_IPS", "").strip()
-    if allowed_ips_str:
-        allowed_ips = [ip.strip() for ip in allowed_ips_str.split(",") if ip.strip()]
-        client_ip = request.remote
-        xff = request.headers.get("X-Forwarded-For")
-        if xff:
-            client_ip = xff.split(",")[0].strip()
-        if client_ip not in allowed_ips and client_ip != "127.0.0.1":
-            _log.warning(f"Webhook blocked: IP {client_ip} is not in whitelist")
-            return False
-
-    # 2. HMAC 서명 검증
-    api_key = os.environ.get("MANAGER_API_KEY", "")
-    if not api_key:
-        return False
-
-    timestamp = request.headers.get("X-Timestamp")
-    signature = request.headers.get("X-Signature")
-
-    if not timestamp or not signature:
-        _log.warning("Webhook blocked: Missing X-Timestamp or X-Signature headers")
-        return False
-
-    # 시간 오차 검증 (리플레이 공격 방지, 5분 허용)
-    try:
-        req_time = int(timestamp)
-        if abs(int(time.time()) - req_time) > 300:
-            _log.warning("Webhook blocked: Timestamp drift too large")
-            return False
-    except ValueError:
-        return False
-
-    # 바디 페이로드 읽기
-    body_bytes = await request.read()
-
-    # 예상 서명 계산
-    msg = timestamp.encode("utf-8") + body_bytes
-    expected_sig = hmac.new(api_key.encode("utf-8"), msg, hashlib.sha256).hexdigest()
-
-    if not hmac.compare_digest(expected_sig, signature):
-        _log.warning("Webhook blocked: Signature verification failed")
-        return False
-
-    return True
-
-async def _internal_notify_handler(request: _web.Request) -> _web.Response:
-    if not await _verify_webhook_request(request):
-        return _web.Response(status=401)
-    try:
-        data = await request.json()
-        app = request.app["bot_application"]
-        await app.bot.send_message(
-            chat_id=data["chat_id"],
-            text=data["text"],
-            parse_mode=data.get("parse_mode", "HTML"),
-        )
-    except Exception as e:
-        _log.warning("internal notify failed", exc_info=e, extra={"event": "notify_error"})
-        return _web.Response(status=500, text=str(e))
-    return _web.Response(text="ok")
-
-async def trigger_realtime_sync():
-    """매니저의 /api/realtime/trigger를 호출하여 프론트엔드 실시간 갱신을 트리거합니다."""
-    manager_url = os.environ.get("MANAGER_BACKEND_URL", "http://localhost:8000")
-    api_key = os.environ.get("MANAGER_API_KEY", "")
-    if not api_key:
-        return
-    try:
-        import aiohttp
-        async with aiohttp.ClientSession() as session:
-            headers = {"X-API-Key": api_key}
-            async with session.post(f"{manager_url}/api/realtime/trigger", headers=headers, json={"event": "refresh"}) as resp:
-                if resp.status != 200:
-                    _log.warning(f"Failed to trigger realtime sync, status: {resp.status}")
-    except Exception as e:
-        _log.warning("Error triggering realtime sync", exc_info=e)
-
-async def _internal_execute_grid_handler(request: _web.Request) -> _web.Response:
-    if not await _verify_webhook_request(request):
-        return _web.Response(status=401)
-    try:
-        data = await request.json()
-        user_id = str(data["user_id"])
-        ex = data["exchange"].lower()
-        tk = data["ticker"].upper()
-        s_p = float(data["start_price"])
-        e_p = float(data["end_price"])
-        ct = int(data["count"])
-        val = float(data["budget"])
-
-        user = user_manager.get_user(user_id)
-        if not user:
-            return _web.Response(status=404, text="User not found")
-
-        ok, error_msg = validate_max_order(user, val / ct)
-        if not ok:
-            return _web.Response(status=400, text=error_msg)
-
-        if ex == "kis" and not is_kis_regular_session():
-            return _web.Response(status=400, text="한국투자증권 정규장 시간이 아닙니다.")
-
-        app = request.app["bot_application"]
-        group_no = order_manager.get_next_group_no(user_id)
-
-        async def run_grid():
-            await execute_grid_orders(
-                exchange_adapter=exchange_adapter, order_manager=order_manager,
-                user_id=user_id, exchange=ex, ticker=tk,
-                start_price=s_p, end_price=e_p, count=ct, budget_or_volume=val,
-                is_sell=False, group_no=group_no,
-                bot=app.bot, notify_chat_id=user_id,
-                trigger_sync_fn=trigger_realtime_sync,
-            )
-
-        asyncio.create_task(run_grid())
-        return _web.Response(text="Grid execution started")
-    except Exception as e:
-        _log.warning("Internal grid execution failed", exc_info=e)
-        return _web.Response(status=500, text=str(e))
-
-async def _internal_execute_rsitrade_handler(request: _web.Request) -> _web.Response:
-    if not await _verify_webhook_request(request):
-        return _web.Response(status=401)
-    try:
-        data = await request.json()
-        user_id = str(data["user_id"])
-        ex = data["exchange"].lower()
-        tk = data["ticker"].upper()
-        b_rsi = str(data["buy_rsi_range"])
-        s_rsi = str(data["sell_rsi_range"])
-        ct = int(data["count"])
-        bg = float(data["budget"])
-        dca_mode = bool(data.get("weighted", False))
-
-        user = user_manager.get_user(user_id)
-        if not user:
-            return _web.Response(status=404, text="User not found")
-
-        if ex == "kis" and get_user_rsi_interval(user) != "day":
-            return _web.Response(status=400, text="한투 KIS는 일봉(day) 기준 RSI만 지원합니다.")
-
-        dca_weights = get_dca_weights(ct) if dca_mode else None
-        per_order_budgets = [bg * w for w in dca_weights] if dca_weights else [bg / ct] * ct
-
-        ok, error_msg = validate_max_order(user, max(per_order_budgets))
-        if not ok:
-            return _web.Response(status=400, text=error_msg)
-
-        min_amt = exchange_adapter.get_min_order_amount(ex)
-        if min(per_order_budgets) < min_amt:
-            return _web.Response(status=400, text=f"건당 주문 금액이 거래소 최소 주문 금액({min_amt:,.0f}원)보다 작습니다.")
-
-        app = request.app["bot_application"]
-        group_no = order_manager.get_next_group_no(user_id)
-
-        async def run_rsitrade():
-            await execute_rsitrade_orders(
-                exchange_adapter=exchange_adapter, order_manager=order_manager, signal_engine=signal_engine,
-                user_id=user_id, exchange=ex, ticker=tk,
-                buy_rsi_range=b_rsi, sell_rsi_range=s_rsi,
-                count=ct, per_order_budgets=per_order_budgets,
-                user=user, group_no=group_no, bot=app.bot, notify_chat_id=user_id,
-                trigger_sync_fn=trigger_realtime_sync,
-            )
-
-        asyncio.create_task(run_rsitrade())
-        return _web.Response(text="RSITrade execution started")
-    except Exception as e:
-        _log.warning("Internal rsitrade execution failed", exc_info=e)
-        return _web.Response(status=500, text=str(e))
-
-
-async def _internal_execute_sgrid_handler(request: _web.Request) -> _web.Response:
-    if not await _verify_webhook_request(request):
-        return _web.Response(status=401)
-    try:
-        data = await request.json()
-        user_id = str(data["user_id"])
-        ex = data["exchange"].lower()
-        tk = data["ticker"].upper()
-        s_p = float(data["start_price"])
-        e_p = float(data["end_price"])
-        ct = int(data["count"])
-        total_vol = float(data["total_volume"])
-
-        user = user_manager.get_user(user_id)
-        if not user:
-            return _web.Response(status=404, text="User not found")
-
-        if ex == "kis" and not is_kis_regular_session():
-            return _web.Response(status=400, text="한국투자증권 정규장 시간이 아닙니다.")
-
-        if ex == "kis" and int(total_vol) < ct:
-            return _web.Response(status=400, text=f"총 수량({int(total_vol)}주)이 주문 개수({ct})보다 작습니다.")
-
-        app = request.app["bot_application"]
-        group_no = order_manager.get_next_group_no(user_id)
-
-        async def run_sgrid():
-            await execute_grid_orders(
-                exchange_adapter=exchange_adapter, order_manager=order_manager,
-                user_id=user_id, exchange=ex, ticker=tk,
-                start_price=s_p, end_price=e_p, count=ct, budget_or_volume=total_vol,
-                is_sell=True, group_no=group_no,
-                bot=app.bot, notify_chat_id=user_id,
-                trigger_sync_fn=trigger_realtime_sync,
-            )
-
-        asyncio.create_task(run_sgrid())
-        return _web.Response(text="sGrid execution started")
-    except Exception as e:
-        _log.warning("Internal sgrid execution failed", exc_info=e)
-        return _web.Response(status=500, text=str(e))
-
-
-async def _internal_cancel_order_handler(request: _web.Request) -> _web.Response:
-    if not await _verify_webhook_request(request):
-        return _web.Response(status=401)
-    try:
-        data = await request.json()
-        user_id = data["user_id"]
-        exchange = data["exchange"]
-        uuid = data["uuid"]
-        ticker = data["ticker"]
-        ok = await exchange_adapter.cancel_order(user_id, exchange, uuid, ticker)
-        if ok:
-            order_manager.remove_order(uuid)
-        import json as _json
-        return _web.Response(text=_json.dumps({"ok": bool(ok)}), content_type="application/json")
-    except Exception as e:
-        _log.warning("internal cancel_order failed", exc_info=e, extra={"event": "cancel_order_error"})
-        return _web.Response(status=500, text=str(e))
-
-
 async def post_init(application):
     """봇 초기화 후 백그라운드 태스크 실행"""
     global _order_wake_event, _notify_runner
@@ -943,13 +655,15 @@ async def post_init(application):
 
 
     if os.environ.get("MANAGER_API_KEY"):
+        internal_api.init(exchange_adapter, order_manager, user_manager)
         notify_app = _web.Application()
         notify_app["bot_application"] = application
-        notify_app.router.add_post("/internal/notify", _internal_notify_handler)
-        notify_app.router.add_post("/internal/execute_grid", _internal_execute_grid_handler)
-        notify_app.router.add_post("/internal/execute_sgrid", _internal_execute_sgrid_handler)
-        notify_app.router.add_post("/internal/execute_rsitrade", _internal_execute_rsitrade_handler)
-        notify_app.router.add_post("/internal/cancel_order", _internal_cancel_order_handler)
+        notify_app["signal_engine"] = signal_engine
+        notify_app.router.add_post("/internal/notify", internal_api._internal_notify_handler)
+        notify_app.router.add_post("/internal/execute_grid", internal_api._internal_execute_grid_handler)
+        notify_app.router.add_post("/internal/execute_sgrid", internal_api._internal_execute_sgrid_handler)
+        notify_app.router.add_post("/internal/execute_rsitrade", internal_api._internal_execute_rsitrade_handler)
+        notify_app.router.add_post("/internal/cancel_order", internal_api._internal_cancel_order_handler)
         _notify_runner = _web.AppRunner(notify_app)
         await _notify_runner.setup()
         port = int(os.environ.get("INTERNAL_PORT", 8765))
