@@ -122,6 +122,14 @@ export default function AllMenuDrawer({
     return () => document.removeEventListener('keydown', handleKey)
   }, [onClose])
 
+  useEffect(() => {
+    const original = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = original
+    }
+  }, [])
+
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event
     if (!over || active.id === over.id) return
