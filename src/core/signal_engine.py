@@ -7,6 +7,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from core.bot_logger import get_logger
 from core.user_manager import is_quiet_hours
+from core.parsers import is_us_stock_ticker
 from core.indicators import (
     BollingerBandsIndicator,
     MACDIndicator,
@@ -182,6 +183,8 @@ class SignalEngine:
         else:
             target_price *= 1 + buffer
 
+        if is_us_stock_ticker(exchange, ticker):
+            return self.exchange_adapter.adjust_us_price_to_tick(target_price)
         if exchange in ("kis", "toss"):
             return self.exchange_adapter.adjust_krx_price_to_tick(target_price)
         return self.exchange_adapter.adjust_price_to_tick(target_price)

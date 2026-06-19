@@ -394,11 +394,13 @@ class ExchangeAdapter(CommonMixin, UpbitMixin, BithumbMixin, TossMixin, KisMixin
                 "market": ticker,
                 "stock_name": item.get("name") or item.get("stockName") or item.get("issueName") or "",
                 "trade_price": price,
+                "currency": item.get("currency") or "KRW",
                 "change_rate": change_rate / 100 if abs(change_rate) > 1 else change_rate,
                 "change_price": float(item.get("changePrice") or item.get("priceChange") or 0),
                 "high_price": float(item.get("highPrice") or item.get("high") or 0),
                 "low_price": float(item.get("lowPrice") or item.get("low") or 0),
                 "acc_trade_price_24h": float(item.get("tradingValue") or item.get("volume") or item.get("tradeAmount") or 0),
+                "currency": item.get("currency", "KRW"),
             }
         return None
 

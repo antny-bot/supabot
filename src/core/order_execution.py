@@ -11,7 +11,7 @@ _internal_execute_rsitrade_handler / sgridrsi_confirm_callback 에
 import asyncio
 
 from core.exchange_adapter import ExchangeAdapter
-from core.parsers import interpolate_range, parse_rsi_range, get_user_rsi_interval
+from core.parsers import interpolate_range, parse_rsi_range, get_user_rsi_interval, is_us_stock_ticker
 from core.bot_logger import get_logger
 
 _log = get_logger("order_execution")
@@ -58,17 +58,19 @@ async def execute_grid_orders(
     진행되며, group_no는 항상 부여되고 trigger_sync_fn(있으면)을 항상 호출한다.
     """
     log = log or _log
+    is_us = is_us_stock_ticker(exchange, ticker)
     price_step = (end_price - start_price) / (count - 1) if count > 1 else 0
     success_count = 0
     skipped_count = 0
 
     for i in range(count):
         target_price = start_price + (price_step * i)
-        target_price = (
-            ExchangeAdapter.adjust_krx_price_to_tick(target_price)
-            if exchange in ("kis", "toss")
-            else ExchangeAdapter.adjust_price_to_tick(target_price)
-        )
+        if is_us:
+            target_price = ExchangeAdapter.adjust_us_price_to_tick(target_price)
+        elif exchange in ("kis", "toss"):
+            target_price = ExchangeAdapter.adjust_krx_price_to_tick(target_price)
+        else:
+            target_price = ExchangeAdapter.adjust_price_to_tick(target_price)
 
         if is_sell:
             raw_vol = budget_or_volume / count

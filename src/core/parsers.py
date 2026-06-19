@@ -173,6 +173,12 @@ def resolve_linked_rsi_target(linked_to):
     return float(text)
 
 
+def is_us_stock_ticker(exchange, ticker):
+    """토스증권 해외(미국) 주식 종목코드 여부 (알파벳 티커, 예: AAPL). KIS는 해외주문 미지원."""
+    text = str(ticker or "").replace("KRW-", "")
+    return exchange == "toss" and text.isalpha()
+
+
 def _volume_unit(ticker):
     text = str(ticker or "").replace("KRW-", "")
     return "주" if text.isdigit() else text
@@ -271,7 +277,10 @@ def parse_config_value(key, raw_value):
     raise ValueError("지원하지 않는 설정 항목입니다. `/config -h`로 항목 목록을 확인하세요.")
 
 
-def validate_max_order(user, order_krw):
+def validate_max_order(user, order_krw, is_usd=False):
+    """max_order_krw는 원화 기준 캡. USD(토스 해외주식) 주문은 통화가 달라 비교할 수 없으므로 검증을 건너뜀."""
+    if is_usd:
+        return True, None
     max_order_krw = user.get("preferences", {}).get("max_order_krw")
     if max_order_krw is None:
         return True, None

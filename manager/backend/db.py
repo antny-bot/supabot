@@ -59,6 +59,15 @@ class _FilteredQuery(_Query):
         self._params["limit"] = n
         return self
 
+    def or_(self, expr: str) -> "_FilteredQuery":
+        self._params["or"] = f"({expr})"
+        return self
+
+    def range(self, start: int, end: int) -> "_FilteredQuery":
+        self._extra_headers["Range-Unit"] = "items"
+        self._extra_headers["Range"] = f"{start}-{end}"
+        return self
+
 class _Table:
     def __init__(self, client, url: str):
         self._client = client
