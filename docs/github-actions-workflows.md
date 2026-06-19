@@ -104,7 +104,9 @@ docker image prune -f
 1. 저장소 checkout
 2. Python `3.11` 설정
 3. 루트 `requirements.txt`, `manager/requirements.txt` 설치
-4. `pytest tests/ -v` 실행
+4. `pytest tests/` 실행 (`-v` 제거 — `pytest.ini`의 `addopts = -q --tb=short -ra`가 적용되어
+   성공 테스트는 `.` 한 글자, 실패 테스트만 짧은 traceback+요약으로 출력. 테스트 수가 늘어도
+   CI 로그/에이전트 컨텍스트 토큰을 절약하기 위함. 상세: `AGENTS.md` 검증 절차 섹션)
 
 특징:
 

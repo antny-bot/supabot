@@ -209,12 +209,18 @@ FastAPI 백엔드 + React/TypeScript(Vite+Tailwind) SPA 프론트엔드. Synolog
 
 ```bash
 # 호스트에 Python 없음 → Docker 내부에서 실행
-docker compose run --rm supabot python -m pytest tests/ -v
+docker compose run --rm supabot python -m pytest tests/
 docker compose run --rm supabot python -m py_compile src/main.py
 ```
 
 주문·거래소·KIS 로직 변경 시 전체 테스트 통과 필수.
 manager(`manager/`) 변경 시: `cd manager && python -m py_compile backend/**/*.py` 로 문법 확인.
+
+**테스트 출력 토큰 절약 전략** (`pytest.ini`의 `addopts`로 적용, 테스트 240+개 → 계속 증가 예정):
+- 성공한 테스트는 `.` 한 글자로만 표시 (`-q`, pytest 기본 quiet 모드).
+- 실패/에러 테스트만 짧은 traceback(`--tb=short`) + 끝부분 한 줄 요약(`-ra`)으로 추적 가능하게 출력.
+- `-v`를 직접 붙이면 이 설정과 충돌해 테스트명이 전부 나열되니, 토큰을 아끼려면 플래그 없이 `pytest tests/`만 실행할 것.
+- 신규 테스트 추가 시 별도 설정 불필요 — `pytest.ini`에 이미 적용되어 자동으로 동일한 출력 형식을 따름.
 
 ## 백업 · 롤백 절차
 
