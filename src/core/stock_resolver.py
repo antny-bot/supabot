@@ -8,6 +8,7 @@
 5. 모두 실패 → None
 """
 from __future__ import annotations
+import unicodedata
 from datetime import datetime, timezone, timedelta
 
 _CACHE_TTL_DAYS = 90  # 종목명/코드 재배정 대비 유효기간
@@ -155,6 +156,10 @@ async def resolve_kr_stock_name(
     3. KIS API — DB 미스 시, KIS 키 필요
     4. KIS 성공 시 DB 캐시 저장
     """
+    # 텔레그램 클라이언트(특히 iOS)는 한글을 NFD(분해형)로 보내는 경우가 있어
+    # DB에 NFC(완성형)로 저장된 종목명과 바이트 단위로 어긋난다 — 정규화로 맞춤.
+    name = unicodedata.normalize("NFC", name)
+
     # 1. 정적 맵 (영구 유효)
     code = _KR_NAME_MAP.get(name) or _KR_NAME_MAP_LOWER.get(name.lower())
     if code:

@@ -264,6 +264,9 @@ async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     volume = float(ticker_data.get('acc_trade_price_24h', 0))
     stock_name = ticker_data.get('stock_name', '')
     is_usd = ticker_data.get('currency') == 'USD'
+    currency = ticker_data.get('currency', 'KRW')
+    unit = "원" if currency == "KRW" else f" {currency}"
+    price_fmt = "{:,.0f}" if currency == "KRW" else "{:,.2f}"
 
     change_emoji = "📈" if change_rate > 0 else "📉" if change_rate < 0 else "➖"
 

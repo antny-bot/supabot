@@ -1064,6 +1064,7 @@ class ExchangeAdapter:
                 "market": ticker,
                 "stock_name": item.get("name") or item.get("stockName") or item.get("issueName") or "",
                 "trade_price": price,
+                "currency": item.get("currency") or "KRW",
                 "change_rate": change_rate / 100 if abs(change_rate) > 1 else change_rate,
                 "change_price": float(item.get("changePrice") or item.get("priceChange") or 0),
                 "high_price": float(item.get("highPrice") or item.get("high") or 0),
