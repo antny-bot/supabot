@@ -10,3 +10,5 @@ cryptography
 pyotp
 qrcode[pil]
 Pillow
+finance-datareader
+pandas
