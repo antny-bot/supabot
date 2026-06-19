@@ -2,10 +2,15 @@
 
 우선순위:
 1. 정적 맵 (_KR_NAME_MAP) — 즉시 반환, 네트워크 없음
-2. KIS search-stock-info API — 정적 맵에 없는 종목, user_id 기준 KIS 키 필요
-3. 모두 실패 → None
+2. DB 캐시 (kr_stock_cache) — 이전 KIS API 조회 결과
+3. KIS search-stock-info API — DB에 없는 종목, user_id 기준 KIS 키 필요
+4. KIS API 성공 시 DB 캐시에 저장
+5. 모두 실패 → None
 """
 from __future__ import annotations
+from datetime import datetime, timezone, timedelta
+
+_CACHE_TTL_DAYS = 90  # 종목명/코드 재배정 대비 유효기간
 
 # KOSPI/KOSDAQ 상위 종목 + 자주 쓰는 종목 (시가총액 순, 2025 기준)
 _KR_NAME_MAP: dict[str, str] = {
@@ -70,6 +75,7 @@ _KR_NAME_MAP: dict[str, str] = {
     "농심": "004370",
     "빙그레": "005180",
     "풀무원": "017810",
+    "삼천당제약": "000250",
     "코스맥스": "192820",
     "아모레퍼시픽": "090430",
     "LG생활건강": "051900",
@@ -144,24 +150,77 @@ async def resolve_kr_stock_name(
 ) -> str | None:
     """종목명 → 종목코드. 실패 시 None.
 
-    1. 정적 맵 (_KR_NAME_MAP)
-    2. KIS search-stock-info API (exchange=kis 또는 user에 KIS 키가 있으면)
+    1. 정적 맵 (_KR_NAME_MAP) — 즉시
+    2. DB 캐시 (kr_stock_cache) — 이전 조회 결과
+    3. KIS API — DB 미스 시, KIS 키 필요
+    4. KIS 성공 시 DB 캐시 저장
     """
-    # 1. 정적 맵
+    # 1. 정적 맵 (영구 유효)
     code = _KR_NAME_MAP.get(name) or _KR_NAME_MAP_LOWER.get(name.lower())
     if code:
         return code
 
-    # 2. KIS API 검색 (exchange=kis이거나 user의 KIS 키 존재 시)
+    # 2. DB 캐시 조회
+    cached_code, is_fresh = _db_lookup(name)
+    if cached_code and is_fresh:
+        return cached_code
+    # cached_code가 있지만 TTL 만료 → KIS 재검증 후 갱신 (아래 흐름으로 fall-through)
+
+    # 3. KIS API (exchange=kis이거나 user에 KIS 키 존재 시)
     user = adapter.user_manager.get_user(user_id)
     kis_keys = (user or {}).get("exchanges", {}).get("kis", {})
     has_kis = bool(kis_keys.get("app_key") and kis_keys.get("app_secret"))
     if exchange == "kis" or has_kis:
-        code = await _search_via_kis(adapter, user_id, name)
-        if code:
-            return code
+        api_code = await _search_via_kis(adapter, user_id, name)
+        if api_code:
+            # 4. DB upsert (신규 저장 또는 TTL 갱신)
+            _db_save(name, api_code)
+            return api_code
+
+    # KIS API 실패 + DB에 만료된 캐시가 있으면 일단 사용 (fallback)
+    if cached_code:
+        return cached_code
 
     return None
+
+
+def _db_lookup(name: str) -> tuple[str | None, bool]:
+    """DB kr_stock_cache에서 종목명 조회.
+
+    Returns:
+        (code, is_fresh) — code가 None이면 DB 미스.
+        is_fresh=False이면 TTL 만료 → 호출자가 KIS 재검증 후 upsert 해야 함.
+    """
+    try:
+        from core.db import get_db, is_db_available
+        if not is_db_available():
+            return None, False
+        rows = get_db().table("kr_stock_cache").select("code,updated_at").eq("name", name).execute().data
+        if not rows:
+            return None, False
+        row = rows[0]
+        code = row["code"]
+        updated_raw = row.get("updated_at") or ""
+        # updated_at 파싱 후 TTL 검사
+        try:
+            updated_at = datetime.fromisoformat(updated_raw.replace("Z", "+00:00"))
+            is_fresh = (datetime.now(timezone.utc) - updated_at) < timedelta(days=_CACHE_TTL_DAYS)
+        except Exception:
+            is_fresh = False
+        return code, is_fresh
+    except Exception:
+        return None, False
+
+
+def _db_save(name: str, code: str) -> None:
+    """DB kr_stock_cache에 종목명-코드 upsert. 실패 시 무시."""
+    try:
+        from core.db import get_db, is_db_available
+        if not is_db_available():
+            return
+        get_db().table("kr_stock_cache").upsert({"name": name, "code": code}).execute()
+    except Exception:
+        pass
 
 
 async def _search_via_kis(adapter, user_id: str, name: str) -> str | None:

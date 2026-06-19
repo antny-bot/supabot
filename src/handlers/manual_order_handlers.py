@@ -7,7 +7,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 import main
-from main import check_auth, check_details_help
+from main import check_auth, check_details_help, resolve_ticker_for_command
 from core.parsers import parse_exchange_and_ticker, parse_number, is_exchange_token, validate_max_order, exchange_display_name
 from core.formatters import build_manual_order_confirm_message
 from core.operational_events import append_operational_event
@@ -23,7 +23,11 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
         return
 
     default_exchange = user["preferences"].get("default_exchange", "upbit")
-    exchange, ticker = parse_exchange_and_ticker(args, default_exchange)
+    exchange, ticker = await resolve_ticker_for_command(
+        update, user_id, args, default_exchange, "/buy kis 000250 50000 1"
+    )
+    if ticker is None:
+        return
     offset = 2 if is_exchange_token(args[0], exchange) else 1
 
     try:
@@ -62,7 +66,11 @@ async def sell_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
         return
 
     default_exchange = user["preferences"].get("default_exchange", "upbit")
-    exchange, ticker = parse_exchange_and_ticker(args, default_exchange)
+    exchange, ticker = await resolve_ticker_for_command(
+        update, user_id, args, default_exchange, "/sell kis 000250 50000 1"
+    )
+    if ticker is None:
+        return
     offset = 2 if is_exchange_token(args[0], exchange) else 1
 
     try:
