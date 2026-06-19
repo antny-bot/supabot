@@ -372,7 +372,11 @@ async def sync_orders(application):
             if ord.get("trailing_stop_pct") is not None and current_price > 0:
                 trailing_pct = float(ord["trailing_stop_pct"])
                 expected_stop_price = current_price * (1 - trailing_pct / 100)
-                expected_stop_price = ExchangeAdapter.adjust_price_to_tick(expected_stop_price)
+                expected_stop_price = (
+                    ExchangeAdapter.adjust_krx_price_to_tick(expected_stop_price)
+                    if exchange in ("kis", "toss")
+                    else ExchangeAdapter.adjust_price_to_tick(expected_stop_price)
+                )
                 if expected_stop_price > float(ord["stop_price"]):
                     order_manager.update_order_stop_price(ord["uuid"], expected_stop_price)
                     ord["stop_price"] = expected_stop_price
@@ -382,7 +386,11 @@ async def sync_orders(application):
                 cancel_ok = await exchange_adapter.cancel_order(user_id, exchange, ord["uuid"], ticker)
                 if cancel_ok:
                     remaining = float(ord["volume"]) - float(ord["filled_volume"])
-                    sl_price = ExchangeAdapter.adjust_price_to_tick(current_price * 0.999)
+                    sl_price = (
+                        ExchangeAdapter.adjust_krx_price_to_tick(current_price * 0.999)
+                        if exchange in ("kis", "toss")
+                        else ExchangeAdapter.adjust_price_to_tick(current_price * 0.999)
+                    )
                     sl_res = await exchange_adapter.create_order(
                         user_id, exchange, ticker, "ask", sl_price, remaining
                     )
@@ -421,7 +429,7 @@ async def sync_orders(application):
                 )
                 if sell_price:
                     sell_volume = newly_filled
-                    if exchange == "kis":
+                    if exchange in ("kis", "toss"):
                         sell_volume = int(sell_volume)
                         if sell_volume <= 0:
                             keep_order_for_retry = True
@@ -432,7 +440,11 @@ async def sync_orders(application):
                     if s_res and 'uuid' in s_res:
                         stop_loss_pct = float(user.get("preferences", {}).get("stop_loss_pct", 0) or 0)
                         stop_price = (
-                            ExchangeAdapter.adjust_price_to_tick(ord["price"] * (1 - stop_loss_pct / 100))
+                            (
+                                ExchangeAdapter.adjust_krx_price_to_tick(ord["price"] * (1 - stop_loss_pct / 100))
+                                if exchange in ("kis", "toss")
+                                else ExchangeAdapter.adjust_price_to_tick(ord["price"] * (1 - stop_loss_pct / 100))
+                            )
                             if stop_loss_pct > 0 else None
                         )
                         order_manager.add_order(user_id, exchange, ticker, s_res['uuid'], sell_price, sell_volume,
@@ -544,16 +556,28 @@ async def order_sync_loop(application):
             append_operational_event("error", "order_sync_loop", "order sync loop error", e)
             await _interruptible_sleep(60)
 
+_OPS_ALERT_COOLDOWN_SECONDS = 6 * 3600  # 동일 알림 재전송 최소 간격
+_ops_alert_last_sent: dict = {}
+
 async def _check_ops_health(application):
-    """메트릭 임계 초과 시 관리자에게 알림 전송."""
+    """메트릭 임계 초과 시 관리자에게 알림 전송. 동일 알림은 쿨다운 내 재전송하지 않는다."""
     if not ADMIN_CHAT_ID:
         return
     issues = metrics.ops_alerts()
     if not issues:
         return
-    msg = "🚨 <b>운영 알림</b>\n\n" + "\n".join(f"• {issue}" for issue in issues)
+    now = time.time()
+    due_issues = [
+        issue for issue in issues
+        if now - _ops_alert_last_sent.get(issue, 0) >= _OPS_ALERT_COOLDOWN_SECONDS
+    ]
+    if not due_issues:
+        return
+    msg = "🚨 <b>운영 알림</b>\n\n" + "\n".join(f"• {issue}" for issue in due_issues)
     try:
         await application.bot.send_message(chat_id=ADMIN_CHAT_ID, text=msg, parse_mode="HTML")
+        for issue in due_issues:
+            _ops_alert_last_sent[issue] = now
     except Exception as e:
         _log.warning("Ops health alert failed", exc_info=e, extra={"event": "ops_alert_failed"})
 

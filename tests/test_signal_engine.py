@@ -82,6 +82,42 @@ def test_bid_target_price_recreates_target_rsi_with_same_indicator_model():
     assert next_rsi >= 28.0
 
 
+class _TickTrackingAdapter(DummyAdapter):
+    """KIS/Toss는 KRX 호가단위(adjust_krx_price_to_tick)를 써야 하는지 추적."""
+    def __init__(self, candles):
+        super().__init__(candles)
+        self.krx_calls = 0
+        self.crypto_calls = 0
+
+    def adjust_price_to_tick(self, price):
+        self.crypto_calls += 1
+        return float(price)
+
+    def adjust_krx_price_to_tick(self, price):
+        self.krx_calls += 1
+        return float(price)
+
+
+def test_get_price_by_rsi_uses_krx_tick_for_toss_and_kis():
+    closes = _sample_close_prices()
+
+    for exchange in ("toss", "kis"):
+        adapter = _TickTrackingAdapter(_build_candles(closes))
+        engine = SignalEngine(DummyUsers(), adapter)
+        asyncio.run(engine.get_price_by_rsi(exchange, "005930", 30, side="bid"))
+        assert adapter.krx_calls == 1
+        assert adapter.crypto_calls == 0
+
+
+def test_get_price_by_rsi_uses_crypto_tick_for_upbit_bithumb():
+    closes = _sample_close_prices()
+    adapter = _TickTrackingAdapter(_build_candles(closes))
+    engine = SignalEngine(DummyUsers(), adapter)
+    asyncio.run(engine.get_price_by_rsi("bithumb", "KRW-BTC", 30, side="bid"))
+    assert adapter.crypto_calls == 1
+    assert adapter.krx_calls == 0
+
+
 # ── get_indicators ────────────────────────────────────────────────────────────
 
 def _long_candles(n=100):
