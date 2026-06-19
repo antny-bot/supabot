@@ -26,10 +26,32 @@ async def list_stock_cache(
     _=Depends(get_admin_user),
 ):
     db = get_db()
-    rows = (await db.table("kr_stock_cache").select("name,code,updated_at").order("name").execute()).data
     if search:
-        s = search.lower()
-        rows = [r for r in rows if s in r["name"].lower() or s in r["code"]]
+        s = search.strip()
+        rows = (
+            await db.table("kr_stock_cache")
+            .select("name,code,updated_at")
+            .or_(f"name.ilike.%{s}%,code.ilike.%{s}%")
+            .order("name")
+            .execute()
+        ).data
+        return rows
+
+    rows = []
+    page_size = 1000
+    offset = 0
+    while True:
+        chunk = (
+            await db.table("kr_stock_cache")
+            .select("name,code,updated_at")
+            .order("name")
+            .range(offset, offset + page_size - 1)
+            .execute()
+        ).data
+        rows.extend(chunk)
+        if len(chunk) < page_size:
+            break
+        offset += page_size
     return rows
 
 
@@ -144,7 +166,21 @@ async def refresh_from_krx(_=Depends(get_admin_user)):
 @router.get("/api/stock-cache/export")
 async def export_csv(_=Depends(get_admin_user)):
     db = get_db()
-    rows = (await db.table("kr_stock_cache").select("name,code,updated_at").order("name").execute()).data
+    rows = []
+    page_size = 1000
+    offset = 0
+    while True:
+        chunk = (
+            await db.table("kr_stock_cache")
+            .select("name,code,updated_at")
+            .order("name")
+            .range(offset, offset + page_size - 1)
+            .execute()
+        ).data
+        rows.extend(chunk)
+        if len(chunk) < page_size:
+            break
+        offset += page_size
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(["name", "code", "updated_at"])
