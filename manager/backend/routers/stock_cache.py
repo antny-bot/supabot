@@ -1,4 +1,5 @@
 """종목명-코드 캐시 관리 API (kr_stock_cache 테이블)."""
+import asyncio
 import csv
 import io
 
@@ -103,6 +104,39 @@ async def upload_csv(
         added += 1
 
     return {"added": added, "skipped": skipped, "errors": errors}
+
+
+# ── KRX 전체 종목 갱신 (FinanceDataReader) ──────────────────────────────────────
+
+def _fetch_krx_listing():
+    import FinanceDataReader as fdr
+    df = fdr.StockListing("KRX")
+    records = []
+    for _, row in df.iterrows():
+        name = str(row.get("Name") or "").strip()
+        code = str(row.get("Code") or "").strip().zfill(6)
+        if name and code:
+            records.append({"name": name, "code": code})
+    return records
+
+
+@router.post("/api/stock-cache/refresh")
+async def refresh_from_krx(_=Depends(get_admin_user)):
+    """FinanceDataReader로 KRX(코스피+코스닥+코넥스) 전체 종목명/코드를 받아 일괄 upsert."""
+    try:
+        records = await asyncio.get_event_loop().run_in_executor(None, _fetch_krx_listing)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"KRX 종목 목록 조회 실패: {e}")
+
+    if not records:
+        raise HTTPException(status_code=502, detail="KRX 종목 목록이 비어있습니다.")
+
+    db = get_db()
+    CHUNK = 500
+    for i in range(0, len(records), CHUNK):
+        await db.table("kr_stock_cache").upsert(records[i:i + CHUNK]).execute()
+
+    return {"added": len(records)}
 
 
 # ── CSV 다운로드 ───────────────────────────────────────────────────────────────
