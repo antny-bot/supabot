@@ -41,7 +41,7 @@ from core.parsers import (
     parse_rsi_interval, parse_config_value, validate_max_order, validate_config_update,
     has_gemini_key, get_user_rsi_interval, is_strategy_order,
     is_kis_regular_session, next_kis_regular_session, kis_next_check_timestamp,
-    interpolate_range, resolve_linked_rsi_target,
+    interpolate_range, resolve_linked_rsi_target, is_us_stock_ticker,
     _format_seconds, get_dca_weights,
 )
 from core.formatters import (
@@ -394,7 +394,9 @@ async def sync_orders(application):
                 trailing_pct = float(ord["trailing_stop_pct"])
                 expected_stop_price = current_price * (1 - trailing_pct / 100)
                 expected_stop_price = (
-                    ExchangeAdapter.adjust_krx_price_to_tick(expected_stop_price)
+                    ExchangeAdapter.adjust_us_price_to_tick(expected_stop_price)
+                    if is_us_stock_ticker(exchange, ticker)
+                    else ExchangeAdapter.adjust_krx_price_to_tick(expected_stop_price)
                     if exchange in ("kis", "toss")
                     else ExchangeAdapter.adjust_price_to_tick(expected_stop_price)
                 )
@@ -408,7 +410,9 @@ async def sync_orders(application):
                 if cancel_ok:
                     remaining = float(ord["volume"]) - float(ord["filled_volume"])
                     sl_price = (
-                        ExchangeAdapter.adjust_krx_price_to_tick(current_price * 0.999)
+                        ExchangeAdapter.adjust_us_price_to_tick(current_price * 0.999)
+                        if is_us_stock_ticker(exchange, ticker)
+                        else ExchangeAdapter.adjust_krx_price_to_tick(current_price * 0.999)
                         if exchange in ("kis", "toss")
                         else ExchangeAdapter.adjust_price_to_tick(current_price * 0.999)
                     )
@@ -462,7 +466,9 @@ async def sync_orders(application):
                         stop_loss_pct = float(user.get("preferences", {}).get("stop_loss_pct", 0) or 0)
                         stop_price = (
                             (
-                                ExchangeAdapter.adjust_krx_price_to_tick(ord["price"] * (1 - stop_loss_pct / 100))
+                                ExchangeAdapter.adjust_us_price_to_tick(ord["price"] * (1 - stop_loss_pct / 100))
+                                if is_us_stock_ticker(exchange, ticker)
+                                else ExchangeAdapter.adjust_krx_price_to_tick(ord["price"] * (1 - stop_loss_pct / 100))
                                 if exchange in ("kis", "toss")
                                 else ExchangeAdapter.adjust_price_to_tick(ord["price"] * (1 - stop_loss_pct / 100))
                             )

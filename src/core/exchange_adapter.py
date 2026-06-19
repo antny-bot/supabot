@@ -690,6 +690,11 @@ class ExchangeAdapter:
         adjusted = price - (price % tick_size)
         return int(adjusted)
 
+    @staticmethod
+    def adjust_us_price_to_tick(price):
+        """토스증권 해외(미국) 주식 주문 가격 보정 (센트 단위 내림 처리)"""
+        return round(price - (price % 0.01), 2)
+
     async def get_candles(self, exchange, ticker, interval="day", count=200, user_id=None):
         """거래소별 캔들(OHLCV) 데이터 조회 (TTL 캐시 적용)"""
         if user_id and exchange in ("kis", "toss"):
@@ -1064,6 +1069,7 @@ class ExchangeAdapter:
                 "high_price": float(item.get("highPrice") or item.get("high") or 0),
                 "low_price": float(item.get("lowPrice") or item.get("low") or 0),
                 "acc_trade_price_24h": float(item.get("tradingValue") or item.get("volume") or item.get("tradeAmount") or 0),
+                "currency": item.get("currency", "KRW"),
             }
         return None
 

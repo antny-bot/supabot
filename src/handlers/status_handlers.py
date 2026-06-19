@@ -4,6 +4,7 @@ from telegram.ext import ContextTypes
 
 import main
 from main import check_auth, check_details_help
+from core.parsers import is_us_stock_ticker
 
 
 @check_auth
@@ -27,7 +28,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
         "done": "완료",
         "cancel": "취소",
     }
-    for ex in ["upbit", "bithumb", "kis"]:
+    for ex in ["upbit", "bithumb", "kis", "toss"]:
         ex_orders = [o for o in orders if o['exchange'] == ex]
         if not ex_orders: continue
 
@@ -66,7 +67,12 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
 
                 for i, o in enumerate(g_orders[:3]):
                     side_str = "매수" if o['side'] == 'bid' else "매도"
-                    target = f"RSI {o['target_rsi']}" if o['target_rsi'] else f"{o['price']:,.0f}원"
+                    if o['target_rsi']:
+                        target = f"RSI {o['target_rsi']}"
+                    elif is_us_stock_ticker(o['exchange'], tk):
+                        target = f"${o['price']:,.2f}"
+                    else:
+                        target = f"{o['price']:,.0f}원"
                     state_text = status_names.get(o.get("status"), o.get("status", "대기"))
                     msg += f"  ▫️ {i+1}. {side_str}[{state_text}]: {target}\n"
                 if len(g_orders) > 3: msg += "  ▫️ ... 그 외 생략\n"

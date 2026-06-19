@@ -6,7 +6,7 @@ from telegram.ext import ContextTypes
 
 import main
 from main import check_auth, check_details_help, resolve_ticker_for_command
-from core.parsers import normalize_exchange, exchange_display_name, parse_exchange_and_ticker
+from core.parsers import normalize_exchange, exchange_display_name, parse_exchange_and_ticker, is_us_stock_ticker
 from core.formatters import build_report_view, build_cancel_confirm_message
 from core.trade_log import read_trades
 
@@ -128,7 +128,10 @@ async def orders_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
         status_str = _order_status_names.get(ord.get("status"), "")
         status_tag = f" — {status_str}" if status_str else ""
         msg += f"📌 <b>[{exchange_display_name(ord['exchange'])}]</b> {ord['ticker']}{group_tag}\n"
-        msg += f"   └ {ord['price']:,.0f}원 ({side_str}, {ord['volume']:.4f}개){status_tag}\n"
+        if is_us_stock_ticker(ord['exchange'], ord['ticker']):
+            msg += f"   └ ${ord['price']:,.2f} ({side_str}, {ord['volume']:.0f}주){status_tag}\n"
+        else:
+            msg += f"   └ {ord['price']:,.0f}원 ({side_str}, {ord['volume']:.4f}개){status_tag}\n"
 
     msg += "\n배치 번호로 취소: <code>/cancelno [번호]</code>"
     await update.message.reply_text(msg, parse_mode="HTML")
@@ -260,18 +263,29 @@ async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     low = float(ticker_data.get('low_price', 0))
     volume = float(ticker_data.get('acc_trade_price_24h', 0))
     stock_name = ticker_data.get('stock_name', '')
+    is_usd = ticker_data.get('currency') == 'USD'
 
     change_emoji = "📈" if change_rate > 0 else "📉" if change_rate < 0 else "➖"
 
     ticker_label = f"{stock_name} ({ticker})" if stock_name else ticker
-    msg = (
-        f"📊 <b>[{exchange_display_name(exchange)}] {ticker_label}</b> 실시간 시세\n\n"
-        f"현재가: <b>{price:,.0f}원</b> {change_emoji}\n"
-        f"전일대비: {change_rate:+.2f}% ({change_price:,.0f}원)\n"
-        f"고가(24H): {high:,.0f}원\n"
-        f"저가(24H): {low:,.0f}원\n"
-        f"거래대금: {volume/100000000:,.1f}억원"
-    )
+    if is_usd:
+        msg = (
+            f"📊 <b>[{exchange_display_name(exchange)}] {ticker_label}</b> 실시간 시세\n\n"
+            f"현재가: <b>${price:,.2f}</b> {change_emoji}\n"
+            f"전일대비: {change_rate:+.2f}% (${change_price:,.2f})\n"
+            f"고가(24H): ${high:,.2f}\n"
+            f"저가(24H): ${low:,.2f}\n"
+            f"거래량: {volume:,.0f}"
+        )
+    else:
+        msg = (
+            f"📊 <b>[{exchange_display_name(exchange)}] {ticker_label}</b> 실시간 시세\n\n"
+            f"현재가: <b>{price:,.0f}원</b> {change_emoji}\n"
+            f"전일대비: {change_rate:+.2f}% ({change_price:,.0f}원)\n"
+            f"고가(24H): {high:,.0f}원\n"
+            f"저가(24H): {low:,.0f}원\n"
+            f"거래대금: {volume/100000000:,.1f}억원"
+        )
 
     if indicators:
         technical_parts = []
@@ -281,7 +295,7 @@ async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
         for period in [7, 14, 30, 90]:
             ma_val = indicators.get(f"ma{period}")
             if ma_val is not None:
-                technical_parts.append(f"MA{period}: {ma_val:,.0f}원")
+                technical_parts.append(f"MA{period}: ${ma_val:,.2f}" if is_usd else f"MA{period}: {ma_val:,.0f}원")
         if technical_parts:
             msg += "\n\n📈 <b>기술지표 (일봉)</b>\n" + "\n".join(technical_parts)
 
@@ -387,8 +401,12 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE, us
         price = float(ord.get('price', 0))
         vol = float(ord.get('volume', 0))
         date = ord.get('created_at', '').split('T')[0]
+        is_usd = is_us_stock_ticker(exchange, tk)
 
         msg += f"- {date} | {side} | {tk}\n"
-        msg += f"  └ {price:,.0f}원 | {vol:.4f}개\n"
+        if is_usd:
+            msg += f"  └ ${price:,.2f} | {vol:.0f}주\n"
+        else:
+            msg += f"  └ {price:,.0f}원 | {vol:.4f}개\n"
 
     await update.message.reply_text(msg, parse_mode="HTML")
