@@ -130,6 +130,7 @@ class TossMixin:
                     "opening_price": float(item.get("openPrice") or 0),
                     "high_price": float(item.get("highPrice") or 0),
                     "low_price": float(item.get("lowPrice") or 0),
+                    "candle_acc_trade_volume": float(item.get("volume") or 0),
                 })
             except (TypeError, ValueError):
                 continue

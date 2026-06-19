@@ -50,17 +50,21 @@ class _FilteredQuery(_Query):
         self._params[column] = "in.({})".format(",".join(str(v) for v in values))
         return self
 
+    def limit(self, n: int) -> "_FilteredQuery":
+        self._params["limit"] = str(n)
+        return self
+
 
 class _Table:
     def __init__(self, session, url: str):
         self._session = session
         self._url = url
 
-    def select(self, columns: str = "*", count: str | None = None) -> _Query:
+    def select(self, columns: str = "*", count: str | None = None) -> _FilteredQuery:
         params = {"select": columns}
         if count:
             params["count"] = count
-        return _Query(self._session, "GET", self._url, params=params)
+        return _FilteredQuery(self._session, "GET", self._url, params=params)
 
     def insert(self, data, returning: bool = False) -> _Query:
         prefer = "return=representation" if returning else "return=minimal"

@@ -389,18 +389,34 @@ class ExchangeAdapter(CommonMixin, UpbitMixin, BithumbMixin, TossMixin, KisMixin
                 return None
             item = items[0]
             price = float(item.get("lastPrice") or 0)
-            change_rate = float(item.get("changeRate") or item.get("changeRatio") or 0)
+            currency = item.get("currency") or "KRW"
+
+            # /api/v1/prices는 symbol·lastPrice·currency만 제공 — 고가/저가/거래량/등락은
+            # 일봉 캔들(오늘+전일)로 별도 계산해야 함 (docs/toss.json PriceResponse 참고).
+            high = low = volume = change_price = 0.0
+            change_rate = 0.0
+            candles = await self.get_candles(exchange, ticker, interval="day", count=2, user_id=user_id)
+            if candles:
+                today = candles[0]
+                high = today.get("high_price", 0.0)
+                low = today.get("low_price", 0.0)
+                volume = today.get("candle_acc_trade_volume", 0.0)
+                if len(candles) > 1:
+                    prev_close = candles[1].get("trade_price", 0.0)
+                    if prev_close:
+                        change_price = price - prev_close
+                        change_rate = change_price / prev_close
+
             return {
                 "market": ticker,
                 "stock_name": item.get("name") or item.get("stockName") or item.get("issueName") or "",
                 "trade_price": price,
-                "currency": item.get("currency") or "KRW",
-                "change_rate": change_rate / 100 if abs(change_rate) > 1 else change_rate,
-                "change_price": float(item.get("changePrice") or item.get("priceChange") or 0),
-                "high_price": float(item.get("highPrice") or item.get("high") or 0),
-                "low_price": float(item.get("lowPrice") or item.get("low") or 0),
-                "acc_trade_price_24h": float(item.get("tradingValue") or item.get("volume") or item.get("tradeAmount") or 0),
-                "currency": item.get("currency", "KRW"),
+                "currency": currency,
+                "change_rate": change_rate,
+                "change_price": change_price,
+                "high_price": high,
+                "low_price": low,
+                "acc_trade_price_24h": price * volume if currency == "KRW" else volume,
             }
         return None
 

@@ -1,6 +1,7 @@
 import os
 import sys
-from unittest.mock import MagicMock
+from datetime import datetime, timezone
+from unittest.mock import MagicMock, patch
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SRC = os.path.join(ROOT, "src")
@@ -92,3 +93,30 @@ def test_is_kr_stock_name_handles_codes_and_coins():
     assert sr.is_kr_stock_name("KRW-BTC") is False
     assert sr.is_kr_stock_name("삼성전자") is True
     assert sr.is_kr_stock_name("samsung") is False
+
+
+def test_db_lookup_finds_fresh_cached_row():
+    # kr_stock_cache에 데이터가 있으면 _db_lookup이 실제로 그 값을 찾아 반환해야 한다
+    # (core.db.Table.select()가 .eq() 체이닝을 지원하지 않으면 AttributeError가
+    # 발생해 항상 (None, False)로 떨어지는 회귀를 막기 위한 테스트).
+    now = datetime.now(timezone.utc).isoformat()
+    fake_row = {"code": "204270", "updated_at": now}
+
+    fake_query = MagicMock()
+    fake_query.eq.return_value = fake_query
+    fake_query.execute.return_value = MagicMock(data=[fake_row])
+
+    fake_table = MagicMock()
+    fake_table.select.return_value = fake_query
+
+    fake_db = MagicMock()
+    fake_db.table.return_value = fake_table
+
+    with patch("core.db.is_db_available", return_value=True), \
+         patch("core.db.get_db", return_value=fake_db):
+        code, is_fresh = sr._db_lookup("제이앤티씨")
+
+    assert code == "204270"
+    assert is_fresh is True
+    fake_table.select.assert_called_once_with("code,updated_at")
+    fake_query.eq.assert_called_once_with("name", "제이앤티씨")
