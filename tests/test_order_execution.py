@@ -198,6 +198,31 @@ async def test_execute_rsitrade_orders_kis_rounds_to_int_and_skips_zero(tmp_path
     assert om.get_user_orders("111") == []
 
 
+async def test_execute_rsitrade_orders_toss_rounds_to_int_and_skips_zero(tmp_path):
+    om = _order_manager(tmp_path)
+    adapter = MagicMock()
+    adapter.create_order = AsyncMock(return_value={"uuid": "b1"})
+    engine = MagicMock()
+    # 20,000원 예산 / 30,000원가 -> 0.66주 -> Toss는 정수 수량만 가능하므로 건너뜀
+    engine.get_price_by_rsi = AsyncMock(return_value=30_000.0)
+    bot = _bot()
+
+    result = await execute_rsitrade_orders(
+        exchange_adapter=adapter, order_manager=om, signal_engine=engine,
+        user_id="111", exchange="toss", ticker="403850",
+        buy_rsi_range="30-35", sell_rsi_range="-",
+        count=1, per_order_budgets=[20_000.0],
+        user=_user(), group_no=5, bot=bot, notify_chat_id="111",
+    )
+
+    adapter.create_order.assert_not_awaited()
+    assert result["success"] == 0
+    assert result["skipped_count"] == 1
+    assert om.get_user_orders("111") == []
+    msg = bot.send_message.call_args.kwargs["text"]
+    assert "건너뜀" in msg
+
+
 async def test_execute_rsitrade_orders_skips_when_no_price_available(tmp_path):
     om = _order_manager(tmp_path)
     adapter = MagicMock()
@@ -246,3 +271,24 @@ async def test_execute_sgridrsi_orders_places_sell_orders_without_linked_to(tmp_
     msg = bot.send_message.call_args.kwargs["text"]
     assert "배치 #8" in msg
     sync_fn.assert_called_once()
+
+
+async def test_execute_sgridrsi_orders_toss_rounds_to_int_and_skips_zero(tmp_path):
+    om = _order_manager(tmp_path)
+    adapter = MagicMock()
+    adapter.create_order = AsyncMock(return_value={"uuid": "s1"})
+    engine = MagicMock()
+    engine.get_price_by_rsi = AsyncMock(return_value=30_000.0)
+    bot = _bot()
+
+    result = await execute_sgridrsi_orders(
+        exchange_adapter=adapter, order_manager=om, signal_engine=engine,
+        user_id="111", exchange="toss", ticker="403850",
+        sell_rsi_range="65-75", count=1, budget=20_000.0,
+        user=_user(), group_no=9, bot=bot, notify_chat_id="111",
+    )
+
+    adapter.create_order.assert_not_awaited()
+    assert result["success"] == 0
+    assert result["skipped_count"] == 1
+    assert om.get_user_orders("111") == []

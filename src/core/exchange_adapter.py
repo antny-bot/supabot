@@ -672,6 +672,24 @@ class ExchangeAdapter:
             return int(adjusted)
         return round(adjusted, 4)
 
+    @staticmethod
+    def get_krx_tick_size(price):
+        """KIS/Toss(KRX 상장 주식) 호가 단위 계산 (업비트/빗썸 호가 단위와 다름)"""
+        if price >= 500000: return 1000
+        if price >= 200000: return 500
+        if price >= 50000: return 100
+        if price >= 20000: return 50
+        if price >= 5000: return 10
+        if price >= 2000: return 5
+        return 1
+
+    @staticmethod
+    def adjust_krx_price_to_tick(price):
+        """KIS/Toss 주문 가격을 KRX 호가 단위에 맞게 보정 (내림 처리)"""
+        tick_size = ExchangeAdapter.get_krx_tick_size(price)
+        adjusted = price - (price % tick_size)
+        return int(adjusted)
+
     async def get_candles(self, exchange, ticker, interval="day", count=200, user_id=None):
         """거래소별 캔들(OHLCV) 데이터 조회 (TTL 캐시 적용)"""
         if user_id and exchange in ("kis", "toss"):

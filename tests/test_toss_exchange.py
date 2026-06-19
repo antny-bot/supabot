@@ -266,6 +266,28 @@ def test_toss_cancel_order_fail():
     assert ok is False
 
 
+# ── KRX tick size (KIS/Toss) ───────────────────────────────────────────────────
+
+@pytest.mark.parametrize("price,expected_tick", [
+    (1500, 1),
+    (3000, 5),
+    (10000, 10),
+    (35000, 50),
+    (100000, 100),
+    (300000, 500),
+    (1000000, 1000),
+])
+def test_get_krx_tick_size(price, expected_tick):
+    assert ExchangeAdapter.get_krx_tick_size(price) == expected_tick
+
+
+def test_adjust_krx_price_to_tick_rounds_down_to_valid_tick():
+    # 35,000~50,000원대는 50원 단위 -> 35,037 -> 35,000
+    assert ExchangeAdapter.adjust_krx_price_to_tick(35_037) == 35_000
+    # 크립토(업비트) 호가 단위(10원)로는 35,030이 되지만 KRX는 50원 단위이므로 달라야 함
+    assert ExchangeAdapter.adjust_price_to_tick(35_037) != ExchangeAdapter.adjust_krx_price_to_tick(35_037)
+
+
 # ── parsers integration ────────────────────────────────────────────────────────
 
 def test_normalize_exchange_toss():
