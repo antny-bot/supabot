@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from 'react'
-import { CheckCircle, ChevronLeft, ChevronRight, Download, Trash2, Upload } from 'lucide-react'
+import { CheckCircle, ChevronLeft, ChevronRight, Download, RefreshCw, Trash2, Upload } from 'lucide-react'
 import { fetchConfig, saveConfig } from '../api/config'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import PageHeader from '../components/ui/PageHeader'
