@@ -11,7 +11,7 @@ from main import check_auth, check_details_help, ensure_rsi_supported, resolve_t
 from core.parsers import (
     parse_exchange_and_ticker, is_exchange_token, parse_number, validate_max_order,
     parse_rsi_range, interpolate_range, get_user_rsi_interval, get_dca_weights,
-    exchange_display_name,
+    exchange_display_name, is_us_stock_ticker,
 )
 from core.formatters import build_grid_preview_lines, build_rsi_preview_lines
 from core.order_execution import execute_grid_orders, execute_rsitrade_orders, execute_sgridrsi_orders
@@ -62,19 +62,22 @@ async def build_rsigrid_confirm_summary(user_id, user, intent):
     if not ticker or budget <= 0 or count <= 0:
         return None
 
+    is_usd = is_us_stock_ticker(exchange, ticker)
+    budget_text = f"${budget:,.2f}" if is_usd else f"{budget:,.0f}원"
+
     if action == "sgridrsi":
         sell_range = intent.get("sell_rsi_range") or user["preferences"].get("rsi_sell_range", "65-75")
         rsi_prices = await build_rsi_sell_price_points(user_id, user, exchange, ticker, sell_range, count)
         if not rsi_prices:
             return None
-        preview_text = "\n".join(build_rsi_preview_lines(ticker, rsi_prices, budget, count))
+        preview_text = "\n".join(build_rsi_preview_lines(ticker, rsi_prices, budget, count, is_usd=is_usd))
         return (
             f"💰 RSI 매도 전략 확인\n\n"
             f"전략 설정\n"
             f"- 거래소: {exchange_display_name(exchange)}\n"
             f"- 종목: {ticker}\n"
             f"- 매도 RSI: {sell_range}\n"
-            f"- 총예산: {budget:,.0f}원\n"
+            f"- 총예산: {budget_text}\n"
             f"- 분할: {count}개\n\n"
             f"예상 주문\n{preview_text}\n\n"
             f"실행 시점에 가격은 다시 계산될 수 있습니다.\n"
@@ -88,7 +91,7 @@ async def build_rsigrid_confirm_summary(user_id, user, intent):
         return None
     dca_mode = bool(intent.get("dca_mode"))
     per_order_budgets = [budget * w for w in get_dca_weights(count)][:len(rsi_prices)] if dca_mode else None
-    preview_text = "\n".join(build_rsi_preview_lines(ticker, rsi_prices, budget, count, per_order_budgets=per_order_budgets))
+    preview_text = "\n".join(build_rsi_preview_lines(ticker, rsi_prices, budget, count, per_order_budgets=per_order_budgets, is_usd=is_usd))
     dca_line = "- 배분: DCA 가중 (낮은 RSI 집중)\n" if dca_mode else ""
     return (
         f"🤖 RSI 거미줄 전략 확인\n\n"
@@ -97,7 +100,7 @@ async def build_rsigrid_confirm_summary(user_id, user, intent):
         f"- 종목: {ticker}\n"
         f"- 매수 RSI: {buy_range}\n"
         f"- 매도 RSI: {sell_range}\n"
-        f"- 총예산: {budget:,.0f}원\n"
+        f"- 총예산: {budget_text}\n"
         f"- 분할: {count}개\n"
         f"{dca_line}\n"
         f"예상 주문\n{preview_text}\n\n"
@@ -137,7 +140,8 @@ async def grid_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
         await update.message.reply_text("⚠️ 숫자 형식의 파라미터가 잘못되었습니다.")
         return
 
-    ok, error_msg = validate_max_order(user, budget / count)
+    is_usd = is_us_stock_ticker(exchange, ticker)
+    ok, error_msg = validate_max_order(user, budget / count, is_usd=is_usd)
     if not ok:
         await update.message.reply_text(error_msg)
         return
@@ -161,15 +165,17 @@ async def grid_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    preview_text = "\n".join(build_grid_preview_lines(ticker, start_p, end_p, count, budget))
+    preview_text = "\n".join(build_grid_preview_lines(ticker, start_p, end_p, count, budget, is_usd=is_usd))
+    price_range_text = f"${start_p:,.2f} ~ ${end_p:,.2f}" if is_usd else f"{start_p:,.0f} ~ {end_p:,.0f}"
+    budget_text = f"${budget:,.2f}" if is_usd else f"{budget:,.0f}원"
     summary = (
         f"🕸️ 거미줄 매수 주문 확인\n\n"
         f"주문 설정\n"
         f"- 거래소: {exchange.upper()}\n"
         f"- 종목: {ticker}\n"
-        f"- 가격 범위: {start_p:,.0f} ~ {end_p:,.0f}\n"
+        f"- 가격 범위: {price_range_text}\n"
         f"- 주문 개수: {count}회\n"
-        f"- 총 예산: {budget:,.0f}원\n\n"
+        f"- 총 예산: {budget_text}\n\n"
         "위 내용으로 주문을 진행할까요?"
         f"{kis_notice}"
     )
@@ -214,7 +220,8 @@ async def sgrid_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
             return
         kis_notice = "\n⚠️ 한국투자증권: 주문 수량은 정수(주)로 처리됩니다."
 
-    vol_text = f"{int(total_vol):,}주" if exchange == "kis" else f"{total_vol:.4f}개"
+    is_usd = is_us_stock_ticker(exchange, ticker)
+    vol_text = f"{int(total_vol):,}주" if exchange in ("kis", "toss") else f"{total_vol:.4f}개"
     confirm_data = f"sgridrun|{exchange}|{ticker}|{start_p}|{end_p}|{count}|{total_vol}"
     keyboard = [
         [InlineKeyboardButton("✅ 매도 실행", callback_data=confirm_data),
@@ -222,12 +229,13 @@ async def sgrid_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
+    price_range_text = f"${start_p:,.2f} ~ ${end_p:,.2f}" if is_usd else f"{start_p:,.0f} ~ {end_p:,.0f}"
     summary = (
         f"🕸️ 거미줄 매도 주문 확인\n\n"
         f"주문 설정\n"
         f"- 거래소: {exchange.upper()}\n"
         f"- 종목: {ticker}\n"
-        f"- 가격 범위: {start_p:,.0f} ~ {end_p:,.0f}\n"
+        f"- 가격 범위: {price_range_text}\n"
         f"- 주문 개수: {count}회\n"
         f"- 총 수량: {vol_text}\n\n"
         "위 내용으로 분할 매도를 진행할까요?"
@@ -254,7 +262,7 @@ async def grid_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TY
             await query.edit_message_text("❌ 사용자 설정을 찾을 수 없어 주문을 중단합니다.")
             return
         if not is_sell:
-            ok, error_msg = validate_max_order(user, val / ct)
+            ok, error_msg = validate_max_order(user, val / ct, is_usd=is_us_stock_ticker(ex, tk))
             if not ok:
                 await query.edit_message_text(error_msg)
                 return
@@ -345,12 +353,13 @@ async def rsitrade_command(update: Update, context: ContextTypes.DEFAULT_TYPE, u
         await update.message.reply_text("⚠️ 파라미터 형식이 잘못되었습니다. (예: 25-30)")
         return
 
+    is_usd = is_us_stock_ticker(exchange, ticker)
     dca_weights = get_dca_weights(count) if dca_mode else None
     per_order_budgets = [budget * w for w in dca_weights] if dca_weights else None
     max_per_order = max(per_order_budgets) if per_order_budgets else budget / count
     min_per_order = min(per_order_budgets) if per_order_budgets else budget / count
 
-    ok, error_msg = validate_max_order(user, max_per_order)
+    ok, error_msg = validate_max_order(user, max_per_order, is_usd=is_usd)
     if not ok:
         await update.message.reply_text(error_msg)
         return
@@ -358,7 +367,8 @@ async def rsitrade_command(update: Update, context: ContextTypes.DEFAULT_TYPE, u
     # 1. 거래소 최소 주문 금액 검증
     min_amt = main.exchange_adapter.get_min_order_amount(exchange)
     if min_per_order < min_amt:
-        await update.message.reply_text(f"❌ 예산이 너무 적습니다. 건당 최소 {min_amt:,.0f}원 이상이어야 합니다.")
+        unit = "달러" if is_usd else "원"
+        await update.message.reply_text(f"❌ 예산이 너무 적습니다. 건당 최소 {min_amt:,.0f}{unit} 이상이어야 합니다.")
         return
 
     status_msg = await update.message.reply_text(f"🔍 {ticker} RSI 가격 분석 중...")
@@ -388,19 +398,21 @@ async def rsitrade_command(update: Update, context: ContextTypes.DEFAULT_TYPE, u
                  InlineKeyboardButton("❌ 취소", callback_data="grid_cancel")]]
 
     preview_budgets = per_order_budgets[:len(buy_prices)] if per_order_budgets else None
-    preview_text = "\n".join(build_rsi_preview_lines(ticker, buy_prices, budget, count, per_order_budgets=preview_budgets))
+    preview_text = "\n".join(build_rsi_preview_lines(ticker, buy_prices, budget, count, per_order_budgets=preview_budgets, is_usd=is_usd))
     sell_line = f"- 익절(RSI): {sell_rsi_range} 목표\n" if sell_rsi_range else "- 익절 예약: 없음 (매수만)\n"
     dca_line = "- 배분: DCA 가중 (낮은 RSI 집중)\n" if dca_mode else ""
     auto_sell_note = "체결 시 자동으로 익절 주문이 예약됩니다. 시작할까요?" if sell_rsi_range else "매수만 진행합니다. 시작할까요?"
+    price_range_text = f"${buy_prices[0][1]:,.2f} ~ ${buy_prices[-1][1]:,.2f}" if is_usd else f"{buy_prices[0][1]:,.0f} ~ {buy_prices[-1][1]:,.0f}원"
+    budget_text = f"${budget:,.2f}" if is_usd else f"{budget:,.0f}원"
     summary = (
         f"🤖 RSI 순환 매매 전략 확인\n\n"
         f"전략 설정\n"
         f"- 거래소: {exchange.upper()}\n"
         f"- 종목: {ticker}\n"
-        f"- 매집(RSI): {buy_rsi_range} ({buy_prices[0][1]:,.0f} ~ {buy_prices[-1][1]:,.0f}원)\n"
+        f"- 매집(RSI): {buy_rsi_range} ({price_range_text})\n"
         f"{sell_line}"
         f"{dca_line}"
-        f"- 분할: {count}회 | 총예산: {budget:,.0f}원\n\n"
+        f"- 분할: {count}회 | 총예산: {budget_text}\n\n"
         f"{auto_sell_note}"
     )
     summary += f"\n\n예상 주문\n{preview_text}\n\n실행 시점에 가격은 다시 계산될 수 있습니다."
@@ -426,7 +438,7 @@ async def rsitrade_confirm_callback(update: Update, context: ContextTypes.DEFAUL
 
     dca_weights = get_dca_weights(ct) if dca_mode else None
     per_order_budgets = [bg * w for w in dca_weights] if dca_weights else [bg / ct] * ct
-    ok, error_msg = validate_max_order(user, max(per_order_budgets))
+    ok, error_msg = validate_max_order(user, max(per_order_budgets), is_usd=is_us_stock_ticker(ex, tk))
     if not ok:
         await query.edit_message_text(error_msg)
         return
@@ -487,14 +499,16 @@ async def sgridrsi_command(update: Update, context: ContextTypes.DEFAULT_TYPE, u
         await update.message.reply_text("⚠️ 파라미터 형식이 잘못되었습니다. (예: 80-90)")
         return
 
-    ok, error_msg = validate_max_order(user, budget / count)
+    is_usd = is_us_stock_ticker(exchange, ticker)
+    ok, error_msg = validate_max_order(user, budget / count, is_usd=is_usd)
     if not ok:
         await update.message.reply_text(error_msg)
         return
 
     min_amt = main.exchange_adapter.get_min_order_amount(exchange)
     if (budget / count) < min_amt:
-        await update.message.reply_text(f"❌ 예산이 너무 적습니다. 건당 최소 {min_amt:,.0f}원 이상이어야 합니다.")
+        unit = "달러" if is_usd else "원"
+        await update.message.reply_text(f"❌ 예산이 너무 적습니다. 건당 최소 {min_amt:,.0f}{unit} 이상이어야 합니다.")
         return
 
     status_msg = await update.message.reply_text(f"🔍 {ticker} RSI 매도 가격 분석 중...")
@@ -517,14 +531,16 @@ async def sgridrsi_command(update: Update, context: ContextTypes.DEFAULT_TYPE, u
     keyboard = [[InlineKeyboardButton("✅ 매도 전략 가동", callback_data=confirm_data),
                  InlineKeyboardButton("❌ 취소", callback_data="grid_cancel")]]
 
-    preview_text = "\n".join(build_rsi_preview_lines(ticker, sell_prices, budget, count))
+    preview_text = "\n".join(build_rsi_preview_lines(ticker, sell_prices, budget, count, is_usd=is_usd))
+    price_range_text = f"${sell_prices[0][1]:,.2f} ~ ${sell_prices[-1][1]:,.2f}" if is_usd else f"{sell_prices[0][1]:,.0f} ~ {sell_prices[-1][1]:,.0f}원"
+    budget_text = f"${budget:,.2f}" if is_usd else f"{budget:,.0f}원"
     summary = (
         f"💰 RSI 매도 전략 확인\n\n"
         f"전략 설정\n"
         f"- 거래소: {exchange.upper()}\n"
         f"- 종목: {ticker}\n"
-        f"- 매도(RSI): {sell_rsi_range} ({sell_prices[0][1]:,.0f} ~ {sell_prices[-1][1]:,.0f}원)\n"
-        f"- 분할: {count}회 | 총예산: {budget:,.0f}원\n\n"
+        f"- 매도(RSI): {sell_rsi_range} ({price_range_text})\n"
+        f"- 분할: {count}회 | 총예산: {budget_text}\n\n"
         "보유 코인을 RSI 목표가에서 분할 매도합니다. 시작할까요?"
     )
     summary += f"\n\n예상 주문\n{preview_text}\n\n실행 시점에 가격은 다시 계산될 수 있습니다."
@@ -545,7 +561,7 @@ async def sgridrsi_confirm_callback(update: Update, context: ContextTypes.DEFAUL
     if ex == "kis" and get_user_rsi_interval(user) != "day":
         await query.edit_message_text(main._KIS_RSI_MINUTE_ERROR)
         return
-    ok, error_msg = validate_max_order(user, bg / ct)
+    ok, error_msg = validate_max_order(user, bg / ct, is_usd=is_us_stock_ticker(ex, tk))
     if not ok:
         await query.edit_message_text(error_msg)
         return

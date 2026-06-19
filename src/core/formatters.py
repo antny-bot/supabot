@@ -9,6 +9,7 @@ from core.parsers import (
     POLL_INTERVAL_KEYS,
     parse_rsi_interval,
     _format_seconds,
+    is_us_stock_ticker,
 )
 from core.secret_crypto import can_decrypt_secrets, has_secret_key
 
@@ -101,7 +102,9 @@ CMD_HELP = {
         "2. <code>/price 빗썸 ETH</code> (빗썸 이더리움 시세)\n"
         "3. <code>/p KRW-XRP</code> (KRW- 포함 직접 입력도 가능)\n"
         "4. <code>/price 한투 005930</code> (한국투자증권 삼성전자 시세)\n"
-        "5. <code>/price 토스증권 005930</code> (토스증권 삼성전자 시세)"
+        "5. <code>/price 토스증권 005930</code> (토스증권 삼성전자 시세)\n"
+        "6. <code>/price 토스증권 AAPL</code> (토스증권 해외주식 애플 시세, USD 표시)\n\n"
+        "🌎 토스증권은 해외(미국)주식도 지원합니다. 종목코드 대신 AAPL, TSLA 같은 티커를 입력하세요."
     ),
     "indicators": (
         "📈 <b>/indicators 상세 가이드</b>\n\n"
@@ -137,7 +140,9 @@ CMD_HELP = {
         "<b>예시:</b>\n"
         "<code>/buy 빗썸 BTC 95000000 0.1</code> (빗썸에서 0.1 BTC를 9500만원에 매수)\n"
         "<code>/buy 한투 005930 70000 1</code> (한국투자증권에서 삼성전자 1주 매수 확인)\n"
-        "<code>/buy 토스증권 005930 70000 1</code> (토스증권에서 삼성전자 1주 매수 확인)\n\n"
+        "<code>/buy 토스증권 005930 70000 1</code> (토스증권에서 삼성전자 1주 매수 확인)\n"
+        "<code>/buy 토스증권 AAPL 185.5 10</code> (토스증권 해외주식 애플 10주 매수, USD)\n\n"
+        "🌎 토스증권은 AAPL, TSLA 등 해외(미국)주식 티커 입력 시 USD로 자동 처리됩니다 (한투는 국내전용).\n"
         "⚠️ 한국투자증권·토스증권 주문은 확인 버튼을 거친 뒤 전송됩니다."
     ),
     "sell": (
@@ -146,7 +151,8 @@ CMD_HELP = {
         "<b>구문:</b> <code>/sell [거래소] [종목] [가격] [수량]</code>\n\n"
         "<b>예시:</b>\n"
         "<code>/sell BTC 120000000 0.5</code> (업비트에서 0.5 BTC를 1.2억원에 매도)\n"
-        "<code>/sell 토스증권 005930 72000 1</code> (토스증권에서 삼성전자 1주 매도)\n\n"
+        "<code>/sell 토스증권 005930 72000 1</code> (토스증권에서 삼성전자 1주 매도)\n"
+        "<code>/sell 토스증권 AAPL 190 10</code> (토스증권 해외주식 애플 10주 매도, USD)\n\n"
         "⚠️ 보유 수량이 주문 수량보다 많아야 합니다."
     ),
     "grid": (
@@ -155,11 +161,14 @@ CMD_HELP = {
         "<b>구문:</b> <code>/grid [거래소] [종목] [시작가] [종료가] [횟수] [총예산]</code>\n\n"
         "<b>예시:</b>\n"
         "<code>/grid BTC 1억 9천 10 100만</code> (1억~9천 사이 10번 분할 매수)\n"
-        "<code>/grid 빗썸 ETH 400만 350만 5 50만</code> (빗썸 이더리움 5분할 매수)\n\n"
+        "<code>/grid 빗썸 ETH 400만 350만 5 50만</code> (빗썸 이더리움 5분할 매수)\n"
+        "<code>/grid 한투 005930 71000 69000 5 100만</code> (한국투자증권 삼성전자 5분할 매수)\n"
+        "<code>/grid 토스증권 005930 71000 69000 5 100만</code> (토스증권 삼성전자 5분할 매수)\n"
+        "<code>/grid 토스증권 AAPL 190 180 5 1000</code> (토스증권 해외주식 애플 190~180달러 5분할 매수, 총예산 1000달러)\n\n"
         "<b>파라미터:</b>\n"
-        "• 종목: 업비트/빗썸은 BTC, ETH 등 KRW- 생략 가능 (자동 보완)\n"
+        "• 종목: 업비트/빗썸은 BTC, ETH 등 KRW- 생략 가능 (자동 보완), 한투/토스증권은 005930 같은 종목코드, 토스증권 해외주식은 AAPL 같은 티커\n"
         "• 횟수: 몇 번에 나눠서 주문할지 지정\n"
-        "• 총예산: 전체 주문에 투입할 원화(KRW) 총액"
+        "• 총예산: 전체 주문에 투입할 금액 (국내는 원화(KRW), 토스증권 해외주식은 달러(USD))"
     ),
     "sgrid": (
         "🕸️ <b>/sgrid 상세 가이드 (거미줄 분할 매도)</b>\n\n"
@@ -167,11 +176,14 @@ CMD_HELP = {
         "<b>구문:</b> <code>/sgrid [거래소] [종목] [시작가] [종료가] [횟수] [총수량]</code>\n\n"
         "<b>예시:</b>\n"
         "<code>/sgrid BTC 1.1억 1.2억 5 0.1</code> (비트코인 0.1개 5분할 매도)\n"
-        "<code>/sgrid 빗썸 ETH 400만 450만 5 0.5</code> (빗썸 이더리움 0.5개 분할 매도)\n\n"
+        "<code>/sgrid 빗썸 ETH 400만 450만 5 0.5</code> (빗썸 이더리움 0.5개 분할 매도)\n"
+        "<code>/sgrid 한투 005930 71000 73000 5 5</code> (한국투자증권 삼성전자 5주 5분할 매도)\n"
+        "<code>/sgrid 토스증권 005930 71000 73000 5 5</code> (토스증권 삼성전자 5주 5분할 매도)\n"
+        "<code>/sgrid 토스증권 AAPL 190 200 5 10</code> (토스증권 해외주식 애플 10주 5분할 매도, USD)\n\n"
         "<b>파라미터:</b>\n"
-        "• 종목: 업비트/빗썸은 BTC, ETH 등 KRW- 생략 가능 (자동 보완)\n"
+        "• 종목: 업비트/빗썸은 BTC, ETH 등 KRW- 생략 가능 (자동 보완), 한투/토스증권은 005930 같은 종목코드, 토스증권 해외주식은 AAPL 같은 티커\n"
         "• 횟수: 몇 번에 나눠서 팔지 지정\n"
-        "• 총수량: 전체 매도할 코인 개수"
+        "• 총수량: 전체 매도할 코인 개수 또는 주식 수량"
     ),
     "orders": (
         "⏳ <b>/orders 상세 가이드</b>\n\n"
@@ -216,7 +228,8 @@ CMD_HELP = {
         "<b>기능:</b> RSI 시그널 감시 목록에서 특정 종목을 제거합니다.\n"
         "<b>구문:</b> <code>/unwatch [거래소] [종목]</code>\n\n"
         "<b>예시:</b>\n"
-        "<code>/unwatch BTC</code> (비트코인 감시 종료)"
+        "<code>/unwatch BTC</code> (비트코인 감시 종료)\n"
+        "<code>/unwatch 토스증권 005930</code> (토스증권 삼성전자 감시 종료)"
     ),
     "rsitrade": (
         "🤖 <b>/rsitrade 상세 가이드</b>\n\n"
@@ -239,7 +252,8 @@ CMD_HELP = {
         "<b>구문:</b> <code>/gridrsi [거래소] [종목] [매수RSI] [매도RSI] [횟수] [예산]</code>\n\n"
         "<b>예시:</b>\n"
         "1. <code>/gridrsi BTC 25-30 65-75 5 100만</code>\n"
-        "2. <code>/gridrsi ETH 20-30 - 5 100만</code>  (매도 없이 매수만)"
+        "2. <code>/gridrsi ETH 20-30 - 5 100만</code>  (매도 없이 매수만)\n"
+        "3. <code>/gridrsi 토스증권 005930 25-30 65-75 5 100만</code> (토스증권 삼성전자)"
     ),
     "sgridrsi": (
         "💰 <b>/sgridrsi 상세 가이드</b>\n\n"
@@ -247,7 +261,8 @@ CMD_HELP = {
         "<b>구문:</b> <code>/sgridrsi [거래소] [종목] [RSI구간] [횟수] [예산]</code>\n\n"
         "<b>예시:</b>\n"
         "1. <code>/sgridrsi ETH 80-90 10 100만</code>\n"
-        "2. <code>/sgridrsi 빗썸 ETH 80-90 10 100만</code>"
+        "2. <code>/sgridrsi 빗썸 ETH 80-90 10 100만</code>\n"
+        "3. <code>/sgridrsi 토스증권 005930 80-90 10 100만</code> (토스증권 삼성전자)"
     ),
     "info": (
         "ℹ️ <b>/info 상세 가이드</b>\n\n"
@@ -615,15 +630,23 @@ def build_account_summary(user_id, user):
 def build_manual_order_confirm_message(exchange, ticker, side, price, volume, user, ord_type="limit"):
     action = "매수" if side == "bid" else "매도"
     is_market = ord_type == "market"
+    is_us = is_us_stock_ticker(exchange, ticker)
     env_notice = ""
-    if exchange == "kis":
-        env = user.get("exchanges", {}).get("kis", {}).get("env", "paper")
-        env_notice = f" ({'실전' if env == 'real' else '모의'})"
+    if exchange == "kis" or (exchange == "toss" and not is_us):
+        if exchange == "kis":
+            env = user.get("exchanges", {}).get("kis", {}).get("env", "paper")
+            env_notice = f" ({'실전' if env == 'real' else '모의'})"
+        volume_text = f"{float(volume):,.0f}주"
+    elif is_us:
         volume_text = f"{float(volume):,.0f}주"
     else:
         volume_text = f"{float(volume):.8f}".rstrip("0").rstrip(".")
-    price_text = "시장가" if is_market else f"{float(price):,.0f}원"
-    amount_line = "" if is_market else f"- 주문금액: {float(price) * float(volume):,.0f}원\n"
+    if is_us:
+        price_text = "시장가" if is_market else f"${float(price):,.2f}"
+        amount_line = "" if is_market else f"- 주문금액: ${float(price) * float(volume):,.2f}\n"
+    else:
+        price_text = "시장가" if is_market else f"{float(price):,.0f}원"
+        amount_line = "" if is_market else f"- 주문금액: {float(price) * float(volume):,.0f}원\n"
     return (
         f"{'📈' if side == 'bid' else '📉'} <b>{exchange_display_name(exchange)} {action} 주문 확인</b>{env_notice}\n\n"
         f"- 종목: {ticker}\n"
@@ -645,23 +668,29 @@ def build_cancel_confirm_message(orders, title):
         status_tag = f" — {status_str}" if status_str else ""
         group_tag = f" [#{ord['group_no']}]" if ord.get("group_no") else ""
         lines.append(f"📌 [{exchange_display_name(ord['exchange'])}] {ord['ticker']}{group_tag}")
-        lines.append(f"   └ {ord['price']:,.0f}원 ({side_str}, {ord['volume']:.4f}개){status_tag}")
+        if is_us_stock_ticker(ord['exchange'], ord['ticker']):
+            lines.append(f"   └ ${ord['price']:,.2f} ({side_str}, {ord['volume']:.0f}주){status_tag}")
+        else:
+            lines.append(f"   └ {ord['price']:,.0f}원 ({side_str}, {ord['volume']:.4f}개){status_tag}")
     return "\n".join(lines)
 
 
-def build_grid_preview_lines(ticker, start_price, end_price, count, budget):
+def build_grid_preview_lines(ticker, start_price, end_price, count, budget, is_usd=False):
     per_order_budget = float(budget) / int(count)
     lines = []
     for i in range(int(count)):
         price = float(interpolate_range(float(start_price), float(end_price), i, int(count)))
         volume = per_order_budget / price
-        lines.append(
-            f"{i + 1}. {price:,.0f}원 / 약 {_format_preview_volume(ticker, volume)} / {per_order_budget:,.0f}원"
-        )
+        if is_usd:
+            lines.append(f"{i + 1}. ${price:,.2f} / 약 {int(volume)}주 / ${per_order_budget:,.2f}")
+        else:
+            lines.append(
+                f"{i + 1}. {price:,.0f}원 / 약 {_format_preview_volume(ticker, volume)} / {per_order_budget:,.0f}원"
+            )
     return lines
 
 
-def build_rsi_preview_lines(ticker, rsi_prices, budget, total_count=None, per_order_budgets=None):
+def build_rsi_preview_lines(ticker, rsi_prices, budget, total_count=None, per_order_budgets=None, is_usd=False):
     if not rsi_prices:
         return []
     default_per_order = float(budget) / int(total_count or len(rsi_prices))
@@ -670,9 +699,12 @@ def build_rsi_preview_lines(ticker, rsi_prices, budget, total_count=None, per_or
         price = float(price)
         order_budget = float(per_order_budgets[i - 1]) if per_order_budgets else default_per_order
         volume = order_budget / price
-        lines.append(
-            f"{i}. RSI {float(target_rsi):g} → {price:,.0f}원 / 약 {_format_preview_volume(ticker, volume)} / {order_budget:,.0f}원"
-        )
+        if is_usd:
+            lines.append(f"{i}. RSI {float(target_rsi):g} → ${price:,.2f} / 약 {int(volume)}주 / ${order_budget:,.2f}")
+        else:
+            lines.append(
+                f"{i}. RSI {float(target_rsi):g} → {price:,.0f}원 / 약 {_format_preview_volume(ticker, volume)} / {order_budget:,.0f}원"
+            )
     return lines
 
 
@@ -688,27 +720,38 @@ def build_report_view(trades: list, period: str = "all") -> str:
         by_key[key][f"{side}_krw"] += val
         by_key[key][f"{side}_count"] += 1
 
-    total_bid = sum(v["bid_krw"] for v in by_key.values())
-    total_ask = sum(v["ask_krw"] for v in by_key.values())
-    net = total_ask - total_bid
+    # USD(토스 해외주식)와 KRW는 통화가 달라 합산할 수 없으므로 합계를 분리한다.
+    total_bid_krw = sum(v["bid_krw"] for k, v in by_key.items() if not is_us_stock_ticker(k[0], k[1]))
+    total_ask_krw = sum(v["ask_krw"] for k, v in by_key.items() if not is_us_stock_ticker(k[0], k[1]))
+    total_bid_usd = sum(v["bid_krw"] for k, v in by_key.items() if is_us_stock_ticker(k[0], k[1]))
+    total_ask_usd = sum(v["ask_krw"] for k, v in by_key.items() if is_us_stock_ticker(k[0], k[1]))
+    net_krw = total_ask_krw - total_bid_krw
+    net_usd = total_ask_usd - total_bid_usd
 
     lines = [f"📊 <b>수익률 리포트 ({period_label})</b>", ""]
     for (exchange, ticker), stats in sorted(by_key.items()):
         pnl = stats["ask_krw"] - stats["bid_krw"]
         sign = "+" if pnl >= 0 else ""
         ex_label = exchange_display_name(exchange) if exchange else exchange.upper()
+        is_usd = is_us_stock_ticker(exchange, ticker)
+        unit = "$" if is_usd else ""
+        suffix = "" if is_usd else "원"
         lines.append(f"<b>[{ex_label}] {ticker}</b>")
         if stats["bid_count"]:
-            lines.append(f"  매수 {stats['bid_count']}건 / {stats['bid_krw']:,.0f}원")
+            lines.append(f"  매수 {stats['bid_count']}건 / {unit}{stats['bid_krw']:,.2f}{suffix}" if is_usd else f"  매수 {stats['bid_count']}건 / {stats['bid_krw']:,.0f}원")
         if stats["ask_count"]:
-            lines.append(f"  매도 {stats['ask_count']}건 / {stats['ask_krw']:,.0f}원")
+            lines.append(f"  매도 {stats['ask_count']}건 / {unit}{stats['ask_krw']:,.2f}{suffix}" if is_usd else f"  매도 {stats['ask_count']}건 / {stats['ask_krw']:,.0f}원")
         if stats["bid_count"] and stats["ask_count"]:
-            lines.append(f"  손익(추정): {sign}{pnl:,.0f}원")
+            lines.append(f"  손익(추정): {sign}{unit}{pnl:,.2f}{suffix}" if is_usd else f"  손익(추정): {sign}{pnl:,.0f}원")
         lines.append("")
 
-    net_sign = "+" if net >= 0 else ""
-    lines.append(f"💰 합계: 매수 {total_bid:,.0f}원 / 매도 {total_ask:,.0f}원")
-    lines.append(f"📈 총 손익(추정): {net_sign}{net:,.0f}원")
+    net_sign_krw = "+" if net_krw >= 0 else ""
+    lines.append(f"💰 합계(KRW): 매수 {total_bid_krw:,.0f}원 / 매도 {total_ask_krw:,.0f}원")
+    lines.append(f"📈 총 손익(추정, KRW): {net_sign_krw}{net_krw:,.0f}원")
+    if total_bid_usd or total_ask_usd:
+        net_sign_usd = "+" if net_usd >= 0 else ""
+        lines.append(f"💰 합계(USD, 토스 해외주식): 매수 ${total_bid_usd:,.2f} / 매도 ${total_ask_usd:,.2f}")
+        lines.append(f"📈 총 손익(추정, USD): {net_sign_usd}${net_usd:,.2f}")
     lines.append("")
     lines.append("⚠️ 손익은 가격×수량 기준 추정치입니다. 수수료 미반영.")
     lines.append("")
