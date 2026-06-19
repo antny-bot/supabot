@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from 'react'
-import { CheckCircle, Download, Trash2, Upload } from 'lucide-react'
+import { CheckCircle, Download, RefreshCw, Trash2, Upload } from 'lucide-react'
 import { fetchConfig, saveConfig } from '../api/config'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import PageHeader from '../components/ui/PageHeader'
@@ -157,6 +157,7 @@ function StockCacheTab() {
   const [saving, setSaving] = useState(false)
   const [overwrite, setOverwrite] = useState(true)
   const [uploadStatus, setUploadStatus] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const load = async (q = search) => {
@@ -238,6 +239,24 @@ function StockCacheTab() {
     window.location.href = '/api/stock-cache/export'
   }
 
+  const handleRefresh = async () => {
+    if (!confirm('KRX(코스피+코스닥+코넥스) 전체 종목명/코드를 받아와 캐시에 일괄 반영합니다. 계속할까요?')) return
+    setRefreshing(true)
+    setUploadStatus(null)
+    setError(null)
+    try {
+      const res = await fetch('/api/stock-cache/refresh', { method: 'POST' })
+      if (!res.ok) throw new Error(await res.text())
+      const { added } = await res.json()
+      setUploadStatus(`KRX 갱신 완료: ${added}건 반영`)
+      await load()
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
   const inputCls = 'rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100'
   const btnPrimary = 'rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50'
 
@@ -279,6 +298,10 @@ function StockCacheTab() {
           <button onClick={handleExport} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
             <Download size={14} />
             CSV 내보내기
+          </button>
+          <button onClick={handleRefresh} disabled={refreshing} className={`${btnPrimary} flex items-center gap-1.5`}>
+            <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+            {refreshing ? 'KRX 갱신 중...' : 'KRX 전체 갱신'}
           </button>
         </div>
       </div>
