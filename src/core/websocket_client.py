@@ -72,11 +72,18 @@ class RealtimeTickerEngine:
                         ]
                         await ws.send_str(json.dumps(sub_data))
                         
+                        change_detected_at = None
                         while self._running:
                             curr_watch, _ = self._get_active_watchlists()
                             if curr_watch != self._subscribed_upbit:
-                                _log.info("Upbit watchlist changed. Reconnecting WebSocket to subscribe new tickers...")
-                                break
+                                if change_detected_at is None:
+                                    change_detected_at = time.time()
+                                    _log.info("Upbit watchlist change detected. Delaying reconnection (debouncing)...")
+                                elif time.time() - change_detected_at > 3.0:
+                                    _log.info("Upbit watchlist change stabilized. Reconnecting WebSocket to subscribe new tickers...")
+                                    break
+                            else:
+                                change_detected_at = None
                                 
                             try:
                                 msg = await asyncio.wait_for(ws.receive(), timeout=2.0)
@@ -132,11 +139,18 @@ class RealtimeTickerEngine:
                         }
                         await ws.send_str(json.dumps(sub_data))
                         
+                        change_detected_at = None
                         while self._running:
                             _, curr_watch = self._get_active_watchlists()
                             if curr_watch != self._subscribed_bithumb:
-                                _log.info("Bithumb watchlist changed. Reconnecting WebSocket to subscribe new tickers...")
-                                break
+                                if change_detected_at is None:
+                                    change_detected_at = time.time()
+                                    _log.info("Bithumb watchlist change detected. Delaying reconnection (debouncing)...")
+                                elif time.time() - change_detected_at > 3.0:
+                                    _log.info("Bithumb watchlist change stabilized. Reconnecting WebSocket to subscribe new tickers...")
+                                    break
+                            else:
+                                change_detected_at = None
                                 
                             try:
                                 msg = await asyncio.wait_for(ws.receive(), timeout=2.0)

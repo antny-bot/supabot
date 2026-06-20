@@ -69,7 +69,9 @@ async def execute_grid_orders(
         if is_sell:
             raw_vol = budget_or_volume / count
         else:
-            raw_vol = (budget_or_volume / count) / target_price if target_price else 0
+            # 수수료 버퍼 0.1%(×0.999)를 적용하여 잔고 부족(Insufficient Balance) 오류를 방지함
+            effective_budget = (budget_or_volume / count) * 0.999
+            raw_vol = effective_budget / target_price if target_price else 0
         volume = ex.round_volume(raw_vol)
 
         if ex.requires_integer_volume() and volume <= 0:

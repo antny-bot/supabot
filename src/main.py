@@ -485,14 +485,15 @@ async def sync_orders(application):
         asyncio.create_task(trigger_realtime_sync())
 
 # --- 백그라운드 루프 엔진 ---
-def _get_admin_prefs() -> dict:
+async def _get_admin_prefs_async() -> dict:
     from core.db import get_db, is_db_available
     base = dict(UserManager.DEFAULT_PREFERENCES)
     if is_db_available():
         try:
-            rows = get_db().table("system_config").select("key,value").in_(
+            res = await get_db().table("system_config").select("key,value").in_(
                 "key", ["poll_active_interval", "poll_no_order_interval", "signal_analysis_interval"]
-            ).execute().data
+            ).execute_async()
+            rows = res.data
             for row in rows:
                 base[row["key"]] = int(row["value"])
             return base
@@ -516,8 +517,8 @@ async def order_sync_loop(application):
         _order_wake_event.clear()
         _write_heartbeat()
         try:
-            prefs = _get_admin_prefs()
-            order_manager.reload_from_db()
+            prefs = await _get_admin_prefs_async()
+            await order_manager.reload_from_db_async()
             await sync_orders(application)
             metrics.record_poll_ok()
             interval = prefs["poll_active_interval"] if order_manager.orders \
@@ -559,7 +560,7 @@ async def signal_analysis_loop(application):
     _ops_check_counter = 0
     while True:
         try:
-            prefs = _get_admin_prefs()
+            prefs = await _get_admin_prefs_async()
             await signal_engine.analyze_watchlist(application)
             metrics.record_signal_ok()
             _ops_check_counter += 1

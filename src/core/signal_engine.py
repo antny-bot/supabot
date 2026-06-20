@@ -187,6 +187,58 @@ class SignalEngine:
     async def analyze_watchlist(self, application):
         """Scan watchlists and send alerts based on RSI and (optionally) Bollinger Bands."""
         users = self.user_manager.users
+        tasks = []
+        sem = asyncio.Semaphore(3)  # Rate Limit 방지를 위한 동시 호출 세마포어
+
+        async def analyze_single_ticker(user_id, user_data, exchange, ticker):
+            async with sem:
+                interval = user_data["preferences"].get("rsi_interval", "day")
+                threshold = float(user_data["preferences"].get("signal_rsi_threshold", 30))
+                use_bb = user_data["preferences"].get("signal_bb_alert", False)
+
+                indicators = await self.get_indicators(exchange, ticker, interval=interval, user_id=user_id)
+                if indicators is None:
+                    return
+
+                rsi = indicators["rsi"]
+                bb = indicators["bbands"]
+                current_price = indicators["current_price"]
+
+                rsi_triggered = rsi <= threshold
+                bb_triggered = use_bb and current_price < bb.lower
+
+                snooze_key = (user_id, exchange, ticker)
+                if self._alert_snooze.get(snooze_key, 0) > time.time():
+                    return
+
+                if (rsi_triggered or bb_triggered) and not is_quiet_hours(user_data):
+                    reasons = []
+                    if rsi_triggered:
+                        reasons.append(f"RSI {rsi:.2f} ≤ {threshold:g}")
+                    if bb_triggered:
+                        reasons.append(f"종가 {current_price:,.0f} < BB하단 {bb.lower:,.0f}")
+
+                    msg = (
+                        f"🔔 <b>[{exchange.upper()}] 매수 시그널</b>\n\n"
+                        f"🔹 종목: {ticker}\n"
+                        f"🔹 조건: {' / '.join(reasons)}\n\n"
+                        "💡 현재 가격대에서 진입을 고려해 보세요!"
+                    )
+                    keyboard = [
+                        [InlineKeyboardButton("🕸️ 거미줄 셋팅하기", callback_data=f"grid_quick_{exchange}_{ticker}")],
+                        [
+                            InlineKeyboardButton("⏰ 1시간 스누즈", callback_data=f"signal_snooze_1h_{exchange}_{ticker}"),
+                            InlineKeyboardButton("⏰ 2시간 스누즈", callback_data=f"signal_snooze_2h_{exchange}_{ticker}"),
+                            InlineKeyboardButton("🌙 오늘 하루", callback_data=f"signal_snooze_day_{exchange}_{ticker}"),
+                        ],
+                    ]
+                    await application.bot.send_message(
+                        chat_id=user_id,
+                        text=msg,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                    )
+                    self._alert_snooze[snooze_key] = _next_midnight_kst()
+
         for user_id, user_data in users.items():
             if not user_data.get("is_active") or not user_data["preferences"].get("signal_alerts"):
                 continue
@@ -194,53 +246,7 @@ class SignalEngine:
             for exchange, ex_data in user_data.get("exchanges", {}).items():
                 watchlist = ex_data.get("watchlist", [])
                 for ticker in watchlist:
-                    interval = user_data["preferences"].get("rsi_interval", "day")
-                    threshold = float(user_data["preferences"].get("signal_rsi_threshold", 30))
-                    use_bb = user_data["preferences"].get("signal_bb_alert", False)
+                    tasks.append(analyze_single_ticker(user_id, user_data, exchange, ticker))
 
-                    indicators = await self.get_indicators(exchange, ticker, interval=interval, user_id=user_id)
-                    if indicators is None:
-                        await asyncio.sleep(0.5)
-                        continue
-
-                    rsi = indicators["rsi"]
-                    bb = indicators["bbands"]
-                    current_price = indicators["current_price"]
-
-                    rsi_triggered = rsi <= threshold
-                    bb_triggered = use_bb and current_price < bb.lower
-
-                    snooze_key = (user_id, exchange, ticker)
-                    if self._alert_snooze.get(snooze_key, 0) > time.time():
-                        await asyncio.sleep(0.5)
-                        continue
-
-                    if (rsi_triggered or bb_triggered) and not is_quiet_hours(user_data):
-                        reasons = []
-                        if rsi_triggered:
-                            reasons.append(f"RSI {rsi:.2f} ≤ {threshold:g}")
-                        if bb_triggered:
-                            reasons.append(f"종가 {current_price:,.0f} < BB하단 {bb.lower:,.0f}")
-
-                        msg = (
-                            f"🔔 <b>[{exchange.upper()}] 매수 시그널</b>\n\n"
-                            f"🔹 종목: {ticker}\n"
-                            f"🔹 조건: {' / '.join(reasons)}\n\n"
-                            "💡 현재 가격대에서 진입을 고려해 보세요!"
-                        )
-                        keyboard = [
-                            [InlineKeyboardButton("🕸️ 거미줄 셋팅하기", callback_data=f"grid_quick_{exchange}_{ticker}")],
-                            [
-                                InlineKeyboardButton("⏰ 1시간 스누즈", callback_data=f"signal_snooze_1h_{exchange}_{ticker}"),
-                                InlineKeyboardButton("⏰ 2시간 스누즈", callback_data=f"signal_snooze_2h_{exchange}_{ticker}"),
-                                InlineKeyboardButton("🌙 오늘 하루", callback_data=f"signal_snooze_day_{exchange}_{ticker}"),
-                            ],
-                        ]
-                        await application.bot.send_message(
-                            chat_id=user_id,
-                            text=msg,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                        )
-                        self._alert_snooze[snooze_key] = _next_midnight_kst()
-
-                    await asyncio.sleep(0.5)
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)

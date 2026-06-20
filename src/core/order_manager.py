@@ -53,6 +53,21 @@ class OrderManager:
             _log.error("Failed to reload orders from DB", exc_info=e, extra={"event": "db_orders_reload_error"})
             return False
 
+    async def reload_from_db_async(self) -> bool:
+        """폴링 사이클 시작 시 DB 상태를 비동기로 인메모리에 반영한다."""
+        if not is_db_available():
+            return False
+        try:
+            res = await get_db().table("orders").select("*").execute_async()
+            rows = res.data
+            self.orders = rows or []
+            self._uuid_set = {o["uuid"] for o in self.orders}
+            _log.info("Reloaded orders from DB (async)", extra={"event": "orders_reloaded_db_async", "count": len(self.orders)})
+            return True
+        except Exception as e:
+            _log.error("Failed to reload orders from DB (async)", exc_info=e, extra={"event": "db_orders_reload_error_async"})
+            return False
+
     def save_orders(self):
         if is_db_available():
             try:
@@ -76,33 +91,57 @@ class OrderManager:
         if not is_db_available():
             self._save_orders_to_file()
             return
-        try:
-            get_db().table("orders").upsert(order).execute()
-        except Exception as e:
-            _log.error("Failed to upsert order", exc_info=e, extra={"event": "db_order_upsert_error", "uuid": order.get("uuid")})
-            self._save_orders_to_file()
-            import asyncio
-            from core.db_sync import enqueue_task
+
+        async def _run():
             try:
-                asyncio.create_task(enqueue_task("upsert", "orders", "uuid", order.get("uuid"), order))
-            except Exception as ex:
-                _log.error("Failed to enqueue upsert task", exc_info=ex)
+                await get_db().table("orders").upsert(order).execute_async()
+            except Exception as e:
+                _log.error("Failed to upsert order (async)", exc_info=e, extra={"event": "db_order_upsert_error", "uuid": order.get("uuid")})
+                self._save_orders_to_file()
+                from core.db_sync import enqueue_task
+                try:
+                    await enqueue_task("upsert", "orders", "uuid", order.get("uuid"), order)
+                except Exception as ex:
+                    _log.error("Failed to enqueue upsert task", exc_info=ex)
+
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_run())
+        except RuntimeError:
+            try:
+                get_db().table("orders").upsert(order).execute()
+            except Exception as e:
+                _log.error("Failed to upsert order in fallback", exc_info=e)
+                self._save_orders_to_file()
 
     def _db_delete(self, uuid: str):
         if not is_db_available():
             self._save_orders_to_file()
             return
-        try:
-            get_db().table("orders").delete().eq("uuid", uuid).execute()
-        except Exception as e:
-            _log.error("Failed to delete order", exc_info=e, extra={"event": "db_order_delete_error", "uuid": uuid})
-            self._save_orders_to_file()
-            import asyncio
-            from core.db_sync import enqueue_task
+
+        async def _run():
             try:
-                asyncio.create_task(enqueue_task("delete", "orders", "uuid", uuid))
-            except Exception as ex:
-                _log.error("Failed to enqueue delete task", exc_info=ex)
+                await get_db().table("orders").delete().eq("uuid", uuid).execute_async()
+            except Exception as e:
+                _log.error("Failed to delete order (async)", exc_info=e, extra={"event": "db_order_delete_error", "uuid": uuid})
+                self._save_orders_to_file()
+                from core.db_sync import enqueue_task
+                try:
+                    await enqueue_task("delete", "orders", "uuid", uuid)
+                except Exception as ex:
+                    _log.error("Failed to enqueue delete task", exc_info=ex)
+
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_run())
+        except RuntimeError:
+            try:
+                get_db().table("orders").delete().eq("uuid", uuid).execute()
+            except Exception as e:
+                _log.error("Failed to delete order in fallback", exc_info=e)
+                self._save_orders_to_file()
 
     def add_order(self, user_id, exchange, ticker, uuid, price, volume, side="bid", strategy="manual", target_rsi=None, linked_to=None, status="wait", stop_price=None, trailing_stop_pct=None, group_no=None):
         self.remove_order(uuid, save=False)

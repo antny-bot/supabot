@@ -40,6 +40,10 @@ class _Query:
                 pass
         return _APIResponse(data=data, count=count)
 
+    async def execute_async(self) -> _APIResponse:
+        import asyncio
+        return await asyncio.to_thread(self.execute)
+
 
 class _FilteredQuery(_Query):
     def eq(self, column: str, value) -> "_FilteredQuery":

@@ -59,7 +59,7 @@ async def test_db_connection() -> bool:
     if not is_db_available():
         return False
     try:
-        get_db().table("system_config").select("key").limit(1).execute()
+        await get_db().table("system_config").select("key").limit(1).execute_async()
         return True
     except Exception:
         return False
@@ -87,9 +87,9 @@ async def _process_queue():
             try:
                 db = get_db()
                 if action == "upsert":
-                    db.table(table).upsert(data).execute()
+                    await db.table(table).upsert(data).execute_async()
                 elif action == "delete":
-                    db.table(table).delete().eq(key_col, key_val).execute()
+                    await db.table(table).delete().eq(key_col, key_val).execute_async()
                 _log.info(f"Successfully synced task: {action} on {table} ({key_val})")
             except Exception as e:
                 _log.error(f"Failed to sync task: {action} on {table} ({key_val}), will retry later", exc_info=e)

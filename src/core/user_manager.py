@@ -135,17 +135,29 @@ class UserManager:
         if not user:
             return
         db_row = self._user_to_db_row(str(user_id), user)
-        try:
-            get_db().table("users").upsert(db_row).execute()
-        except Exception as e:
-            _log.error("Failed to upsert user", exc_info=e, extra={"event": "db_user_upsert_error", "user_id": user_id})
-            self._save_users_to_file()
-            import asyncio
-            from core.db_sync import enqueue_task
+
+        async def _run():
             try:
-                asyncio.create_task(enqueue_task("upsert", "users", "user_id", str(user_id), db_row))
-            except Exception as ex:
-                _log.error("Failed to enqueue user upsert task", exc_info=ex)
+                await get_db().table("users").upsert(db_row).execute_async()
+            except Exception as e:
+                _log.error("Failed to upsert user (async)", exc_info=e, extra={"event": "db_user_upsert_error", "user_id": user_id})
+                self._save_users_to_file()
+                from core.db_sync import enqueue_task
+                try:
+                    await enqueue_task("upsert", "users", "user_id", str(user_id), db_row)
+                except Exception as ex:
+                    _log.error("Failed to enqueue user upsert task", exc_info=ex)
+
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_run())
+        except RuntimeError:
+            try:
+                get_db().table("users").upsert(db_row).execute()
+            except Exception as e:
+                _log.error("Failed to upsert user in fallback", exc_info=e)
+                self._save_users_to_file()
 
     # ── Default / migration helpers ───────────────────────────────────────────
 
