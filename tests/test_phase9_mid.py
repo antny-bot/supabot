@@ -111,6 +111,11 @@ def test_manual_order_token_default_ord_type_is_limit():
 
 # ── Grid/SGrid KIS 지원 ──────────────────────────────────────────────────────
 
+def _patch_kis_market_open(monkeypatch, is_open):
+    import core.exchanges.kis as kis_module
+    monkeypatch.setattr(kis_module, "is_kis_regular_session", lambda: is_open)
+
+
 def _patch_auth_kis(monkeypatch):
     import main
     from core.user_manager import UserManager
@@ -141,7 +146,7 @@ async def test_grid_command_kis_rejected_outside_market_hours(monkeypatch):
     import main
     from handlers import strategy_handlers
     _patch_auth_kis(monkeypatch)
-    monkeypatch.setattr(main, "is_kis_regular_session", lambda: False)
+    _patch_kis_market_open(monkeypatch, False)
 
     update = _make_update_simple()
     context = MagicMock()
@@ -158,7 +163,7 @@ async def test_grid_command_kis_allowed_during_market_hours(monkeypatch):
     import main
     from handlers import strategy_handlers
     _patch_auth_kis(monkeypatch)
-    monkeypatch.setattr(main, "is_kis_regular_session", lambda: True)
+    _patch_kis_market_open(monkeypatch, True)
 
     update = _make_update_simple()
     context = MagicMock()
@@ -175,7 +180,7 @@ async def test_sgrid_command_kis_rejected_outside_market_hours(monkeypatch):
     import main
     from handlers import strategy_handlers
     _patch_auth_kis(monkeypatch)
-    monkeypatch.setattr(main, "is_kis_regular_session", lambda: False)
+    _patch_kis_market_open(monkeypatch, False)
 
     update = _make_update_simple()
     context = MagicMock()
@@ -192,7 +197,7 @@ async def test_sgrid_command_kis_insufficient_volume(monkeypatch):
     import main
     from handlers import strategy_handlers
     _patch_auth_kis(monkeypatch)
-    monkeypatch.setattr(main, "is_kis_regular_session", lambda: True)
+    _patch_kis_market_open(monkeypatch, True)
 
     update = _make_update_simple()
     context = MagicMock()

@@ -8,6 +8,7 @@ if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
 from core.user_manager import UserManager
+import core.exchanges.kis as kis_module
 import main
 from handlers import strategy_handlers
 
@@ -51,7 +52,7 @@ def _patch_auth(monkeypatch, user):
 async def test_grid_command_kis_outside_market_hours(monkeypatch):
     user = _active_user()
     _patch_auth(monkeypatch, user)
-    monkeypatch.setattr(main, "is_kis_regular_session", lambda: False)
+    monkeypatch.setattr(kis_module, "is_kis_regular_session", lambda: False)
 
     update = _make_update(text="/grid 한투 005930 70000 80000 3 1000000")
     ctx = _make_context(["한투", "005930", "70000", "80000", "3", "1000000"])
