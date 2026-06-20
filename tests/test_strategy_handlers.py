@@ -83,10 +83,18 @@ async def test_grid_command_valid_args_sends_preview(monkeypatch):
     message_text = call_kwargs.args[0] if call_kwargs.args else call_kwargs.kwargs.get("text", "")
     assert "거미줄 매수 주문 확인" in message_text
 
-    # callback_data에 거래소·종목 포함 확인
+    # callback_data는 토큰 방식: "gridrun|<token>" (64바이트 한도 회피 + 단일 사용)
     buttons = reply_markup.inline_keyboard
     confirm_button = buttons[0][0]
-    assert confirm_button.callback_data.startswith("gridrun|upbit|KRW-BTC")
+    assert confirm_button.callback_data.startswith("gridrun|")
+    # 토큰이 거래소·종목·예산 등 payload를 담고 있는지 확인
+    from core.strategy_tokens import pop_valid_strategy_token
+    token = confirm_button.callback_data.split("|", 1)[1]
+    payload, error = pop_valid_strategy_token(token, "111")
+    assert error is None
+    assert payload["exchange"] == "upbit"
+    assert payload["ticker"] == "KRW-BTC"
+    assert payload["budget"] == 600000
 
 
 # T6: rsitrade_command — 예산 미설정 → 오류 안내
@@ -111,3 +119,52 @@ async def test_rsitrade_command_no_budget_shows_error(monkeypatch):
     )
     assert "예산" in all_texts
     assert "rsi_budget_krw" in all_texts
+
+
+def _make_query(user_id, data):
+    query = MagicMock()
+    query.from_user.id = user_id
+    query.data = data
+    query.answer = AsyncMock()
+    query.edit_message_text = AsyncMock()
+    update = MagicMock()
+    update.callback_query = query
+    return update, query
+
+
+async def test_grid_confirm_callback_token_double_tap_rejected(monkeypatch):
+    """전략 확인 버튼 더블탭: 첫 클릭만 발행, 두 번째는 만료 처리."""
+    from core.strategy_tokens import create_strategy_token
+    from core import trading_gate
+
+    user = _active_user()
+    _patch_auth(monkeypatch, user)
+    monkeypatch.setattr(trading_gate, "is_trading_halted", lambda: False)
+
+    om = MagicMock()
+    om.get_user_orders = MagicMock(return_value=[])
+    om.get_next_group_no = MagicMock(return_value=1)
+    monkeypatch.setattr(main, "order_manager", om)
+    monkeypatch.setattr(main, "exchange_adapter", MagicMock())
+
+    executed = AsyncMock()
+    monkeypatch.setattr(strategy_handlers, "execute_grid_orders", executed)
+
+    token = create_strategy_token("111", "gridrun", {
+        "exchange": "upbit", "ticker": "KRW-BTC",
+        "start_p": 100, "end_p": 90, "count": 5, "budget": 1000,
+    })
+
+    ctx = MagicMock()
+    ctx.bot = MagicMock()
+
+    update1, query1 = _make_query(111, f"gridrun|{token}")
+    await strategy_handlers.grid_confirm_callback(update1, ctx)
+    executed.assert_awaited_once()
+
+    update2, query2 = _make_query(111, f"gridrun|{token}")
+    await strategy_handlers.grid_confirm_callback(update2, ctx)
+    # 두 번째 클릭은 재발행되지 않아야 함
+    executed.assert_awaited_once()
+    last_text = query2.edit_message_text.call_args.args[0]
+    assert "만료" in last_text or "찾을 수 없" in last_text

@@ -66,6 +66,7 @@ CMD_HELP = {
         "• <code>signal_alerts</code>: on/off\n"
         "• <code>signal_rsi_threshold</code>: 예: 30\n"
         "• <code>max_order_krw</code>: 예: 50만 또는 off\n"
+        "• <code>max_open_exposure_krw</code>: 미체결 총 노출 한도, 예: 500만 또는 off\n"
         "• <code>llm_enabled</code>: on/off\n"
         "• <code>llm_model</code>: 예: gemini-2.5-flash-lite\n\n"
         "<b>폴링 설정 (관리자 전용):</b>\n"
@@ -309,7 +310,7 @@ def format_config_value(key, value):
         return format_bool(value)
     if key == "rsi_interval":
         return format_rsi_interval(value)
-    if key in ["rsi_budget_krw", "max_order_krw"]:
+    if key in ["rsi_budget_krw", "max_order_krw", "max_open_exposure_krw"]:
         return format_optional_krw(value)
     if key == "asset_min_display_krw":
         return f"{float(value):,.0f}원"
@@ -333,10 +334,12 @@ def format_safety_status(user):
             is_set = bool(keys.get("access_key") and keys.get("secret_key"))
         if is_set:
             configured.append(exchange_display_name(exchange))
+    max_exposure = prefs.get("max_open_exposure_krw")
     return [
         "- 수동 주문: 확인 버튼 필요",
         f"- max_order_krw: {format_optional_krw(max_order)}"
         + (" (권장: /config set max_order_krw 50만)" if max_order is None else ""),
+        f"- max_open_exposure_krw: {format_optional_krw(max_exposure)}",
         f"- KIS 환경: {_kis_exchange.env_label({'env': kis_env})}"
         + (" (실전 거래 주의)" if kis_env == "real" else ""),
         f"- API 키 설정 거래소: {', '.join(configured) if configured else '없음'}",
@@ -478,6 +481,7 @@ def build_config_view(user, active_order_count=0):
             f"- signal_alerts: {format_bool(preferences.get('signal_alerts'))}",
             f"- signal_rsi_threshold: {float(preferences.get('signal_rsi_threshold', 30)):g}",
             f"- max_order_krw: {format_optional_krw(preferences.get('max_order_krw'))}",
+            f"- max_open_exposure_krw: {format_optional_krw(preferences.get('max_open_exposure_krw'))}",
             "- stop_loss_pct: " + ("없음 (손절 비활성)" if preferences.get('stop_loss_pct') is None else f"{preferences.get('stop_loss_pct'):g}%"),
             f"- signal_bb_alert: {format_bool(preferences.get('signal_bb_alert'))}",
             "- quiet_hours: " + (

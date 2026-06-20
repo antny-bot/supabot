@@ -15,6 +15,8 @@ from core.parsers import (
 )
 from core.formatters import build_grid_preview_lines, build_rsi_preview_lines
 from core.order_execution import execute_grid_orders, execute_rsitrade_orders, execute_sgridrsi_orders
+from core.strategy_tokens import create_strategy_token, pop_valid_strategy_token, discard_strategy_token
+from core import trading_gate
 
 
 async def build_rsi_price_points(user_id, user, exchange, ticker, buy_rsi_range, count):
@@ -113,6 +115,10 @@ async def build_rsigrid_confirm_summary(user_id, user, intent):
 @check_auth
 async def grid_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     if await check_details_help(update, "grid"): return
+    ok, halt_msg = trading_gate.assert_can_trade()
+    if not ok:
+        await update.message.reply_text(halt_msg)
+        return
     args = context.args
     if len(args) < 5:
         await update.message.reply_text(
@@ -158,10 +164,13 @@ async def grid_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
             return
         kis_notice = "\n⚠️ 한국투자증권: 주문 수량은 정수(주)로 처리됩니다."
 
-    confirm_data = f"gridrun|{exchange}|{ticker}|{start_p}|{end_p}|{count}|{budget}"
+    token = create_strategy_token(user_id, "gridrun", {
+        "exchange": exchange, "ticker": ticker,
+        "start_p": start_p, "end_p": end_p, "count": count, "budget": budget,
+    })
     keyboard = [
-        [InlineKeyboardButton("✅ 주문 실행", callback_data=confirm_data),
-         InlineKeyboardButton("❌ 취소", callback_data="grid_cancel")]
+        [InlineKeyboardButton("✅ 주문 실행", callback_data=f"gridrun|{token}"),
+         InlineKeyboardButton("❌ 취소", callback_data=f"grid_cancel|{token}")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -186,6 +195,10 @@ async def grid_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
 @check_auth
 async def sgrid_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     if await check_details_help(update, "sgrid"): return
+    ok, halt_msg = trading_gate.assert_can_trade()
+    if not ok:
+        await update.message.reply_text(halt_msg)
+        return
     args = context.args
     if len(args) < 5:
         await update.message.reply_text(
@@ -222,10 +235,13 @@ async def sgrid_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
 
     is_usd = is_us_stock_ticker(exchange, ticker)
     vol_text = f"{int(total_vol):,}주" if exchange in ("kis", "toss") else f"{total_vol:.4f}개"
-    confirm_data = f"sgridrun|{exchange}|{ticker}|{start_p}|{end_p}|{count}|{total_vol}"
+    token = create_strategy_token(user_id, "sgridrun", {
+        "exchange": exchange, "ticker": ticker,
+        "start_p": start_p, "end_p": end_p, "count": count, "total_vol": total_vol,
+    })
     keyboard = [
-        [InlineKeyboardButton("✅ 매도 실행", callback_data=confirm_data),
-         InlineKeyboardButton("❌ 취소", callback_data="grid_cancel")]
+        [InlineKeyboardButton("✅ 매도 실행", callback_data=f"sgridrun|{token}"),
+         InlineKeyboardButton("❌ 취소", callback_data=f"grid_cancel|{token}")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -248,15 +264,24 @@ async def grid_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     await query.answer()
 
-    if query.data == "grid_cancel":
+    action = query.data.split("|", 1)[0]
+    token = query.data.split("|", 1)[1] if "|" in query.data else None
+
+    if action == "grid_cancel":
+        discard_strategy_token(token)
         await query.edit_message_text("❌ 주문이 취소되었습니다.")
         return
 
-    if query.data.startswith("gridrun") or query.data.startswith("sgridrun"):
-        is_sell = query.data.startswith("sgridrun")
-        _, ex, tk, s_p, e_p, ct, val = query.data.split("|")
-        s_p, e_p, ct, val = float(s_p), float(e_p), int(ct), float(val)
+    if action in ("gridrun", "sgridrun"):
+        is_sell = action == "sgridrun"
         user_id = str(query.from_user.id)
+        payload, error = pop_valid_strategy_token(token, user_id)
+        if error:
+            await query.edit_message_text(f"⚠️ {error}")
+            return
+        ex, tk = payload["exchange"], payload["ticker"]
+        s_p, e_p, ct = float(payload["start_p"]), float(payload["end_p"]), int(payload["count"])
+        val = float(payload["total_vol"]) if is_sell else float(payload["budget"])
         user = main.user_manager.get_user(user_id)
         if not user:
             await query.edit_message_text("❌ 사용자 설정을 찾을 수 없어 주문을 중단합니다.")
@@ -265,6 +290,18 @@ async def grid_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TY
             ok, error_msg = validate_max_order(user, val / ct, is_usd=is_us_stock_ticker(ex, tk))
             if not ok:
                 await query.edit_message_text(error_msg)
+                return
+            gate_ok, gate_msg = trading_gate.check_can_place_order(
+                user, main.order_manager.get_user_orders(user_id), val,
+                is_usd=is_us_stock_ticker(ex, tk),
+            )
+            if not gate_ok:
+                await query.edit_message_text(gate_msg)
+                return
+        else:
+            gate_ok, gate_msg = trading_gate.assert_can_trade()
+            if not gate_ok:
+                await query.edit_message_text(gate_msg)
                 return
 
         action_name = "매도" if is_sell else "매수"
@@ -303,6 +340,10 @@ async def grid_quick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def rsitrade_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     """RSI 기반 자동 순환 매매 설정"""
     if await check_details_help(update, "rsitrade"): return
+    ok, halt_msg = trading_gate.assert_can_trade()
+    if not ok:
+        await update.message.reply_text(halt_msg)
+        return
     raw_args = context.args
     if not raw_args:
         await update.message.reply_text("⚠️ 사용법: /rsitrade [거래소] [종목] [매수RSI구간] [매도RSI구간] [횟수] [예산]\n예: /rsitrade BTC 25-30 65-75 5 100만")
@@ -393,9 +434,13 @@ async def rsitrade_command(update: Update, context: ContextTypes.DEFAULT_TYPE, u
         return
 
     # 3. 요약 및 확인 버튼
-    confirm_data = f"rsitrun|{exchange}|{ticker}|{buy_rsi_range}|{sell_rsi_range or '-'}|{count}|{budget}|{'1' if dca_mode else '0'}"
-    keyboard = [[InlineKeyboardButton("✅ 전략 가동 시작", callback_data=confirm_data),
-                 InlineKeyboardButton("❌ 취소", callback_data="grid_cancel")]]
+    token = create_strategy_token(user_id, "rsitrun", {
+        "exchange": exchange, "ticker": ticker,
+        "buy_rsi_range": buy_rsi_range, "sell_rsi_range": sell_rsi_range or "-",
+        "count": count, "budget": budget, "dca_mode": dca_mode,
+    })
+    keyboard = [[InlineKeyboardButton("✅ 전략 가동 시작", callback_data=f"rsitrun|{token}"),
+                 InlineKeyboardButton("❌ 취소", callback_data=f"grid_cancel|{token}")]]
 
     preview_budgets = per_order_budgets[:len(buy_prices)] if per_order_budgets else None
     preview_text = "\n".join(build_rsi_preview_lines(ticker, buy_prices, budget, count, per_order_budgets=preview_budgets, is_usd=is_usd))
@@ -423,11 +468,16 @@ async def rsitrade_confirm_callback(update: Update, context: ContextTypes.DEFAUL
     query = update.callback_query
     await query.answer()
 
-    parts = query.data.split("|")
-    _, ex, tk, b_rsi, s_rsi, ct, bg = parts[:7]
-    dca_mode = len(parts) > 7 and parts[7] == "1"
-    ct, bg = int(ct), float(bg)
     user_id = str(query.from_user.id)
+    token = query.data.split("|", 1)[1] if "|" in query.data else None
+    payload, error = pop_valid_strategy_token(token, user_id)
+    if error:
+        await query.edit_message_text(f"⚠️ {error}")
+        return
+    ex, tk = payload["exchange"], payload["ticker"]
+    b_rsi, s_rsi = payload["buy_rsi_range"], payload["sell_rsi_range"]
+    dca_mode = bool(payload.get("dca_mode"))
+    ct, bg = int(payload["count"]), float(payload["budget"])
     user = main.user_manager.get_user(user_id)
     if not user:
         await query.edit_message_text("❌ 사용자 설정을 찾을 수 없어 주문을 중단합니다.")
@@ -441,6 +491,12 @@ async def rsitrade_confirm_callback(update: Update, context: ContextTypes.DEFAUL
     ok, error_msg = validate_max_order(user, max(per_order_budgets), is_usd=is_us_stock_ticker(ex, tk))
     if not ok:
         await query.edit_message_text(error_msg)
+        return
+    gate_ok, gate_msg = trading_gate.check_can_place_order(
+        user, main.order_manager.get_user_orders(user_id), bg, is_usd=is_us_stock_ticker(ex, tk),
+    )
+    if not gate_ok:
+        await query.edit_message_text(gate_msg)
         return
 
     await query.edit_message_text(f"🚀 {tk} RSI 순환 매매를 시작합니다. 매수 주문 전송 중...")
@@ -460,6 +516,10 @@ async def rsitrade_confirm_callback(update: Update, context: ContextTypes.DEFAUL
 async def sgridrsi_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     """RSI 목표 구간 분할 매도 — 보유 코인을 RSI 가격에서 직접 매도"""
     if await check_details_help(update, "sgridrsi"): return
+    ok, halt_msg = trading_gate.assert_can_trade()
+    if not ok:
+        await update.message.reply_text(halt_msg)
+        return
     args = context.args
     if not args:
         await update.message.reply_text("⚠️ 사용법: /sgridrsi [거래소] [종목] [RSI구간] [횟수] [예산]\n예: /sgridrsi 빗썸 ETH 80-90 10 100만")
@@ -527,9 +587,12 @@ async def sgridrsi_command(update: Update, context: ContextTypes.DEFAULT_TYPE, u
         await status_msg.edit_text("❌ RSI 가격 역산에 실패했습니다. 데이터를 불러올 수 없습니다.")
         return
 
-    confirm_data = f"sgridrsirun|{exchange}|{ticker}|{sell_rsi_range}|{count}|{budget}"
-    keyboard = [[InlineKeyboardButton("✅ 매도 전략 가동", callback_data=confirm_data),
-                 InlineKeyboardButton("❌ 취소", callback_data="grid_cancel")]]
+    token = create_strategy_token(user_id, "sgridrsirun", {
+        "exchange": exchange, "ticker": ticker,
+        "sell_rsi_range": sell_rsi_range, "count": count, "budget": budget,
+    })
+    keyboard = [[InlineKeyboardButton("✅ 매도 전략 가동", callback_data=f"sgridrsirun|{token}"),
+                 InlineKeyboardButton("❌ 취소", callback_data=f"grid_cancel|{token}")]]
 
     preview_text = "\n".join(build_rsi_preview_lines(ticker, sell_prices, budget, count, is_usd=is_usd))
     price_range_text = f"${sell_prices[0][1]:,.2f} ~ ${sell_prices[-1][1]:,.2f}" if is_usd else f"{sell_prices[0][1]:,.0f} ~ {sell_prices[-1][1]:,.0f}원"
@@ -551,9 +614,15 @@ async def sgridrsi_confirm_callback(update: Update, context: ContextTypes.DEFAUL
     query = update.callback_query
     await query.answer()
 
-    _, ex, tk, s_rsi, ct, bg = query.data.split("|")
-    ct, bg = int(ct), float(bg)
     user_id = str(query.from_user.id)
+    token = query.data.split("|", 1)[1] if "|" in query.data else None
+    payload, error = pop_valid_strategy_token(token, user_id)
+    if error:
+        await query.edit_message_text(f"⚠️ {error}")
+        return
+    ex, tk = payload["exchange"], payload["ticker"]
+    s_rsi = payload["sell_rsi_range"]
+    ct, bg = int(payload["count"]), float(payload["budget"])
     user = main.user_manager.get_user(user_id)
     if not user:
         await query.edit_message_text("❌ 사용자 설정을 찾을 수 없어 주문을 중단합니다.")
@@ -564,6 +633,10 @@ async def sgridrsi_confirm_callback(update: Update, context: ContextTypes.DEFAUL
     ok, error_msg = validate_max_order(user, bg / ct, is_usd=is_us_stock_ticker(ex, tk))
     if not ok:
         await query.edit_message_text(error_msg)
+        return
+    gate_ok, gate_msg = trading_gate.assert_can_trade()
+    if not gate_ok:
+        await query.edit_message_text(gate_msg)
         return
 
     await query.edit_message_text(f"🚀 {tk} RSI 매도 전략을 시작합니다. 매도 주문 전송 중...")

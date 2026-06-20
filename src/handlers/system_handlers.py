@@ -14,6 +14,7 @@ import main
 from core.command_log import log_command
 from core.db import get_db, is_db_available
 from core.formatters import build_help_message, build_account_summary
+from core import trading_gate
 
 
 # --- 디버그용 글로벌 메시지 핸들러 ---
@@ -48,6 +49,32 @@ async def dbsync_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
         )
     else:
         await update.message.reply_text("❌ DB 동기화 실패 (DB 미연결 또는 오류).")
+
+
+@check_auth
+async def halt_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
+    """전체 거래 즉시 중지 (관리자 전용)."""
+    if not user.get("is_admin"):
+        await update.message.reply_text("❌ 어드민 전용 명령어입니다.")
+        return
+    trading_gate.set_trading_halt(True, by_user_id=str(update.effective_chat.id))
+    active = len(main.order_manager.orders)
+    await update.message.reply_text(
+        "🛑 전체 거래를 중지했습니다.\n"
+        "신규 수동/전략 주문 및 KIS 재주문이 차단됩니다. (손절·익절 보호 매도는 계속 동작)\n"
+        f"현재 추적 중인 미체결 주문: {active}건\n"
+        "재개하려면 /resume 를 입력하세요."
+    )
+
+
+@check_auth
+async def resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
+    """전체 거래 재개 (관리자 전용)."""
+    if not user.get("is_admin"):
+        await update.message.reply_text("❌ 어드민 전용 명령어입니다.")
+        return
+    trading_gate.set_trading_halt(False, by_user_id=str(update.effective_chat.id))
+    await update.message.reply_text("✅ 전체 거래를 재개했습니다. 신규 주문이 다시 허용됩니다.")
 
 
 @check_auth

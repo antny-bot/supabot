@@ -33,6 +33,7 @@ class UserManager:
         "signal_bb_alert": False,
         "rsi_interval": "day",
         "max_order_krw": None,
+        "max_open_exposure_krw": None,
         "stop_loss_pct": None,
         "quiet_hours_start": None,
         "quiet_hours_end": None,

@@ -257,3 +257,38 @@ async def test_concurrently_removed_order_skips_external_cancel_alert(tmp_path, 
     # "외부 개입" 오탐 알림이 발생하지 않아야 함
     sent_texts = [c.kwargs.get("text", "") for c in app.bot.send_message.call_args_list]
     assert not any("외부 개입" in t for t in sent_texts)
+
+
+# T: next_check_at이 미래인 주문은 이번 사이클에서 거래소 재조회를 건너뛴다
+async def test_future_next_check_at_skips_order(tmp_path, monkeypatch):
+    om = _make_order_manager(tmp_path)
+    om.add_order("123", "kis", "005930", "uuid-future", 70000, 10, side="bid", strategy="rsitrade")
+    om.update_next_check_at("uuid-future", 9_999_999_999.0)  # 먼 미래
+    monkeypatch.setattr(main, "order_manager", om)
+
+    mock_adapter = MagicMock()
+    mock_adapter.get_order_status = AsyncMock()
+    mock_adapter.get_exchange = lambda exchange: MagicMock(is_market_open=lambda: True)
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    app = _make_app()
+    await main.sync_orders(app)
+
+    # next_check_at이 미래이므로 거래소 조회/상태 변경이 없어야 함
+    mock_adapter.get_order_status.assert_not_called()
+    assert om.orders[0]["next_check_at"] == 9_999_999_999.0
+
+
+# T: has_order 인덱스가 add/remove/replace에 따라 정확히 유지된다
+def test_has_order_index_consistency(tmp_path):
+    om = _make_order_manager(tmp_path)
+    om.add_order("u", "upbit", "KRW-BTC", "uuid-1", 100, 1, side="bid", strategy="manual")
+    assert om.has_order("uuid-1") is True
+    assert om.has_order("nope") is False
+
+    om.replace_order_uuid("uuid-1", "uuid-2")
+    assert om.has_order("uuid-1") is False
+    assert om.has_order("uuid-2") is True
+
+    om.remove_order("uuid-2")
+    assert om.has_order("uuid-2") is False

@@ -61,6 +61,7 @@ from core.formatters import (
 )
 from core.bot_logger import get_logger
 from core.metrics import metrics
+from core import trading_gate
 from core.command_log import log_command
 
 _log = get_logger("main")
@@ -268,10 +269,16 @@ async def sync_orders(application):
     initial_state = [(o['uuid'], o.get('status'), o.get('filled_volume'), o.get('stop_price')) for o in order_manager.orders]
     all_orders = list(order_manager.orders)
     _price_cache = {}  # 동일 sync 사이클 내 중복 API 호출 방지: {(exchange, ticker): price}
+    now_ts = time.time()
     for ord in all_orders:
         # /cancel, /cancelno, NL 취소 등으로 이번 사이클 도중 이미 제거된 주문은
-        # 거래소 재조회를 건너뛴다 (외부 개입 오탐 방지)
-        if not any(o["uuid"] == ord["uuid"] for o in order_manager.orders):
+        # 거래소 재조회를 건너뛴다 (외부 개입 오탐 방지). O(1) 인덱스 조회.
+        if not order_manager.has_order(ord["uuid"]):
+            continue
+
+        # next_check_at이 미래로 설정된 주문(KIS 장외/pending_reorder)은 해당 시점까지
+        # 거래소 재조회를 건너뛴다. 활성 wait 주문은 next_check_at=0이라 매번 점검된다.
+        if float(ord.get("next_check_at") or 0) > now_ts:
             continue
 
         user_id = ord['user_id']
@@ -289,6 +296,10 @@ async def sync_orders(application):
             remaining = max(float(ord.get("volume", 0)) - float(ord.get("filled_volume", 0)), 0)
             if remaining <= 0:
                 order_manager.remove_order(ord["uuid"])
+                continue
+            # 글로벌 거래 중지 중에는 신규 노출인 재주문을 보류한다 (보호성 매도는 별도 경로).
+            if trading_gate.is_trading_halted():
+                order_manager.update_next_check_at(ord["uuid"], kis_next_check_timestamp())
                 continue
             res = await exchange_adapter.create_order(user_id, exchange, ticker, ord.get("side", "bid"), ord.get("price"), int(remaining))
             if res and "uuid" in res:
@@ -716,6 +727,8 @@ def main():
     application.add_handler(CommandHandler("help", system_handlers.help_command))
     application.add_handler(CommandHandler("commands", system_handlers.help_command))
     application.add_handler(CommandHandler("dbsync", system_handlers.dbsync_command))
+    application.add_handler(CommandHandler("halt", system_handlers.halt_command))
+    application.add_handler(CommandHandler("resume", system_handlers.resume_command))
     application.add_handler(CommandHandler("nlstats", system_handlers.nlstats_command))
     application.add_handler(CommandHandler("info", system_handlers.info_command))
     for command_name in ACCOUNT_COMMAND_ALIASES:
