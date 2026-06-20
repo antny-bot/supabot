@@ -157,6 +157,9 @@ class TossExchange(BaseExchange):
     def round_volume(self, raw: float):
         return int(raw)
 
+    def requires_integer_volume(self) -> bool:
+        return True
+
     def format_volume(self, volume) -> str:
         return f"{int(float(volume))}주"
 

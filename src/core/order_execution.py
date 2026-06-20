@@ -10,8 +10,7 @@ _internal_execute_rsitrade_handler / sgridrsi_confirm_callback 에
 """
 import asyncio
 
-from core.exchange_adapter import ExchangeAdapter
-from core.parsers import interpolate_range, parse_rsi_range, get_user_rsi_interval, is_us_stock_ticker
+from core.parsers import interpolate_range, parse_rsi_range, get_user_rsi_interval
 from core.bot_logger import get_logger
 
 _log = get_logger("order_execution")
@@ -58,27 +57,22 @@ async def execute_grid_orders(
     진행되며, group_no는 항상 부여되고 trigger_sync_fn(있으면)을 항상 호출한다.
     """
     log = log or _log
-    is_us = is_us_stock_ticker(exchange, ticker)
+    ex = exchange_adapter.get_exchange(exchange)
     price_step = (end_price - start_price) / (count - 1) if count > 1 else 0
     success_count = 0
     skipped_count = 0
 
     for i in range(count):
         target_price = start_price + (price_step * i)
-        if is_us:
-            target_price = ExchangeAdapter.adjust_us_price_to_tick(target_price)
-        elif exchange in ("kis", "toss"):
-            target_price = ExchangeAdapter.adjust_krx_price_to_tick(target_price)
-        else:
-            target_price = ExchangeAdapter.adjust_price_to_tick(target_price)
+        target_price = ex.adjust_price_to_tick(target_price, ticker)
 
         if is_sell:
             raw_vol = budget_or_volume / count
         else:
             raw_vol = (budget_or_volume / count) / target_price if target_price else 0
-        volume = int(raw_vol) if exchange in ("kis", "toss") else round(raw_vol, 4)
+        volume = ex.round_volume(raw_vol)
 
-        if exchange in ("kis", "toss") and volume <= 0:
+        if ex.requires_integer_volume() and volume <= 0:
             skipped_count += 1
             continue
 
@@ -140,6 +134,7 @@ async def execute_rsitrade_orders(
     전달한다 (가중치 계산 로직은 호출부 책임 — 이 함수는 분배 결과만 사용).
     """
     log = log or _log
+    ex = exchange_adapter.get_exchange(exchange)
     has_sell = bool(sell_rsi_range) and sell_rsi_range != "-"
     b_start, b_end = parse_rsi_range(buy_rsi_range)
     s_start, s_end = parse_rsi_range(sell_rsi_range) if has_sell else (0, 0)
@@ -157,13 +152,11 @@ async def execute_rsitrade_orders(
         if not price:
             await asyncio.sleep(ORDER_PLACEMENT_SLEEP_SECONDS)
             continue
-        volume = round(per_order_budgets[i] / price, 4)
-        if exchange in ("kis", "toss"):
-            volume = int(volume)
-            if volume <= 0:
-                skipped_count += 1
-                await asyncio.sleep(ORDER_PLACEMENT_SLEEP_SECONDS)
-                continue
+        volume = ex.round_volume(per_order_budgets[i] / price)
+        if ex.requires_integer_volume() and volume <= 0:
+            skipped_count += 1
+            await asyncio.sleep(ORDER_PLACEMENT_SLEEP_SECONDS)
+            continue
 
         try:
             res = await exchange_adapter.create_order(user_id, exchange, ticker, "bid", price, volume)
@@ -215,6 +208,7 @@ async def execute_sgridrsi_orders(
     향후 추가 시 그대로 재사용 가능하도록 동일 패턴으로 통합해둔다.
     """
     log = log or _log
+    ex = exchange_adapter.get_exchange(exchange)
     s_start, s_end = parse_rsi_range(sell_rsi_range)
     budget_per_order = budget / count
     interval = get_user_rsi_interval(user)
@@ -230,13 +224,11 @@ async def execute_sgridrsi_orders(
         if not price:
             await asyncio.sleep(ORDER_PLACEMENT_SLEEP_SECONDS)
             continue
-        volume = round(budget_per_order / price, 4)
-        if exchange in ("kis", "toss"):
-            volume = int(volume)
-            if volume <= 0:
-                skipped_count += 1
-                await asyncio.sleep(ORDER_PLACEMENT_SLEEP_SECONDS)
-                continue
+        volume = ex.round_volume(budget_per_order / price)
+        if ex.requires_integer_volume() and volume <= 0:
+            skipped_count += 1
+            await asyncio.sleep(ORDER_PLACEMENT_SLEEP_SECONDS)
+            continue
 
         try:
             res = await exchange_adapter.create_order(user_id, exchange, ticker, "ask", price, volume)

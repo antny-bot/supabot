@@ -54,6 +54,14 @@ class BaseExchange:
         """주문 수량을 거래소 단위에 맞게 보정 (코인=소수 4자리, 주식=정수)."""
         return round(raw, 4)
 
+    def requires_integer_volume(self) -> bool:
+        """주문 수량이 정수(주식) 단위여야 하는지 여부 (코인=False, KIS/Toss=True).
+
+        round_volume()이 0으로 떨어지면 주문 자체가 불가능한 거래소를 구분해
+        호출부가 "0주 주문"을 건너뛸지 판단하는 데 쓴다.
+        """
+        return False
+
     def format_volume(self, volume) -> str:
         """표시용 수량 문자열 (코인='개', 주식='주')."""
         return f"{float(volume):.4f}개"

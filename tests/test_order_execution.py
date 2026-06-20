@@ -14,10 +14,30 @@ from core.order_execution import (
     execute_rsitrade_orders,
     execute_sgridrsi_orders,
 )
+from core.exchanges.upbit import UpbitExchange
+from core.exchanges.bithumb import BithumbExchange
+from core.exchanges.kis import KisExchange
+from core.exchanges.toss import TossExchange
+
+_EXCHANGE_CLASSES = {
+    "upbit": UpbitExchange,
+    "bithumb": BithumbExchange,
+    "kis": KisExchange,
+    "toss": TossExchange,
+}
 
 
 def _order_manager(tmp_path):
     return OrderManager(str(tmp_path / "orders.json"))
+
+
+def _adapter():
+    """exchange_adapter.get_exchange()가 실제 capability 로직(round_volume/
+    adjust_price_to_tick 등)을 갖는 Exchange 인스턴스를 돌려주는 MagicMock.
+    네트워크 호출 메서드(create_order 등)는 각 테스트가 별도로 AsyncMock으로 채운다."""
+    adapter = MagicMock()
+    adapter.get_exchange = lambda exchange: _EXCHANGE_CLASSES[exchange](adapter)
+    return adapter
 
 
 def _bot():
@@ -37,7 +57,7 @@ def _user(preferences=None):
 
 async def test_execute_grid_orders_buy_path_uses_buy_limit_order(tmp_path):
     om = _order_manager(tmp_path)
-    adapter = MagicMock()
+    adapter = _adapter()
     adapter.buy_limit_order = AsyncMock(side_effect=[{"uuid": f"u{i}"} for i in range(3)])
     adapter.create_order = AsyncMock()
     bot = _bot()
@@ -66,7 +86,7 @@ async def test_execute_grid_orders_buy_path_uses_buy_limit_order(tmp_path):
 
 async def test_execute_grid_orders_sell_path_uses_create_order(tmp_path):
     om = _order_manager(tmp_path)
-    adapter = MagicMock()
+    adapter = _adapter()
     adapter.create_order = AsyncMock(return_value={"uuid": "sell-1"})
     adapter.buy_limit_order = AsyncMock()
     bot = _bot()
@@ -88,7 +108,7 @@ async def test_execute_grid_orders_sell_path_uses_create_order(tmp_path):
 
 async def test_execute_grid_orders_kis_zero_volume_is_skipped_without_placing_order(tmp_path):
     om = _order_manager(tmp_path)
-    adapter = MagicMock()
+    adapter = _adapter()
     adapter.buy_limit_order = AsyncMock(return_value={"uuid": "should-not-be-called"})
     bot = _bot()
 
@@ -110,7 +130,7 @@ async def test_execute_grid_orders_kis_zero_volume_is_skipped_without_placing_or
 
 async def test_execute_grid_orders_continues_after_exchange_exception(tmp_path):
     om = _order_manager(tmp_path)
-    adapter = MagicMock()
+    adapter = _adapter()
     adapter.buy_limit_order = AsyncMock(side_effect=[Exception("boom"), {"uuid": "u2"}])
     bot = _bot()
 
@@ -130,7 +150,7 @@ async def test_execute_grid_orders_continues_after_exchange_exception(tmp_path):
 
 async def test_execute_rsitrade_orders_places_linked_buy_orders(tmp_path):
     om = _order_manager(tmp_path)
-    adapter = MagicMock()
+    adapter = _adapter()
     adapter.create_order = AsyncMock(side_effect=[{"uuid": "b1"}, {"uuid": "b2"}])
     engine = MagicMock()
     engine.get_price_by_rsi = AsyncMock(side_effect=[1000.0, 2000.0])
@@ -158,7 +178,7 @@ async def test_execute_rsitrade_orders_places_linked_buy_orders(tmp_path):
 
 async def test_execute_rsitrade_orders_buy_only_has_no_linked_to(tmp_path):
     om = _order_manager(tmp_path)
-    adapter = MagicMock()
+    adapter = _adapter()
     adapter.create_order = AsyncMock(return_value={"uuid": "b1"})
     engine = MagicMock()
     engine.get_price_by_rsi = AsyncMock(return_value=1000.0)
@@ -178,7 +198,7 @@ async def test_execute_rsitrade_orders_buy_only_has_no_linked_to(tmp_path):
 
 async def test_execute_rsitrade_orders_kis_rounds_to_int_and_skips_zero(tmp_path):
     om = _order_manager(tmp_path)
-    adapter = MagicMock()
+    adapter = _adapter()
     adapter.create_order = AsyncMock(return_value={"uuid": "b1"})
     engine = MagicMock()
     # price too high -> rounded volume becomes 0 for KIS and must be skipped
@@ -200,7 +220,7 @@ async def test_execute_rsitrade_orders_kis_rounds_to_int_and_skips_zero(tmp_path
 
 async def test_execute_rsitrade_orders_toss_rounds_to_int_and_skips_zero(tmp_path):
     om = _order_manager(tmp_path)
-    adapter = MagicMock()
+    adapter = _adapter()
     adapter.create_order = AsyncMock(return_value={"uuid": "b1"})
     engine = MagicMock()
     # 20,000원 예산 / 30,000원가 -> 0.66주 -> Toss는 정수 수량만 가능하므로 건너뜀
@@ -225,7 +245,7 @@ async def test_execute_rsitrade_orders_toss_rounds_to_int_and_skips_zero(tmp_pat
 
 async def test_execute_rsitrade_orders_skips_when_no_price_available(tmp_path):
     om = _order_manager(tmp_path)
-    adapter = MagicMock()
+    adapter = _adapter()
     adapter.create_order = AsyncMock()
     engine = MagicMock()
     engine.get_price_by_rsi = AsyncMock(return_value=None)
@@ -247,7 +267,7 @@ async def test_execute_rsitrade_orders_skips_when_no_price_available(tmp_path):
 
 async def test_execute_sgridrsi_orders_places_sell_orders_without_linked_to(tmp_path):
     om = _order_manager(tmp_path)
-    adapter = MagicMock()
+    adapter = _adapter()
     adapter.create_order = AsyncMock(return_value={"uuid": "s1"})
     engine = MagicMock()
     engine.get_price_by_rsi = AsyncMock(return_value=1000.0)
@@ -275,7 +295,7 @@ async def test_execute_sgridrsi_orders_places_sell_orders_without_linked_to(tmp_
 
 async def test_execute_sgridrsi_orders_toss_rounds_to_int_and_skips_zero(tmp_path):
     om = _order_manager(tmp_path)
-    adapter = MagicMock()
+    adapter = _adapter()
     adapter.create_order = AsyncMock(return_value={"uuid": "s1"})
     engine = MagicMock()
     engine.get_price_by_rsi = AsyncMock(return_value=30_000.0)
