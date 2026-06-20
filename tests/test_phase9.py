@@ -11,6 +11,7 @@ if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
 from core.exchange_adapter import ExchangeAdapter
+from core.exchanges.kis import KisExchange
 from core.signal_engine import SignalEngine
 
 
@@ -110,6 +111,9 @@ def test_signal_engine_falls_back_to_day_for_kis_minute_interval():
         def adjust_price_to_tick(p):
             return int(p)
 
+        def get_exchange(self, exchange):
+            return KisExchange(self)
+
     engine = SignalEngine(MagicMock(), MockAdapter())
     asyncio.run(engine.get_rsi("kis", "005930", interval="60", user_id="1"))
 
@@ -129,6 +133,9 @@ def test_signal_engine_keeps_day_for_kis_day_interval():
         @staticmethod
         def adjust_price_to_tick(p):
             return int(p)
+
+        def get_exchange(self, exchange):
+            return KisExchange(self)
 
     engine = SignalEngine(MagicMock(), MockAdapter())
     asyncio.run(engine.get_rsi("kis", "005930", interval="day", user_id="1"))

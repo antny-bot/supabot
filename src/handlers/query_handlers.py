@@ -37,7 +37,8 @@ async def asset_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
             continue
 
         if ex in ("kis", "toss"):
-            env_label = f" ({'실전' if balances.get('env') == 'real' else '모의'})" if ex == "kis" else ""
+            ex_env_label = main.exchange_adapter.get_exchange(ex).env_label(balances)
+            env_label = f" ({ex_env_label})" if ex_env_label else ""
             full_msg += f"🏛️ <b>{exchange_display_name(ex)}</b>{env_label}\n"
             cash = float(balances.get("cash", 0))
             ex_eval = float(balances.get("total_eval", 0))
@@ -238,7 +239,7 @@ async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     ticker = await main.exchange_adapter.resolve_ticker(user_id, exchange, raw_ticker)
     display_ticker = f"{raw_ticker}({ticker})" if ticker != raw_ticker else ticker
 
-    if exchange in ("kis", "toss") and ticker and any('가' <= c <= '힣' for c in ticker):
+    if main.exchange_adapter.get_exchange(exchange).requires_numeric_ticker() and ticker and any('가' <= c <= '힣' for c in ticker):
         await update.message.reply_text(
             f"⚠️ {exchange_display_name(exchange)}은 종목코드로 입력하세요.\n예: /price {exchange} 000250"
         )

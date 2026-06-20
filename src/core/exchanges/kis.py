@@ -4,6 +4,8 @@ import aiohttp
 
 from core.bot_logger import get_logger
 from core.metrics import metrics
+from core.exchanges.base import BaseExchange
+from core.parsers import is_kis_regular_session
 
 _log = get_logger("exchange_adapter")
 
@@ -338,3 +340,66 @@ class KisMixin:
             org_no, order_no = text.split(":", 1)
             return org_no, order_no
         return "", text
+
+
+class KisExchange(BaseExchange):
+    """한국투자증권(KIS) — 저수준 호출은 adapter(KisMixin)에 위임하는 얇은 래퍼."""
+
+    name = "kis"
+
+    def min_order_amount(self) -> float:
+        return 1
+
+    def supports_minute_candles(self) -> bool:
+        return False
+
+    def is_market_open(self) -> bool:
+        return is_kis_regular_session()
+
+    def requires_numeric_ticker(self) -> bool:
+        return True
+
+    def round_volume(self, raw: float):
+        return int(raw)
+
+    def requires_integer_volume(self) -> bool:
+        return True
+
+    def format_volume(self, volume) -> str:
+        return f"{int(float(volume))}주"
+
+    def adjust_price_to_tick(self, price, ticker=None):
+        from core.exchanges.common import CommonMixin
+        return CommonMixin.adjust_krx_price_to_tick(price)
+
+    def env_label(self, client=None):
+        env = (client or {}).get("env", "paper")
+        return "실전" if env == "real" else "모의"
+
+    def required_credential_fields(self) -> list:
+        return ["app_key", "app_secret", "account_no", "product_code"]
+
+    async def get_balances(self, user_id, client):
+        return await self.adapter._get_kis_balances(user_id, client)
+
+    async def create_order(self, user_id, client, ticker, side, price, volume, ord_type="limit"):
+        return await self.adapter._create_kis_order(user_id, client, ticker, side, price, volume, ord_type=ord_type)
+
+    async def cancel_order(self, user_id, client, order_id, ticker=None):
+        return await self.adapter._cancel_kis_order(user_id, client, order_id)
+
+    async def get_order_status(self, user_id, client, order_id, ticker=None):
+        return await self.adapter._get_kis_order_status(user_id, client, order_id, ticker)
+
+    async def get_candles(self, ticker, interval, count, user_id=None):
+        if interval != "day" or user_id is None:
+            return None
+        return await self.adapter._get_kis_daily_candles(user_id, ticker, count)
+
+    async def get_ticker(self, ticker, user_id=None):
+        if user_id is None:
+            return None
+        return await self.adapter._get_kis_ticker(user_id, ticker)
+
+    async def get_order_history(self, user_id, client, ticker=None):
+        return await self.adapter._get_kis_order_history(user_id, client, ticker)

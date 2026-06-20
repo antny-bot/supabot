@@ -14,7 +14,7 @@ from aiohttp import web as _web
 
 from core.bot_logger import get_logger
 from core.order_execution import execute_grid_orders, execute_rsitrade_orders
-from core.parsers import get_dca_weights, get_user_rsi_interval, is_kis_regular_session, validate_max_order
+from core.parsers import get_dca_weights, get_user_rsi_interval, validate_max_order
 
 _log = get_logger("internal_api")
 
@@ -133,7 +133,7 @@ async def _internal_execute_grid_handler(request: _web.Request) -> _web.Response
         if not ok:
             return _web.Response(status=400, text=error_msg)
 
-        if ex == "kis" and not is_kis_regular_session():
+        if ex == "kis" and not _exchange_adapter.get_exchange(ex).is_market_open():
             return _web.Response(status=400, text="한국투자증권 정규장 시간이 아닙니다.")
 
         app = request.app["bot_application"]
@@ -225,7 +225,7 @@ async def _internal_execute_sgrid_handler(request: _web.Request) -> _web.Respons
         if not user:
             return _web.Response(status=404, text="User not found")
 
-        if ex == "kis" and not is_kis_regular_session():
+        if ex == "kis" and not _exchange_adapter.get_exchange(ex).is_market_open():
             return _web.Response(status=400, text="한국투자증권 정규장 시간이 아닙니다.")
 
         if ex == "kis" and int(total_vol) < ct:

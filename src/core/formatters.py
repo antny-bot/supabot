@@ -11,7 +11,10 @@ from core.parsers import (
     _format_seconds,
     is_us_stock_ticker,
 )
+from core.exchanges.kis import KisExchange
 from core.secret_crypto import can_decrypt_secrets, has_secret_key
+
+_kis_exchange = KisExchange(None)
 
 BOT_DISPLAY_NAME = "TTBot"
 
@@ -334,7 +337,7 @@ def format_safety_status(user):
         "- 수동 주문: 확인 버튼 필요",
         f"- max_order_krw: {format_optional_krw(max_order)}"
         + (" (권장: /config set max_order_krw 50만)" if max_order is None else ""),
-        f"- KIS 환경: {'실전' if kis_env == 'real' else '모의'}"
+        f"- KIS 환경: {_kis_exchange.env_label({'env': kis_env})}"
         + (" (실전 거래 주의)" if kis_env == "real" else ""),
         f"- API 키 설정 거래소: {', '.join(configured) if configured else '없음'}",
     ]
@@ -436,7 +439,7 @@ def build_config_view(user, active_order_count=0):
             is_set = bool(keys.get("app_key") and keys.get("app_secret") and keys.get("account_no"))
             account = keys.get("account_no", "")
             masked_account = f"{account[:2]}****{account[-2:]}" if len(account) >= 4 else "미설정"
-            env_name = "실전" if keys.get("env") == "real" else "모의"
+            env_name = _kis_exchange.env_label(keys)
             api_lines.append(
                 f"🏛️ <b>{exchange_display_name(exchange)}</b> ({env_name})\n"
                 f"  ├ 계좌: {masked_account} ({'설정됨' if is_set else '미설정'})\n"
@@ -544,7 +547,7 @@ def build_diag_view(user, env_info=None, recent_events=None, metrics_snapshot=No
         keys = user.get("exchanges", {}).get(exchange, {})
         if exchange == "kis":
             is_set = bool(keys.get("app_key") and keys.get("app_secret") and keys.get("account_no"))
-            env_name = "실전" if keys.get("env") == "real" else "모의"
+            env_name = _kis_exchange.env_label(keys)
             exchange_lines.append(
                 f"- {exchange_display_name(exchange)}: {'설정됨' if is_set else '미설정'}"
                 f" / {env_name} / {format_api_validation_status(user, exchange)}"
@@ -634,8 +637,7 @@ def build_manual_order_confirm_message(exchange, ticker, side, price, volume, us
     env_notice = ""
     if exchange == "kis" or (exchange == "toss" and not is_us):
         if exchange == "kis":
-            env = user.get("exchanges", {}).get("kis", {}).get("env", "paper")
-            env_notice = f" ({'실전' if env == 'real' else '모의'})"
+            env_notice = f" ({_kis_exchange.env_label(user.get('exchanges', {}).get('kis', {}))})"
         volume_text = f"{float(volume):,.0f}주"
     elif is_us:
         volume_text = f"{float(volume):,.0f}주"

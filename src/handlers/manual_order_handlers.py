@@ -128,10 +128,8 @@ async def manual_order_confirm_callback(update: Update, context: ContextTypes.DE
             await query.edit_message_text(error_msg)
             return
 
-    env_notice = ""
-    if exchange == "kis":
-        env = user.get("exchanges", {}).get("kis", {}).get("env", "paper")
-        env_notice = f" ({'실전' if env == 'real' else '모의'})"
+    ex_env_label = main.exchange_adapter.get_exchange(exchange).env_label(user.get("exchanges", {}).get(exchange, {}))
+    env_notice = f" ({ex_env_label})" if ex_env_label else ""
     action = "매수" if side == "bid" else "매도"
     order_type_label = "시장가 " if is_market else ""
     await query.edit_message_text(f"🚀 {exchange_display_name(exchange)} {ticker} {order_type_label}{action} 주문 전송 중{env_notice}...")

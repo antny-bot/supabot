@@ -149,7 +149,7 @@ async def grid_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
     # KIS: 정규장 여부 및 최소 수량 사전 안내
     kis_notice = ""
     if exchange == "kis":
-        if not main.is_kis_regular_session():
+        if not main.exchange_adapter.get_exchange(exchange).is_market_open():
             await update.message.reply_text("⚠️ 현재 한국투자증권 정규장 시간이 아닙니다. 정규장(평일 09:00-15:35)에만 주문이 실행됩니다.")
             return
         mid_price = (start_p + end_p) / 2
@@ -212,7 +212,7 @@ async def sgrid_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     # KIS: 정규장 여부 및 최소 수량 확인
     kis_notice = ""
     if exchange == "kis":
-        if not main.is_kis_regular_session():
+        if not main.exchange_adapter.get_exchange(exchange).is_market_open():
             await update.message.reply_text("⚠️ 현재 한국투자증권 정규장 시간이 아닙니다. 정규장(평일 09:00-15:35)에만 주문이 실행됩니다.")
             return
         if int(total_vol) < count:
@@ -271,7 +271,7 @@ async def grid_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TY
         await query.edit_message_text(f"🚀 {ex.upper()}에 거미줄 {action_name} 주문 전송을 시작합니다...")
 
         # KIS 정규장 재확인 (confirm 시점에 다시 체크)
-        if ex == "kis" and not main.is_kis_regular_session():
+        if ex == "kis" and not main.exchange_adapter.get_exchange(ex).is_market_open():
             await query.edit_message_text("⚠️ 현재 한국투자증권 정규장 시간이 아닙니다. 주문을 실행할 수 없습니다.")
             return
 

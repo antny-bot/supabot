@@ -4,6 +4,8 @@ import aiohttp
 
 from core.bot_logger import get_logger
 from core.metrics import metrics
+from core.exchanges.base import BaseExchange
+from core.exchanges.common import CommonMixin
 
 _log = get_logger("exchange_adapter")
 
@@ -135,3 +137,187 @@ class TossMixin:
             except (TypeError, ValueError):
                 continue
         return candles or None
+
+
+class TossExchange(BaseExchange):
+    """토스증권 — 저수준 호출은 adapter(TossMixin)에 위임하는 얇은 래퍼.
+
+    국내/해외(미국) 주식을 모두 다루므로 틱 단위·수량 보정에서 종목코드로
+    해외 여부를 판별해 분기한다(`is_us_stock`).
+    """
+
+    name = "toss"
+
+    def min_order_amount(self) -> float:
+        return 1
+
+    def requires_numeric_ticker(self) -> bool:
+        return True
+
+    def round_volume(self, raw: float):
+        return int(raw)
+
+    def requires_integer_volume(self) -> bool:
+        return True
+
+    def format_volume(self, volume) -> str:
+        return f"{int(float(volume))}주"
+
+    @staticmethod
+    def is_us_stock(ticker) -> bool:
+        return str(ticker or "").isalpha()
+
+    def adjust_price_to_tick(self, price, ticker=None):
+        if self.is_us_stock(ticker):
+            return CommonMixin.adjust_us_price_to_tick(price)
+        return CommonMixin.adjust_krx_price_to_tick(price)
+
+    def required_credential_fields(self) -> list:
+        return ["client_id", "client_secret"]
+
+    async def get_balances(self, user_id, client):
+        res = await self.adapter._request_toss(user_id, "GET", "/api/v1/holdings")
+        if not isinstance(res, dict):
+            return None
+        result = res.get("result", {})
+        items = result.get("items", [])
+        mv = (result.get("marketValue") or {}).get("amount") or {}
+        market_value_krw = float(mv.get("krw") or 0)
+
+        bp_res = await self.adapter._request_toss(user_id, "GET", "/api/v1/buying-power", params={"currency": "KRW"})
+        cash_krw = 0.0
+        if isinstance(bp_res, dict):
+            cash_krw = float((bp_res.get("result") or {}).get("cashBuyingPower") or 0)
+
+        stocks = []
+        for item in items:
+            qty = float(item.get("quantity") or 0)
+            if qty <= 0:
+                continue
+            stocks.append({
+                "code": item.get("symbol", ""),
+                "name": item.get("name", ""),
+                "quantity": qty,
+                "price": float(item.get("lastPrice") or 0),
+                "value": float((item.get("marketValue") or {}).get("amount") or 0),
+                "currency": item.get("currency", "KRW"),
+            })
+        return {"cash": cash_krw, "stocks": stocks, "total_eval": cash_krw + market_value_krw}
+
+    async def create_order(self, user_id, client, ticker, side, price, volume, ord_type="limit"):
+        toss_side = "BUY" if side == "bid" else "SELL"
+        toss_order_type = "MARKET" if ord_type == "market" else "LIMIT"
+        body = {
+            "symbol": ticker,
+            "side": toss_side,
+            "orderType": toss_order_type,
+            "quantity": str(int(float(volume))),
+        }
+        if toss_order_type == "LIMIT":
+            body["price"] = str(price)
+        res = await self.adapter._request_toss(user_id, "POST", "/api/v1/orders", body=body)
+        if isinstance(res, dict) and res.get("result", {}).get("orderId"):
+            order_id = res["result"]["orderId"]
+            return {"uuid": order_id, **res.get("result", {})}
+        return res
+
+    async def cancel_order(self, user_id, client, order_id, ticker=None):
+        res = await self.adapter._request_toss(user_id, "POST", f"/api/v1/orders/{order_id}/cancel", body={})
+        return isinstance(res, dict) and res.get("result", {}).get("orderId") is not None
+
+    async def get_order_status(self, user_id, client, order_id, ticker=None):
+        res = await self.adapter._request_toss(user_id, "GET", f"/api/v1/orders/{order_id}")
+        if not isinstance(res, dict):
+            return None
+        order = res.get("result", {})
+        if not order:
+            return None
+        toss_status = order.get("status", "")
+        exec_qty = float((order.get("execution") or {}).get("filledQuantity") or 0)
+        total_qty = float(order.get("quantity") or 0)
+        norm_state = self.adapter._normalize_toss_status(toss_status)
+        toss_side = order.get("side", "")
+        side = "bid" if toss_side == "BUY" else "ask"
+        return {
+            "state": norm_state,
+            "ticker": order.get("symbol", ticker),
+            "side": side,
+            "executed_volume": exec_qty,
+            "remaining_volume": max(total_qty - exec_qty, 0),
+            "fee_amount": float((order.get("execution") or {}).get("commission") or 0),
+        }
+
+    async def get_candles(self, ticker, interval, count, user_id=None):
+        if user_id is None:
+            return None
+        return await self.adapter._get_toss_candles(user_id, ticker, interval, count)
+
+    async def get_ticker(self, ticker, user_id=None):
+        if user_id is None:
+            return None
+        params = {"symbols": ticker}
+        res = await self.adapter._request_toss(user_id, "GET", "/api/v1/prices", params=params, need_account=False)
+        if not isinstance(res, dict):
+            return None
+        items = res.get("result") or []
+        if not items:
+            return None
+        item = items[0]
+        price = float(item.get("lastPrice") or 0)
+        currency = item.get("currency") or "KRW"
+
+        # /api/v1/prices는 symbol·lastPrice·currency만 제공 — 고가/저가/거래량/등락은
+        # 일봉 캔들(오늘+전일)로 별도 계산해야 함 (docs/toss.json PriceResponse 참고).
+        high = low = volume = change_price = 0.0
+        change_rate = 0.0
+        candles = await self.adapter.get_candles("toss", ticker, interval="day", count=2, user_id=user_id)
+        if candles:
+            today = candles[0]
+            high = today.get("high_price", 0.0)
+            low = today.get("low_price", 0.0)
+            volume = today.get("candle_acc_trade_volume", 0.0)
+            if len(candles) > 1:
+                prev_close = candles[1].get("trade_price", 0.0)
+                if prev_close:
+                    change_price = price - prev_close
+                    change_rate = change_price / prev_close
+
+        return {
+            "market": ticker,
+            "stock_name": item.get("name") or item.get("stockName") or item.get("issueName") or "",
+            "trade_price": price,
+            "currency": currency,
+            "change_rate": change_rate,
+            "change_price": change_price,
+            "high_price": high,
+            "low_price": low,
+            "acc_trade_price_24h": price * volume if currency == "KRW" else volume,
+        }
+
+    async def get_order_history(self, user_id, client, ticker=None):
+        params = {"status": "CLOSED"}
+        if ticker:
+            params["symbol"] = ticker
+        res = await self.adapter._request_toss(user_id, "GET", "/api/v1/orders", params=params)
+        if not isinstance(res, dict):
+            return None
+        orders = (res.get("result") or {}).get("orders") or []
+        result = []
+        for o in orders:
+            exec_info = o.get("execution") or {}
+            qty = float(o.get("quantity") or 0)
+            exec_qty = float(exec_info.get("filledQuantity") or 0)
+            toss_side = o.get("side", "")
+            side = "bid" if toss_side == "BUY" else "ask"
+            result.append({
+                "uuid": o.get("orderId"),
+                "market": o.get("symbol", ticker),
+                "side": side,
+                "price": float(o.get("price") or 0),
+                "volume": qty,
+                "executed_volume": exec_qty,
+                "status": self.adapter._normalize_toss_status(o.get("status", "")),
+                "created_at": o.get("orderedAt", ""),
+                "fee_amount": float(exec_info.get("commission") or 0),
+            })
+        return result

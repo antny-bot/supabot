@@ -7,7 +7,6 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from core.bot_logger import get_logger
 from core.user_manager import is_quiet_hours
-from core.parsers import is_us_stock_ticker
 from core.indicators import (
     BollingerBandsIndicator,
     MACDIndicator,
@@ -54,8 +53,8 @@ class SignalEngine:
 
     async def get_rsi(self, exchange, ticker, interval="day", period=14, user_id=None):
         """Return the latest RSI and candle dataframe for a market."""
-        # KIS는 분봉 미지원 — 사용자 설정이 분봉이더라도 일봉으로 자동 폴백
-        if exchange == "kis" and interval != "day":
+        # 분봉 미지원 거래소(KIS)는 사용자 설정이 분봉이더라도 일봉으로 자동 폴백
+        if not self.exchange_adapter.get_exchange(exchange).supports_minute_candles() and interval != "day":
             interval = "day"
         try:
             candles = await self.exchange_adapter.get_candles(
@@ -84,7 +83,7 @@ class SignalEngine:
         Returns a dict with keys: rsi, macd, bbands, stoch, current_price, interval.
         Returns None if candle data is unavailable.
         """
-        if exchange == "kis" and interval != "day":
+        if not self.exchange_adapter.get_exchange(exchange).supports_minute_candles() and interval != "day":
             interval = "day"
         try:
             candles = await self.exchange_adapter.get_candles(
@@ -183,11 +182,7 @@ class SignalEngine:
         else:
             target_price *= 1 + buffer
 
-        if is_us_stock_ticker(exchange, ticker):
-            return self.exchange_adapter.adjust_us_price_to_tick(target_price)
-        if exchange in ("kis", "toss"):
-            return self.exchange_adapter.adjust_krx_price_to_tick(target_price)
-        return self.exchange_adapter.adjust_price_to_tick(target_price)
+        return self.exchange_adapter.get_exchange(exchange).adjust_price_to_tick(target_price, ticker)
 
     async def analyze_watchlist(self, application):
         """Scan watchlists and send alerts based on RSI and (optionally) Bollinger Bands."""
