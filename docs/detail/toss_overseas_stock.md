@@ -31,9 +31,9 @@ def is_us_stock_ticker(exchange, ticker):
 | 위치 | 무엇을 분기하는가 |
 |------|------|
 | `src/core/exchange_adapter.py` | `adjust_us_price_to_tick(price)` 추가 — 센트(0.01) 단위 내림. 기존 `adjust_krx_price_to_tick`(원 단위)와 분리 |
-| `src/core/order_execution.py` `execute_grid_orders` | grid/sgrid 루프에서 `is_us_stock_ticker`면 센트 단위 보정 |
-| `src/main.py` (트레일링스톱/손절 3곳) | `rsitrade_sell` 손절가 계산 시 동일 분기 |
-| `src/core/signal_engine.py` `get_price_by_rsi` | RSI 역산 목표가 보정 시 동일 분기 |
+| `src/core/order_execution.py` `execute_grid_orders` | `ex.adjust_price_to_tick(price, ticker)` capability 메서드로 위임 (`TossExchange`가 내부에서 `self.is_us_stock(ticker)`로 자동 판별, 호출부는 해외/국내 분기를 직접 알 필요 없음) |
+| `src/main.py` (트레일링스톱/손절 3곳) | `rsitrade_sell` 손절가 계산 시 동일하게 `exchange_adapter.get_exchange(exchange).adjust_price_to_tick(...)` 호출로 위임 |
+| `src/core/signal_engine.py` `get_price_by_rsi` | RSI 역산 목표가 보정 시 동일하게 `self.exchange_adapter.get_exchange(exchange).adjust_price_to_tick(target_price, ticker)` 호출로 위임 |
 | `src/core/parsers.py` `validate_max_order(user, amount, is_usd=...)` | `max_order_krw`는 원화 캡이라 USD 금액과 비교 불가 → `is_usd=True`면 검증 스킵 (안전 쪽으로 치우침: 잘못된 비교로 차단/허용하지 않음) |
 | `src/core/formatters.py` | `build_manual_order_confirm_message`, `build_grid_preview_lines`, `build_rsi_preview_lines`, `build_cancel_confirm_message`, `build_report_view` — USD면 `$`+소수 2자리, 아니면 기존 `원` 포맷 |
 | `src/handlers/query_handlers.py` `/price`, `/history`, `/orders` | `ticker_data.get('currency')` 또는 `is_us_stock_ticker`로 분기 표시 |

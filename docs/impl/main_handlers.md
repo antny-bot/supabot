@@ -1,6 +1,6 @@
 # main_handlers.md
 
-**파일**: `src/main.py` (약 2134줄)
+**파일**: `src/main.py` (약 765줄, 핸들러는 `src/handlers/*.py`로 분리)
 
 ## 모듈 전역 객체
 

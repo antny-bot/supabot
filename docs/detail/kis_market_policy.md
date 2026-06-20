@@ -31,7 +31,7 @@ def next_kis_regular_session(now=None) -> datetime:
 
 ## 장외 시간 주문 처리 흐름
 
-`sync_orders` 가 KIS 주문을 만나고 `is_kis_regular_session()` 이 False일 때:
+`sync_orders` 가 KIS 주문을 만나고 `exchange_adapter.get_exchange(exchange).is_market_open()` 이 False일 때(`KisExchange.is_market_open()`이 내부적으로 `is_kis_regular_session()`을 호출):
 1. `update_next_check_at(uuid, kis_next_check_timestamp())` 설정
 2. sync 루프는 `next_check_at` 이전까지 해당 주문 건너뜀
 
