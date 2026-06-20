@@ -44,6 +44,12 @@ class CommonMixin:
         return int(adjusted)
 
     @staticmethod
+    def adjust_us_price_to_tick(price):
+        """Toss 해외주식 주문 가격을 센트(0.01) 단위로 보정 (내림 처리)"""
+        adjusted = price - (price % 0.01)
+        return round(adjusted, 2)
+
+    @staticmethod
     def _normalize_order_state(state, executed_volume=0):
         state = (state or "").lower()
         if state in ["done", "completed"]:
