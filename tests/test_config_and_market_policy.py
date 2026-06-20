@@ -415,3 +415,18 @@ def test_order_manager_updates_reorder_metadata(tmp_path):
     assert manager.replace_order_uuid("old", "new")
     assert manager.orders[0]["uuid"] == "new"
     assert manager.orders[0]["status"] == "wait"
+
+
+def test_parse_max_open_exposure_krw_accepts_korean_units_and_off():
+    assert main.parse_config_value("max_open_exposure_krw", "500만") == 5_000_000
+    assert main.parse_config_value("max_open_exposure_krw", "off") is None
+
+
+def test_compute_open_exposure_excludes_usd_and_uses_remaining():
+    from core.parsers import compute_open_exposure_krw
+    orders = [
+        {"exchange": "upbit", "ticker": "KRW-BTC", "price": 100_000, "volume": 10, "filled_volume": 2},
+        {"exchange": "toss", "ticker": "AAPL", "price": 200, "volume": 5, "filled_volume": 0},  # USD 제외
+    ]
+    # KRW-BTC 잔여 8 × 100,000 = 800,000, AAPL은 USD라 제외
+    assert compute_open_exposure_krw(orders) == 800_000

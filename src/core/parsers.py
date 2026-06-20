@@ -248,6 +248,8 @@ def parse_config_value(key, raw_value):
         raise ValueError("signal_bb_alert 값은 on 또는 off여야 합니다.")
     if key == "max_order_krw":
         return parse_optional_krw(raw_value)
+    if key == "max_open_exposure_krw":
+        return parse_optional_krw(raw_value)
     if key == "stop_loss_pct":
         text = str(raw_value).strip().lower()
         if text in ["off", "none", "unset", "미설정", "해제", "0"]:
@@ -286,6 +288,40 @@ def validate_max_order(user, order_krw, is_usd=False):
         return True, None
     if order_krw > float(max_order_krw):
         return False, f"❌ 단일 주문 금액 {order_krw:,.0f}원이 설정된 최대 주문 금액 {float(max_order_krw):,.0f}원을 초과합니다."
+    return True, None
+
+
+def compute_open_exposure_krw(orders):
+    """미체결 원화 주문들의 잔여 노출 합계(price × 미체결수량). USD(해외주식) 주문은 제외.
+
+    토스 해외주식 등 통화가 KRW가 아닌 주문은 max_open_exposure_krw(원화 기준 캡)와
+    비교할 수 없으므로 합산에서 제외한다.
+    """
+    total = 0.0
+    for o in orders:
+        if is_us_stock_ticker(o.get("exchange"), o.get("ticker")):
+            continue
+        remaining = max(float(o.get("volume", 0)) - float(o.get("filled_volume", 0)), 0)
+        total += float(o.get("price", 0)) * remaining
+    return total
+
+
+def validate_total_exposure(user, current_open_krw, new_order_krw, is_usd=False):
+    """신규 주문 추가 시 총 미체결 노출이 max_open_exposure_krw를 초과하는지 검증.
+
+    max_order_krw와 동일하게 USD 주문은 통화가 달라 검증을 건너뛰고, 캡 미설정(None)이면 통과.
+    """
+    if is_usd:
+        return True, None
+    cap = user.get("preferences", {}).get("max_open_exposure_krw")
+    if cap is None:
+        return True, None
+    projected = float(current_open_krw) + float(new_order_krw)
+    if projected > float(cap):
+        return False, (
+            f"❌ 총 미체결 노출 {projected:,.0f}원이 설정된 최대 노출 한도 "
+            f"{float(cap):,.0f}원을 초과합니다. (현재 미체결 {float(current_open_krw):,.0f}원)"
+        )
     return True, None
 
 

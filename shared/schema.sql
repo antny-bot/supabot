@@ -117,7 +117,8 @@ CREATE TABLE IF NOT EXISTS system_config (
 INSERT INTO system_config (key, value) VALUES
   ('poll_active_interval',    '60'),
   ('poll_no_order_interval',  '300'),
-  ('signal_analysis_interval','300')
+  ('signal_analysis_interval','300'),
+  ('trading_halt',            '0')
 ON CONFLICT (key) DO NOTHING;
 
 -- ── Strategy Templates ──────────────────────────────────────────────────────

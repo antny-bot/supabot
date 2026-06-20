@@ -134,7 +134,14 @@ API 키 포함 메시지는 캡처 즉시 삭제됨 (`delete_message`).
 
 수동 `/buy`, `/sell`은 callback_data에 주문값을 넣지 않고 `_pending_manual_orders` 서버 측 토큰을 사용한다. 토큰은 10분 후 만료되며 실행 직전 `max_order_krw`를 다시 검증한다.
 
+전략 `/grid`,`/sgrid`,`/rsitrade`,`/sgridrsi`도 동일한 패턴으로 `core.strategy_tokens`(`create_strategy_token`/`pop_valid_strategy_token`, 10분 만료) 단일 사용 토큰을 쓴다. confirm 콜백 데이터는 `gridrun|<token>` 등 토큰만 싣고 payload는 서버 메모리에 보관한다 — 텔레그램 callback_data 64바이트 한도 회피 + 더블탭 시 두 번째 클릭은 만료 처리(중복 주문 방지).
+
 `/cancel`, `/cancelno`도 동일한 패턴(`_pending_cancel_orders`, `create_cancel_token`/`pop_valid_cancel_token`, 10분 만료)으로 취소 대상 주문 목록을 먼저 보여주고, `cancelrun|<token>`(확정) / `cancelabort|<token>`(취소) 콜백으로 실제 취소를 실행한다 (`query_handlers.cancel_confirm_callback`).
+
+## 거래 안전장치 (kill-switch · 노출 한도)
+
+- **글로벌 거래 중지**: 관리자 `/halt`(중지)/`/resume`(재개). 상태는 `system_config.trading_halt`(`'1'`/`'0'`, DB 미사용 시 `data/trading_halt.flag` 파일 폴백)에 저장. `core.trading_gate.assert_can_trade()`가 수동/전략 주문 confirm 및 KIS 재주문(`sync_orders`) 직전에 차단한다. **손절·익절 등 보호성 매도는 차단하지 않는다**(포지션 방치 방지).
+- **총 노출 한도**: 유저 preference `max_open_exposure_krw`. 미체결 원화 주문 잔여 노출(`core.parsers.compute_open_exposure_krw`) + 신규 주문 합이 한도를 넘으면 매수 주문을 거부(`validate_total_exposure`). USD(토스 해외주식) 주문은 통화가 달라 제외.
 
 상세 Intent 스키마 및 흐름: `docs/detail/gemini_intent.md`
 

@@ -8,14 +8,19 @@ from telegram.ext import ContextTypes
 
 import main
 from main import check_auth, check_details_help, resolve_ticker_for_command
-from core.parsers import parse_exchange_and_ticker, parse_number, is_exchange_token, validate_max_order, exchange_display_name
+from core.parsers import parse_exchange_and_ticker, parse_number, is_exchange_token, validate_max_order, exchange_display_name, is_us_stock_ticker
 from core.formatters import build_manual_order_confirm_message
 from core.operational_events import append_operational_event
+from core import trading_gate
 
 
 @check_auth
 async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     if await check_details_help(update, "buy"): return
+    ok, halt_msg = trading_gate.assert_can_trade()
+    if not ok:
+        await update.message.reply_text(halt_msg)
+        return
     user_id = str(update.effective_chat.id)
     args = context.args
     if len(args) < 3:
@@ -59,6 +64,10 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
 @check_auth
 async def sell_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     if await check_details_help(update, "sell"): return
+    ok, halt_msg = trading_gate.assert_can_trade()
+    if not ok:
+        await update.message.reply_text(halt_msg)
+        return
     user_id = str(update.effective_chat.id)
     args = context.args
     if len(args) < 3:
@@ -122,10 +131,21 @@ async def manual_order_confirm_callback(update: Update, context: ContextTypes.DE
     volume = float(pending["volume"])
     ord_type = pending.get("ord_type", "limit")
     is_market = ord_type == "market"
+    can_ok, can_msg = trading_gate.assert_can_trade()
+    if not can_ok:
+        await query.edit_message_text(can_msg)
+        return
     if side == "bid" and not is_market:
         ok, error_msg = validate_max_order(user, price * volume)
         if not ok:
             await query.edit_message_text(error_msg)
+            return
+        exp_ok, exp_msg = trading_gate.check_can_place_order(
+            user, main.order_manager.get_user_orders(user_id), price * volume,
+            is_usd=is_us_stock_ticker(exchange, ticker),
+        )
+        if not exp_ok:
+            await query.edit_message_text(exp_msg)
             return
 
     ex_env_label = main.exchange_adapter.get_exchange(exchange).env_label(user.get("exchanges", {}).get(exchange, {}))

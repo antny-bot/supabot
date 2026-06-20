@@ -12,7 +12,12 @@ class OrderManager:
     def __init__(self, file_path="data/orders.json"):
         self.file_path = file_path
         self.orders = self._load_orders()
+        self._uuid_set = {o["uuid"] for o in self.orders}
         self.on_order_added = None
+
+    def has_order(self, uuid) -> bool:
+        """O(1) 멤버십 조회. sync_orders 등 핫 경로의 O(N) 재스캔을 대체한다."""
+        return uuid in self._uuid_set
 
     def _load_orders(self) -> list:
         if is_db_available():
@@ -41,6 +46,7 @@ class OrderManager:
         try:
             rows = get_db().table("orders").select("*").execute().data
             self.orders = rows or []
+            self._uuid_set = {o["uuid"] for o in self.orders}
             _log.info("Reloaded orders from DB", extra={"event": "orders_reloaded_db", "count": len(self.orders)})
             return True
         except Exception as e:
@@ -121,6 +127,7 @@ class OrderManager:
             "group_no": int(group_no) if group_no is not None else None,
         }
         self.orders.append(order)
+        self._uuid_set.add(order["uuid"])
         self._db_upsert(order)
         if self.on_order_added:
             self.on_order_added()
@@ -171,6 +178,8 @@ class OrderManager:
         for o in self.orders:
             if o["uuid"] == old_uuid:
                 self._db_delete(old_uuid)
+                self._uuid_set.discard(old_uuid)
+                self._uuid_set.add(new_uuid)
                 o["reorder_of"] = old_uuid
                 o["uuid"] = new_uuid
                 o["status"] = "wait"
@@ -184,6 +193,7 @@ class OrderManager:
         before = len(self.orders)
         self.orders = [o for o in self.orders if o["uuid"] != uuid]
         removed = len(self.orders) != before
+        self._uuid_set.discard(uuid)
         if removed and save:
             self._db_delete(uuid)
         return removed
