@@ -1,0 +1,240 @@
+{
+  "id": "manager-frontend-core-refactor-2026-06-20",
+  "title": "Manager frontend core refactor",
+  "status": "planned",
+  "owner": "codex",
+  "created_at": "2026-06-20",
+  "base_path": "manager/frontend",
+  "constraints": [
+    "All touched source and docs files must remain UTF-8 encoded.",
+    "Preserve current route paths, admin gating, and backend API contracts.",
+    "Do not mix broad copy rewrites with structural refactors.",
+    "Keep npm run build passing after each major task.",
+    "Add regression coverage for the new shared primitives and route behavior."
+  ],
+  "tasks": [
+    {
+      "order": 1,
+      "id": "route-code-splitting",
+      "title": "Route-level code splitting",
+      "goal": "Reduce initial manager bundle size by lazy-loading page routes behind a shared fallback.",
+      "depends_on": [],
+      "files_create": [],
+      "files_modify": [
+        "manager/frontend/src/App.tsx",
+        "manager/frontend/src/components/layout/AppLayout.tsx"
+      ],
+      "public_interfaces": [
+        "App routes keep the same public paths and AdminRoute behavior."
+      ],
+      "steps": [
+        "Write a failing route rendering test that expects the shared fallback while a lazy page module is unresolved.",
+        "Run the targeted test to confirm the current route tree does not provide the fallback behavior.",
+        "Convert page imports in App.tsx to React.lazy and wrap route elements with Suspense using a shared spinner-based fallback.",
+        "Run the targeted test and the manager build to confirm behavior and bundle output stay valid."
+      ],
+      "verification": [
+        "cd manager/frontend && npm run build",
+        "cd manager/frontend && npm run test -- --runInBand route-lazy"
+      ],
+      "acceptance_criteria": [
+        "Current paths still resolve to the same pages.",
+        "Admin-only routes still redirect non-admin users.",
+        "The app shows a shared fallback while a lazy route is loading."
+      ]
+    },
+    {
+      "order": 2,
+      "id": "shared-page-primitives",
+      "title": "Shared navigation and section primitives",
+      "goal": "Replace duplicated tab-strip and section shell markup with reusable UI primitives.",
+      "depends_on": [
+        "route-code-splitting"
+      ],
+      "files_create": [
+        "manager/frontend/src/components/ui/ResponsiveTabs.tsx",
+        "manager/frontend/src/components/ui/SectionCard.tsx"
+      ],
+      "files_modify": [
+        "manager/frontend/src/pages/Config.tsx",
+        "manager/frontend/src/pages/Admin.tsx",
+        "manager/frontend/src/pages/Reports.tsx"
+      ],
+      "public_interfaces": [
+        "ResponsiveTabs props: tabs, activeTab, onChange",
+        "SectionCard props: title, subtitle, actions, children, contentClassName"
+      ],
+      "steps": [
+        "Write failing component tests for ResponsiveTabs active state switching and SectionCard header rendering.",
+        "Run the targeted tests to confirm the new components do not exist yet.",
+        "Implement the shared components and replace repeated tab-strip markup in Config, Admin, and Reports.",
+        "Run the new tests plus a manager build to confirm the shared components behave consistently on existing pages."
+      ],
+      "verification": [
+        "cd manager/frontend && npm run build",
+        "cd manager/frontend && npm run test -- --runInBand responsive-tabs section-card"
+      ],
+      "acceptance_criteria": [
+        "Config, Admin, and Reports use the same responsive tab implementation.",
+        "Repeated card header shells can be rendered through SectionCard.",
+        "No page loses its existing tab labels or page header behavior."
+      ]
+    },
+    {
+      "order": 3,
+      "id": "api-normalization",
+      "title": "Normalize frontend API access",
+      "goal": "Move raw page-level fetch calls behind dedicated API modules that share auth and error handling.",
+      "depends_on": [
+        "shared-page-primitives"
+      ],
+      "files_create": [
+        "manager/frontend/src/api/auth.ts",
+        "manager/frontend/src/api/templates.ts",
+        "manager/frontend/src/api/stockCache.ts"
+      ],
+      "files_modify": [
+        "manager/frontend/src/pages/Login.tsx",
+        "manager/frontend/src/pages/Templates.tsx",
+        "manager/frontend/src/pages/Admin.tsx",
+        "manager/frontend/src/api/client.ts"
+      ],
+      "public_interfaces": [
+        "loginWithPassword(email, password)",
+        "loginWithMfa(ticket, code)",
+        "fetchTemplates/createTemplate/updateTemplate/deleteTemplate/duplicateTemplate/executeTemplate",
+        "fetchStockCache/createStockCacheEntry/deleteStockCacheEntry/uploadStockCache/refreshStockCache/exportStockCache"
+      ],
+      "steps": [
+        "Write failing API-focused tests that assert page components call the dedicated modules instead of raw fetch.",
+        "Run the targeted tests to confirm the current implementation still reaches fetch directly.",
+        "Implement the dedicated API modules and migrate Login, Templates, and Admin stock-cache flows to use them.",
+        "Run the targeted tests and a manager build to confirm behavior is preserved with normalized error handling."
+      ],
+      "verification": [
+        "cd manager/frontend && npm run build",
+        "cd manager/frontend && npm run test -- --runInBand api-normalization"
+      ],
+      "acceptance_criteria": [
+        "Touched pages no longer contain duplicated authenticated JSON fetch logic.",
+        "Existing endpoint paths and payload shapes remain unchanged.",
+        "File export remains a navigation/download flow rather than JSON fetch."
+      ]
+    },
+    {
+      "order": 4,
+      "id": "reports-decomposition",
+      "title": "Decompose Reports page",
+      "goal": "Split the oversized reports page into focused modules without changing report behavior.",
+      "depends_on": [
+        "api-normalization"
+      ],
+      "files_create": [
+        "manager/frontend/src/pages/reports/HoldingsSection.tsx",
+        "manager/frontend/src/pages/reports/MonthlySection.tsx",
+        "manager/frontend/src/pages/reports/NlLogsSection.tsx",
+        "manager/frontend/src/pages/reports/PairsSection.tsx",
+        "manager/frontend/src/pages/reports/PnlSection.tsx",
+        "manager/frontend/src/pages/reports/ReportsShared.ts",
+        "manager/frontend/src/pages/reports/RoiRankingSection.tsx",
+        "manager/frontend/src/pages/reports/StrategySection.tsx",
+        "manager/frontend/src/pages/reports/WinStatsSection.tsx"
+      ],
+      "files_modify": [
+        "manager/frontend/src/pages/Reports.tsx"
+      ],
+      "public_interfaces": [
+        "Reports.tsx remains the page coordinator for tab selection and date filter state.",
+        "Section modules receive only the data inputs they need, preserving tab ids and visibility rules."
+      ],
+      "steps": [
+        "Write failing regression tests for Reports tab switching, admin-only NL logs visibility, and date-filter visibility on period-sensitive tabs.",
+        "Run the targeted tests to confirm they fail against the current monolithic page behavior contract.",
+        "Extract report sections and shared helpers into focused modules while keeping Reports.tsx as the coordinator.",
+        "Run the regression tests and a manager build to confirm the refactor preserved page behavior."
+      ],
+      "verification": [
+        "cd manager/frontend && npm run build",
+        "cd manager/frontend && npm run test -- --runInBand reports-page"
+      ],
+      "acceptance_criteria": [
+        "All current report tabs still exist with the same ids and labels.",
+        "The period filter still appears only for period-sensitive tabs.",
+        "Admin-only NL logs remain hidden from non-admin users."
+      ]
+    },
+    {
+      "order": 5,
+      "id": "frontend-test-baseline",
+      "title": "Add frontend test baseline",
+      "goal": "Introduce repeatable regression coverage for routing, tabs, navigation, and page-local state.",
+      "depends_on": [
+        "reports-decomposition"
+      ],
+      "files_create": [
+        "manager/frontend/src/test/setup.ts",
+        "manager/frontend/src/components/ui/ResponsiveTabs.test.tsx",
+        "manager/frontend/src/pages/Config.test.tsx",
+        "manager/frontend/src/App.test.tsx",
+        "manager/frontend/src/components/layout/BottomNav.test.tsx"
+      ],
+      "files_modify": [
+        "manager/frontend/package.json",
+        "manager/frontend/vite.config.ts",
+        "manager/frontend/tsconfig.json"
+      ],
+      "public_interfaces": [
+        "npm run test becomes the standard frontend verification command."
+      ],
+      "steps": [
+        "Write failing tests for App admin gating, BottomNav pinned entries, ResponsiveTabs state switching, and Config tab switching.",
+        "Run the targeted tests to confirm the new test command and setup are not wired yet.",
+        "Add Vitest and React Testing Library setup, then make the new tests pass against the current component contracts.",
+        "Run the new frontend test suite and manager build to confirm the baseline is stable."
+      ],
+      "verification": [
+        "cd manager/frontend && npm run build",
+        "cd manager/frontend && npm run test"
+      ],
+      "acceptance_criteria": [
+        "Frontend tests can run locally without live backend access.",
+        "At least one admin-only route and one localStorage-backed UI behavior are covered.",
+        "The new test command is documented through package.json scripts."
+      ]
+    },
+    {
+      "order": 6,
+      "id": "utf8-hygiene",
+      "title": "UTF-8 hygiene on touched files",
+      "goal": "Keep touched manager frontend files valid UTF-8 and repair confirmed broken Korean literals encountered during the refactor.",
+      "depends_on": [
+        "frontend-test-baseline"
+      ],
+      "files_create": [],
+      "files_modify": [
+        "manager/frontend/src/config/pageMeta.ts",
+        "manager/frontend/src/components/layout/Sidebar.tsx",
+        "manager/frontend/src/components/layout/TopBar.tsx",
+        "manager/frontend/src/hooks/useRealtime.ts"
+      ],
+      "public_interfaces": [
+        "No behavior changes beyond corrected visible strings and comments."
+      ],
+      "steps": [
+        "Audit the touched files that showed garbled Korean during inspection and write failing UI tests where corrected copy is important.",
+        "Run the targeted tests to confirm the current visible strings are wrong or unstable.",
+        "Repair only confirmed broken literals/comments in touched files and save them as UTF-8.",
+        "Run the frontend build and tests again to confirm the cleanup did not introduce regressions."
+      ],
+      "verification": [
+        "cd manager/frontend && npm run build",
+        "cd manager/frontend && npm run test"
+      ],
+      "acceptance_criteria": [
+        "Touched files remain UTF-8 encoded.",
+        "Corrected Korean strings render properly in the affected UI surfaces.",
+        "No unrelated copy rewrite is mixed into the structural refactor."
+      ]
+    }
+  ]
+}

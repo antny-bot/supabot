@@ -1,8 +1,18 @@
 import { FormEvent, useEffect, useRef, useState } from 'react'
 import { CheckCircle, ChevronLeft, ChevronRight, Download, RefreshCw, Trash2, Upload } from 'lucide-react'
 import { fetchConfig, saveConfig } from '../api/config'
+import {
+  createStockCacheEntry,
+  deleteStockCacheEntry,
+  exportStockCache,
+  fetchStockCache,
+  refreshStockCache,
+  type StockCacheRow as StockRow,
+  uploadStockCache,
+} from '../api/stockCache'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import PageHeader from '../components/ui/PageHeader'
+import ResponsiveTabs from '../components/ui/ResponsiveTabs'
 import Spinner from '../components/ui/Spinner'
 import { PAGE_META } from '../config/pageMeta'
 import type { ConfigItem } from '../types'
@@ -141,12 +151,6 @@ function MonitoringTab() {
 
 // ── 종목 캐시 탭 ──────────────────────────────────────────────────────────────
 
-interface StockRow {
-  name: string
-  code: string
-  updated_at: string
-}
-
 function StockCacheTab() {
   const [rows, setRows] = useState<StockRow[]>([])
   const [search, setSearch] = useState('')
@@ -166,13 +170,10 @@ function StockCacheTab() {
     setLoading(true)
     setError(null)
     try {
-      const params = q ? `?search=${encodeURIComponent(q)}` : ''
-      const res = await fetch(`/api/stock-cache${params}`)
-      if (!res.ok) throw new Error(await res.text())
-      setRows(await res.json())
+      setRows(await fetchStockCache(q))
       setPage(1)
-    } catch (e: any) {
-      setError(e.message)
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error))
     } finally {
       setLoading(false)
     }
@@ -190,17 +191,12 @@ function StockCacheTab() {
     if (!newName.trim() || !newCode.trim()) return
     setSaving(true)
     try {
-      const res = await fetch('/api/stock-cache', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newName.trim(), code: newCode.trim() }),
-      })
-      if (!res.ok) throw new Error(await res.text())
+      await createStockCacheEntry(newName.trim(), newCode.trim())
       setNewName('')
       setNewCode('')
       await load()
-    } catch (e: any) {
-      setError(e.message)
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error))
     } finally {
       setSaving(false)
     }
@@ -209,10 +205,10 @@ function StockCacheTab() {
   const handleDelete = async (name: string) => {
     if (!confirm(`"${name}" 삭제할까요?`)) return
     try {
-      await fetch(`/api/stock-cache/${encodeURIComponent(name)}`, { method: 'DELETE' })
+      await deleteStockCacheEntry(name)
       await load()
-    } catch (e: any) {
-      setError(e.message)
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error))
     }
   }
 
@@ -220,26 +216,19 @@ function StockCacheTab() {
     const file = e.target.files?.[0]
     if (!file) return
     setUploadStatus(null)
-    const form = new FormData()
-    form.append('file', file)
     try {
-      const res = await fetch(`/api/stock-cache/upload?overwrite=${overwrite}`, {
-        method: 'POST',
-        body: form,
-      })
-      if (!res.ok) throw new Error(await res.text())
-      const { added, skipped, errors } = await res.json()
+      const { added, skipped, errors } = await uploadStockCache(file, overwrite)
       setUploadStatus(`완료: 추가/수정 ${added}건, 건너뜀 ${skipped}건, 오류 ${errors}건`)
       await load()
-    } catch (e: any) {
-      setError(e.message)
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error))
     } finally {
       if (fileRef.current) fileRef.current.value = ''
     }
   }
 
   const handleExport = () => {
-    window.location.href = '/api/stock-cache/export'
+    exportStockCache()
   }
 
   const handleRefresh = async () => {
@@ -248,13 +237,11 @@ function StockCacheTab() {
     setUploadStatus(null)
     setError(null)
     try {
-      const res = await fetch('/api/stock-cache/refresh', { method: 'POST' })
-      if (!res.ok) throw new Error(await res.text())
-      const { added } = await res.json()
+      const { added } = await refreshStockCache()
       setUploadStatus(`KRX 갱신 완료: ${added}건 반영`)
       await load()
-    } catch (e: any) {
-      setError(e.message)
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error))
     } finally {
       setRefreshing(false)
     }
@@ -395,31 +382,7 @@ export default function Admin() {
     <div className="space-y-5">
       <PageHeader {...PAGE_META.admin} />
 
-      {/* Tab strip */}
-      <div className="md:border-b md:border-slate-200 md:dark:border-slate-800">
-        <div className="flex md:hidden overflow-x-auto gap-2 pb-2 scrollbar-none snap-x snap-mandatory">
-          {ADMIN_TABS.map((tab) => (
-            <button
-              key={tab.id} onClick={() => setActiveTab(tab.id)}
-              className={`flex-shrink-0 snap-start px-4 py-1.5 rounded-full text-sm font-medium transition-colors whitespace-nowrap ${
-                activeTab === tab.id ? 'bg-primary-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
-              }`}
-            >{tab.label}</button>
-          ))}
-        </div>
-        <div className="hidden md:flex gap-1.5 pb-0">
-          {ADMIN_TABS.map((tab) => (
-            <button
-              key={tab.id} onClick={() => setActiveTab(tab.id)}
-              className={`px-3.5 py-2 text-sm font-medium rounded-t-lg transition-colors border-b-2 -mb-px ${
-                activeTab === tab.id
-                  ? 'border-primary-600 text-primary-600 dark:text-primary-400 dark:border-primary-400'
-                  : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-              }`}
-            >{tab.label}</button>
-          ))}
-        </div>
-      </div>
+      <ResponsiveTabs tabs={ADMIN_TABS} activeTab={activeTab} onChange={setActiveTab} />
 
       <div key={activeTab} className="animate-fade-in-up">
         {activeTab === 'users'       && <UsersContent />}

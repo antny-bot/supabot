@@ -58,7 +58,7 @@ export const PAGE_META: Record<PageMetaKey, PageMeta> = {
   },
   reports: {
     title: '리포트',
-    subtitle: '손익, 전략 성과, 승률 지표를 기간별로 분석합니다.',
+    subtitle: '수익, 전략 성과, 거래 지표를 기간별로 분석합니다.',
     Icon: BarChart2,
   },
   analytics: {
@@ -68,7 +68,7 @@ export const PAGE_META: Record<PageMetaKey, PageMeta> = {
   },
   admin: {
     title: '관리자',
-    subtitle: '유저, 이벤트, 시스템 설정을 관리합니다.',
+    subtitle: '사용자, 이벤트, 시스템 설정을 관리합니다.',
     Icon: ShieldCheck,
   },
   config: {
@@ -80,11 +80,11 @@ export const PAGE_META: Record<PageMetaKey, PageMeta> = {
 
 export const APP_NAV_ITEMS: NavItem[] = [
   { key: 'dashboard', to: '/dashboard', label: '대시보드', compactLabel: '대시보드', adminOnly: false, Icon: LayoutDashboard },
-  { key: 'orders',    to: '/orders',    label: '주문 현황',   compactLabel: '주문',   adminOnly: false, Icon: ClipboardList },
-  { key: 'trades',    to: '/trades',    label: '거래 내역',   compactLabel: '거래',   adminOnly: false, Icon: ArrowLeftRight },
+  { key: 'orders', to: '/orders', label: '주문 현황', compactLabel: '주문', adminOnly: false, Icon: ClipboardList },
+  { key: 'trades', to: '/trades', label: '거래 내역', compactLabel: '거래', adminOnly: false, Icon: ArrowLeftRight },
   { key: 'templates', to: '/templates', label: '전략 템플릿', compactLabel: '템플릿', adminOnly: false, Icon: LayoutTemplate },
-  { key: 'reports',   to: '/reports',   label: '리포트',     compactLabel: '리포트', adminOnly: false, Icon: BarChart2 },
-  { key: 'analytics', to: '/analytics', label: '사용 분석',  compactLabel: '분석',   adminOnly: true,  Icon: Activity },
-  { key: 'admin',     to: '/admin',     label: '관리자',     compactLabel: '관리',   adminOnly: true,  Icon: ShieldCheck },
-  { key: 'config',    to: '/config',    label: '설정',       compactLabel: '설정',   adminOnly: false, Icon: Settings },
+  { key: 'reports', to: '/reports', label: '리포트', compactLabel: '리포트', adminOnly: false, Icon: BarChart2 },
+  { key: 'analytics', to: '/analytics', label: '사용 분석', compactLabel: '분석', adminOnly: true, Icon: Activity },
+  { key: 'admin', to: '/admin', label: '관리자', compactLabel: '관리', adminOnly: true, Icon: ShieldCheck },
+  { key: 'config', to: '/config', label: '설정', compactLabel: '설정', adminOnly: false, Icon: Settings },
 ]

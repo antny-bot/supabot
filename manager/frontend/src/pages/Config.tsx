@@ -3,6 +3,7 @@ import ProfileSettingsCard from '../components/settings/ProfileSettingsCard'
 import DisplaySettingsCard from '../components/settings/DisplaySettingsCard'
 import MfaSettingsCard from '../components/settings/MfaSettingsCard'
 import PageHeader from '../components/ui/PageHeader'
+import ResponsiveTabs from '../components/ui/ResponsiveTabs'
 import Spinner from '../components/ui/Spinner'
 import { PAGE_META } from '../config/pageMeta'
 import { useAuthContext } from '../contexts/AuthContext'
@@ -46,31 +47,7 @@ export default function Config() {
     <div className="max-w-xl space-y-5">
       <PageHeader {...PAGE_META.config} />
 
-      {/* Tab strip */}
-      <div className="md:border-b md:border-slate-200 md:dark:border-slate-800">
-        <div className="flex md:hidden overflow-x-auto gap-2 pb-2 scrollbar-none snap-x snap-mandatory">
-          {CONFIG_TABS.map((tab) => (
-            <button
-              key={tab.id} onClick={() => setActiveTab(tab.id)}
-              className={`flex-shrink-0 snap-start px-4 py-1.5 rounded-full text-sm font-medium transition-colors whitespace-nowrap ${
-                activeTab === tab.id ? 'bg-primary-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
-              }`}
-            >{tab.label}</button>
-          ))}
-        </div>
-        <div className="hidden md:flex gap-1.5 pb-0">
-          {CONFIG_TABS.map((tab) => (
-            <button
-              key={tab.id} onClick={() => setActiveTab(tab.id)}
-              className={`px-3.5 py-2 text-sm font-medium rounded-t-lg transition-colors border-b-2 -mb-px ${
-                activeTab === tab.id
-                  ? 'border-primary-600 text-primary-600 dark:text-primary-400 dark:border-primary-400'
-                  : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-              }`}
-            >{tab.label}</button>
-          ))}
-        </div>
-      </div>
+      <ResponsiveTabs tabs={CONFIG_TABS} activeTab={activeTab} onChange={setActiveTab} />
 
       <div key={activeTab} className="animate-fade-in-up">
         {activeTab === 'display' && (
