@@ -36,8 +36,8 @@ export default function Sidebar() {
     return () => document.removeEventListener('mousedown', handler)
   }, [menuOpen])
 
-  // config and admin are only accessible via the bottom settings popup
-  const NAV_POPUP_KEYS = new Set(['config', 'admin'])
+  // config is only accessible via the bottom settings popup
+  const NAV_POPUP_KEYS = new Set(['config'])
   const visibleItems = APP_NAV_ITEMS.filter(
     (item) => !NAV_POPUP_KEYS.has(item.key) && (!item.adminOnly || user?.is_admin),
   )
@@ -150,17 +150,6 @@ export default function Sidebar() {
               설정
             </NavLink>
 
-            {/* Admin link — admin only */}
-            {user?.is_admin && (
-              <NavLink
-                to="/admin"
-                onClick={() => setMenuOpen(false)}
-                className="flex items-center gap-2.5 px-3 py-2.5 text-app-body-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-              >
-                <ShieldCheck size={15} className="shrink-0 text-slate-500 dark:text-slate-400" />
-                관리자 메뉴
-              </NavLink>
-            )}
 
             {/* Logout */}
             <button

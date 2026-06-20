@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from 'react'
+import { FormEvent, Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { CheckCircle, ChevronLeft, ChevronRight, Download, RefreshCw, Trash2, Upload } from 'lucide-react'
 import { fetchConfig, saveConfig } from '../api/config'
 import {
@@ -20,7 +20,10 @@ import { staggerDelay } from '../utils/animation'
 import { EventsContent } from './Events'
 import { UsersContent } from './Users'
 
+const Analytics = lazy(() => import('./Analytics'))
+
 const ADMIN_TABS = [
+  { id: 'analytics',   label: '사용 분석' },
   { id: 'users',       label: '유저관리' },
   { id: 'events',      label: '이벤트' },
   { id: 'monitoring',  label: '주문 및 신호 주기' },
@@ -376,7 +379,7 @@ function StockCacheTab() {
 }
 
 export default function Admin() {
-  const [activeTab, setActiveTab] = useState('users')
+  const [activeTab, setActiveTab] = useState('analytics')
 
   return (
     <div className="space-y-5">
@@ -385,6 +388,11 @@ export default function Admin() {
       <ResponsiveTabs tabs={ADMIN_TABS} activeTab={activeTab} onChange={setActiveTab} />
 
       <div key={activeTab} className="animate-fade-in-up">
+        {activeTab === 'analytics'   && (
+          <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
+            <Analytics hideHeader />
+          </Suspense>
+        )}
         {activeTab === 'users'       && <UsersContent />}
         {activeTab === 'events'      && <EventsContent />}
         {activeTab === 'monitoring'  && <MonitoringTab />}

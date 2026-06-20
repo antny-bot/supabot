@@ -13,7 +13,6 @@ const Templates = lazy(() => import('./pages/Templates'))
 const Config = lazy(() => import('./pages/Config'))
 const Reports = lazy(() => import('./pages/Reports'))
 const Admin = lazy(() => import('./pages/Admin'))
-const Analytics = lazy(() => import('./pages/Analytics'))
 
 function RouteFallback() {
   return (
@@ -54,7 +53,7 @@ export default function App() {
           <Route path="/templates" element={withRouteFallback(<Templates />)} />
           <Route path="/reports" element={withRouteFallback(<Reports />)} />
           <Route path="/admin" element={withRouteFallback(<AdminRoute><Admin /></AdminRoute>)} />
-          <Route path="/analytics" element={withRouteFallback(<AdminRoute><Analytics /></AdminRoute>)} />
+          <Route path="/analytics" element={<Navigate to="/admin" replace />} />
           <Route path="/events" element={<Navigate to="/admin" replace />} />
           <Route path="/users" element={<Navigate to="/admin" replace />} />
           <Route path="/config" element={withRouteFallback(<Config />)} />

@@ -353,7 +353,7 @@ function UsersSection({ period }: { period: string }) {
 
 // ── Main Page ─────────────────────────────────────────────────────────────
 
-export default function Analytics() {
+export default function Analytics({ hideHeader = false }: { hideHeader?: boolean } = {}) {
   const [period, setPeriod] = usePersistedState('filter:analytics:period', '7d')
   const [days, setDays] = usePersistedState('filter:analytics:days', 30)
   const meta = PAGE_META.analytics
@@ -365,18 +365,28 @@ export default function Analytics() {
 
   return (
     <div className="space-y-6 pb-12">
-      <PageHeader
-        title={meta.title}
-        subtitle={meta.subtitle}
-        Icon={meta.Icon}
-        actions={
+      {!hideHeader ? (
+        <PageHeader
+          title={meta.title}
+          subtitle={meta.subtitle}
+          Icon={meta.Icon}
+          actions={
+            <FilterBar
+              options={PERIOD_OPTIONS}
+              value={period}
+              onChange={handlePeriodChange}
+            />
+          }
+        />
+      ) : (
+        <div className="flex justify-end">
           <FilterBar
             options={PERIOD_OPTIONS}
             value={period}
             onChange={handlePeriodChange}
           />
-        }
-      />
+        </div>
+      )}
 
       <OverviewSection />
 
