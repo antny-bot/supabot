@@ -222,7 +222,7 @@ async def execute_confirmed_intent(query, context, user, intent):
         return
 
     if action in ["watch", "unwatch"]:
-        if exchange == "kis" and get_user_rsi_interval(user) != "day":
+        if not main.exchange_adapter.get_exchange(exchange).supports_minute_candles() and get_user_rsi_interval(user) != "day":
             await query.edit_message_text(main._KIS_RSI_MINUTE_ERROR)
             return
         changed = main.user_manager.add_watchlist(user_id, exchange, ticker) if action == "watch" else main.user_manager.remove_watchlist(user_id, exchange, ticker)
@@ -243,9 +243,7 @@ async def execute_confirmed_intent(query, context, user, intent):
 
     if action in ["buy", "sell"]:
         price = float(intent.get("price") or 0)
-        volume = float(intent.get("volume") or 0)
-        if exchange == "kis":
-            volume = int(volume)
+        volume = main.exchange_adapter.get_exchange(exchange).round_volume(float(intent.get("volume") or 0))
         if price <= 0 or volume <= 0:
             await query.edit_message_text("❌ 가격과 수량을 확인할 수 없어 주문을 중단합니다.")
             return
@@ -264,7 +262,7 @@ async def execute_confirmed_intent(query, context, user, intent):
         return
 
     if action == "rsitrade":
-        if exchange == "kis" and get_user_rsi_interval(user) != "day":
+        if not main.exchange_adapter.get_exchange(exchange).supports_minute_candles() and get_user_rsi_interval(user) != "day":
             await query.edit_message_text(main._KIS_RSI_MINUTE_ERROR)
             return
         buy_range = intent.get("buy_rsi_range") or user["preferences"].get("rsi_buy_range", "25-30")
@@ -292,7 +290,7 @@ async def execute_confirmed_intent(query, context, user, intent):
         return
 
     if action == "sgridrsi":
-        if exchange == "kis" and get_user_rsi_interval(user) != "day":
+        if not main.exchange_adapter.get_exchange(exchange).supports_minute_candles() and get_user_rsi_interval(user) != "day":
             await query.edit_message_text(main._KIS_RSI_MINUTE_ERROR)
             return
         sell_range = intent.get("sell_rsi_range") or user["preferences"].get("rsi_sell_range", "65-75")
