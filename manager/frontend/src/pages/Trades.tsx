@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { usePersistedState } from '../hooks/usePersistedState'
-import { BarChart2, ChevronLeft, ChevronRight, DollarSign, TrendingDown, TrendingUp } from 'lucide-react'
+import { BarChart2, DollarSign, TrendingDown, TrendingUp, RotateCcw } from 'lucide-react'
 import { fetchTrades } from '../api/trades'
 import type { TradesData } from '../types'
 import Badge from '../components/ui/Badge'
@@ -12,6 +12,8 @@ import { PAGE_META } from '../config/pageMeta'
 import { useRealtime } from '../hooks/useRealtime'
 import { staggerDelay } from '../utils/animation'
 import { krwFmt } from '../utils/formatters'
+import Pagination from '../components/ui/Pagination'
+import SyncIndicator from '../components/ui/SyncIndicator'
 
 const DEFAULT_RANGE: DateRangeValue = { mode: '7d', from: '', to: '' }
 
@@ -19,30 +21,42 @@ export default function Trades() {
   const [data, setData] = useState<TradesData | null>(null)
   const [dateRange, setDateRange] = usePersistedState<DateRangeValue>('filter:trades:dateRange', DEFAULT_RANGE)
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = usePersistedState('filter:trades:pageSize', 50)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const pageSize = 50
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
-  const loadData = useCallback((showSpinner = false, targetPage = page) => {
+  const loadData = useCallback((showSpinner = false, targetPage = page, targetPageSize = pageSize) => {
     if (showSpinner) setLoading(true)
-    fetchTrades(dateRange, targetPage, pageSize)
-      .then(setData)
+    fetchTrades(dateRange, targetPage, targetPageSize)
+      .then((res) => {
+        setData(res)
+        setLastUpdated(new Date())
+        setError(null)
+      })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류가 발생했습니다.'))
       .finally(() => {
         if (showSpinner) setLoading(false)
       })
-  }, [page, dateRange])
+  }, [dateRange, page, pageSize])
 
   useEffect(() => {
-    loadData(true, page)
-  }, [loadData, page])
+    loadData(true, page, pageSize)
+  }, [loadData, page, pageSize])
 
-  useRealtime(useCallback(() => loadData(false, page), [loadData, page]))
+  useRealtime(useCallback(() => loadData(false, page, pageSize), [loadData, page, pageSize]))
 
   const handleRangeChange = (range: DateRangeValue) => {
     setDateRange(range)
     setPage(1)
   }
+
+  const handleResetFilters = () => {
+    setDateRange(DEFAULT_RANGE)
+    setPage(1)
+  }
+
+  const isFilterModified = dateRange.mode !== DEFAULT_RANGE.mode || dateRange.from !== DEFAULT_RANGE.from || dateRange.to !== DEFAULT_RANGE.to
 
   const totalPages = data ? Math.ceil(data.total / pageSize) : 0
 
@@ -57,9 +71,24 @@ export default function Trades() {
 
   return (
     <div className="space-y-5">
-      <PageHeader {...PAGE_META.trades} />
+      <PageHeader
+        {...PAGE_META.trades}
+        actions={<SyncIndicator lastUpdated={lastUpdated} loading={loading} error={error} />}
+      />
 
-      <DateRangePicker value={dateRange} onChange={handleRangeChange} />
+      <div className="flex flex-wrap items-center gap-2">
+        <DateRangePicker value={dateRange} onChange={handleRangeChange} />
+        {isFilterModified && (
+          <button
+            onClick={handleResetFilters}
+            className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 px-2.5 py-1.5 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs transition-colors"
+            title="필터 초기화"
+          >
+            <RotateCcw size={12} />
+            <span>필터 초기화</span>
+          </button>
+        )}
+      </div>
 
       {error && <ErrorBanner message={error} />}
 
@@ -184,29 +213,17 @@ export default function Trades() {
               ))}
             </div>
 
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
-                <div className="text-xs text-slate-500 dark:text-slate-400">
-                  Page <span className="font-semibold text-slate-900 dark:text-white">{page}</span> of {totalPages}
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setPage((current) => Math.max(1, current - 1))}
-                    disabled={page === 1}
-                    className="rounded-lg border border-slate-200 bg-white p-1.5 transition-colors disabled:opacity-30 dark:border-slate-700 dark:bg-slate-800"
-                  >
-                    <ChevronLeft size={16} />
-                  </button>
-                  <button
-                    onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-                    disabled={page === totalPages}
-                    className="rounded-lg border border-slate-200 bg-white p-1.5 transition-colors disabled:opacity-30 dark:border-slate-700 dark:bg-slate-800"
-                  >
-                    <ChevronRight size={16} />
-                  </button>
-                </div>
-              </div>
-            )}
+            <Pagination
+              currentPage={page}
+              totalPages={totalPages}
+              pageSize={pageSize}
+              totalCount={data.total}
+              onPageChange={setPage}
+              onPageSizeChange={(size) => {
+                setPageSize(size)
+                setPage(1)
+              }}
+            />
           </div>
         </>
       )}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { usePersistedState } from '../hooks/usePersistedState'
-import { ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { X, RotateCcw } from 'lucide-react'
 import { fetchOrders, cancelOrder } from '../api/orders'
 import type { OrdersData } from '../types'
 import Badge from '../components/ui/Badge'
@@ -14,6 +14,8 @@ import { PAGE_META } from '../config/pageMeta'
 import { useRealtime } from '../hooks/useRealtime'
 import { staggerDelay } from '../utils/animation'
 import { krwFmt } from '../utils/formatters'
+import Pagination from '../components/ui/Pagination'
+import SyncIndicator from '../components/ui/SyncIndicator'
 
 const OPEN_STATUSES = new Set(['wait', 'partial', 'pending_reorder'])
 
@@ -51,30 +53,35 @@ export default function Orders() {
   const [groupNoFilter, setGroupNoFilter] = useState<number | undefined>(undefined)
   const [groupNoInput, setGroupNoInput] = useState('')
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = usePersistedState('filter:orders:pageSize', 50)
   const [expandedFilter, setExpandedFilter] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [cancellingUuid, setCancellingUuid] = useState<string | null>(null)
-  const pageSize = 50
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
   const dateFrom = dateRange.mode === 'custom' ? dateRange.from : undefined
   const dateTo = dateRange.mode === 'custom' ? dateRange.to : undefined
 
-  const loadData = useCallback((showSpinner = false, targetPage = page) => {
+  const loadData = useCallback((showSpinner = false, targetPage = page, targetPageSize = pageSize) => {
     if (showSpinner) setLoading(true)
-    fetchOrders(status, exchange, side, dateFrom, dateTo, targetPage, pageSize, groupNoFilter)
-      .then(setData)
+    fetchOrders(status, exchange, side, dateFrom, dateTo, targetPage, targetPageSize, groupNoFilter)
+      .then((res) => {
+        setData(res)
+        setLastUpdated(new Date())
+        setError(null)
+      })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류가 발생했습니다.'))
       .finally(() => {
         if (showSpinner) setLoading(false)
       })
-  }, [exchange, page, side, status, dateFrom, dateTo, groupNoFilter])
+  }, [exchange, status, side, dateFrom, dateTo, groupNoFilter, page, pageSize])
 
   useEffect(() => {
-    loadData(true, page)
-  }, [loadData, page])
+    loadData(true, page, pageSize)
+  }, [loadData, page, pageSize])
 
-  useRealtime(useCallback(() => loadData(false, page), [loadData, page]))
+  useRealtime(useCallback(() => loadData(false, page, pageSize), [loadData, page, pageSize]))
 
   const toggleFilter = (name: string) => {
     setExpandedFilter((prev) => (prev === name ? null : name))
@@ -121,7 +128,7 @@ export default function Orders() {
     try {
       const res = await cancelOrder(uuid)
       if (res.ok) {
-        loadData(false, page)
+        loadData(false, page, pageSize)
       } else {
         alert(`취소 실패: ${res.error || '알 수 없는 오류'}`)
       }
@@ -132,13 +139,27 @@ export default function Orders() {
     }
   }
 
+  const hasAnyFilter = status !== '' || exchange !== '' || side !== '' || dateRange.mode !== 'all' || groupNoFilter !== undefined
+
+  const handleResetFilters = () => {
+    setStatus('')
+    setExchange('')
+    setSide('')
+    setDateRange(DEFAULT_RANGE)
+    clearGroupNoFilter()
+    setPage(1)
+  }
+
   const totalPages = data ? Math.ceil(data.total / pageSize) : 0
 
   return (
     <div className="space-y-4">
-      <PageHeader {...PAGE_META.orders} />
+      <PageHeader
+        {...PAGE_META.orders}
+        actions={<SyncIndicator lastUpdated={lastUpdated} loading={loading} error={error} />}
+      />
 
-      <div className="flex flex-wrap items-start gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <FilterBar collapsible isOpen={expandedFilter === 'status'} onToggle={() => toggleFilter('status')}
           options={STATUS_OPTIONS} value={status} onChange={handleFilterChange(setStatus)} />
         <FilterBar collapsible isOpen={expandedFilter === 'exchange'} onToggle={() => toggleFilter('exchange')}
@@ -163,6 +184,17 @@ export default function Orders() {
             </button>
           )}
         </div>
+
+        {hasAnyFilter && (
+          <button
+            onClick={handleResetFilters}
+            className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 px-2.5 py-1 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs transition-colors"
+            title="필터 초기화"
+          >
+            <RotateCcw size={12} />
+            <span>필터 초기화</span>
+          </button>
+        )}
       </div>
 
       {error && <ErrorBanner message={error} />}
@@ -172,7 +204,8 @@ export default function Orders() {
           <Spinner />
         ) : (
           <>
-            <div className="overflow-x-auto">
+            {/* Desktop Table View */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
@@ -260,34 +293,83 @@ export default function Orders() {
               </table>
             </div>
 
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
-                <div className="text-xs text-slate-500 dark:text-slate-400">
-                  Page <span className="font-semibold text-slate-900 dark:text-white">{page}</span> of {totalPages}
+            {/* Mobile Card List View */}
+            <div className="md:hidden block divide-y divide-slate-100 dark:divide-slate-800">
+              {!data || data.orders.length === 0 ? (
+                <div className="px-4 py-10 text-center text-xs text-slate-400 dark:text-slate-500">
+                  주문이 없습니다.
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setPage((current) => Math.max(1, current - 1))}
-                    disabled={page === 1}
-                    className="rounded-lg border border-slate-200 bg-white p-1.5 transition-colors disabled:opacity-30 dark:border-slate-700 dark:bg-slate-800"
-                  >
-                    <ChevronLeft size={16} />
-                  </button>
-                  <button
-                    onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-                    disabled={page === totalPages}
-                    className="rounded-lg border border-slate-200 bg-white p-1.5 transition-colors disabled:opacity-30 dark:border-slate-700 dark:bg-slate-800"
-                  >
-                    <ChevronRight size={16} />
-                  </button>
+              ) : data.orders.map((order, index) => (
+                <div key={index} className="animate-fade-in space-y-2.5 p-4 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40" style={staggerDelay(index)}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <Badge value={order.exchange} label={order.exchange.toUpperCase()} />
+                      <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">{order.ticker}</span>
+                      {order.group_no != null && (
+                        <button
+                          onClick={() => handleGroupNoClick(order.group_no!)}
+                          className="rounded bg-primary-50 px-1.5 py-0.5 text-[10px] font-semibold text-primary-600 hover:bg-primary-100 dark:bg-primary-900/30 dark:text-primary-400"
+                        >
+                          #{order.group_no}
+                        </button>
+                      )}
+                    </div>
+                    <Badge value={order.status} label={order.status_label} />
+                  </div>
+                  
+                  <div className="flex items-center justify-between text-xs">
+                    <div className="flex gap-1.5 text-slate-500 dark:text-slate-400">
+                      <span className="font-mono">{order.created_fmt}</span>
+                      <span>•</span>
+                      <span>{order.strategy}</span>
+                    </div>
+                    <Badge value={order.side} />
+                  </div>
+
+                  <div className="flex justify-between items-center text-xs pt-1">
+                    <span className="text-slate-500 dark:text-slate-400">가격 / 수량</span>
+                    <span className="font-mono text-slate-800 dark:text-slate-200">
+                      {order.price?.toLocaleString()}원 / {order.volume?.toFixed(4)}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-500 dark:text-slate-400">체결률 / 주문 금액</span>
+                    <span className="font-mono text-slate-800 dark:text-slate-200">
+                      {(order.fill_pct * 100).toFixed(0)}% / {krwFmt(order.order_value ?? 0)}
+                    </span>
+                  </div>
+
+                  {OPEN_STATUSES.has(order.status) && (
+                    <div className="pt-1.5 flex justify-end">
+                      <button
+                        onClick={() => handleCancelOrder(order.uuid)}
+                        disabled={cancellingUuid === order.uuid}
+                        className="w-full text-center rounded-lg border border-red-200 py-1.5 text-xs text-red-500 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20"
+                      >
+                        {cancellingUuid === order.uuid ? '취소 중...' : '주문 취소'}
+                      </button>
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              ))}
+            </div>
+
+            {/* Common Pagination */}
+            <Pagination
+              currentPage={page}
+              totalPages={totalPages}
+              pageSize={pageSize}
+              totalCount={data?.total ?? 0}
+              onPageChange={setPage}
+              onPageSizeChange={(size) => {
+                setPageSize(size)
+                setPage(1)
+              }}
+            />
           </>
         )}
       </div>
-
-      <p className="text-right text-xs text-slate-400 dark:text-slate-600">총 {data?.total || 0}건</p>
     </div>
   )
 }
