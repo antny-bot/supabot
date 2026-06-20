@@ -51,7 +51,7 @@ from core.parsers import (
     parse_rsi_interval, parse_config_value, validate_config_update,
     has_gemini_key, get_user_rsi_interval, is_strategy_order,
     is_kis_regular_session, next_kis_regular_session, kis_next_check_timestamp,
-    interpolate_range, resolve_linked_rsi_target, is_us_stock_ticker,
+    interpolate_range, resolve_linked_rsi_target,
     _format_seconds, get_dca_weights,
 )
 from core.formatters import (
@@ -215,7 +215,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 _KIS_RSI_MINUTE_ERROR = "⚠️ 한국투자증권 RSI는 일봉만 지원합니다. /config set rsi_interval day 후 다시 시도하세요."
 
 async def ensure_rsi_supported(update, user, exchange):
-    if exchange == "kis" and get_user_rsi_interval(user) != "day":
+    if not exchange_adapter.get_exchange(exchange).supports_minute_candles() and get_user_rsi_interval(user) != "day":
         await update.message.reply_text(_KIS_RSI_MINUTE_ERROR)
         return False
     return True
@@ -233,7 +233,7 @@ async def resolve_ticker_for_command(
     if not raw:
         return exchange, None
     ticker = await exchange_adapter.resolve_ticker(user_id, exchange, raw)
-    if exchange in ("kis", "toss") and ticker and any('가' <= c <= '힣' for c in ticker):
+    if exchange_adapter.get_exchange(exchange).requires_numeric_ticker() and ticker and any('가' <= c <= '힣' for c in ticker):
         hint = f"\n예: {cmd_hint}" if cmd_hint else ""
         await update.message.reply_text(
             f"⚠️ {exchange_display_name(exchange)}은 종목코드로 입력하세요.{hint}"
@@ -278,7 +278,7 @@ async def sync_orders(application):
         exchange = ord['exchange']
         ticker = ord['ticker']
 
-        if exchange == "kis" and not is_kis_regular_session():
+        if not exchange_adapter.get_exchange(exchange).is_market_open():
             next_check = kis_next_check_timestamp()
             status = "pending_reorder" if ord.get("status") == "pending_reorder" else "market_closed"
             order_manager.update_order_status(ord["uuid"], status)
@@ -346,13 +346,7 @@ async def sync_orders(application):
             if ord.get("trailing_stop_pct") is not None and current_price > 0:
                 trailing_pct = float(ord["trailing_stop_pct"])
                 expected_stop_price = current_price * (1 - trailing_pct / 100)
-                expected_stop_price = (
-                    ExchangeAdapter.adjust_us_price_to_tick(expected_stop_price)
-                    if is_us_stock_ticker(exchange, ticker)
-                    else ExchangeAdapter.adjust_krx_price_to_tick(expected_stop_price)
-                    if exchange in ("kis", "toss")
-                    else ExchangeAdapter.adjust_price_to_tick(expected_stop_price)
-                )
+                expected_stop_price = exchange_adapter.get_exchange(exchange).adjust_price_to_tick(expected_stop_price, ticker)
                 if expected_stop_price > float(ord["stop_price"]):
                     order_manager.update_order_stop_price(ord["uuid"], expected_stop_price)
                     ord["stop_price"] = expected_stop_price
@@ -362,13 +356,7 @@ async def sync_orders(application):
                 cancel_ok = await exchange_adapter.cancel_order(user_id, exchange, ord["uuid"], ticker)
                 if cancel_ok:
                     remaining = float(ord["volume"]) - float(ord["filled_volume"])
-                    sl_price = (
-                        ExchangeAdapter.adjust_us_price_to_tick(current_price * 0.999)
-                        if is_us_stock_ticker(exchange, ticker)
-                        else ExchangeAdapter.adjust_krx_price_to_tick(current_price * 0.999)
-                        if exchange in ("kis", "toss")
-                        else ExchangeAdapter.adjust_price_to_tick(current_price * 0.999)
-                    )
+                    sl_price = exchange_adapter.get_exchange(exchange).adjust_price_to_tick(current_price * 0.999, ticker)
                     sl_res = await exchange_adapter.create_order(
                         user_id, exchange, ticker, "ask", sl_price, remaining
                     )
@@ -406,25 +394,18 @@ async def sync_orders(application):
                     user_id=user_id,
                 )
                 if sell_price:
-                    sell_volume = newly_filled
-                    if exchange in ("kis", "toss"):
-                        sell_volume = int(sell_volume)
-                        if sell_volume <= 0:
-                            keep_order_for_retry = True
-                            await asyncio.sleep(0.2)
-                            continue
+                    ex = exchange_adapter.get_exchange(exchange)
+                    sell_volume = ex.round_volume(newly_filled)
+                    if ex.requires_integer_volume() and sell_volume <= 0:
+                        keep_order_for_retry = True
+                        await asyncio.sleep(0.2)
+                        continue
                     # 매도 주문 전송
                     s_res = await exchange_adapter.create_order(user_id, exchange, ticker, "ask", sell_price, sell_volume)
                     if s_res and 'uuid' in s_res:
                         stop_loss_pct = float(user.get("preferences", {}).get("stop_loss_pct", 0) or 0)
                         stop_price = (
-                            (
-                                ExchangeAdapter.adjust_us_price_to_tick(ord["price"] * (1 - stop_loss_pct / 100))
-                                if is_us_stock_ticker(exchange, ticker)
-                                else ExchangeAdapter.adjust_krx_price_to_tick(ord["price"] * (1 - stop_loss_pct / 100))
-                                if exchange in ("kis", "toss")
-                                else ExchangeAdapter.adjust_price_to_tick(ord["price"] * (1 - stop_loss_pct / 100))
-                            )
+                            ex.adjust_price_to_tick(ord["price"] * (1 - stop_loss_pct / 100), ticker)
                             if stop_loss_pct > 0 else None
                         )
                         order_manager.add_order(user_id, exchange, ticker, s_res['uuid'], sell_price, sell_volume,

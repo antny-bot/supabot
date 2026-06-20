@@ -11,13 +11,30 @@ if SRC not in sys.path:
 
 from core.order_manager import OrderManager
 from core.user_manager import UserManager
+from core.exchanges.upbit import UpbitExchange
+from core.exchanges.bithumb import BithumbExchange
+from core.exchanges.kis import KisExchange
+from core.exchanges.toss import TossExchange
 import main
+
+_EXCHANGE_CLASSES = {
+    "upbit": UpbitExchange,
+    "bithumb": BithumbExchange,
+    "kis": KisExchange,
+    "toss": TossExchange,
+}
 
 
 def _make_app():
     app = MagicMock()
     app.bot.send_message = AsyncMock()
     return app
+
+
+def _wire_real_exchanges(mock_adapter):
+    """mock_adapter.get_exchange()가 capability 로직(round_volume/adjust_price_to_tick 등)을
+    갖는 실제 Exchange 인스턴스를 돌려주도록 연결한다."""
+    mock_adapter.get_exchange = lambda exchange: _EXCHANGE_CLASSES[exchange](mock_adapter)
 
 
 def _make_order_manager(tmp_path):
@@ -39,11 +56,11 @@ async def test_kis_outside_market_hours_marks_market_closed(tmp_path, monkeypatc
     om.add_order("123", "kis", "005930", "uuid-1", 70000, 10, side="bid", strategy="rsitrade")
     monkeypatch.setattr(main, "order_manager", om)
 
-    monkeypatch.setattr(main, "is_kis_regular_session", lambda: False)
     monkeypatch.setattr(main, "kis_next_check_timestamp", lambda: 9_999_999.0)
 
     mock_adapter = MagicMock()
     mock_adapter.get_order_status = AsyncMock()
+    mock_adapter.get_exchange = lambda exchange: MagicMock(is_market_open=lambda: False)
     monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
 
     app = _make_app()
@@ -63,6 +80,7 @@ async def test_manual_order_full_fill_sends_message_and_removes(tmp_path, monkey
 
     mock_adapter = MagicMock()
     mock_adapter.get_order_status = AsyncMock(return_value={"state": "done", "executed_volume": 0.01})
+    _wire_real_exchanges(mock_adapter)
     monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
 
     app = _make_app()
@@ -86,6 +104,7 @@ async def test_rsitrade_buy_fill_creates_linked_sell_order(tmp_path, monkeypatch
     mock_adapter = MagicMock()
     mock_adapter.get_order_status = AsyncMock(return_value={"state": "done", "executed_volume": 0.1})
     mock_adapter.create_order = AsyncMock(return_value={"uuid": "sell-uuid-1"})
+    _wire_real_exchanges(mock_adapter)
     monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
 
     mock_engine = MagicMock()
@@ -130,7 +149,7 @@ async def test_rsitrade_buy_fill_sets_stop_price_when_configured(tmp_path, monke
     mock_adapter = MagicMock()
     mock_adapter.get_order_status = AsyncMock(return_value={"state": "done", "executed_volume": 0.001})
     mock_adapter.create_order = AsyncMock(return_value={"uuid": "sell-uuid-2"})
-    mock_adapter.adjust_price_to_tick = MagicMock(side_effect=lambda p: int(p))
+    _wire_real_exchanges(mock_adapter)
     monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
 
     mock_engine = MagicMock()
@@ -164,7 +183,7 @@ async def test_stoploss_triggers_when_price_below_stop_price(tmp_path, monkeypat
     mock_adapter.get_ticker = AsyncMock(return_value={"trade_price": 2_500_000})  # 손절 기준가 미만
     mock_adapter.cancel_order = AsyncMock(return_value=True)
     mock_adapter.create_order = AsyncMock(return_value={"uuid": "sl-uuid"})
-    mock_adapter.adjust_price_to_tick = MagicMock(side_effect=lambda p: int(p))
+    _wire_real_exchanges(mock_adapter)
     monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
 
     app = _make_app()
@@ -197,6 +216,7 @@ async def test_stoploss_does_not_trigger_when_price_above_stop_price(tmp_path, m
     mock_adapter.get_order_status = AsyncMock(return_value={"state": "wait", "executed_volume": 0.0})
     mock_adapter.get_ticker = AsyncMock(return_value={"trade_price": 3_500_000})  # 손절 기준가 이상
     mock_adapter.cancel_order = AsyncMock()
+    _wire_real_exchanges(mock_adapter)
     monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
 
     app = _make_app()
@@ -224,6 +244,7 @@ async def test_concurrently_removed_order_skips_external_cancel_alert(tmp_path, 
 
     mock_adapter = MagicMock()
     mock_adapter.get_order_status = AsyncMock(side_effect=get_order_status)
+    _wire_real_exchanges(mock_adapter)
     monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
 
     app = _make_app()
