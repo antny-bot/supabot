@@ -10,6 +10,7 @@ if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
 from core.indicators import BollingerResult, MACDResult, StochasticResult
+from core.exchanges.upbit import UpbitExchange
 from core.signal_engine import SignalEngine
 
 
@@ -43,6 +44,9 @@ class _FakeAdapter:
     @staticmethod
     def adjust_price_to_tick(p):
         return int(p)
+
+    def get_exchange(self, exchange):
+        return UpbitExchange(self)
 
 
 def _make_user_manager(prefs_override=None):

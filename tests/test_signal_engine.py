@@ -15,6 +15,17 @@ if SRC not in sys.path:
 
 from core.indicators import BollingerResult, MACDResult, StochasticResult
 from core.signal_engine import SignalEngine
+from core.exchanges.upbit import UpbitExchange
+from core.exchanges.bithumb import BithumbExchange
+from core.exchanges.kis import KisExchange
+from core.exchanges.toss import TossExchange
+
+_EXCHANGE_CLASSES = {
+    "upbit": UpbitExchange,
+    "bithumb": BithumbExchange,
+    "kis": KisExchange,
+    "toss": TossExchange,
+}
 
 
 class DummyUsers:
@@ -31,6 +42,9 @@ class DummyAdapter:
     @staticmethod
     def adjust_price_to_tick(price):
         return float(price)
+
+    def get_exchange(self, exchange):
+        return _EXCHANGE_CLASSES[exchange](self)
 
 
 def _build_candles(close_prices):
@@ -89,13 +103,22 @@ class _TickTrackingAdapter(DummyAdapter):
         self.krx_calls = 0
         self.crypto_calls = 0
 
-    def adjust_price_to_tick(self, price):
-        self.crypto_calls += 1
-        return float(price)
+    def get_exchange(self, exchange):
+        real = _EXCHANGE_CLASSES[exchange](self)
+        tracker = self
 
-    def adjust_krx_price_to_tick(self, price):
-        self.krx_calls += 1
-        return float(price)
+        class _Wrapped:
+            def supports_minute_candles(self):
+                return real.supports_minute_candles()
+
+            def adjust_price_to_tick(self, price, ticker=None):
+                if exchange in ("kis", "toss"):
+                    tracker.krx_calls += 1
+                else:
+                    tracker.crypto_calls += 1
+                return real.adjust_price_to_tick(price, ticker)
+
+        return _Wrapped()
 
 
 def test_get_price_by_rsi_uses_krx_tick_for_toss_and_kis():
@@ -163,6 +186,8 @@ def test_get_indicators_returns_none_when_no_candles():
             return None
         @staticmethod
         def adjust_price_to_tick(p): return float(p)
+        def get_exchange(self, exchange):
+            return _EXCHANGE_CLASSES[exchange](self)
 
     engine = SignalEngine(DummyUsers(), EmptyAdapter())
     result = asyncio.run(engine.get_indicators("upbit", "KRW-BTC"))
@@ -179,6 +204,8 @@ def test_get_indicators_kis_minute_falls_back_to_day():
             return _long_candles()
         @staticmethod
         def adjust_price_to_tick(p): return float(p)
+        def get_exchange(self, exchange):
+            return _EXCHANGE_CLASSES[exchange](self)
 
     engine = SignalEngine(DummyUsers(), TrackingAdapter())
     asyncio.run(engine.get_indicators("kis", "005930", interval="60"))
