@@ -55,11 +55,10 @@ def _user(preferences=None):
 
 # ---- execute_grid_orders ----
 
-async def test_execute_grid_orders_buy_path_uses_buy_limit_order(tmp_path):
+async def test_execute_grid_orders_buy_path_uses_create_order(tmp_path):
     om = _order_manager(tmp_path)
     adapter = _adapter()
-    adapter.buy_limit_order = AsyncMock(side_effect=[{"uuid": f"u{i}"} for i in range(3)])
-    adapter.create_order = AsyncMock()
+    adapter.create_order = AsyncMock(side_effect=[{"uuid": f"u{i}"} for i in range(3)])
     bot = _bot()
     sync_fn = AsyncMock()
 
@@ -71,8 +70,8 @@ async def test_execute_grid_orders_buy_path_uses_buy_limit_order(tmp_path):
         trigger_sync_fn=sync_fn,
     )
 
-    assert adapter.buy_limit_order.await_count == 3
-    assert adapter.create_order.await_count == 0
+    assert adapter.create_order.await_count == 3
+    assert adapter.create_order.call_args_list[0].args[3] == "bid"
     assert result["success_count"] == 3
     assert result["group_no"] == 7
     orders = om.get_user_orders("111")
@@ -88,7 +87,6 @@ async def test_execute_grid_orders_sell_path_uses_create_order(tmp_path):
     om = _order_manager(tmp_path)
     adapter = _adapter()
     adapter.create_order = AsyncMock(return_value={"uuid": "sell-1"})
-    adapter.buy_limit_order = AsyncMock()
     bot = _bot()
 
     result = await execute_grid_orders(
@@ -100,7 +98,6 @@ async def test_execute_grid_orders_sell_path_uses_create_order(tmp_path):
 
     adapter.create_order.assert_awaited_once()
     assert adapter.create_order.call_args.args[3] == "ask"
-    assert adapter.buy_limit_order.await_count == 0
     orders = om.get_user_orders("111")
     assert orders[0]["side"] == "ask" and orders[0]["strategy"] == "sgrid"
     assert result["success_count"] == 1
@@ -109,7 +106,7 @@ async def test_execute_grid_orders_sell_path_uses_create_order(tmp_path):
 async def test_execute_grid_orders_kis_zero_volume_is_skipped_without_placing_order(tmp_path):
     om = _order_manager(tmp_path)
     adapter = _adapter()
-    adapter.buy_limit_order = AsyncMock(return_value={"uuid": "should-not-be-called"})
+    adapter.create_order = AsyncMock(return_value={"uuid": "should-not-be-called"})
     bot = _bot()
 
     result = await execute_grid_orders(
@@ -120,7 +117,7 @@ async def test_execute_grid_orders_kis_zero_volume_is_skipped_without_placing_or
     )
 
     # volume rounds down to 0 for KIS -> must be skipped WITHOUT calling the exchange
-    adapter.buy_limit_order.assert_not_awaited()
+    adapter.create_order.assert_not_awaited()
     assert result["skipped_count"] == 1
     assert result["success_count"] == 0
     assert om.get_user_orders("111") == []
@@ -131,7 +128,7 @@ async def test_execute_grid_orders_kis_zero_volume_is_skipped_without_placing_or
 async def test_execute_grid_orders_continues_after_exchange_exception(tmp_path):
     om = _order_manager(tmp_path)
     adapter = _adapter()
-    adapter.buy_limit_order = AsyncMock(side_effect=[Exception("boom"), {"uuid": "u2"}])
+    adapter.create_order = AsyncMock(side_effect=[Exception("boom"), {"uuid": "u2"}])
     bot = _bot()
 
     result = await execute_grid_orders(
@@ -141,7 +138,7 @@ async def test_execute_grid_orders_continues_after_exchange_exception(tmp_path):
         is_sell=False, group_no=2, bot=bot, notify_chat_id="111",
     )
 
-    assert adapter.buy_limit_order.await_count == 2
+    assert adapter.create_order.await_count == 2
     assert result["success_count"] == 1
     assert len(om.get_user_orders("111")) == 1
 
@@ -312,3 +309,60 @@ async def test_execute_sgridrsi_orders_toss_rounds_to_int_and_skips_zero(tmp_pat
     assert result["success"] == 0
     assert result["skipped_count"] == 1
     assert om.get_user_orders("111") == []
+
+
+# ---- 장외 시간 예약(reserved) 배치 ----
+
+async def test_execute_grid_orders_kis_outside_market_hours_creates_reserved_batch(tmp_path, monkeypatch):
+    import core.exchanges.kis as kis_module
+    monkeypatch.setattr(kis_module, "is_kis_regular_session", lambda: False)
+
+    om = _order_manager(tmp_path)
+    adapter = _adapter()
+    adapter.create_order = AsyncMock()
+    bot = _bot()
+
+    result = await execute_grid_orders(
+        exchange_adapter=adapter, order_manager=om,
+        user_id="111", exchange="kis", ticker="005930",
+        start_price=60000.0, end_price=65000.0, count=2, budget_or_volume=200000,
+        is_sell=False, group_no=11, bot=bot, notify_chat_id="111",
+    )
+
+    adapter.create_order.assert_not_awaited()
+    assert result["success_count"] == 2
+    orders = om.get_user_orders("111")
+    assert len(orders) == 2
+    assert all(o["status"] == "reserved" for o in orders)
+    msg = bot.send_message.call_args.kwargs["text"]
+    assert "예약" in msg
+
+
+async def test_execute_grid_orders_toss_us_outside_market_hours_creates_reserved_batch(tmp_path, monkeypatch):
+    import core.exchanges.toss as toss_module
+    monkeypatch.setattr(toss_module, "is_us_regular_session", lambda: False)
+
+    om = _order_manager(tmp_path)
+    adapter = _adapter()
+    adapter.create_order = AsyncMock()
+    bot = _bot()
+
+    result = await execute_grid_orders(
+        exchange_adapter=adapter, order_manager=om,
+        user_id="111", exchange="toss", ticker="AAPL",
+        start_price=100.0, end_price=110.0, count=2, budget_or_volume=400,
+        is_sell=False, group_no=12, bot=bot, notify_chat_id="111",
+    )
+
+    adapter.create_order.assert_not_awaited()
+    assert result["success_count"] == 2
+    orders = om.get_user_orders("111")
+    assert all(o["status"] == "reserved" for o in orders)
+
+
+async def test_reserved_order_cancel_does_not_call_exchange_api():
+    from core.exchange_adapter import ExchangeAdapter
+
+    adapter = ExchangeAdapter(MagicMock())
+    result = await adapter.cancel_order("111", "kis", "reserved:abc123", ticker="005930")
+    assert result is True

@@ -285,39 +285,43 @@ async def sync_orders(application):
         exchange = ord['exchange']
         ticker = ord['ticker']
 
-        if not exchange_adapter.get_exchange(exchange).is_market_open():
-            next_check = kis_next_check_timestamp()
-            status = "pending_reorder" if ord.get("status") == "pending_reorder" else "market_closed"
+        ex_obj = exchange_adapter.get_exchange(exchange)
+        if not ex_obj.is_market_open(ticker):
+            next_check = ex_obj.next_check_timestamp(ticker)
+            status = ord.get("status") if ord.get("status") in ("pending_reorder", "reserved") else "market_closed"
             order_manager.update_order_status(ord["uuid"], status)
             order_manager.update_next_check_at(ord["uuid"], next_check)
             continue
 
-        if exchange == "kis" and ord.get("status") == "pending_reorder":
+        if getattr(ex_obj, "supports_reserved_orders", False) and ord.get("status") in ("pending_reorder", "reserved"):
             remaining = max(float(ord.get("volume", 0)) - float(ord.get("filled_volume", 0)), 0)
             if remaining <= 0:
                 order_manager.remove_order(ord["uuid"])
                 continue
-            # 글로벌 거래 중지 중에는 신규 노출인 재주문을 보류한다 (보호성 매도는 별도 경로).
+            # 글로벌 거래 중지 중에는 신규 노출인 재주문/예약주문 제출을 보류한다 (보호성 매도는 별도 경로).
             if trading_gate.is_trading_halted():
-                order_manager.update_next_check_at(ord["uuid"], kis_next_check_timestamp())
+                order_manager.update_next_check_at(ord["uuid"], ex_obj.next_check_timestamp(ticker))
                 continue
-            res = await exchange_adapter.create_order(user_id, exchange, ticker, ord.get("side", "bid"), ord.get("price"), int(remaining))
+            vol = int(remaining) if ex_obj.requires_integer_volume() else remaining
+            res = await exchange_adapter.create_order(user_id, exchange, ticker, ord.get("side", "bid"), ord.get("price"), vol)
+            action = "재주문" if ord.get("status") == "pending_reorder" else "예약주문 실행"
+            label = exchange_display_name(exchange)
             if res and "uuid" in res:
                 old_uuid = ord["uuid"]
                 order_manager.replace_order_uuid(old_uuid, res["uuid"])
                 await application.bot.send_message(
                     chat_id=user_id,
-                    text=f"✅ [한국투자증권] {ticker} 전략 주문 재주문 완료\n"
+                    text=f"✅ [{label}] {ticker} 전략 주문 {action} 완료\n"
                          f"• 가격: {float(ord.get('price', 0)):,.0f}원\n"
                          f"• 잔량: {remaining:,.0f}주\n"
                          f"• 새 주문ID: {res['uuid']}",
                 )
             else:
-                order_manager.update_next_check_at(ord["uuid"], kis_next_check_timestamp())
-                append_operational_event("warning", "sync_orders", "KIS strategy reorder failed", ticker)
+                order_manager.update_next_check_at(ord["uuid"], ex_obj.next_check_timestamp(ticker))
+                append_operational_event("warning", "sync_orders", f"{exchange} strategy {action} failed", ticker)
                 await application.bot.send_message(
                     chat_id=user_id,
-                    text=f"⚠️ [한국투자증권] {ticker} 전략 주문 재주문 실패\n다음 정규장 체크 때 다시 시도합니다.",
+                    text=f"⚠️ [{label}] {ticker} 전략 주문 {action} 실패\n다음 정규장 체크 때 다시 시도합니다.",
                 )
             await asyncio.sleep(0.2)
             continue

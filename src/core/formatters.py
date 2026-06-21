@@ -663,7 +663,7 @@ def build_manual_order_confirm_message(exchange, ticker, side, price, volume, us
     )
 
 
-_ORDER_STATUS_NAMES = {"wait": "대기", "partial": "부분체결", "pending_reorder": "재주문대기", "market_closed": "장외대기"}
+_ORDER_STATUS_NAMES = {"wait": "대기", "partial": "부분체결", "pending_reorder": "재주문대기", "market_closed": "장외대기", "reserved": "예약"}
 
 
 def build_cancel_confirm_message(orders, title):

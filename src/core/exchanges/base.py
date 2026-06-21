@@ -43,8 +43,11 @@ class BaseExchange:
     def supports_minute_candles(self) -> bool:
         return True
 
-    def is_market_open(self) -> bool:
+    def is_market_open(self, ticker=None) -> bool:
         return True
+
+    def next_check_timestamp(self, ticker=None) -> float:
+        return 0.0
 
     def requires_numeric_ticker(self) -> bool:
         """한글 종목명이 아닌 코드/마켓 심볼로만 주문 가능한지 여부 (KIS/Toss=True)."""

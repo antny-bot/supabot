@@ -141,8 +141,9 @@ def _make_update_simple(args_text=""):
     return update
 
 
-async def test_grid_command_kis_rejected_outside_market_hours(monkeypatch):
-    """정규장 외 시간에는 KIS grid 주문을 거부해야 함."""
+async def test_grid_command_kis_shows_preview_outside_market_hours(monkeypatch):
+    """정규장 외 시간에도 KIS grid 주문은 차단하지 않고 확인 미리보기를 보여줘야 함
+    (실행 시점에 예약(reserved) 배치로 처리됨)."""
     import main
     from handlers import strategy_handlers
     _patch_auth_kis(monkeypatch)
@@ -155,7 +156,7 @@ async def test_grid_command_kis_rejected_outside_market_hours(monkeypatch):
     await strategy_handlers.grid_command(update, context)
 
     call_text = update.message.reply_text.call_args[0][0]
-    assert "정규장" in call_text
+    assert "거미줄 매수 주문 확인" in call_text
 
 
 async def test_grid_command_kis_allowed_during_market_hours(monkeypatch):
@@ -175,8 +176,9 @@ async def test_grid_command_kis_allowed_during_market_hours(monkeypatch):
     assert "거미줄 매수 주문 확인" in call_text
 
 
-async def test_sgrid_command_kis_rejected_outside_market_hours(monkeypatch):
-    """정규장 외 시간에는 KIS sgrid 주문을 거부해야 함."""
+async def test_sgrid_command_kis_shows_preview_outside_market_hours(monkeypatch):
+    """정규장 외 시간에도 KIS sgrid 주문은 차단하지 않고 확인 미리보기를 보여줘야 함
+    (실행 시점에 예약(reserved) 배치로 처리됨)."""
     import main
     from handlers import strategy_handlers
     _patch_auth_kis(monkeypatch)
@@ -189,7 +191,7 @@ async def test_sgrid_command_kis_rejected_outside_market_hours(monkeypatch):
     await strategy_handlers.sgrid_command(update, context)
 
     call_text = update.message.reply_text.call_args[0][0]
-    assert "정규장" in call_text
+    assert "거미줄 매도 주문 확인" in call_text
 
 
 async def test_sgrid_command_kis_insufficient_volume(monkeypatch):

@@ -4,8 +4,8 @@ import aiohttp
 
 from core.bot_logger import get_logger
 from core.metrics import metrics
-from core.exchanges.base import BaseExchange
-from core.parsers import is_kis_regular_session
+from core.exchanges.regular_session import RegularSessionExchange
+from core.parsers import is_kis_regular_session, kis_next_check_timestamp
 
 _log = get_logger("exchange_adapter")
 
@@ -342,7 +342,7 @@ class KisMixin:
         return "", text
 
 
-class KisExchange(BaseExchange):
+class KisExchange(RegularSessionExchange):
     """한국투자증권(KIS) — 저수준 호출은 adapter(KisMixin)에 위임하는 얇은 래퍼."""
 
     name = "kis"
@@ -353,8 +353,8 @@ class KisExchange(BaseExchange):
     def supports_minute_candles(self) -> bool:
         return False
 
-    def is_market_open(self) -> bool:
-        return is_kis_regular_session()
+    def session_for(self, ticker=None):
+        return is_kis_regular_session, kis_next_check_timestamp
 
     def requires_numeric_ticker(self) -> bool:
         return True

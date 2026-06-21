@@ -48,7 +48,8 @@ def _patch_auth(monkeypatch, user):
     monkeypatch.setattr(main, "user_manager", mock_um)
 
 
-# T4: grid_command — KIS 거래소 + 정규장 외 → 정규장 안내
+# T4: grid_command — KIS 거래소 + 정규장 외 → 차단하지 않고 미리보기 표시
+# (실행 시점에 예약(reserved) 배치로 처리됨, execute_grid_orders 테스트에서 검증)
 async def test_grid_command_kis_outside_market_hours(monkeypatch):
     user = _active_user()
     _patch_auth(monkeypatch, user)
@@ -61,7 +62,7 @@ async def test_grid_command_kis_outside_market_hours(monkeypatch):
 
     update.message.reply_text.assert_called_once()
     reply_text = update.message.reply_text.call_args.args[0]
-    assert "정규장" in reply_text
+    assert "거미줄 매수 주문 확인" in reply_text
 
 
 # T5: grid_command — 유효 인자 → 확인 미리보기 + 인라인 버튼

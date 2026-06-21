@@ -84,12 +84,16 @@ async def test_sync_orders_skips_kis_reorder_when_halted(monkeypatch, tmp_path):
     om.update_order_fill("uuid-1", 0, "pending_reorder")
     om.mark_reorder_pending("uuid-1", 0.0)  # next_check 과거로 두어 게이트 통과
     monkeypatch.setattr(main, "order_manager", om)
-    monkeypatch.setattr(main, "kis_next_check_timestamp", lambda: 9_999_999.0)
 
     mock_adapter = MagicMock()
     mock_adapter.create_order = AsyncMock()
     mock_adapter.get_order_status = AsyncMock()
-    mock_adapter.get_exchange = lambda exchange: MagicMock(is_market_open=lambda: True)
+    mock_adapter.get_exchange = lambda exchange: MagicMock(
+        is_market_open=lambda ticker=None: True,
+        next_check_timestamp=lambda ticker=None: 9_999_999.0,
+        supports_reserved_orders=True,
+        requires_integer_volume=lambda: True,
+    )
     monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
 
     app = MagicMock()

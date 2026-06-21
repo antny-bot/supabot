@@ -395,11 +395,50 @@ def test_kis_market_time_gate():
     market_time = dt.datetime(2026, 5, 29, 10, 0)
     after_close = dt.datetime(2026, 5, 29, 16, 0)
     saturday = dt.datetime(2026, 5, 30, 10, 0)
+    new_years_day = dt.datetime(2026, 1, 1, 10, 0)  # 평일이지만 한국 공휴일(신정)
 
     assert main.is_kis_regular_session(market_time) is True
     assert main.is_kis_regular_session(after_close) is False
     assert main.is_kis_regular_session(saturday) is False
+    assert main.is_kis_regular_session(new_years_day) is False
     assert main.next_kis_regular_session(after_close) == dt.datetime(2026, 6, 1, 9, 0)
+
+
+def test_us_market_time_gate():
+    from core.parsers import is_us_regular_session, next_us_regular_session
+    from zoneinfo import ZoneInfo
+
+    winter_open = dt.datetime(2026, 1, 2, 10, 0)  # EST 정규장
+    winter_closed = dt.datetime(2026, 1, 2, 16, 30)
+    weekend = dt.datetime(2026, 1, 3, 10, 0)
+    us_holiday = dt.datetime(2026, 1, 1, 10, 0)  # New Year's Day, 평일이지만 휴장
+    summer_open_utc = dt.datetime(2026, 7, 1, 13, 30, tzinfo=ZoneInfo("UTC"))  # 09:30 EDT
+    winter_open_utc = dt.datetime(2026, 1, 2, 14, 30, tzinfo=ZoneInfo("UTC"))  # 09:30 EST
+
+    assert is_us_regular_session(winter_open) is True
+    assert is_us_regular_session(winter_closed) is False
+    assert is_us_regular_session(weekend) is False
+    assert is_us_regular_session(us_holiday) is False
+    assert is_us_regular_session(summer_open_utc) is True
+    assert is_us_regular_session(winter_open_utc) is True
+    assert next_us_regular_session(winter_closed) == dt.datetime(2026, 1, 5, 9, 30)
+
+
+def test_kis_and_toss_session_for_dispatch():
+    from core.exchanges.kis import KisExchange
+    from core.exchanges.toss import TossExchange
+    from core.parsers import is_kis_regular_session, is_us_regular_session
+
+    kis = KisExchange(None)
+    is_open_fn, _ = kis.session_for("005930")
+    assert is_open_fn is is_kis_regular_session
+
+    toss = TossExchange(None)
+    domestic_open_fn, _ = toss.session_for("005930")
+    assert domestic_open_fn is is_kis_regular_session
+
+    us_open_fn, _ = toss.session_for("AAPL")
+    assert us_open_fn is is_us_regular_session
 
 
 def test_order_manager_updates_reorder_metadata(tmp_path):

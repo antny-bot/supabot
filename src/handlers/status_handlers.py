@@ -25,6 +25,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
         "partial": "부분체결",
         "market_closed": "장외 대기",
         "pending_reorder": "다음 정규장 재주문 예정",
+        "reserved": "장외 예약 (개장 시 자동 제출)",
         "done": "완료",
         "cancel": "취소",
     }
