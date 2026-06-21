@@ -133,9 +133,6 @@ async def _internal_execute_grid_handler(request: _web.Request) -> _web.Response
         if not ok:
             return _web.Response(status=400, text=error_msg)
 
-        if ex == "kis" and not _exchange_adapter.get_exchange(ex).is_market_open():
-            return _web.Response(status=400, text="한국투자증권 정규장 시간이 아닙니다.")
-
         app = request.app["bot_application"]
         group_no = _order_manager.get_next_group_no(user_id)
 
@@ -224,9 +221,6 @@ async def _internal_execute_sgrid_handler(request: _web.Request) -> _web.Respons
         user = _user_manager.get_user(user_id)
         if not user:
             return _web.Response(status=404, text="User not found")
-
-        if ex == "kis" and not _exchange_adapter.get_exchange(ex).is_market_open():
-            return _web.Response(status=400, text="한국투자증권 정규장 시간이 아닙니다.")
 
         if ex == "kis" and int(total_vol) < ct:
             return _web.Response(status=400, text=f"총 수량({int(total_vol)}주)이 주문 개수({ct})보다 작습니다.")

@@ -121,6 +121,8 @@ class ExchangeAdapter(CommonMixin, UpbitMixin, BithumbMixin, TossMixin, KisMixin
 
     async def cancel_order(self, user_id, exchange, order_id, ticker=None):
         """주문 취소"""
+        if isinstance(order_id, str) and order_id.startswith("reserved:"):
+            return True  # 실제 거래소에 제출된 적 없는 예약주문 — API 호출 불필요
         if ticker and exchange in ("kis", "toss"):
             ticker = await self._resolve(user_id, exchange, ticker)
         client = self._get_client(user_id, exchange)

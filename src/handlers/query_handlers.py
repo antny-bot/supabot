@@ -122,7 +122,7 @@ async def orders_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
         return
 
     msg = "⏳ <b>현재 추적 중인 미체결 주문</b>\n\n"
-    _order_status_names = {"wait": "대기", "partial": "부분체결", "pending_reorder": "재주문대기", "market_closed": "장외대기"}
+    _order_status_names = {"wait": "대기", "partial": "부분체결", "pending_reorder": "재주문대기", "market_closed": "장외대기", "reserved": "예약"}
     for ord in orders:
         group_tag = f" [<b>#{ord['group_no']}</b>]" if ord.get("group_no") else ""
         side_str = "매수" if ord["side"] == "bid" else "매도"

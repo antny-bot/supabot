@@ -56,11 +56,12 @@ async def test_kis_outside_market_hours_marks_market_closed(tmp_path, monkeypatc
     om.add_order("123", "kis", "005930", "uuid-1", 70000, 10, side="bid", strategy="rsitrade")
     monkeypatch.setattr(main, "order_manager", om)
 
-    monkeypatch.setattr(main, "kis_next_check_timestamp", lambda: 9_999_999.0)
-
     mock_adapter = MagicMock()
     mock_adapter.get_order_status = AsyncMock()
-    mock_adapter.get_exchange = lambda exchange: MagicMock(is_market_open=lambda: False)
+    mock_adapter.get_exchange = lambda exchange: MagicMock(
+        is_market_open=lambda ticker=None: False,
+        next_check_timestamp=lambda ticker=None: 9_999_999.0,
+    )
     monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
 
     app = _make_app()

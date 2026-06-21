@@ -17,7 +17,7 @@ import { krwFmt } from '../utils/formatters'
 import Pagination from '../components/ui/Pagination'
 import SyncIndicator from '../components/ui/SyncIndicator'
 
-const OPEN_STATUSES = new Set(['wait', 'partial', 'pending_reorder'])
+const OPEN_STATUSES = new Set(['wait', 'partial', 'pending_reorder', 'reserved'])
 
 const STATUS_OPTIONS = [
   { value: '', label: '전체 유형' },
@@ -27,6 +27,7 @@ const STATUS_OPTIONS = [
   { value: 'done', label: '완료' },
   { value: 'cancel', label: '취소' },
   { value: 'pending_reorder', label: '재주문대기' },
+  { value: 'reserved', label: '예약' },
 ]
 
 const EXCHANGE_OPTIONS = [

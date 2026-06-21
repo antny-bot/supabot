@@ -1,7 +1,17 @@
 import re
 from datetime import datetime, time as dt_time, timedelta, timezone
+from zoneinfo import ZoneInfo
+
+import holidays as _holidays_lib
 
 KST = timezone(timedelta(hours=9))
+US_ET = ZoneInfo("America/New_York")
+
+_KR_HOLIDAYS = _holidays_lib.country_holidays("KR")
+try:
+    _US_MARKET_HOLIDAYS = _holidays_lib.financial_holidays("NYSE")
+except NotImplementedError:
+    _US_MARKET_HOLIDAYS = _holidays_lib.country_holidays("US")
 
 RSI_INTERVAL_ALIASES = {
     "day": "day",
@@ -114,33 +124,53 @@ def is_strategy_order(order):
     )
 
 
-def _as_kst_now(now=None):
+def _as_tz_now(now, tz):
     if now is None:
-        return datetime.now(KST).replace(tzinfo=None)
+        return datetime.now(tz).replace(tzinfo=None)
     if getattr(now, "tzinfo", None):
-        return now.astimezone(KST).replace(tzinfo=None)
+        return now.astimezone(tz).replace(tzinfo=None)
     return now
 
 
-def is_kis_regular_session(now=None):
-    now = _as_kst_now(now)
-    if now.weekday() >= 5:
+def _is_regular_session(now, tz, open_t, close_t, holiday_cal):
+    local = _as_tz_now(now, tz)
+    if local.weekday() >= 5 or local.date() in holiday_cal:
         return False
-    return dt_time(9, 0) <= now.time() <= dt_time(15, 35)
+    return open_t <= local.time() <= close_t
+
+
+def _next_regular_session(now, tz, open_t, close_t, holiday_cal):
+    local = _as_tz_now(now, tz)
+    if local.weekday() < 5 and local.date() not in holiday_cal and local.time() < open_t:
+        return local.replace(hour=open_t.hour, minute=open_t.minute, second=0, microsecond=0)
+    next_day = local + timedelta(days=1)
+    while next_day.weekday() >= 5 or next_day.date() in holiday_cal:
+        next_day += timedelta(days=1)
+    return next_day.replace(hour=open_t.hour, minute=open_t.minute, second=0, microsecond=0)
+
+
+def is_kis_regular_session(now=None):
+    return _is_regular_session(now, KST, dt_time(9, 0), dt_time(15, 35), _KR_HOLIDAYS)
 
 
 def next_kis_regular_session(now=None):
-    now = _as_kst_now(now)
-    if now.weekday() < 5 and now.time() < dt_time(9, 0):
-        return now.replace(hour=9, minute=0, second=0, microsecond=0)
-    next_day = now + timedelta(days=1)
-    while next_day.weekday() >= 5:
-        next_day += timedelta(days=1)
-    return next_day.replace(hour=9, minute=0, second=0, microsecond=0)
+    return _next_regular_session(now, KST, dt_time(9, 0), dt_time(15, 35), _KR_HOLIDAYS)
 
 
 def kis_next_check_timestamp(now=None):
     return next_kis_regular_session(now).replace(tzinfo=KST).timestamp()
+
+
+def is_us_regular_session(now=None):
+    return _is_regular_session(now, US_ET, dt_time(9, 30), dt_time(16, 0), _US_MARKET_HOLIDAYS)
+
+
+def next_us_regular_session(now=None):
+    return _next_regular_session(now, US_ET, dt_time(9, 30), dt_time(16, 0), _US_MARKET_HOLIDAYS)
+
+
+def us_next_check_timestamp(now=None):
+    return next_us_regular_session(now).replace(tzinfo=US_ET).timestamp()
 
 
 def _format_seconds(seconds: int) -> str:

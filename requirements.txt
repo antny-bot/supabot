@@ -1,5 +1,6 @@
 aiohttp
 PyJWT
+holidays
 python-telegram-bot
 python-dotenv
 pandas

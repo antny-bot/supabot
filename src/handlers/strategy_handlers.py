@@ -152,12 +152,9 @@ async def grid_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
         await update.message.reply_text(error_msg)
         return
 
-    # KIS: 정규장 여부 및 최소 수량 사전 안내
+    # KIS: 최소 수량 사전 안내
     kis_notice = ""
     if exchange == "kis":
-        if not main.exchange_adapter.get_exchange(exchange).is_market_open():
-            await update.message.reply_text("⚠️ 현재 한국투자증권 정규장 시간이 아닙니다. 정규장(평일 09:00-15:35)에만 주문이 실행됩니다.")
-            return
         mid_price = (start_p + end_p) / 2
         if mid_price > 0 and int((budget / count) / mid_price) < 1:
             await update.message.reply_text("⚠️ 예산 대비 가격이 높아 주문당 수량이 0주가 됩니다. 예산을 늘리거나 주문 개수를 줄여주세요.")
@@ -222,12 +219,9 @@ async def sgrid_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
         await update.message.reply_text("⚠️ 숫자 형식의 파라미터가 잘못되었습니다.")
         return
 
-    # KIS: 정규장 여부 및 최소 수량 확인
+    # KIS: 최소 수량 확인
     kis_notice = ""
     if exchange == "kis":
-        if not main.exchange_adapter.get_exchange(exchange).is_market_open():
-            await update.message.reply_text("⚠️ 현재 한국투자증권 정규장 시간이 아닙니다. 정규장(평일 09:00-15:35)에만 주문이 실행됩니다.")
-            return
         if int(total_vol) < count:
             await update.message.reply_text(f"⚠️ 총 수량({int(total_vol)}주)이 주문 개수({count})보다 작아 주문당 수량이 0주가 됩니다.")
             return
@@ -306,11 +300,6 @@ async def grid_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
         action_name = "매도" if is_sell else "매수"
         await query.edit_message_text(f"🚀 {ex.upper()}에 거미줄 {action_name} 주문 전송을 시작합니다...")
-
-        # KIS 정규장 재확인 (confirm 시점에 다시 체크)
-        if ex == "kis" and not main.exchange_adapter.get_exchange(ex).is_market_open():
-            await query.edit_message_text("⚠️ 현재 한국투자증권 정규장 시간이 아닙니다. 주문을 실행할 수 없습니다.")
-            return
 
         group_no = main.order_manager.get_next_group_no(user_id)
         await execute_grid_orders(

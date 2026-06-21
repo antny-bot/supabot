@@ -15,10 +15,11 @@ _STATUS_LABELS = {
     "done": "체결완료",
     "cancel": "취소",
     "pending_reorder": "재주문대기",
+    "reserved": "예약",
     "stoploss": "손절",
 }
 
-_OPEN_STATUSES = ("wait", "partial", "pending_reorder")
+_OPEN_STATUSES = ("wait", "partial", "pending_reorder", "reserved")
 
 
 def _fmt_ts(ts) -> str:

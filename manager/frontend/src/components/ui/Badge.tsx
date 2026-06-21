@@ -11,6 +11,7 @@ const colorMap: Record<string, string> = {
   done:            'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400',
   cancel:          'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-400',
   pending_reorder: 'bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-400',
+  reserved:        'bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-400',
   stoploss:        'bg-rose-200 text-rose-900 dark:bg-rose-900/40 dark:text-rose-300',
   // side (한국식: 매수=빨강/up, 매도=파랑/down)
   bid: 'bg-up-50 text-up-600 dark:bg-up-600/20 dark:text-up-400',
@@ -33,7 +34,7 @@ const colorMap: Record<string, string> = {
 const labelMap: Record<string, string> = {
   active: '활성', pending: '대기', inactive: '비활성', blocked: '차단', deleted: '삭제',
   wait: '대기', partial: '부분체결', done: '완료', cancel: '취소',
-  pending_reorder: '재주문대기', stoploss: '손절',
+  pending_reorder: '재주문대기', reserved: '예약', stoploss: '손절',
   bid: '매수', ask: '매도',
   error: '오류', warning: '경고', info: '정보',
   auto: '즉시실행', confirmed: '실행', rejected: '취소', expired: '만료',

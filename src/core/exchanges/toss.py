@@ -4,8 +4,14 @@ import aiohttp
 
 from core.bot_logger import get_logger
 from core.metrics import metrics
-from core.exchanges.base import BaseExchange
+from core.exchanges.regular_session import RegularSessionExchange
 from core.exchanges.common import CommonMixin
+from core.parsers import (
+    is_kis_regular_session,
+    kis_next_check_timestamp,
+    is_us_regular_session,
+    us_next_check_timestamp,
+)
 
 _log = get_logger("exchange_adapter")
 
@@ -139,7 +145,7 @@ class TossMixin:
         return candles or None
 
 
-class TossExchange(BaseExchange):
+class TossExchange(RegularSessionExchange):
     """토스증권 — 저수준 호출은 adapter(TossMixin)에 위임하는 얇은 래퍼.
 
     국내/해외(미국) 주식을 모두 다루므로 틱 단위·수량 보정에서 종목코드로
@@ -166,6 +172,11 @@ class TossExchange(BaseExchange):
     @staticmethod
     def is_us_stock(ticker) -> bool:
         return str(ticker or "").isalpha()
+
+    def session_for(self, ticker=None):
+        if self.is_us_stock(ticker):
+            return is_us_regular_session, us_next_check_timestamp
+        return is_kis_regular_session, kis_next_check_timestamp
 
     def adjust_price_to_tick(self, price, ticker=None):
         if self.is_us_stock(ticker):
