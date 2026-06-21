@@ -127,15 +127,17 @@ export default function Login() {
 
       <div className="w-full max-w-sm relative z-10">
         <div className="mb-8 flex animate-fade-in-up flex-col items-center">
-          <div className="mb-4 rounded-2xl bg-primary-600 p-3 shadow-lg shadow-primary-500/20">
+          <div className="mb-4 rounded-2xl bg-gradient-to-tr from-violet-600 to-indigo-600 p-3 shadow-lg shadow-violet-500/30">
             <Zap size={28} className="text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white drop-shadow-sm">supabot manager</h1>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">통합 관리자 대시보드</p>
+          <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-violet-600 to-indigo-600 dark:from-violet-400 dark:to-indigo-300 drop-shadow-sm">
+            supabot manager
+          </h1>
+          <p className="mt-2 text-sm font-medium text-slate-600 dark:text-slate-400/80">통합 관리자 대시보드</p>
         </div>
 
         <div
-          className="animate-fade-in-up rounded-2xl border border-white/40 bg-white/80 p-6 shadow-2xl backdrop-blur-xl dark:border-slate-800/40 dark:bg-slate-900/80"
+          className="animate-fade-in-up rounded-2xl border border-white/30 bg-white/70 p-6 shadow-2xl shadow-violet-950/10 backdrop-blur-xl dark:border-slate-800/30 dark:bg-slate-900/70 dark:shadow-violet-950/30"
           style={{ animationDelay: '80ms' }}
         >
           {error ? (
@@ -159,7 +161,7 @@ export default function Login() {
                   maxLength={6}
                   value={otpCode}
                   onChange={(e) => setOtpCode(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-center text-lg font-bold tracking-widest text-slate-900 transition-shadow focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:ring-primary-400"
+                  className="w-full rounded-xl border border-slate-200/60 bg-white/50 px-3.5 py-2.5 text-center text-lg font-bold tracking-widest text-slate-900 transition-all focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/50 dark:border-slate-800/60 dark:bg-slate-950/40 dark:text-slate-100 dark:focus:ring-violet-400/50 dark:focus:border-violet-400/50"
                   placeholder="000000"
                   autoComplete="one-time-code"
                   autoFocus
@@ -175,7 +177,7 @@ export default function Login() {
                   id="trustDevice"
                   checked={trustDevice}
                   onChange={(e) => setTrustDevice(e.target.checked)}
-                  className="h-4 w-4 cursor-pointer rounded border-slate-300 text-primary-600 transition-colors focus:ring-primary-500 dark:border-slate-700 dark:bg-slate-800"
+                  className="h-4 w-4 cursor-pointer rounded border-slate-300/80 bg-white/50 text-violet-600 transition-colors focus:ring-violet-500 dark:border-slate-800/80 dark:bg-slate-950/40 dark:focus:ring-violet-400"
                 />
                 <label htmlFor="trustDevice" className="cursor-pointer select-none text-xs text-slate-600 dark:text-slate-400">
                   이 기기를 30일 동안 신뢰함 (2차 인증 생략)
@@ -185,7 +187,7 @@ export default function Login() {
               <button
                 type="submit"
                 disabled={loading}
-                className="mt-2 w-full rounded-xl bg-primary-600 py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary-700 disabled:opacity-60"
+                className="mt-2 w-full rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 py-2.5 text-sm font-medium text-white shadow-lg shadow-violet-500/20 transition-all hover:from-violet-500 hover:to-indigo-500 hover:shadow-violet-500/30 active:scale-[0.98] disabled:opacity-60 disabled:pointer-events-none"
               >
                 {loading ? '인증 중...' : '인증 및 로그인'}
               </button>
@@ -197,7 +199,7 @@ export default function Login() {
                   setOtpCode('')
                   setError(null)
                 }}
-                className="mt-2 block w-full py-2 text-center text-xs text-slate-500 transition-colors hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+                className="mt-2 block w-full py-2 text-center text-xs text-slate-500 transition-colors hover:text-violet-600 dark:text-slate-400 dark:hover:text-violet-400"
               >
                 이전 화면으로 돌아가기
               </button>
@@ -213,7 +215,7 @@ export default function Login() {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 transition-shadow focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:ring-primary-400"
+                  className="w-full rounded-xl border border-slate-200/60 bg-white/50 px-3.5 py-2.5 text-sm text-slate-900 transition-all focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/50 dark:border-slate-800/60 dark:bg-slate-950/40 dark:text-slate-100 dark:focus:ring-violet-400/50 dark:focus:border-violet-400/50"
                   placeholder="admin@example.com"
                   autoComplete="email"
                 />
@@ -228,7 +230,7 @@ export default function Login() {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 transition-shadow focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:ring-primary-400"
+                  className="w-full rounded-xl border border-slate-200/60 bg-white/50 px-3.5 py-2.5 text-sm text-slate-900 transition-all focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/50 dark:border-slate-800/60 dark:bg-slate-950/40 dark:text-slate-100 dark:focus:ring-violet-400/50 dark:focus:border-violet-400/50"
                   placeholder="••••••••"
                   autoComplete="current-password"
                 />
@@ -240,7 +242,7 @@ export default function Login() {
                   id="rememberEmail"
                   checked={rememberEmail}
                   onChange={(e) => setRememberEmail(e.target.checked)}
-                  className="h-4 w-4 cursor-pointer rounded border-slate-300 text-primary-600 transition-colors focus:ring-primary-500 dark:border-slate-700 dark:bg-slate-800"
+                  className="h-4 w-4 cursor-pointer rounded border-slate-300/80 bg-white/50 text-violet-600 transition-colors focus:ring-violet-500 dark:border-slate-800/80 dark:bg-slate-950/40 dark:focus:ring-violet-400"
                 />
                 <label htmlFor="rememberEmail" className="cursor-pointer select-none text-xs text-slate-600 dark:text-slate-400">
                   이메일 저장
@@ -250,17 +252,17 @@ export default function Login() {
               <button
                 type="submit"
                 disabled={loading}
-                className="mt-2 w-full rounded-xl bg-primary-600 py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary-700 disabled:opacity-60"
+                className="mt-2 w-full rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 py-2.5 text-sm font-medium text-white shadow-lg shadow-violet-500/20 transition-all hover:from-violet-500 hover:to-indigo-500 hover:shadow-violet-500/30 active:scale-[0.98] disabled:opacity-60 disabled:pointer-events-none"
               >
                 {loading ? '로그인 중...' : '로그인'}
               </button>
 
               <div className="relative my-2">
                 <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-slate-200 dark:border-slate-700" />
+                  <div className="w-full border-t border-slate-200/50 dark:border-slate-800/50" />
                 </div>
                 <div className="relative flex justify-center text-xs">
-                  <span className="bg-white px-2 text-slate-400 dark:bg-slate-900 dark:text-slate-500">또는</span>
+                  <span className="bg-white/80 px-2 text-slate-400 dark:bg-slate-900/80 dark:text-slate-500">또는</span>
                 </div>
               </div>
 
@@ -269,7 +271,7 @@ export default function Login() {
                 onClick={() => {
                   window.location.href = '/api/auth/google'
                 }}
-                className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-slate-200 bg-white py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-slate-200/60 bg-white/40 py-2.5 text-sm font-medium text-slate-700 transition-all hover:bg-white/60 dark:border-slate-800/60 dark:bg-slate-950/20 dark:text-slate-200 dark:hover:bg-slate-950/50 active:scale-[0.98]"
               >
                 <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
                   <path fill="#4285F4" d="M44.5 20H24v8.5h11.9C34.2 33.5 29.6 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 2.9l6.4-6.4C34.5 6.1 29.5 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20c11 0 19.6-7.7 19.6-20 0-1.3-.1-2.7-.1-4z" />
