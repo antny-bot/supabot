@@ -321,65 +321,69 @@ export default function Orders() {
               </table>
             </div>
 
-            <div className="block divide-y divide-slate-100 dark:divide-slate-800 md:hidden">
+            <div className="block md:hidden">
               {!data || data.orders.length === 0 ? (
                 <div className="px-4 py-10 text-center text-xs text-slate-400 dark:text-slate-500">
                   주문이 없습니다.
                 </div>
-              ) : data.orders.map((order, index) => (
-                <div key={index} className="animate-fade-in space-y-2.5 p-4 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40" style={staggerDelay(index)}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <Badge value={order.exchange} label={order.exchange.toUpperCase()} />
-                      <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">{order.ticker}</span>
-                      {order.group_no != null && (
-                        <button
-                          onClick={() => handleGroupNoClick(order.group_no!)}
-                          className="rounded bg-primary-50 px-1.5 py-0.5 text-[10px] font-semibold text-primary-600 hover:bg-primary-100 dark:bg-primary-900/30 dark:text-primary-400"
-                        >
-                          #{order.group_no}
-                        </button>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 p-3 min-[600px]:grid-cols-2">
+                  {data.orders.map((order, index) => (
+                    <div key={index} className="animate-fade-in space-y-2.5 rounded-xl border border-slate-100 p-4 transition-colors hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/40" style={staggerDelay(index)}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <Badge value={order.exchange} label={order.exchange.toUpperCase()} />
+                          <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">{order.ticker}</span>
+                          {order.group_no != null && (
+                            <button
+                              onClick={() => handleGroupNoClick(order.group_no!)}
+                              className="rounded bg-primary-50 px-1.5 py-0.5 text-[10px] font-semibold text-primary-600 hover:bg-primary-100 dark:bg-primary-900/30 dark:text-primary-400"
+                            >
+                              #{order.group_no}
+                            </button>
+                          )}
+                        </div>
+                        <Badge value={order.status} label={order.status_label} />
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs">
+                        <div className="flex gap-1.5 text-slate-500 dark:text-slate-400">
+                          <span className="font-mono">{order.created_fmt}</span>
+                          <span>•</span>
+                          <span>{order.strategy}</span>
+                        </div>
+                        <Badge value={order.side} />
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1 text-xs">
+                        <span className="text-slate-500 dark:text-slate-400">가격 / 수량</span>
+                        <span className="font-mono text-slate-800 dark:text-slate-200">
+                          {order.price?.toLocaleString()}원 / {order.volume?.toFixed(4)}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-500 dark:text-slate-400">체결률 / 주문 금액</span>
+                        <span className="font-mono text-slate-800 dark:text-slate-200">
+                          {(order.fill_pct * 100).toFixed(0)}% / {krwFmt(order.order_value ?? 0)}
+                        </span>
+                      </div>
+
+                      {OPEN_STATUSES.has(order.status) && (
+                        <div className="flex justify-end pt-1.5">
+                          <button
+                            onClick={() => handleCancelOrder(order.uuid)}
+                            disabled={cancellingUuid === order.uuid}
+                            className="w-full rounded-lg border border-red-200 py-1.5 text-center text-xs text-red-500 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20"
+                          >
+                            {cancellingUuid === order.uuid ? '취소 중...' : '주문 취소'}
+                          </button>
+                        </div>
                       )}
                     </div>
-                    <Badge value={order.status} label={order.status_label} />
-                  </div>
-
-                  <div className="flex items-center justify-between text-xs">
-                    <div className="flex gap-1.5 text-slate-500 dark:text-slate-400">
-                      <span className="font-mono">{order.created_fmt}</span>
-                      <span>•</span>
-                      <span>{order.strategy}</span>
-                    </div>
-                    <Badge value={order.side} />
-                  </div>
-
-                  <div className="flex items-center justify-between pt-1 text-xs">
-                    <span className="text-slate-500 dark:text-slate-400">가격 / 수량</span>
-                    <span className="font-mono text-slate-800 dark:text-slate-200">
-                      {order.price?.toLocaleString()}원 / {order.volume?.toFixed(4)}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-500 dark:text-slate-400">체결률 / 주문 금액</span>
-                    <span className="font-mono text-slate-800 dark:text-slate-200">
-                      {(order.fill_pct * 100).toFixed(0)}% / {krwFmt(order.order_value ?? 0)}
-                    </span>
-                  </div>
-
-                  {OPEN_STATUSES.has(order.status) && (
-                    <div className="flex justify-end pt-1.5">
-                      <button
-                        onClick={() => handleCancelOrder(order.uuid)}
-                        disabled={cancellingUuid === order.uuid}
-                        className="w-full rounded-lg border border-red-200 py-1.5 text-center text-xs text-red-500 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20"
-                      >
-                        {cancellingUuid === order.uuid ? '취소 중...' : '주문 취소'}
-                      </button>
-                    </div>
-                  )}
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
 
             <Pagination
