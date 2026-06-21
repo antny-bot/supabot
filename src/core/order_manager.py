@@ -7,6 +7,22 @@ from core.db import get_db, is_db_available
 
 _log = get_logger("order_manager")
 
+# fire-and-forget 백그라운드 태스크에 대한 강한 참조를 보관한다.
+# asyncio는 태스크를 weak-ref로만 잡으므로, create_task() 결과를 어디에도 저장하지
+# 않으면 완료 전 GC되어 주문 DB upsert/delete가 유실될 수 있다(공식 문서 경고).
+_bg_tasks: set = set()
+
+
+def _track_task(task):
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+    return task
+
+
+# Supabase(PostgREST) 단일 GET 응답 기본 상한(max-rows=1000). 주문이 이보다 많으면
+# 한 번의 select로는 일부만 돌아와 나머지 주문이 추적에서 누락된다 → 페이지네이션 필수.
+_DB_PAGE_SIZE = 1000
+
 
 class OrderManager:
     def __init__(self, file_path="data/orders.json"):
@@ -19,12 +35,39 @@ class OrderManager:
         """O(1) 멤버십 조회. sync_orders 등 핫 경로의 O(N) 재스캔을 대체한다."""
         return uuid in self._uuid_set
 
+    @staticmethod
+    def _fetch_all_orders() -> list:
+        """1000건 상한을 넘는 주문도 누락 없이 모두 읽어온다(동기 페이지네이션)."""
+        all_rows = []
+        start = 0
+        while True:
+            rows = get_db().table("orders").select("*").range(start, start + _DB_PAGE_SIZE - 1).execute().data or []
+            all_rows.extend(rows)
+            if len(rows) < _DB_PAGE_SIZE:
+                break
+            start += _DB_PAGE_SIZE
+        return all_rows
+
+    @staticmethod
+    async def _fetch_all_orders_async() -> list:
+        """1000건 상한을 넘는 주문도 누락 없이 모두 읽어온다(비동기 페이지네이션)."""
+        all_rows = []
+        start = 0
+        while True:
+            res = await get_db().table("orders").select("*").range(start, start + _DB_PAGE_SIZE - 1).execute_async()
+            rows = res.data or []
+            all_rows.extend(rows)
+            if len(rows) < _DB_PAGE_SIZE:
+                break
+            start += _DB_PAGE_SIZE
+        return all_rows
+
     def _load_orders(self) -> list:
         if is_db_available():
             try:
-                rows = get_db().table("orders").select("*").execute().data
+                rows = self._fetch_all_orders()
                 _log.info("Loaded orders from DB", extra={"event": "orders_loaded_db", "count": len(rows)})
-                return rows or []
+                return rows
             except Exception as e:
                 _log.error("Failed to load orders from DB, falling back to file", exc_info=e, extra={"event": "db_orders_load_error"})
         return self._load_orders_from_file()
@@ -44,8 +87,7 @@ class OrderManager:
         if not is_db_available():
             return False
         try:
-            rows = get_db().table("orders").select("*").execute().data
-            self.orders = rows or []
+            self.orders = self._fetch_all_orders()
             self._uuid_set = {o["uuid"] for o in self.orders}
             _log.info("Reloaded orders from DB", extra={"event": "orders_reloaded_db", "count": len(self.orders)})
             return True
@@ -58,9 +100,7 @@ class OrderManager:
         if not is_db_available():
             return False
         try:
-            res = await get_db().table("orders").select("*").execute_async()
-            rows = res.data
-            self.orders = rows or []
+            self.orders = await self._fetch_all_orders_async()
             self._uuid_set = {o["uuid"] for o in self.orders}
             _log.info("Reloaded orders from DB (async)", extra={"event": "orders_reloaded_db_async", "count": len(self.orders)})
             return True
@@ -107,7 +147,7 @@ class OrderManager:
         import asyncio
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(_run())
+            _track_task(loop.create_task(_run()))
         except RuntimeError:
             try:
                 get_db().table("orders").upsert(order).execute()
@@ -135,7 +175,7 @@ class OrderManager:
         import asyncio
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(_run())
+            _track_task(loop.create_task(_run()))
         except RuntimeError:
             try:
                 get_db().table("orders").delete().eq("uuid", uuid).execute()

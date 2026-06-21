@@ -22,6 +22,18 @@ _exchange_adapter = None
 _order_manager = None
 _user_manager = None
 
+# 전략 실행은 webhook 응답을 먼저 반환하고 백그라운드에서 진행한다. asyncio는
+# 태스크를 weak-ref로만 잡으므로, 참조를 보관하지 않으면 실행 도중 GC되어 주문
+# 발행 루프가 중단될 수 있다. 강한 참조를 유지해 완료까지 살아 있도록 한다.
+_bg_tasks: set = set()
+
+
+def _spawn_bg(coro):
+    task = asyncio.create_task(coro)
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+    return task
+
 
 def init(exchange_adapter, order_manager, user_manager):
     global _exchange_adapter, _order_manager, _user_manager
@@ -146,7 +158,7 @@ async def _internal_execute_grid_handler(request: _web.Request) -> _web.Response
                 trigger_sync_fn=trigger_realtime_sync,
             )
 
-        asyncio.create_task(run_grid())
+        _spawn_bg(run_grid())
         return _web.Response(text="Grid execution started")
     except Exception as e:
         _log.warning("Internal grid execution failed", exc_info=e)
@@ -198,7 +210,7 @@ async def _internal_execute_rsitrade_handler(request: _web.Request) -> _web.Resp
                 trigger_sync_fn=trigger_realtime_sync,
             )
 
-        asyncio.create_task(run_rsitrade())
+        _spawn_bg(run_rsitrade())
         return _web.Response(text="RSITrade execution started")
     except Exception as e:
         _log.warning("Internal rsitrade execution failed", exc_info=e)
@@ -238,7 +250,7 @@ async def _internal_execute_sgrid_handler(request: _web.Request) -> _web.Respons
                 trigger_sync_fn=trigger_realtime_sync,
             )
 
-        asyncio.create_task(run_sgrid())
+        _spawn_bg(run_sgrid())
         return _web.Response(text="sGrid execution started")
     except Exception as e:
         _log.warning("Internal sgrid execution failed", exc_info=e)

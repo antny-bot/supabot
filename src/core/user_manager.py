@@ -11,6 +11,15 @@ _log = get_logger("user_manager")
 
 KST = timezone(timedelta(hours=9))
 
+# fire-and-forget DB 쓰기 태스크 강한 참조 보관 (asyncio weak-ref GC로 유실 방지).
+_bg_tasks: set = set()
+
+
+def _track_task(task):
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+    return task
+
 
 class UserManager:
     SECRET_EXCHANGE_FIELDS = {
@@ -151,7 +160,7 @@ class UserManager:
         import asyncio
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(_run())
+            _track_task(loop.create_task(_run()))
         except RuntimeError:
             try:
                 get_db().table("users").upsert(db_row).execute()

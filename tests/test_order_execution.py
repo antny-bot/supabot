@@ -366,3 +366,24 @@ async def test_reserved_order_cancel_does_not_call_exchange_api():
     adapter = ExchangeAdapter(MagicMock())
     result = await adapter.cancel_order("111", "kis", "reserved:abc123", ticker="005930")
     assert result is True
+
+
+async def test_grid_orphan_order_when_add_order_fails(tmp_path):
+    """create_order(실거래 발행)는 성공했으나 add_order(추적 등록)가 실패하면,
+    예외를 전파하지 않고 success_count를 올리지 않으며(고아 주문 인지) 루프를 계속한다."""
+    om = _order_manager(tmp_path)
+    adapter = _adapter()
+    adapter.create_order = AsyncMock(side_effect=[{"uuid": f"u{i}"} for i in range(3)])
+    om.add_order = MagicMock(side_effect=RuntimeError("db down"))
+    bot = _bot()
+
+    result = await execute_grid_orders(
+        exchange_adapter=adapter, order_manager=om,
+        user_id="111", exchange="upbit", ticker="KRW-BTC",
+        start_price=100.0, end_price=200.0, count=3, budget_or_volume=300000,
+        is_sell=False, group_no=7, bot=bot, notify_chat_id="111",
+    )
+
+    # 거래소에는 3건 발행됐지만 등록 실패 → 성공 카운트 0, 예외 비전파
+    assert adapter.create_order.await_count == 3
+    assert result["success_count"] == 0

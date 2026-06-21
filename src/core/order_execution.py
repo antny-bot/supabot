@@ -18,10 +18,15 @@ _log = get_logger("order_execution")
 
 ORDER_PLACEMENT_SLEEP_SECONDS = 0.2
 
+# fire-and-forget 태스크 강한 참조 보관 (asyncio weak-ref GC로 유실 방지).
+_bg_tasks: set = set()
+
 
 def _trigger_sync(trigger_sync_fn):
     if trigger_sync_fn is not None:
-        asyncio.create_task(trigger_sync_fn())
+        task = asyncio.create_task(trigger_sync_fn())
+        _bg_tasks.add(task)
+        task.add_done_callback(_bg_tasks.discard)
 
 
 async def _send_result_message(bot, notify_chat_id, text, log):
@@ -63,7 +68,15 @@ async def _execute_order_batch(
                 res = await exchange_adapter.create_order(
                     user_id, exchange, ticker, leg["side"], leg["price"], leg["volume"],
                 )
-            if res and "uuid" in res:
+        except Exception as e:
+            log.error(f"Order placement failed at index {i}", exc_info=e)
+            res = None
+
+        # create_order는 성공했는데 add_order(추적 등록)가 실패하면 거래소에는 실주문이
+        # 걸려 있으나 order_manager가 추적하지 못하는 "고아 주문"이 된다(체결 감시·취소 누락).
+        # 발행과 등록을 분리해, 등록 실패 시 uuid를 CRITICAL로 남겨 수동 복구를 가능하게 한다.
+        if res and "uuid" in res:
+            try:
                 order_manager.add_order(
                     user_id, exchange, ticker, res["uuid"], leg["price"], leg["volume"],
                     side=leg["side"], strategy=leg["strategy"],
@@ -71,8 +84,16 @@ async def _execute_order_batch(
                     group_no=group_no, status="reserved" if is_reserved else "wait",
                 )
                 success += 1
-        except Exception as e:
-            log.error(f"Order placement failed at index {i}", exc_info=e)
+            except Exception as e:
+                log.critical(
+                    "ORPHAN ORDER: 거래소 주문은 발행됐으나 추적 등록 실패 — 수동 확인 필요",
+                    exc_info=e,
+                    extra={
+                        "event": "orphan_order", "user_id": str(user_id),
+                        "exchange": exchange, "ticker": ticker, "uuid": res["uuid"],
+                        "side": leg["side"], "price": leg["price"], "volume": leg["volume"],
+                    },
+                )
 
         await asyncio.sleep(ORDER_PLACEMENT_SLEEP_SECONDS)
 
