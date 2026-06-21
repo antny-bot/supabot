@@ -47,3 +47,43 @@ def test_select_chain_supports_in_and_limit():
     table.select("key").limit(1).execute()
     params = session.request.call_args.kwargs["params"]
     assert params == {"select": "key", "limit": "1"}
+
+
+def test_range_sets_pagination_headers():
+    session, resp = _fake_session(json_data=[])
+    table = db_module._Table(session, "https://x.test/rest/v1/orders")
+
+    table.select("*").range(0, 999).execute()
+    headers = session.request.call_args.kwargs["headers"]
+    assert headers["Range"] == "0-999"
+    assert headers["Range-Unit"] == "items"
+
+
+def test_fetch_all_orders_paginates_beyond_page_size(monkeypatch):
+    """주문이 1000건을 넘으면 여러 페이지로 나눠 모두 읽어와야 한다."""
+    from core.order_manager import OrderManager, _DB_PAGE_SIZE
+
+    page1 = [{"uuid": f"a{i}"} for i in range(_DB_PAGE_SIZE)]   # 가득 찬 첫 페이지
+    page2 = [{"uuid": f"b{i}"} for i in range(5)]               # 마지막 페이지(부분)
+    pages = [page1, page2]
+    captured_ranges = []
+
+    class _FakeQuery:
+        def select(self, *a, **k):
+            return self
+
+        def range(self, start, end):
+            captured_ranges.append((start, end))
+            return self
+
+        def execute(self):
+            return db_module._APIResponse(data=pages[len(captured_ranges) - 1])
+
+    fake_db = MagicMock()
+    fake_db.table.return_value = _FakeQuery()
+    monkeypatch.setattr("core.order_manager.get_db", lambda: fake_db)
+
+    rows = OrderManager._fetch_all_orders()
+
+    assert len(rows) == _DB_PAGE_SIZE + 5
+    assert captured_ranges == [(0, _DB_PAGE_SIZE - 1), (_DB_PAGE_SIZE, 2 * _DB_PAGE_SIZE - 1)]

@@ -66,6 +66,17 @@ from core.command_log import log_command
 
 _log = get_logger("main")
 
+# fire-and-forget 백그라운드 태스크 강한 참조 보관 (asyncio는 weak-ref만 잡아
+# 참조를 놓치면 완료 전 GC될 수 있음 — 실시간 동기화/폴링 루프 유실 방지).
+_bg_tasks: set = set()
+
+
+def _spawn_bg(coro):
+    task = asyncio.create_task(coro)
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+    return task
+
 try:
     from build_info import BUILD_DATE, VERSION, GIT_SHA
 except ImportError:
@@ -486,7 +497,7 @@ async def sync_orders(application):
     # 상태 변경 여부 체크 후 실시간 동기화 트리거
     final_state = [(o['uuid'], o.get('status'), o.get('filled_volume'), o.get('stop_price')) for o in order_manager.orders]
     if initial_state != final_state:
-        asyncio.create_task(trigger_realtime_sync())
+        _spawn_bg(trigger_realtime_sync())
 
 # --- 백그라운드 루프 엔진 ---
 async def _get_admin_prefs_async() -> dict:
@@ -626,7 +637,7 @@ async def post_init(application):
     
     def _on_order_added():
         _order_wake_event.set()
-        asyncio.create_task(trigger_realtime_sync())
+        _spawn_bg(trigger_realtime_sync())
     order_manager.on_order_added = _on_order_added
 
     try:
@@ -645,8 +656,8 @@ async def post_init(application):
         append_operational_event("warning", "post_init", "Telegram command menu update failed", e)
     await notify_admin_security_status(application)
     await startup_recovery(application)
-    asyncio.create_task(order_sync_loop(application))
-    asyncio.create_task(signal_analysis_loop(application))
+    _spawn_bg(order_sync_loop(application))
+    _spawn_bg(signal_analysis_loop(application))
     
     # DB 장애 복구 후 데이터 동기화 백그라운드 태스크 기동
     from core.db_sync import start_sync_loop

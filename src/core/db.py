@@ -58,6 +58,16 @@ class _FilteredQuery(_Query):
         self._params["limit"] = str(n)
         return self
 
+    def range(self, start: int, end: int) -> "_FilteredQuery":
+        """PostgREST Range 헤더로 [start, end] 행 구간을 요청한다(0-based, 양끝 포함).
+
+        Supabase 기본 max-rows(1000) 제한을 넘는 큰 테이블을 페이지네이션으로
+        나눠 읽기 위해 사용한다. 응답 content-range로 전체 건수도 함께 얻는다.
+        """
+        self._extra_headers["Range-Unit"] = "items"
+        self._extra_headers["Range"] = f"{start}-{end}"
+        return self
+
 
 class _Table:
     def __init__(self, session, url: str):
