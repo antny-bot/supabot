@@ -7,11 +7,11 @@ export interface DateRangeValue {
 }
 
 const PRESETS: { value: DateRangeValue['mode']; label: string }[] = [
-  { value: '1d',     label: '1일'      },
-  { value: '7d',     label: '7일'      },
-  { value: '30d',    label: '30일'     },
-  { value: 'all',    label: '전체 기간' },
-  { value: 'custom', label: '커스텀'   },
+  { value: '1d', label: '1일' },
+  { value: '7d', label: '7일' },
+  { value: '30d', label: '30일' },
+  { value: 'all', label: '전체 기간' },
+  { value: 'custom', label: '직접 선택' },
 ]
 
 function toDateStr(d: Date) {
@@ -22,7 +22,7 @@ function getThisMonth() {
   const now = new Date()
   return {
     from: toDateStr(new Date(now.getFullYear(), now.getMonth(), 1)),
-    to:   toDateStr(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
+    to: toDateStr(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
   }
 }
 
@@ -30,7 +30,7 @@ function getLastMonth() {
   const now = new Date()
   return {
     from: toDateStr(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
-    to:   toDateStr(new Date(now.getFullYear(), now.getMonth(), 0)),
+    to: toDateStr(new Date(now.getFullYear(), now.getMonth(), 0)),
   }
 }
 
@@ -38,8 +38,16 @@ function getThisYear() {
   const now = new Date()
   return {
     from: toDateStr(new Date(now.getFullYear(), 0, 1)),
-    to:   toDateStr(new Date(now.getFullYear(), 11, 31)),
+    to: toDateStr(new Date(now.getFullYear(), 11, 31)),
   }
+}
+
+function getSummaryLabel(value: DateRangeValue) {
+  if (value.mode === 'custom' && value.from && value.to) {
+    return `${value.from} ~ ${value.to}`
+  }
+
+  return PRESETS.find((preset) => preset.value === value.mode)?.label ?? value.mode
 }
 
 interface Props {
@@ -49,6 +57,7 @@ interface Props {
   isOpen?: boolean
   onToggle?: () => void
   className?: string
+  label?: string
 }
 
 export default function DateRangePicker({
@@ -58,6 +67,7 @@ export default function DateRangePicker({
   isOpen = false,
   onToggle,
   className = '',
+  label,
 }: Props) {
   const handlePreset = (mode: DateRangeValue['mode']) => {
     if (mode === 'custom') {
@@ -72,25 +82,25 @@ export default function DateRangePicker({
     onChange({ mode: 'custom', ...range })
   }
 
-  const handleDate = (field: 'from' | 'to', v: string) => {
-    onChange({ ...value, [field]: v })
+  const handleDate = (field: 'from' | 'to', nextValue: string) => {
+    onChange({ ...value, [field]: nextValue })
   }
 
   if (!collapsible) {
     return (
       <div className={`space-y-2 ${className}`}>
         <div className="flex flex-wrap gap-1.5">
-          {PRESETS.map((p) => (
+          {PRESETS.map((preset) => (
             <button
-              key={p.value}
-              onClick={() => handlePreset(p.value)}
+              key={preset.value}
+              onClick={() => handlePreset(preset.value)}
               className={`px-3 py-1.5 rounded-lg text-app-caption font-medium transition-colors ${
-                value.mode === p.value
+                value.mode === preset.value
                   ? 'bg-primary-600 text-white shadow-sm'
                   : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
               }`}
             >
-              {p.label}
+              {preset.label}
             </button>
           ))}
         </div>
@@ -113,18 +123,18 @@ export default function DateRangePicker({
               />
             </div>
             <div className="flex flex-wrap gap-1.5">
-              <span className="text-[10px] text-slate-400 self-center">빠른 선택:</span>
+              <span className="self-center text-[10px] text-slate-400">빠른 선택:</span>
               {[
-                { label: '이번달', fn: getThisMonth },
+                { label: '이번 달', fn: getThisMonth },
                 { label: '지난달', fn: getLastMonth },
-                { label: '올해',   fn: getThisYear  },
-              ].map(({ label, fn }) => (
+                { label: '올해', fn: getThisYear },
+              ].map(({ label: quickLabel, fn }) => (
                 <button
-                  key={label}
+                  key={quickLabel}
                   onClick={() => handleQuick(fn())}
-                  className="rounded px-2 py-0.5 text-[10px] font-medium border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600 transition-colors"
+                  className="rounded border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-medium text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
                 >
-                  {label}
+                  {quickLabel}
                 </button>
               ))}
             </div>
@@ -134,19 +144,19 @@ export default function DateRangePicker({
     )
   }
 
-  const modeLabel = PRESETS.find((p) => p.value === value.mode)?.label ?? value.mode
+  const summaryLabel = label ? `${label}: ${getSummaryLabel(value)}` : getSummaryLabel(value)
 
   return (
     <div className={`flex items-center ${className}`}>
       <button
         onClick={onToggle}
-        className={`inline-flex shrink-0 items-center gap-1 px-3 py-1.5 rounded-lg text-app-caption font-medium transition-colors ${
+        className={`inline-flex shrink-0 items-center gap-1.5 px-3 py-1.5 rounded-lg text-app-caption font-medium transition-colors ${
           value.mode !== 'all'
             ? 'bg-primary-600 text-white shadow-sm'
             : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-        }`}
+        } ${isOpen ? 'ring-2 ring-primary-200 dark:ring-primary-800' : ''}`}
       >
-        {modeLabel}
+        {summaryLabel}
         <ChevronRight
           size={12}
           className={`transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
@@ -161,20 +171,20 @@ export default function DateRangePicker({
         <div className="overflow-hidden min-w-0">
           <div className="flex items-center gap-2">
             <div className="flex flex-nowrap gap-1.5">
-              {PRESETS.map((p) => (
+              {PRESETS.map((preset) => (
                 <button
-                  key={p.value}
+                  key={preset.value}
                   onClick={() => {
-                    handlePreset(p.value)
-                    if (p.value !== 'custom') onToggle?.()
+                    handlePreset(preset.value)
+                    if (preset.value !== 'custom') onToggle?.()
                   }}
                   className={`whitespace-nowrap px-3 py-1.5 rounded-lg text-app-caption font-medium transition-colors ${
-                    value.mode === p.value
+                    value.mode === preset.value
                       ? 'bg-primary-600 text-white shadow-sm'
                       : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
                   }`}
                 >
-                  {p.label}
+                  {preset.label}
                 </button>
               ))}
             </div>
@@ -194,17 +204,17 @@ export default function DateRangePicker({
                   onChange={(e) => handleDate('to', e.target.value)}
                   className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-xs text-slate-700 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300"
                 />
-                <div className="flex gap-1 border-l border-slate-200 ml-1 pl-1 dark:border-slate-700">
+                <div className="ml-1 flex gap-1 border-l border-slate-200 pl-1 dark:border-slate-700">
                   {[
-                    { label: '이번달', fn: getThisMonth },
+                    { label: '이번 달', fn: getThisMonth },
                     { label: '지난달', fn: getLastMonth },
-                  ].map(({ label, fn }) => (
+                  ].map(({ label: quickLabel, fn }) => (
                     <button
-                      key={label}
+                      key={quickLabel}
                       onClick={() => handleQuick(fn())}
-                      className="rounded px-1 py-0.5 text-[10px] text-slate-500 hover:bg-white dark:hover:bg-slate-700 transition-colors whitespace-nowrap"
+                      className="whitespace-nowrap rounded px-1 py-0.5 text-[10px] text-slate-500 transition-colors hover:bg-white dark:hover:bg-slate-700"
                     >
-                      {label}
+                      {quickLabel}
                     </button>
                   ))}
                 </div>

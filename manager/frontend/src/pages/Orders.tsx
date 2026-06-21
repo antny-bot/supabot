@@ -35,6 +35,7 @@ const EXCHANGE_OPTIONS = [
   { value: 'upbit', label: 'Upbit' },
   { value: 'bithumb', label: 'Bithumb' },
   { value: 'kis', label: 'KIS' },
+  { value: 'toss', label: '토스증권' },
 ]
 
 const SIDE_OPTIONS = [
@@ -161,14 +162,41 @@ export default function Orders() {
       />
 
       <div className="flex flex-wrap items-center gap-2">
-        <FilterBar collapsible isOpen={expandedFilter === 'status'} onToggle={() => toggleFilter('status')}
-          options={STATUS_OPTIONS} value={status} onChange={handleFilterChange(setStatus)} />
-        <FilterBar collapsible isOpen={expandedFilter === 'exchange'} onToggle={() => toggleFilter('exchange')}
-          options={EXCHANGE_OPTIONS} value={exchange} onChange={handleFilterChange(setExchange)} />
-        <FilterBar collapsible isOpen={expandedFilter === 'side'} onToggle={() => toggleFilter('side')}
-          options={SIDE_OPTIONS} value={side} onChange={handleFilterChange(setSide)} />
-        <DateRangePicker collapsible isOpen={expandedFilter === 'date'} onToggle={() => toggleFilter('date')}
-          value={dateRange} onChange={handleDateRangeChange} />
+        <FilterBar
+          label="상태"
+          collapsible
+          isOpen={expandedFilter === 'status'}
+          onToggle={() => toggleFilter('status')}
+          options={STATUS_OPTIONS}
+          value={status}
+          onChange={handleFilterChange(setStatus)}
+        />
+        <FilterBar
+          label="거래소"
+          collapsible
+          isOpen={expandedFilter === 'exchange'}
+          onToggle={() => toggleFilter('exchange')}
+          options={EXCHANGE_OPTIONS}
+          value={exchange}
+          onChange={handleFilterChange(setExchange)}
+        />
+        <FilterBar
+          label="구분"
+          collapsible
+          isOpen={expandedFilter === 'side'}
+          onToggle={() => toggleFilter('side')}
+          options={SIDE_OPTIONS}
+          value={side}
+          onChange={handleFilterChange(setSide)}
+        />
+        <DateRangePicker
+          label="기간"
+          collapsible
+          isOpen={expandedFilter === 'date'}
+          onToggle={() => toggleFilter('date')}
+          value={dateRange}
+          onChange={handleDateRangeChange}
+        />
         <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 dark:border-slate-700 dark:bg-slate-800">
           <span className="text-xs text-slate-500 dark:text-slate-400">#배치</span>
           <input
@@ -189,7 +217,7 @@ export default function Orders() {
         {hasAnyFilter && (
           <button
             onClick={handleResetFilters}
-            className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 px-2.5 py-1 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs transition-colors"
+            className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700"
             title="필터 초기화"
           >
             <RotateCcw size={12} />
@@ -205,8 +233,7 @@ export default function Orders() {
           <Spinner />
         ) : (
           <>
-            {/* Desktop Table View */}
-            <div className="hidden md:block overflow-x-auto">
+            <div className="hidden overflow-x-auto md:block">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
@@ -294,8 +321,7 @@ export default function Orders() {
               </table>
             </div>
 
-            {/* Mobile Card List View */}
-            <div className="md:hidden block divide-y divide-slate-100 dark:divide-slate-800">
+            <div className="block divide-y divide-slate-100 dark:divide-slate-800 md:hidden">
               {!data || data.orders.length === 0 ? (
                 <div className="px-4 py-10 text-center text-xs text-slate-400 dark:text-slate-500">
                   주문이 없습니다.
@@ -317,7 +343,7 @@ export default function Orders() {
                     </div>
                     <Badge value={order.status} label={order.status_label} />
                   </div>
-                  
+
                   <div className="flex items-center justify-between text-xs">
                     <div className="flex gap-1.5 text-slate-500 dark:text-slate-400">
                       <span className="font-mono">{order.created_fmt}</span>
@@ -327,14 +353,14 @@ export default function Orders() {
                     <Badge value={order.side} />
                   </div>
 
-                  <div className="flex justify-between items-center text-xs pt-1">
+                  <div className="flex items-center justify-between pt-1 text-xs">
                     <span className="text-slate-500 dark:text-slate-400">가격 / 수량</span>
                     <span className="font-mono text-slate-800 dark:text-slate-200">
                       {order.price?.toLocaleString()}원 / {order.volume?.toFixed(4)}
                     </span>
                   </div>
 
-                  <div className="flex justify-between items-center text-xs">
+                  <div className="flex items-center justify-between text-xs">
                     <span className="text-slate-500 dark:text-slate-400">체결률 / 주문 금액</span>
                     <span className="font-mono text-slate-800 dark:text-slate-200">
                       {(order.fill_pct * 100).toFixed(0)}% / {krwFmt(order.order_value ?? 0)}
@@ -342,11 +368,11 @@ export default function Orders() {
                   </div>
 
                   {OPEN_STATUSES.has(order.status) && (
-                    <div className="pt-1.5 flex justify-end">
+                    <div className="flex justify-end pt-1.5">
                       <button
                         onClick={() => handleCancelOrder(order.uuid)}
                         disabled={cancellingUuid === order.uuid}
-                        className="w-full text-center rounded-lg border border-red-200 py-1.5 text-xs text-red-500 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20"
+                        className="w-full rounded-lg border border-red-200 py-1.5 text-center text-xs text-red-500 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20"
                       >
                         {cancellingUuid === order.uuid ? '취소 중...' : '주문 취소'}
                       </button>
@@ -356,7 +382,6 @@ export default function Orders() {
               ))}
             </div>
 
-            {/* Common Pagination */}
             <Pagination
               currentPage={page}
               totalPages={totalPages}

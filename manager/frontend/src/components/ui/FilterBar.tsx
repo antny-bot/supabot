@@ -6,6 +6,7 @@ interface Option {
 }
 
 interface FilterBarProps {
+  label?: string
   options: Option[]
   value: string
   onChange: (v: string) => void
@@ -16,6 +17,7 @@ interface FilterBarProps {
 }
 
 export default function FilterBar({
+  label,
   options,
   value,
   onChange,
@@ -44,14 +46,18 @@ export default function FilterBar({
   }
 
   const selected = options.find((o) => o.value === value) ?? options[0]
+  const summaryLabel = label ? `${label}: ${selected.label}` : selected.label
+  const isActive = value !== ''
 
   return (
     <div className={`flex items-center ${className}`}>
       <button
         onClick={onToggle}
-        className={`inline-flex shrink-0 items-center gap-1 ${btnClass(value !== '')}`}
+        className={`inline-flex shrink-0 items-center gap-1.5 ${btnClass(isActive)} ${
+          isOpen ? 'ring-2 ring-primary-200 dark:ring-primary-800' : ''
+        }`}
       >
-        {selected.label}
+        {summaryLabel}
         <ChevronRight
           size={12}
           className={`transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
