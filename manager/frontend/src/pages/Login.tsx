@@ -4,6 +4,7 @@ import { AlertCircle, Moon, Sun, Zap } from 'lucide-react'
 import { loginWithMfa, loginWithPassword } from '../api/auth'
 import { ApiError } from '../api/client'
 import { useTheme } from '../hooks/useTheme'
+import ShaderBackground from '@/components/ui/shader-background'
 
 const SAVE_EMAIL_KEY = 'sbm_saved_email'
 const REMEMBER_KEY = 'sbm_remember_email'
@@ -112,26 +113,29 @@ export default function Login() {
   }
 
   return (
-    <div className="font-app-ui flex min-h-screen flex-col items-center justify-center bg-slate-50 p-4 dark:bg-slate-950">
+    <div className="relative font-app-ui flex min-h-screen flex-col items-center justify-center p-4 overflow-hidden">
+      <ShaderBackground />
+      <div className="absolute inset-0 bg-white/40 dark:bg-slate-950/60 pointer-events-none -z-10" />
+
       <button
         type="button"
         onClick={toggle}
-        className="absolute right-4 top-4 rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-200 dark:hover:bg-slate-800"
+        className="absolute right-4 top-4 rounded-xl border border-slate-200/50 bg-white/50 p-2 text-slate-600 shadow-md backdrop-blur-md transition-all hover:bg-white/80 dark:border-slate-800/50 dark:bg-slate-900/50 dark:text-slate-400 dark:hover:bg-slate-800/80"
       >
         {isDark ? <Sun size={18} /> : <Moon size={18} />}
       </button>
 
-      <div className="w-full max-w-sm">
+      <div className="w-full max-w-sm relative z-10">
         <div className="mb-8 flex animate-fade-in-up flex-col items-center">
-          <div className="mb-4 rounded-xl bg-primary-600 p-3">
+          <div className="mb-4 rounded-2xl bg-primary-600 p-3 shadow-lg shadow-primary-500/20">
             <Zap size={28} className="text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">supabot manager</h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">통합 관리자 대시보드</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white drop-shadow-sm">supabot manager</h1>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">통합 관리자 대시보드</p>
         </div>
 
         <div
-          className="animate-fade-in-up rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+          className="animate-fade-in-up rounded-2xl border border-white/40 bg-white/80 p-6 shadow-2xl backdrop-blur-xl dark:border-slate-800/40 dark:bg-slate-900/80"
           style={{ animationDelay: '80ms' }}
         >
           {error ? (
