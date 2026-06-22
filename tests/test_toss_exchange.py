@@ -108,6 +108,48 @@ def test_toss_get_ticker():
     assert result["change_rate"] == (72000.0 - 71600.0) / 71600.0
 
 
+def test_toss_get_ticker_retries_once_on_empty_price_then_succeeds():
+    adapter = make_adapter()
+
+    FAKE_PRICE_RESPONSE = {
+        "result": [
+            {"symbol": "089970", "lastPrice": "100500", "currency": "KRW",
+             "timestamp": "2026-06-22T09:30:00+09:00"}
+        ]
+    }
+    FAKE_CANDLE_RESPONSE = {"result": {"candles": [], "nextBefore": None}}
+
+    price_calls = [{"result": []}, FAKE_PRICE_RESPONSE]
+
+    async def fake_request_toss(user_id, method, path, params=None, body=None, need_account=True):
+        if "prices" in path:
+            return price_calls.pop(0)
+        return FAKE_CANDLE_RESPONSE
+
+    adapter._request_toss = fake_request_toss
+    with patch("core.exchanges.toss.asyncio.sleep", new=AsyncMock()):
+        result = asyncio.run(adapter.get_ticker("toss", "089970", user_id="u1"))
+
+    assert result is not None
+    assert result["trade_price"] == 100500.0
+    assert price_calls == []  # 두 번 호출되어 큐가 비어야 함
+
+
+def test_toss_get_ticker_returns_none_when_both_attempts_empty():
+    adapter = make_adapter()
+
+    async def fake_request_toss(user_id, method, path, params=None, body=None, need_account=True):
+        if "prices" in path:
+            return {"result": []}
+        return {"result": {"candles": []}}
+
+    adapter._request_toss = fake_request_toss
+    with patch("core.exchanges.toss.asyncio.sleep", new=AsyncMock()):
+        result = asyncio.run(adapter.get_ticker("toss", "089970", user_id="u1"))
+
+    assert result is None
+
+
 def test_toss_get_ticker_us_stock_volume_is_share_count():
     adapter = make_adapter()
 
