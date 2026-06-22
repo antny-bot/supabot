@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 import aiohttp
@@ -267,11 +268,25 @@ class TossExchange(RegularSessionExchange):
         if user_id is None:
             return None
         params = {"symbols": ticker}
-        res = await self.adapter._request_toss(user_id, "GET", "/api/v1/prices", params=params, need_account=False)
-        if not isinstance(res, dict):
-            return None
-        items = res.get("result") or []
+        items = []
+        for attempt in range(2):
+            res = await self.adapter._request_toss(user_id, "GET", "/api/v1/prices", params=params, need_account=False)
+            items = res.get("result") or [] if isinstance(res, dict) else []
+            if items:
+                break
+            if attempt == 0:
+                # 장시간 유지되는 단일 aiohttp 세션이 유휴 커넥션을 재사용하다 끊기는 경우를
+                # 대비한 1회 재시도 — 읽기 전용 조회라 재시도해도 안전함.
+                _log.warning(
+                    "Toss price empty, retrying",
+                    extra={"event": "toss_price_retry", "ticker": ticker},
+                )
+                await asyncio.sleep(0.5)
         if not items:
+            _log.warning(
+                "Toss price empty after retry",
+                extra={"event": "toss_price_empty", "ticker": ticker},
+            )
             return None
         item = items[0]
         price = float(item.get("lastPrice") or 0)
