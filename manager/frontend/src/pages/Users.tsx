@@ -285,33 +285,37 @@ export function UsersContent() {
               </table>
             </div>
 
-            <div className="block divide-y divide-slate-100 dark:divide-slate-800 md:hidden">
+            <div className="block md:hidden">
               {users.length === 0 ? (
                 <div className="px-4 py-10 text-center text-xs text-slate-400 dark:text-slate-500">
                   유저가 없습니다.
                 </div>
-              ) : users.map((user, index) => (
-                <div key={user.user_id} className="animate-fade-in-up space-y-3 p-4 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40" style={staggerDelay(index)}>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-mono text-slate-500 dark:text-slate-400">{user.user_id}</span>
-                    <div className="flex items-center gap-1">
-                      {user.is_admin && <ShieldCheck size={12} className="text-primary-500" />}
-                      <Badge value={user.status} label={user.status_label} />
+              ) : (
+                <div className="grid grid-cols-1 gap-3 p-3 min-[600px]:grid-cols-2">
+                  {users.map((user, index) => (
+                    <div key={user.user_id} className="animate-fade-in-up space-y-3 rounded-xl border border-slate-100 p-4 transition-colors hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/40" style={staggerDelay(index)}>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-mono text-slate-500 dark:text-slate-400">{user.user_id}</span>
+                        <div className="flex items-center gap-1">
+                          {user.is_admin && <ShieldCheck size={12} className="text-primary-500" />}
+                          <Badge value={user.status} label={user.status_label} />
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">{user.username || '--'}</span>
+                        <span className="text-slate-400 dark:text-slate-500">{fmtDate(String(user.created_at))}</span>
+                      </div>
+                      <div className="flex flex-col gap-1 text-xs">
+                        <span className="text-slate-400 dark:text-slate-500">매니저 이메일</span>
+                        <EmailCell user={user} onUpdate={handleUpdate} />
+                      </div>
+                      <div className="border-t border-slate-100 pt-2 dark:border-slate-800/60">
+                        <ActionButtons user={user} onUpdate={handleUpdate} />
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">{user.username || '--'}</span>
-                    <span className="text-slate-400 dark:text-slate-500">{fmtDate(String(user.created_at))}</span>
-                  </div>
-                  <div className="flex flex-col gap-1 text-xs">
-                    <span className="text-slate-400 dark:text-slate-500">매니저 이메일</span>
-                    <EmailCell user={user} onUpdate={handleUpdate} />
-                  </div>
-                  <div className="border-t border-slate-100 pt-2 dark:border-slate-800/60">
-                    <ActionButtons user={user} onUpdate={handleUpdate} />
-                  </div>
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
           </>
         )}

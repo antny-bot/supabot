@@ -137,7 +137,7 @@ export default function Login() {
         </div>
 
         <div
-          className="animate-fade-in-up rounded-2xl border border-white/30 bg-white/70 p-6 shadow-2xl shadow-violet-950/10 backdrop-blur-xl dark:border-slate-800/30 dark:bg-slate-900/70 dark:shadow-violet-950/30"
+          className="animate-fade-in-up rounded-2xl border border-white/30 bg-white/55 p-6 shadow-2xl shadow-violet-950/10 backdrop-blur-xl dark:border-slate-800/30 dark:bg-slate-900/55 dark:shadow-violet-950/30"
           style={{ animationDelay: '80ms' }}
         >
           {error ? (

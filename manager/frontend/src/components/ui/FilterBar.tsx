@@ -54,7 +54,9 @@ export default function FilterBar({
       <button
         onClick={onToggle}
         className={`inline-flex shrink-0 items-center gap-1.5 ${btnClass(isActive)} ${
-          isOpen ? 'ring-2 ring-primary-200 dark:ring-primary-800' : ''
+          isOpen
+            ? 'ring-2 ring-primary-300 border-primary-300 bg-primary-50 dark:ring-primary-700 dark:border-primary-700 dark:bg-primary-900/30'
+            : ''
         }`}
       >
         {summaryLabel}
