@@ -95,28 +95,18 @@ IMMEDIATE = {"asset", "price", "orders", "status", "config_view", "history", "he
 
 ## 확인 플로우
 
-```
-일반 텍스트 메시지
-      │
-preprocess_natural_language_intent() → 조회성 intent면 즉시 실행
-      │
-parse_natural_language_intent() → JSON intent
-      │
-normalize_natural_language_intent() → 서버 후처리 보정
-      │
-action == "clarify" 또는 None? → 질문/오류 응답 반환
-      │
-_is_immediate_intent? ──► execute_query_intent (확인 없음)
-      │
-_pending_nl_intents[token] = {user_id, intent} 저장
-확인 버튼 표시: [실행] (nlrun|token) / [취소] (nlcancel|token)
-      │
-사용자 [실행] 클릭
-      │
-natural_language_confirm_callback():
-  1. token 존재 확인 (만료/없으면 오류)
-  2. user_id 일치 확인 (타인 실행 방지)
-  3. execute_confirmed_intent(query, context, user, intent)
+```mermaid
+flowchart TD
+    A[일반 텍스트 메시지] --> B["preprocess_natural_language_intent()<br/>조회성 intent면 즉시 실행"]
+    B --> C["parse_natural_language_intent()<br/>→ JSON intent"]
+    C --> D["normalize_natural_language_intent()<br/>서버 후처리 보정"]
+    D --> E{"action == clarify<br/>또는 None?"}
+    E -->|Yes| F[질문/오류 응답 반환]
+    E -->|No| G{"_is_immediate_intent?"}
+    G -->|Yes| H["execute_query_intent<br/>(확인 없음)"]
+    G -->|No| I["_pending_nl_intents[token] = {user_id, intent} 저장<br/>확인 버튼 표시: [실행](nlrun|token) / [취소](nlcancel|token)"]
+    I --> J["사용자 [실행] 클릭"]
+    J --> K["natural_language_confirm_callback():<br/>1. token 존재 확인 (만료/없으면 오류)<br/>2. user_id 일치 확인 (타인 실행 방지)<br/>3. execute_confirmed_intent(query, context, user, intent)"]
 ```
 
 `execute_confirmed_intent` 는 일반 커맨드 핸들러와 동일한 내부 함수 호출 (거래소 어댑터, 검증 동일 적용).

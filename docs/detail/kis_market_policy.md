@@ -51,27 +51,16 @@ is_reserved = getattr(ex, "supports_reserved_orders", False) and not ex.is_marke
 
 ## 전략 주문 재주문 흐름
 
-```
-거래소에서 일일 마감 시 주문 취소
-        │
-sync_orders가 strategy 주문의 state="cancel" 감지
-        │
-mark_reorder_pending(uuid, next_check_timestamp)
-  → status = "pending_reorder"
-  → next_check_at = 다음날 09:00 KST
-        │
-다음 정규장: sync_orders가 status="pending_reorder" 발견
-        │
-remaining = volume - filled_volume
-remaining <= 0 → remove_order() (완전 체결 → 재주문 불필요)
-        │
-create_order(동일 ticker, side, price, int(remaining))
-        │
-성공 → replace_order_uuid(old_uuid, new_uuid)
-  - reorder_of = old_uuid (감사 체인 유지)
-  - status = "wait", 새 created_at
-        │
-실패 → update_next_check_at(다음 정규장) [익일 재시도]
+```mermaid
+flowchart TD
+    A[거래소에서 일일 마감 시 주문 취소] --> B["sync_orders가 strategy 주문의<br/>state=cancel 감지"]
+    B --> C["mark_reorder_pending(uuid, next_check_timestamp)<br/>→ status = pending_reorder<br/>→ next_check_at = 다음날 09:00 KST"]
+    C --> D["다음 정규장: sync_orders가<br/>status=pending_reorder 발견"]
+    D --> E["remaining = volume - filled_volume"]
+    E -->|"remaining <= 0<br/>(완전 체결)"| F["remove_order()<br/>재주문 불필요"]
+    E -->|"remaining > 0"| G["create_order(동일 ticker, side, price, int(remaining))"]
+    G -->|성공| H["replace_order_uuid(old_uuid, new_uuid)<br/>- reorder_of = old_uuid (감사 체인 유지)<br/>- status = wait, 새 created_at"]
+    G -->|실패| I["update_next_check_at(다음 정규장)<br/>익일 재시도"]
 ```
 
 ## 수동 주문 vs 전략 주문

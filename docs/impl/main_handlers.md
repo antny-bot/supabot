@@ -47,13 +47,37 @@ KST = timezone(timedelta(hours=9))
 
 ## ConversationHandler 상태 (/config)
 
-```
-SET_EXCHANGE (0)
-    │ conf_* 버튼
-    ├─→ SET_ACCESS (1) → SET_SECRET (2)            (Upbit/Bithumb)
-    ├─→ SET_KIS_APP (3) → SET_KIS_SECRET (4)
-    │       → SET_KIS_ACCOUNT (5) → SET_KIS_PRODUCT (6) → SET_KIS_ENV (7)
-    └─→ SET_GEMINI_KEY (8)
+```mermaid
+stateDiagram-v2
+    SET_EXCHANGE: SET_EXCHANGE (0)
+    SET_ACCESS: SET_ACCESS (1)
+    SET_SECRET: SET_SECRET (2)
+    SET_KIS_APP: SET_KIS_APP (3)
+    SET_KIS_SECRET: SET_KIS_SECRET (4)
+    SET_KIS_ACCOUNT: SET_KIS_ACCOUNT (5)
+    SET_KIS_PRODUCT: SET_KIS_PRODUCT (6)
+    SET_KIS_ENV: SET_KIS_ENV (7)
+    SET_GEMINI_KEY: SET_GEMINI_KEY (8)
+    SET_TOSS_CLIENT_ID: SET_TOSS_CLIENT_ID (9)
+    SET_TOSS_SECRET: SET_TOSS_SECRET (10)
+
+    SET_EXCHANGE --> SET_ACCESS: conf_* 버튼 (Upbit/Bithumb)
+    SET_ACCESS --> SET_SECRET
+    SET_SECRET --> [*]
+
+    SET_EXCHANGE --> SET_KIS_APP: conf_* 버튼 (KIS)
+    SET_KIS_APP --> SET_KIS_SECRET
+    SET_KIS_SECRET --> SET_KIS_ACCOUNT
+    SET_KIS_ACCOUNT --> SET_KIS_PRODUCT
+    SET_KIS_PRODUCT --> SET_KIS_ENV
+    SET_KIS_ENV --> [*]
+
+    SET_EXCHANGE --> SET_TOSS_CLIENT_ID: conf_* 버튼 (Toss)
+    SET_TOSS_CLIENT_ID --> SET_TOSS_SECRET
+    SET_TOSS_SECRET --> [*]
+
+    SET_EXCHANGE --> SET_GEMINI_KEY: conf_* 버튼 (Gemini)
+    SET_GEMINI_KEY --> [*]
 ```
 
 API 키 포함 메시지는 캡처 즉시 삭제됨 (`delete_message`).

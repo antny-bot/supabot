@@ -3,35 +3,34 @@
 **파일**: `src/core/order_manager.py` (162줄)
 
 ## 역할
-전체 사용자·거래소의 활성 주문을 영속화. 봇이 제출했다고 믿는 주문의 단일 정보 소스.
+전체 사용자·거래소 활성 주문 영속화. 봇이 제출했다고 믿는 주문의 단일 정보 소스.
 
-저장은 **DB-우선 + 파일 폴백** 구조다. `core.db.is_db_available()` (`SUPABASE_URL` + `SUPABASE_SERVICE_KEY` 존재)이면 `orders` 테이블에서 로드하고, 모든 변경을 `_db_upsert(order)` / `_db_delete(uuid)`로 즉시 DB에 반영한다. DB 미사용이거나 DB 호출 실패 시 `data/orders.json` 파일로 폴백한다. 양방향 동기화는 없으며 파일은 비상 폴백이다.
+저장은 **DB-우선 + 파일 폴백** 구조. `core.db.is_db_available()` (`SUPABASE_URL` + `SUPABASE_SERVICE_KEY` 존재)이면 `orders` 테이블에서 로드, 모든 변경을 `_db_upsert(order)` / `_db_delete(uuid)`로 즉시 DB 반영. DB 미사용/호출 실패 시 `data/orders.json` 파일로 폴백. 양방향 동기화 없음, 파일은 비상 폴백.
 
-`replace_order_uuid(old, new)`는 UUID가 PK이므로 `_db_delete(old)` 후 `_db_upsert(new)` 순으로 처리한다(in-place UPDATE 아님).
+`replace_order_uuid(old, new)`는 UUID가 PK라 `_db_delete(old)` 후 `_db_upsert(new)` 순으로 처리(in-place UPDATE 아님).
 
 ## 상태 기계
 
-```
-                                  add_order (장중/실거래소 호출 성공)
-                    (없음) ────────────────────────────► wait
-                       │                                   │
-   add_order (KIS/Toss │                      partial fill │ exchange exec_vol > 0
-   장외, supports_      │                      update_fill ◄┤
-   reserved_orders)     ▼                                   │
-                    reserved                     done    ◄──┤ exchange state=done
-                       │                                     │
-                       │ 다음 정규장(sync_orders가          cancel    ◄──┤ exchange state=cancel
-                       │  실거래소에 제출)                                 │  (KIS 전략 주문만)
-                       ▼                              pending_reorder ◄──┘ 장외/상태 미확인
-                  wait (replace_order_uuid로 UUID 교체)         │
-                                                                │ 다음 정규장
-                                                                ▼
-                                                      wait (replace_order_uuid로 UUID 교체)
+```mermaid
+stateDiagram-v2
+    [*] --> wait: add_order<br/>(장중, 실거래소 호출 성공)
+    [*] --> reserved: add_order<br/>(KIS/Toss 장외, supports_reserved_orders)
+
+    reserved --> wait: 다음 정규장<br/>sync_orders가 실거래소에 제출<br/>(replace_order_uuid로 UUID 교체)
+
+    wait --> wait: partial fill<br/>update_order_fill (exec_vol > 0)
+    wait --> done: exchange state=done
+    wait --> cancel: exchange state=cancel<br/>(KIS 전략 주문만)
+
+    cancel --> pending_reorder: 장외/상태 미확인<br/>mark_reorder_pending
+    pending_reorder --> wait: 다음 정규장<br/>(replace_order_uuid로 UUID 교체)
+
+    done --> [*]
 ```
 
-`market_closed`는 `sync_orders`가 KIS 장외 시간에 임시 설정. 재주문 시도 전까지 유지.
+`market_closed`는 `sync_orders`가 KIS 장외 시간에 임시 설정하는 보류 상태(다이어그램 미포함, `wait`/`reserved` 모두에 덧씌워질 수 있음). 재주문 시도 전까지 유지.
 
-`reserved`는 `pending_reorder`와 다르다 — `pending_reorder`는 **이미 거래소에 제출됐다가** 마감으로 취소된 주문, `reserved`는 **처음부터 장외라 거래소에 제출조차 안 한** 주문이다(가짜 uuid `reserved:<hex>`로만 등록). 둘 다 `sync_orders`(`src/main.py`)가 `supports_reserved_orders=True`인 거래소(KIS/Toss)에 대해 동일한 다음-정규장 제출 경로로 처리한다. `add_order(..., status="reserved")`는 `grid`/`rsitrade`/`sgridrsi`/`manual` 모든 전략에서 호출부가 `getattr(ex, "supports_reserved_orders", False) and not ex.is_market_open(ticker)` 체크 후 직접 설정한다 — `order_manager` 자체는 이 분기를 모른다(호출부 책임).
+`reserved` ≠ `pending_reorder`. `pending_reorder`: **이미 제출됐다가** 마감으로 취소된 주문. `reserved`: **처음부터 장외라 제출조차 안 한** 주문(가짜 uuid `reserved:<hex>`로만 등록). 둘 다 `sync_orders`(`src/main.py`)가 `supports_reserved_orders=True` 거래소(KIS/Toss)에 동일한 다음-정규장 제출 경로로 처리. `add_order(..., status="reserved")`는 `grid`/`rsitrade`/`sgridrsi`/`manual` 모든 전략에서 호출부가 `getattr(ex, "supports_reserved_orders", False) and not ex.is_market_open(ticker)` 체크 후 직접 설정 — `order_manager`는 이 분기 모름(호출부 책임).
 
 ## 주요 메서드
 
@@ -61,7 +60,7 @@ manager.get_strategy_orders(user_id, strategy)
 
 | 필드 | 설명 |
 |------|------|
-| `filled_volume` | 확인된 체결량. exchange의 `executed_volume`과 비교해 새 부분체결 감지 |
+| `filled_volume` | 확인된 체결량. exchange `executed_volume`과 비교해 새 부분체결 감지 |
 | `linked_to` | rsitrade/gridrsi 매수 레그: 매도 목표 RSI(float). 체결 시 `sync_orders`가 읽어 매도가 계산. sgridrsi는 None |
 | `reorder_of` | `replace_order_uuid` 호출 시 이전 uuid 저장 (감사 체인) |
 | `next_check_at` | Unix timestamp; sync 루프가 이 시각까지 해당 주문 건너뜀 |
