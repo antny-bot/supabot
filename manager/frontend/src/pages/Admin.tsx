@@ -19,6 +19,7 @@ import type { ConfigItem } from '../types'
 import { staggerDelay } from '../utils/animation'
 import { EventsContent } from './Events'
 import { UsersContent } from './Users'
+import NlLogsSection from './reports/NlLogsSection'
 
 const Analytics = lazy(() => import('./Analytics'))
 
@@ -28,6 +29,7 @@ const ADMIN_TABS = [
   { id: 'events',      label: '이벤트' },
   { id: 'monitoring',  label: '주문 및 신호 주기' },
   { id: 'stock-cache', label: '종목 캐시' },
+  { id: 'nllogs',      label: 'NL 로그' },
 ]
 
 const MONITORING_CONFIG_KEYS = [
@@ -397,6 +399,7 @@ export default function Admin() {
         {activeTab === 'events'      && <EventsContent />}
         {activeTab === 'monitoring'  && <MonitoringTab />}
         {activeTab === 'stock-cache' && <StockCacheTab />}
+        {activeTab === 'nllogs'      && <NlLogsSection />}
       </div>
     </div>
   )

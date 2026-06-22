@@ -137,7 +137,7 @@ export default function Login() {
         </div>
 
         <div
-          className="animate-fade-in-up rounded-2xl border border-white/30 bg-white/55 p-6 shadow-2xl shadow-violet-950/10 backdrop-blur-xl dark:border-slate-800/30 dark:bg-slate-900/55 dark:shadow-violet-950/30"
+          className="animate-fade-in-up rounded-2xl border border-white/40 bg-white/30 p-6 shadow-2xl shadow-violet-950/10 backdrop-blur-2xl ring-1 ring-white/10 dark:border-slate-700/40 dark:bg-slate-900/30 dark:shadow-violet-950/30"
           style={{ animationDelay: '80ms' }}
         >
           {error ? (
@@ -262,7 +262,7 @@ export default function Login() {
                   <div className="w-full border-t border-slate-200/50 dark:border-slate-800/50" />
                 </div>
                 <div className="relative flex justify-center text-xs">
-                  <span className="bg-white/80 px-2 text-slate-400 dark:bg-slate-900/80 dark:text-slate-500">또는</span>
+                  <span className="bg-white/30 px-2 text-slate-500 backdrop-blur-sm dark:bg-slate-900/30 dark:text-slate-400">또는</span>
                 </div>
               </div>
 

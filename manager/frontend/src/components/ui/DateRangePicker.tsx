@@ -154,7 +154,7 @@ export default function DateRangePicker({
           value.mode !== 'all'
             ? 'bg-primary-600 text-white shadow-sm'
             : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-        } ${isOpen ? 'ring-2 ring-primary-200 dark:ring-primary-800' : ''}`}
+        }`}
       >
         {summaryLabel}
         <ChevronRight
@@ -169,7 +169,7 @@ export default function DateRangePicker({
         }`}
       >
         <div className="overflow-hidden min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-800/40">
             <div className="flex flex-nowrap gap-1.5">
               {PRESETS.map((preset) => (
                 <button
