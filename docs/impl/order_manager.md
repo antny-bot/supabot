@@ -12,24 +12,26 @@
 ## 상태 기계
 
 ```
-              add_order
-  (없음) ────────────────► wait
-                             │
-             partial fill    │ exchange exec_vol > 0
-             update_fill  ◄──┤
-                             │
-             done        ◄───┤ exchange state=done
-                             │
-             cancel      ◄───┤ exchange state=cancel
-                             │  (KIS 전략 주문만)
-         pending_reorder ◄───┘ 장외/상태 미확인
-                │
-                │ 다음 정규장
-                ▼
-              wait (replace_order_uuid로 UUID 교체)
+                                  add_order (장중/실거래소 호출 성공)
+                    (없음) ────────────────────────────► wait
+                       │                                   │
+   add_order (KIS/Toss │                      partial fill │ exchange exec_vol > 0
+   장외, supports_      │                      update_fill ◄┤
+   reserved_orders)     ▼                                   │
+                    reserved                     done    ◄──┤ exchange state=done
+                       │                                     │
+                       │ 다음 정규장(sync_orders가          cancel    ◄──┤ exchange state=cancel
+                       │  실거래소에 제출)                                 │  (KIS 전략 주문만)
+                       ▼                              pending_reorder ◄──┘ 장외/상태 미확인
+                  wait (replace_order_uuid로 UUID 교체)         │
+                                                                │ 다음 정규장
+                                                                ▼
+                                                      wait (replace_order_uuid로 UUID 교체)
 ```
 
 `market_closed`는 `sync_orders`가 KIS 장외 시간에 임시 설정. 재주문 시도 전까지 유지.
+
+`reserved`는 `pending_reorder`와 다르다 — `pending_reorder`는 **이미 거래소에 제출됐다가** 마감으로 취소된 주문, `reserved`는 **처음부터 장외라 거래소에 제출조차 안 한** 주문이다(가짜 uuid `reserved:<hex>`로만 등록). 둘 다 `sync_orders`(`src/main.py`)가 `supports_reserved_orders=True`인 거래소(KIS/Toss)에 대해 동일한 다음-정규장 제출 경로로 처리한다. `add_order(..., status="reserved")`는 `grid`/`rsitrade`/`sgridrsi`/`manual` 모든 전략에서 호출부가 `getattr(ex, "supports_reserved_orders", False) and not ex.is_market_open(ticker)` 체크 후 직접 설정한다 — `order_manager` 자체는 이 분기를 모른다(호출부 책임).
 
 ## 주요 메서드
 

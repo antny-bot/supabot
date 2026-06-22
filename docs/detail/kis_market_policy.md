@@ -35,6 +35,20 @@ def next_kis_regular_session(now=None) -> datetime:
 1. `update_next_check_at(uuid, kis_next_check_timestamp())` 설정
 2. sync 루프는 `next_check_at` 이전까지 해당 주문 건너뜀
 
+## 신규 주문 발행 시점에 장외인 경우 — reserved 배치
+
+위 흐름은 **이미 거래소에 제출된 주문**이 장외로 들어가는 경우다. 반면 `/grid`, `/rsitrade`, `/sgridrsi`, `/buy`, `/sell` 자체가 장외 시간에 실행되면, KIS/Toss는 장외에 신규 주문 제출이 안 되므로 호출부(`src/core/order_execution.py`, `src/handlers/manual_order_handlers.py`)가 실거래소 API를 호출하지 않고 가짜 uuid(`reserved:<hex>`)로 `order_manager.add_order(..., status="reserved")`만 등록한다:
+
+```python
+is_reserved = getattr(ex, "supports_reserved_orders", False) and not ex.is_market_open(ticker)
+```
+
+이 분기가 빠지면(과거 `execute_rsitrade_orders`/`execute_sgridrsi_orders`/수동 주문 버그) 장외 호출이 실거래소 API에 그대로 들어가 실패하고, 등록조차 안 되어 주문이 추적/manager UI에서 통째로 사라진다 — 반드시 grid와 동일한 분기를 유지할 것.
+
+`reserved` 주문은 다음 정규장에 `sync_orders`(`src/main.py:307`)가 `pending_reorder`와 동일 경로로 실제 `create_order()`를 제출하고 `replace_order_uuid`로 진짜 uuid로 교체한다. 상세 상태 기계는 `docs/impl/order_manager.md` 참조.
+
+`supports_reserved_orders=True`는 `RegularSessionMixin`(`src/core/exchanges/regular_session.py`)을 상속하는 거래소(KIS/Toss) 공통 capability이며, 이 문서 제목은 KIS 기준이지만 Toss도 동일하게 적용된다.
+
 ## 전략 주문 재주문 흐름
 
 ```
