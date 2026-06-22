@@ -186,31 +186,35 @@ export default function Trades() {
               </table>
             </div>
 
-            <div className="block divide-y divide-slate-100 dark:divide-slate-800 md:hidden">
+            <div className="block md:hidden">
               {data.trades.length === 0 ? (
                 <div className="px-4 py-10 text-center text-xs text-slate-400">거래가 없습니다.</div>
-              ) : data.trades.map((trade, index) => (
-                <div key={index} className="animate-fade-in-up space-y-3 p-4 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40" style={staggerDelay(index)}>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-mono text-slate-500 dark:text-slate-400">{trade.executed_fmt}</span>
-                    <Badge value={trade.side} />
-                  </div>
-                  <div className="flex items-baseline justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <Badge value={trade.exchange} label={trade.exchange.toUpperCase()} />
-                      <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">{trade.ticker}</span>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 p-3 min-[600px]:grid-cols-2">
+                  {data.trades.map((trade, index) => (
+                    <div key={index} className="animate-fade-in-up space-y-3 rounded-xl border border-slate-100 p-4 transition-colors hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/40" style={staggerDelay(index)}>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-mono text-slate-500 dark:text-slate-400">{trade.executed_fmt}</span>
+                        <Badge value={trade.side} />
+                      </div>
+                      <div className="flex items-baseline justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <Badge value={trade.exchange} label={trade.exchange.toUpperCase()} />
+                          <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">{trade.ticker}</span>
+                        </div>
+                        <span className="font-mono text-xs font-bold text-slate-900 dark:text-white">{trade.price?.toLocaleString()}원</span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                        <span>전략: {trade.strategy}</span>
+                        <span>수량: <span className="font-mono font-medium text-slate-800 dark:text-slate-200">{trade.volume?.toFixed(4)}</span></span>
+                      </div>
+                      <div className="flex justify-end text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        금액 {trade.krw?.toLocaleString()}원
+                      </div>
                     </div>
-                    <span className="font-mono text-xs font-bold text-slate-900 dark:text-white">{trade.price?.toLocaleString()}원</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                    <span>전략: {trade.strategy}</span>
-                    <span>수량: <span className="font-mono font-medium text-slate-800 dark:text-slate-200">{trade.volume?.toFixed(4)}</span></span>
-                  </div>
-                  <div className="flex justify-end text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    금액 {trade.krw?.toLocaleString()}원
-                  </div>
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
 
             <Pagination
