@@ -3,6 +3,8 @@
 `_pending_manual_orders`/`MANUAL_ORDER_TTL_SECONDS`/`create_manual_order_token`/
 `pop_valid_manual_order`는 main.py 소유 상태로 남는다 (main.<name>으로 접근).
 """
+import uuid as _uuid
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
@@ -148,19 +150,34 @@ async def manual_order_confirm_callback(update: Update, context: ContextTypes.DE
             await query.edit_message_text(exp_msg)
             return
 
-    ex_env_label = main.exchange_adapter.get_exchange(exchange).env_label(user.get("exchanges", {}).get(exchange, {}))
+    ex = main.exchange_adapter.get_exchange(exchange)
+    ex_env_label = ex.env_label(user.get("exchanges", {}).get(exchange, {}))
     env_notice = f" ({ex_env_label})" if ex_env_label else ""
     action = "매수" if side == "bid" else "매도"
     order_type_label = "시장가 " if is_market else ""
-    await query.edit_message_text(f"🚀 {exchange_display_name(exchange)} {ticker} {order_type_label}{action} 주문 전송 중{env_notice}...")
+    is_reserved = getattr(ex, "supports_reserved_orders", False) and not ex.is_market_open(ticker)
 
-    res = await main.exchange_adapter.create_order(user_id, exchange, ticker, side, price, volume, ord_type=ord_type)
+    if is_reserved:
+        res = {"uuid": f"reserved:{_uuid.uuid4().hex}"}
+    else:
+        await query.edit_message_text(f"🚀 {exchange_display_name(exchange)} {ticker} {order_type_label}{action} 주문 전송 중{env_notice}...")
+        res = await main.exchange_adapter.create_order(user_id, exchange, ticker, side, price, volume, ord_type=ord_type)
+
     if res and "uuid" in res:
-        main.order_manager.add_order(user_id, exchange, ticker, res["uuid"], price, volume, side=side, strategy="manual")
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=f"✅ {exchange_display_name(exchange)} {ticker} {action} 주문 완료{env_notice}!\n주문ID: {res['uuid']}",
+        main.order_manager.add_order(
+            user_id, exchange, ticker, res["uuid"], price, volume, side=side, strategy="manual",
+            status="reserved" if is_reserved else "wait",
         )
+        if is_reserved:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=f"⏳ {exchange_display_name(exchange)} {ticker} {action} 주문 예약 등록 완료{env_notice}!\n장 개장 시 자동으로 실제 주문이 제출됩니다.",
+            )
+        else:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=f"✅ {exchange_display_name(exchange)} {ticker} {action} 주문 완료{env_notice}!\n주문ID: {res['uuid']}",
+            )
     else:
         append_operational_event("error", "manual_order", "manual order failed", f"{exchange} {ticker} {side}")
         await context.bot.send_message(chat_id=user_id, text=f"❌ 주문 실패: {res}")

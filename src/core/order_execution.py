@@ -200,11 +200,13 @@ async def execute_rsitrade_orders(
     per_order_budgets는 호출부에서 DCA 가중 분배 또는 균등 분배로 미리 계산해
     전달한다 (가중치 계산 로직은 호출부 책임 — 이 함수는 분배 결과만 사용).
 
-    가격을 RSI 역산(과거 캔들 기준)으로 계산하므로 장외에도 실행 가능 —
-    예약주문(reserved) 분기 대상이 아니다.
+    가격은 RSI 역산(과거 캔들 기준)으로 장외에도 계산 가능하지만, KIS/Toss는
+    정규장 외 실거래소 주문 제출이 불가능하므로 grid와 동일하게 장외에는
+    reserved 배치로 등록한다(장 개장 시 sync_orders가 자동 제출).
     """
     log = log or _log
     ex = exchange_adapter.get_exchange(exchange)
+    is_reserved = getattr(ex, "supports_reserved_orders", False) and not ex.is_market_open(ticker)
     has_sell = bool(sell_rsi_range) and sell_rsi_range != "-"
     b_start, b_end = parse_rsi_range(buy_rsi_range)
     s_start, s_end = parse_rsi_range(sell_rsi_range) if has_sell else (0, 0)
@@ -230,10 +232,13 @@ async def execute_rsitrade_orders(
     success, skipped_count = await _execute_order_batch(
         exchange_adapter=exchange_adapter, order_manager=order_manager,
         user_id=user_id, exchange=exchange, ticker=ticker,
-        group_no=group_no, count=count, leg_fn=leg_fn, is_reserved=False, log=log,
+        group_no=group_no, count=count, leg_fn=leg_fn, is_reserved=is_reserved, log=log,
     )
 
-    result_msg = f"✅ `{ticker}` RSI 순환 매매 전략 가동 완료! ({success}/{count}건 예약됨)\n백그라운드에서 RSI 체결을 감시합니다."
+    if is_reserved:
+        result_msg = f"⏳ `{ticker}` RSI 순환 매매 예약 등록 완료! ({success}/{count}건)\n장 개장 시 자동으로 실제 주문이 제출됩니다."
+    else:
+        result_msg = f"✅ `{ticker}` RSI 순환 매매 전략 가동 완료! ({success}/{count}건 예약됨)\n백그라운드에서 RSI 체결을 감시합니다."
     if skipped_count:
         result_msg += f"\n⚠️ {skipped_count}건은 예산으로 1주도 매수할 수 없어 건너뜀."
     if success:
@@ -268,10 +273,12 @@ async def execute_sgridrsi_orders(
     HTTP 웹훅 대응 핸들러는 현재 없으나(/internal/execute_sgridrsi 미존재),
     향후 추가 시 그대로 재사용 가능하도록 동일 패턴으로 통합해둔다.
 
-    가격을 RSI 역산으로 계산하므로 장외에도 실행 가능 — 예약주문(reserved) 분기 대상이 아니다.
+    KIS/Toss 정규장 외에는 grid와 동일하게 reserved 배치로 등록한다
+    (장 개장 시 sync_orders가 자동 제출).
     """
     log = log or _log
     ex = exchange_adapter.get_exchange(exchange)
+    is_reserved = getattr(ex, "supports_reserved_orders", False) and not ex.is_market_open(ticker)
     s_start, s_end = parse_rsi_range(sell_rsi_range)
     budget_per_order = budget / count
     interval = get_user_rsi_interval(user)
@@ -295,10 +302,13 @@ async def execute_sgridrsi_orders(
     success, skipped_count = await _execute_order_batch(
         exchange_adapter=exchange_adapter, order_manager=order_manager,
         user_id=user_id, exchange=exchange, ticker=ticker,
-        group_no=group_no, count=count, leg_fn=leg_fn, is_reserved=False, log=log,
+        group_no=group_no, count=count, leg_fn=leg_fn, is_reserved=is_reserved, log=log,
     )
 
-    result_msg = f"✅ {ticker} RSI 매도 전략 가동 완료! ({success}/{count}건 예약됨, 배치 #{group_no})"
+    if is_reserved:
+        result_msg = f"⏳ {ticker} RSI 매도 예약 등록 완료! ({success}/{count}건, 배치 #{group_no})\n장 개장 시 자동으로 실제 주문이 제출됩니다."
+    else:
+        result_msg = f"✅ {ticker} RSI 매도 전략 가동 완료! ({success}/{count}건 예약됨, 배치 #{group_no})"
     if skipped_count:
         result_msg += f"\n⚠️ {skipped_count}건은 예산으로 1주도 매도할 수 없어 건너뜀."
 
