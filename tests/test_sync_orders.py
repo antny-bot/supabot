@@ -270,6 +270,7 @@ async def test_toss_strategy_order_cancel_marks_pending_reorder(tmp_path, monkey
     monkeypatch.setattr(main, "order_manager", om)
 
     mock_adapter = MagicMock()
+    mock_adapter.ensure_toss_kr_calendar = AsyncMock()
     mock_adapter.get_order_status = AsyncMock(return_value={"state": "cancel", "executed_volume": 0.0})
     mock_adapter.get_exchange = lambda exchange: MagicMock(
         supports_reserved_orders=True,
@@ -287,6 +288,52 @@ async def test_toss_strategy_order_cancel_marks_pending_reorder(tmp_path, monkey
     assert "토스증권" in sent_text
     assert "재주문 예정" in sent_text
     assert "외부 개입" not in sent_text
+
+
+# T: 토스 국내(숫자 종목코드) 주문은 사이클마다 NXT 애프터마켓 캘린더 캐시를 갱신 시도한다
+# (해당 유저의 자격으로 조회하므로 user_id를 그대로 전달해야 함).
+async def test_sync_orders_refreshes_toss_kr_calendar_for_domestic_order(tmp_path, monkeypatch):
+    om = _make_order_manager(tmp_path)
+    om.add_order("555", "toss", "005930", "uuid-toss-cal", 70000, 10, side="bid", strategy="manual")
+    monkeypatch.setattr(main, "order_manager", om)
+
+    mock_adapter = MagicMock()
+    mock_adapter.ensure_toss_kr_calendar = AsyncMock()
+    mock_adapter.get_order_status = AsyncMock(return_value={"state": "wait", "executed_volume": 0.0})
+    mock_adapter.get_exchange = lambda exchange: MagicMock(
+        supports_reserved_orders=True,
+        is_market_open=lambda ticker=None: True,
+        next_check_timestamp=lambda ticker=None: 9_999_999.0,
+    )
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    app = _make_app()
+    await main.sync_orders(app)
+
+    mock_adapter.ensure_toss_kr_calendar.assert_awaited_once_with("555")
+
+
+# T: KIS 주문이나 토스 해외주식(알파벳 티커)은 캘린더 갱신을 시도하지 않는다(KR 전용 API)
+async def test_sync_orders_skips_toss_calendar_refresh_for_non_domestic(tmp_path, monkeypatch):
+    om = _make_order_manager(tmp_path)
+    om.add_order("556", "kis", "005930", "uuid-kis-cal", 70000, 10, side="bid", strategy="manual")
+    om.add_order("557", "toss", "AAPL", "uuid-toss-us-cal", 200, 5, side="bid", strategy="manual")
+    monkeypatch.setattr(main, "order_manager", om)
+
+    mock_adapter = MagicMock()
+    mock_adapter.ensure_toss_kr_calendar = AsyncMock()
+    mock_adapter.get_order_status = AsyncMock(return_value={"state": "wait", "executed_volume": 0.0})
+    mock_adapter.get_exchange = lambda exchange: MagicMock(
+        supports_reserved_orders=True,
+        is_market_open=lambda ticker=None: True,
+        next_check_timestamp=lambda ticker=None: 9_999_999.0,
+    )
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    app = _make_app()
+    await main.sync_orders(app)
+
+    mock_adapter.ensure_toss_kr_calendar.assert_not_called()
 
 
 # T: next_check_at이 미래인 주문은 이번 사이클에서 거래소 재조회를 건너뛴다

@@ -1,5 +1,6 @@
 import asyncio
 import time
+from datetime import datetime
 
 import aiohttp
 
@@ -8,6 +9,7 @@ from core.metrics import metrics
 from core.exchanges.regular_session import RegularSessionExchange
 from core.exchanges.common import CommonMixin
 from core.parsers import (
+    KST,
     is_kis_regular_session,
     kis_next_check_timestamp,
     is_us_regular_session,
@@ -134,6 +136,26 @@ class TossMixin:
             return "partial"
         return "wait"
 
+    async def ensure_toss_kr_calendar(self, user_id):
+        """오늘자 국내(KRX+NXT) 장 운영 캘린더를 캐시한다(계정 무관 데이터라 adapter가 전 유저 공용으로 1개만 보관).
+
+        NXT 애프터마켓(15:30~20:00 KST)을 포함한 실제 운영시간을 반영하기 위함 — 기존
+        `is_kis_regular_session()`(09:00~15:35 KRX 단독 가정) 고정 휴리스틱은 NXT 미체결
+        주문이 15:35~20:00 사이에 체결/취소되는 경우를 놓친다. 호출 실패 시 캐시를 갱신하지
+        않고 이전 값(또는 None)을 그대로 반환 — 호출부는 None/날짜 불일치 시 고정 휴리스틱으로
+        폴백해야 한다.
+        """
+        today_str = datetime.now(KST).strftime("%Y-%m-%d")
+        cached = self._toss_kr_calendar
+        if cached and (cached.get("today") or {}).get("date") == today_str:
+            return cached
+        res = await self._request_toss(user_id, "GET", "/api/v1/market-calendar/KR", need_account=False)
+        result = res.get("result") if isinstance(res, dict) else None
+        if not result or not result.get("today"):
+            return cached
+        self._toss_kr_calendar = result
+        return result
+
     async def _get_toss_candles(self, user_id, ticker, interval, count):
         toss_interval = "1d" if interval == "day" else "1m"
         params = {"symbol": ticker, "interval": toss_interval, "count": min(count, 200)}
@@ -189,6 +211,67 @@ class TossExchange(RegularSessionExchange):
         if self.is_us_stock(ticker):
             return is_us_regular_session, us_next_check_timestamp
         return is_kis_regular_session, kis_next_check_timestamp
+
+    @staticmethod
+    def _kr_calendar_today_windows(calendar):
+        """캘린더 캐시의 오늘자 integrated 세션 (start, end) 목록.
+
+        반환값 None = 캐시 없음/오늘자 데이터 없음(호출부는 고정 휴리스틱으로 폴백해야 함).
+        반환값 [] = 캐시는 있으나 오늘이 명시적 휴장일(integrated=null).
+        """
+        if not isinstance(calendar, dict):
+            return None
+        today = calendar.get("today") or {}
+        if not isinstance(today, dict):
+            return None
+        integrated = today.get("integrated")
+        if integrated is None:
+            return []
+        if not isinstance(integrated, dict):
+            return None
+        windows = []
+        for key in ("preMarket", "regularMarket", "afterMarket"):
+            session = integrated.get(key)
+            if isinstance(session, dict):
+                windows.append((
+                    datetime.fromisoformat(session["startTime"]),
+                    datetime.fromisoformat(session["endTime"]),
+                ))
+        return windows
+
+    @classmethod
+    def _kr_calendar_next_session_start(cls, calendar, now):
+        today_windows = cls._kr_calendar_today_windows(calendar) or []
+        upcoming_today = [start for start, _ in today_windows if now < start]
+        if upcoming_today:
+            return min(upcoming_today)
+        next_day = (calendar or {}).get("nextBusinessDay") or {}
+        integrated = next_day.get("integrated") or {}
+        for key in ("preMarket", "regularMarket"):
+            session = integrated.get(key)
+            if session:
+                return datetime.fromisoformat(session["startTime"])
+        return None
+
+    def is_market_open(self, ticker=None) -> bool:
+        if self.is_us_stock(ticker):
+            return super().is_market_open(ticker)
+        windows = self._kr_calendar_today_windows(getattr(self.adapter, "_toss_kr_calendar", None))
+        if windows is None:
+            return super().is_market_open(ticker)  # 캐시 없음 → KIS 정규장 고정 휴리스틱 폴백
+        now = datetime.now(KST)
+        return any(start <= now <= end for start, end in windows)
+
+    def next_check_timestamp(self, ticker=None) -> float:
+        if self.is_us_stock(ticker):
+            return super().next_check_timestamp(ticker)
+        calendar = getattr(self.adapter, "_toss_kr_calendar", None)
+        if self._kr_calendar_today_windows(calendar) is None:
+            return super().next_check_timestamp(ticker)
+        next_start = self._kr_calendar_next_session_start(calendar, datetime.now(KST))
+        if next_start is None:
+            return super().next_check_timestamp(ticker)
+        return next_start.timestamp()
 
     def adjust_price_to_tick(self, price, ticker=None):
         if self.is_us_stock(ticker):

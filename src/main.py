@@ -361,6 +361,10 @@ async def sync_orders(application):
         ticker = ord['ticker']
 
         ex_obj = exchange_adapter.get_exchange(exchange)
+        if exchange == "toss" and str(ticker).isdigit():
+            # NXT 애프터마켓(15:30~20:00 KST)을 반영한 실제 운영시간 캐시 갱신 — 캐시는
+            # 당일 1회만 조회되고(ensure_toss_kr_calendar 내부 dedup) 이후 호출은 즉시 반환됨.
+            await exchange_adapter.ensure_toss_kr_calendar(user_id)
         if not ex_obj.is_market_open(ticker):
             next_check = ex_obj.next_check_timestamp(ticker)
             status = ord.get("status") if ord.get("status") in ("pending_reorder", "reserved") else "market_closed"

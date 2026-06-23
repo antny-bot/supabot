@@ -23,6 +23,7 @@ class ExchangeAdapter(CommonMixin, UpbitMixin, BithumbMixin, TossMixin, KisMixin
         self._toss_session = None
         self._kis_tokens = {}
         self._toss_tokens = {}
+        self._toss_kr_calendar = None  # market-calendar/KR 응답 캐시(계정 무관, adapter 단일 소유) — TossMixin.ensure_toss_kr_calendar
         self._candle_cache = {}  # {(exchange, ticker, interval, count): (fetched_at, candles)}
         self._exchanges = {
             "upbit": UpbitExchange(self),
