@@ -127,6 +127,17 @@ _KR_NAME_MAP: dict[str, str] = {
 # 영문 표기도 지원 (일부)
 _KR_NAME_MAP_LOWER: dict[str, str] = {k.lower(): v for k, v in _KR_NAME_MAP.items()}
 
+# 코드 → 종목명 역조회 (주문현황 등 표시용). 정적 맵에 없는 코드는 그대로 표시.
+_KR_CODE_TO_NAME: dict[str, str] = {v: k for k, v in _KR_NAME_MAP.items()}
+
+
+def kr_stock_display(exchange: str, ticker: str) -> str:
+    """KIS/토스 종목코드를 '종목명(코드)'로 변환. 매핑이 없으면 코드 그대로 반환."""
+    if exchange not in ("kis", "toss"):
+        return ticker
+    name = _KR_CODE_TO_NAME.get(ticker)
+    return f"{name}({ticker})" if name else ticker
+
 
 def is_kr_stock_name(ticker: str) -> bool:
     """티커가 숫자(종목코드)가 아니라 한글/영문 종목명인지 판단."""
@@ -229,13 +240,8 @@ def _db_save(name: str, code: str) -> None:
         pass
 
 
-async def _search_via_kis(adapter, user_id: str, name: str) -> str | None:
-    """KIS CTPF1702R — 종목명으로 종목코드 검색 (KOSPI+KOSDAQ).
-
-    정확히 일치하는 종목명을 최우선으로 채택한다. 정확 일치가 없으면 접두
-    일치 후보가 단 하나일 때만 채택하고, 모호하면(0개 또는 2개 이상) None을
-    반환한다 — 실거래 봇에서 추측으로 다른 종목을 매수/매도하는 것을 막기 위함.
-    """
+async def _fetch_kis_candidates(adapter, user_id: str, name: str) -> list[dict]:
+    """KIS CTPF1702R 검색 결과(KOSPI+KOSDAQ)를 그대로 반환 (원시 item dict 리스트)."""
     candidates = []
     for mket in ("STK", "KSQ"):  # KOSPI → KOSDAQ 순
         res = await adapter._request_kis(
@@ -256,6 +262,17 @@ async def _search_via_kis(adapter, user_id: str, name: str) -> str | None:
         if isinstance(output, dict):
             output = [output]
         candidates.extend(output)
+    return candidates
+
+
+async def _search_via_kis(adapter, user_id: str, name: str) -> str | None:
+    """KIS CTPF1702R — 종목명으로 종목코드 검색 (KOSPI+KOSDAQ).
+
+    정확히 일치하는 종목명을 최우선으로 채택한다. 정확 일치가 없으면 접두
+    일치 후보가 단 하나일 때만 채택하고, 모호하면(0개 또는 2개 이상) None을
+    반환한다 — 실거래 봇에서 추측으로 다른 종목을 매수/매도하는 것을 막기 위함.
+    """
+    candidates = await _fetch_kis_candidates(adapter, user_id, name)
 
     for item in candidates:
         code = item.get("pdno") or item.get("PDNO")
@@ -273,3 +290,67 @@ async def _search_via_kis(adapter, user_id: str, name: str) -> str | None:
         return next(iter(prefix_matches))
 
     return None
+
+
+async def find_kr_stock_candidates(
+    name: str,
+    adapter,
+    user_id: str,
+    exchange: str,
+    limit: int = 5,
+) -> list[tuple[str, str]]:
+    """이름이 정확히 매칭되지 않을 때 후보 (종목명, 코드) 목록을 폭넓게 모은다.
+
+    1. 정적 맵 — 양방향 부분일치
+    2. DB 캐시(kr_stock_cache) — ilike 부분일치
+    3. KIS 검색 API — 정확/접두 일치 여부와 무관하게 모든 검색 결과 포함
+    종목코드 기준으로 dedupe 후 최대 limit개 반환.
+    """
+    name = unicodedata.normalize("NFC", name)
+    results: list[tuple[str, str]] = []
+    seen_codes: set[str] = set()
+
+    def _add(nm: str, code: str) -> None:
+        if code and code not in seen_codes:
+            seen_codes.add(code)
+            results.append((nm, code))
+
+    # 1. 정적 맵 양방향 부분일치
+    for nm, code in _KR_NAME_MAP.items():
+        if name in nm or nm in name:
+            _add(nm, code)
+
+    # 2. DB 캐시 ilike 부분일치
+    try:
+        from core.db import get_db, is_db_available
+        if is_db_available():
+            rows = (
+                get_db()
+                .table("kr_stock_cache")
+                .select("name,code")
+                .ilike("name", f"*{name}*")
+                .limit(limit)
+                .execute()
+                .data
+            )
+            for row in rows or []:
+                _add(row.get("name", ""), row.get("code", ""))
+    except Exception:
+        pass
+
+    # 3. KIS 검색 API (exchange=kis이거나 user에 KIS 키 존재 시)
+    try:
+        user = adapter.user_manager.get_user(user_id)
+        kis_keys = (user or {}).get("exchanges", {}).get("kis", {})
+        has_kis = bool(kis_keys.get("app_key") and kis_keys.get("app_secret"))
+        if exchange == "kis" or has_kis:
+            kis_items = await _fetch_kis_candidates(adapter, user_id, name)
+            for item in kis_items:
+                code = item.get("pdno") or item.get("PDNO")
+                item_name = item.get("prdt_abrv_name") or item.get("PRDT_ABRV_NAME") or ""
+                if code and item_name:
+                    _add(item_name, code)
+    except Exception:
+        pass
+
+    return results[:limit]

@@ -8,6 +8,7 @@ import main
 from main import check_auth, check_details_help, resolve_ticker_for_command
 from core.parsers import normalize_exchange, exchange_display_name, parse_exchange_and_ticker, is_us_stock_ticker
 from core.formatters import build_report_view, build_cancel_confirm_message
+from core.stock_resolver import kr_stock_display
 from core.trade_log import read_trades
 
 
@@ -128,7 +129,7 @@ async def orders_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
         side_str = "매수" if ord["side"] == "bid" else "매도"
         status_str = _order_status_names.get(ord.get("status"), "")
         status_tag = f" — {status_str}" if status_str else ""
-        msg += f"📌 <b>[{exchange_display_name(ord['exchange'])}]</b> {ord['ticker']}{group_tag}\n"
+        msg += f"📌 <b>[{exchange_display_name(ord['exchange'])}]</b> {kr_stock_display(ord['exchange'], ord['ticker'])}{group_tag}\n"
         if is_us_stock_ticker(ord['exchange'], ord['ticker']):
             msg += f"   └ ${ord['price']:,.2f} ({side_str}, {ord['volume']:.0f}주){status_tag}\n"
         else:
@@ -236,14 +237,12 @@ async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
 
     default_exchange = user["preferences"].get("default_exchange", "upbit")
     exchange, raw_ticker = parse_exchange_and_ticker(args, default_exchange)
-    ticker = await main.exchange_adapter.resolve_ticker(user_id, exchange, raw_ticker)
-    display_ticker = f"{raw_ticker}({ticker})" if ticker != raw_ticker else ticker
-
-    if main.exchange_adapter.get_exchange(exchange).requires_numeric_ticker() and ticker and any('가' <= c <= '힣' for c in ticker):
-        await update.message.reply_text(
-            f"⚠️ {exchange_display_name(exchange)}은 종목코드로 입력하세요.\n예: /price {exchange} 000250"
-        )
+    exchange, ticker = await main.resolve_ticker_for_command(
+        update, user_id, args, default_exchange, cmd_hint=f"/price {exchange} 000250"
+    )
+    if ticker is None:
         return
+    display_ticker = f"{raw_ticker}({ticker})" if ticker != raw_ticker else ticker
 
     ticker_data, indicators = await asyncio.gather(
         main.exchange_adapter.get_ticker(exchange, ticker, user_id=user_id),
@@ -407,7 +406,7 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE, us
         date = ord.get('created_at', '').split('T')[0]
         is_usd = is_us_stock_ticker(exchange, tk)
 
-        msg += f"- {date} | {side} | {tk}\n"
+        msg += f"- {date} | {side} | {kr_stock_display(exchange, tk)}\n"
         if is_usd:
             msg += f"  └ ${price:,.2f} | {vol:.0f}주\n"
         else:

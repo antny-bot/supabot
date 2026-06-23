@@ -13,6 +13,7 @@ from core.parsers import (
 )
 from core.exchanges.kis import KisExchange
 from core.secret_crypto import can_decrypt_secrets, has_secret_key
+from core.stock_resolver import kr_stock_display
 
 _kis_exchange = KisExchange(None)
 
@@ -673,7 +674,7 @@ def build_cancel_confirm_message(orders, title):
         status_str = _ORDER_STATUS_NAMES.get(ord.get("status"), "")
         status_tag = f" — {status_str}" if status_str else ""
         group_tag = f" [#{ord['group_no']}]" if ord.get("group_no") else ""
-        lines.append(f"📌 [{exchange_display_name(ord['exchange'])}] {ord['ticker']}{group_tag}")
+        lines.append(f"📌 [{exchange_display_name(ord['exchange'])}] {kr_stock_display(ord['exchange'], ord['ticker'])}{group_tag}")
         if is_us_stock_ticker(ord['exchange'], ord['ticker']):
             lines.append(f"   └ ${ord['price']:,.2f} ({side_str}, {ord['volume']:.0f}주){status_tag}")
         else:
@@ -742,7 +743,7 @@ def build_report_view(trades: list, period: str = "all") -> str:
         is_usd = is_us_stock_ticker(exchange, ticker)
         unit = "$" if is_usd else ""
         suffix = "" if is_usd else "원"
-        lines.append(f"<b>[{ex_label}] {ticker}</b>")
+        lines.append(f"<b>[{ex_label}] {kr_stock_display(exchange, ticker)}</b>")
         if stats["bid_count"]:
             lines.append(f"  매수 {stats['bid_count']}건 / {unit}{stats['bid_krw']:,.2f}{suffix}" if is_usd else f"  매수 {stats['bid_count']}건 / {stats['bid_krw']:,.0f}원")
         if stats["ask_count"]:

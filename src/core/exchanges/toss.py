@@ -90,6 +90,17 @@ class TossMixin:
                 async with session.get(url, params=params, headers=headers) as resp:
                     result = await resp.json()
             metrics.record_latency("toss", (time.monotonic() - _t0) * 1000)
+            if isinstance(result, dict) and result.get("error"):
+                err = result["error"]
+                _log.error(
+                    "Toss API error response",
+                    extra={
+                        "event": "toss_api_error",
+                        "path": path,
+                        "code": err.get("code"),
+                        "message": err.get("message"),
+                    },
+                )
             return result
         except Exception as e:
             _log.error("Toss API exception", exc_info=e, extra={"event": "toss_api_exception", "path": path})
@@ -271,6 +282,16 @@ class TossExchange(RegularSessionExchange):
         items = []
         for attempt in range(2):
             res = await self.adapter._request_toss(user_id, "GET", "/api/v1/prices", params=params, need_account=False)
+            if res is None:
+                _log.warning(
+                    "Toss price request failed (credentials/token)",
+                    extra={"event": "toss_price_no_response", "ticker": ticker},
+                )
+                return None
+            if isinstance(res, dict) and res.get("error"):
+                # API가 명시적으로 에러를 반환한 경우(심볼 미지원/레이트리밋 등)는
+                # _request_toss가 이미 로그를 남겼으므로 재시도하지 않고 즉시 종료한다.
+                return None
             items = res.get("result") or [] if isinstance(res, dict) else []
             if items:
                 break

@@ -54,6 +54,10 @@ class _FilteredQuery(_Query):
         self._params[column] = "in.({})".format(",".join(str(v) for v in values))
         return self
 
+    def ilike(self, column: str, pattern: str) -> "_FilteredQuery":
+        self._params[column] = f"ilike.{pattern}"
+        return self
+
     def limit(self, n: int) -> "_FilteredQuery":
         self._params["limit"] = str(n)
         return self
