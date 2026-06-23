@@ -88,6 +88,17 @@ async def test_resolve_kr_stock_name_uses_static_map_without_api_call():
     assert result == "005930"
 
 
+def test_kr_stock_display_formats_kis_toss_with_known_code():
+    assert sr.kr_stock_display("kis", "000250") == "삼천당제약(000250)"
+    assert sr.kr_stock_display("toss", "005930") == "삼성전자(005930)"
+
+
+def test_kr_stock_display_returns_code_when_unmapped_or_other_exchange():
+    assert sr.kr_stock_display("kis", "999999") == "999999"  # 매핑 없는 코드
+    assert sr.kr_stock_display("toss", "AAPL") == "AAPL"  # 미국주식
+    assert sr.kr_stock_display("upbit", "KRW-BTC") == "KRW-BTC"  # 코인 거래소는 변환 안 함
+
+
 def test_is_kr_stock_name_handles_codes_and_coins():
     assert sr.is_kr_stock_name("005930") is False
     assert sr.is_kr_stock_name("KRW-BTC") is False
@@ -120,3 +131,60 @@ def test_db_lookup_finds_fresh_cached_row():
     assert is_fresh is True
     fake_table.select.assert_called_once_with("code,updated_at")
     fake_query.eq.assert_called_once_with("name", "제이앤티씨")
+
+
+async def test_find_kr_stock_candidates_static_map_partial_match_is_capped():
+    # "삼성"은 정적 맵에서 삼성전자/삼성SDI/삼성물산/삼성생명/삼성화재/삼성전기/삼성SDS 등
+    # 다수와 부분일치한다. DB/KIS 호출 없이도(여기선 user에 KIS 키가 없으므로 스킵)
+    # limit 이하로 잘려야 한다.
+    adapter = MagicMock()
+    adapter.user_manager.get_user.return_value = {"exchanges": {}}
+
+    with patch("core.db.is_db_available", return_value=False):
+        candidates = await sr.find_kr_stock_candidates("삼성", adapter, "user1", "bithumb", limit=3)
+
+    assert len(candidates) == 3
+    assert all(name.find("삼성") != -1 or "삼성" in name for name, _ in candidates)
+
+
+async def test_find_kr_stock_candidates_dedupes_across_sources():
+    # 정적 맵과 DB 캐시에 같은 코드가 중복으로 잡혀도 한 번만 포함되어야 한다.
+    adapter = MagicMock()
+    adapter.user_manager.get_user.return_value = {"exchanges": {}}
+
+    fake_query = MagicMock()
+    fake_query.ilike.return_value = fake_query
+    fake_query.limit.return_value = fake_query
+    fake_query.execute.return_value = MagicMock(data=[{"name": "삼성전자", "code": "005930"}])
+
+    fake_table = MagicMock()
+    fake_table.select.return_value = fake_query
+
+    fake_db = MagicMock()
+    fake_db.table.return_value = fake_table
+
+    with patch("core.db.is_db_available", return_value=True), \
+         patch("core.db.get_db", return_value=fake_db):
+        candidates = await sr.find_kr_stock_candidates("삼성전자", adapter, "user1", "bithumb", limit=5)
+
+    codes = [code for _, code in candidates]
+    assert codes.count("005930") == 1
+    fake_query.ilike.assert_called_once_with("name", "*삼성전자*")
+
+
+async def test_find_kr_stock_candidates_includes_kis_search_results():
+    # exchange=kis면 KIS 검색 API 결과도 후보에 포함되어야 한다 (모호해도 버리지 않음).
+    adapter = _adapter_with_response({
+        "STK": [
+            {"pdno": "005935", "prdt_abrv_name": "삼성전자우"},
+            {"pdno": "005936", "prdt_abrv_name": "삼성전자2우B"},
+        ],
+        "KSQ": [],
+    })
+
+    with patch("core.db.is_db_available", return_value=False):
+        candidates = await sr.find_kr_stock_candidates("삼성전자", adapter, "user1", "kis", limit=10)
+
+    codes = {code for _, code in candidates}
+    assert "005935" in codes
+    assert "005936" in codes

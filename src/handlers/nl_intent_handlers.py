@@ -29,6 +29,11 @@ from core.parsers import (
 )
 from core.formatters import build_config_view, format_config_value
 from core.order_execution import execute_rsitrade_orders, execute_sgridrsi_orders
+from core.stock_resolver import find_kr_stock_candidates
+from core.ticker_disambiguation import (
+    create_nl_disambiguation_token,
+    pop_valid_nl_disambiguation,
+)
 
 
 def _build_llm_prompt(user_text, user):
@@ -50,7 +55,8 @@ def _build_llm_prompt(user_text, user):
         "\"start_price\": number|null, \"end_price\": number|null, \"count\": integer|null, "
         "\"buy_rsi_range\": string|null, \"sell_rsi_range\": string|null, \"dca_mode\": boolean|null, "
         "\"config_key\": string|null, \"config_value\": string|null, \"question\": string|null}.\n"
-        "Exchange: upbit|bithumb|kis|null. Korean stock => kis. Samsung => 005930. Crypto ticker: BTC/ETH/XRP.\n"
+        "Exchange: upbit|bithumb|kis|toss|null. Korean stock => kis or toss (default kis if unspecified, "
+        "toss if user explicitly says 토스/tossinvest). Samsung => 005930. Crypto ticker: BTC/ETH/XRP.\n"
         f"Default exchange: {prefs.get('default_exchange', 'upbit')}.\n"
         f"Commands:\n{main.LLM_COMMAND_CATALOG}\n"
         f"User text: {user_text}"
@@ -200,6 +206,46 @@ async def execute_query_intent(update, context, user, intent):
     await update.message.reply_text("⚠️ 자연어 요청을 조회 명령으로 해석하지 못했습니다.")
 
 
+async def _send_nl_ticker_disambiguation(query, intent, raw_name, candidates):
+    """후보 종목을 버튼으로 제시한다. 선택 시 intent['ticker']를 코드로 바꿔 execute_confirmed_intent를 재호출."""
+    token = create_nl_disambiguation_token(str(query.from_user.id), intent, candidates)
+    buttons = [
+        [InlineKeyboardButton(f"{name} ({code})", callback_data=f"nltickerpick|{token}|{idx}")]
+        for idx, (name, code) in enumerate(candidates)
+    ]
+    await query.edit_message_text(
+        f"🔍 '{raw_name}'과 정확히 일치하는 종목을 찾지 못했습니다. 후보 중 선택해 주세요:",
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+
+
+async def nl_ticker_disambiguation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = str(update.effective_chat.id)
+    try:
+        _, token, idx_s = query.data.split("|")
+        idx = int(idx_s)
+    except (ValueError, AttributeError):
+        await query.edit_message_text("⚠️ 잘못된 요청입니다.")
+        return
+
+    intent, err = pop_valid_nl_disambiguation(token, user_id, idx)
+    if intent is None:
+        await query.edit_message_text(f"⚠️ {err}")
+        return
+
+    user = main.user_manager.get_user(user_id)
+    if not user or not user.get("is_active"):
+        await query.edit_message_text("❌ 사용자 인증을 확인할 수 없습니다.")
+        return
+
+    try:
+        await execute_confirmed_intent(query, context, user, intent)
+    except Exception as e:
+        await query.edit_message_text(f"❌ 자연어 요청 실행 실패: {e}")
+
+
 async def execute_confirmed_intent(query, context, user, intent):
     user_id = str(query.from_user.id)
     action = intent.get("action")
@@ -207,7 +253,21 @@ async def execute_confirmed_intent(query, context, user, intent):
     raw_ticker = intent.get("ticker")
     _, ticker = parse_exchange_and_ticker([exchange, raw_ticker] if raw_ticker else [exchange], exchange)
     if ticker:
-        ticker = await main.exchange_adapter.resolve_ticker(user_id, exchange, ticker)
+        resolved = await main.exchange_adapter.resolve_ticker(user_id, exchange, ticker)
+        if (
+            main.exchange_adapter.get_exchange(exchange).requires_numeric_ticker()
+            and resolved
+            and any('가' <= c <= '힣' for c in resolved)
+        ):
+            candidates = await find_kr_stock_candidates(ticker, main.exchange_adapter, user_id, exchange)
+            if candidates:
+                await _send_nl_ticker_disambiguation(query, intent, ticker, candidates)
+                return
+            await query.edit_message_text(
+                f"⚠️ {exchange_display_name(exchange)}에서 '{ticker}' 종목을 찾을 수 없습니다. 종목코드로 다시 시도해 주세요."
+            )
+            return
+        ticker = resolved
 
     if action == "config_set":
         key = str(intent.get("config_key") or "").strip().lower()

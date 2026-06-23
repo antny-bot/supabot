@@ -150,6 +150,78 @@ def test_toss_get_ticker_returns_none_when_both_attempts_empty():
     assert result is None
 
 
+def test_toss_get_ticker_returns_none_immediately_on_api_error_no_retry():
+    adapter = make_adapter()
+    call_count = [0]
+
+    async def fake_request_toss(user_id, method, path, params=None, body=None, need_account=True):
+        if "prices" in path:
+            call_count[0] += 1
+            return {"error": {"code": "SYMBOL_NOT_FOUND", "message": "unsupported symbol"}}
+        return {"result": {"candles": []}}
+
+    adapter._request_toss = fake_request_toss
+    with patch("core.exchanges.toss.asyncio.sleep", new=AsyncMock()) as fake_sleep:
+        result = asyncio.run(adapter.get_ticker("toss", "000250", user_id="u1"))
+
+    assert result is None
+    assert call_count[0] == 1  # 에러 응답은 재시도하지 않음
+    fake_sleep.assert_not_called()
+
+
+def test_toss_get_ticker_returns_none_immediately_when_no_credentials():
+    adapter = make_adapter()
+    call_count = [0]
+
+    async def fake_request_toss(user_id, method, path, params=None, body=None, need_account=True):
+        call_count[0] += 1
+        return None  # _get_client/token 실패 시 _request_toss가 None 반환
+
+    adapter._request_toss = fake_request_toss
+    with patch("core.exchanges.toss.asyncio.sleep", new=AsyncMock()) as fake_sleep:
+        result = asyncio.run(adapter.get_ticker("toss", "000250", user_id="u1"))
+
+    assert result is None
+    assert call_count[0] == 1
+    fake_sleep.assert_not_called()
+
+
+def test_request_toss_logs_error_response():
+    adapter = make_adapter()
+
+    class FakeResp:
+        async def json(self):
+            return {"error": {"code": "RATE_LIMIT", "message": "too many requests"}}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            pass
+
+    class FakeSession:
+        def get(self, *args, **kwargs):
+            return FakeResp()
+
+        @property
+        def closed(self):
+            return False
+
+    async def run():
+        adapter._toss_session = FakeSession()
+        adapter._get_toss_token = AsyncMock(return_value="tok")
+        return await adapter._request_toss("u1", "GET", "/api/v1/prices", params={"symbols": "000250"}, need_account=False)
+
+    from core.exchanges import toss as toss_module
+    with patch.object(toss_module._log, "error") as fake_error:
+        result = asyncio.run(run())
+
+    assert result == {"error": {"code": "RATE_LIMIT", "message": "too many requests"}}
+    fake_error.assert_called_once()
+    assert fake_error.call_args[0][0] == "Toss API error response"
+    assert fake_error.call_args[1]["extra"]["code"] == "RATE_LIMIT"
+
+
 def test_toss_get_ticker_us_stock_volume_is_share_count():
     adapter = make_adapter()
 

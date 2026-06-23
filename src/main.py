@@ -40,6 +40,11 @@ from core.manual_order_tokens import (
     _pending_manual_orders,
     _pending_cancel_orders,
 )
+from core.stock_resolver import find_kr_stock_candidates
+from core.ticker_disambiguation import (
+    create_disambiguation_token,
+    pop_valid_disambiguation,
+)
 import internal_api
 from internal_api import trigger_realtime_sync
 from core.secret_crypto import can_decrypt_secrets, has_secret_key
@@ -239,19 +244,78 @@ async def resolve_ticker_for_command(
     """parse_exchange_and_ticker + resolve_ticker 를 합친 핸들러 공통 헬퍼.
 
     Returns (exchange, ticker) on success, ticker may be None if not provided in args.
-    Returns (exchange, None) with error already sent if Korean name resolution failed.
+    Returns (exchange, None) with error already sent if Korean name resolution failed
+    (후보가 있으면 선택 버튼을 보내고, 없으면 기존 에러 메시지를 보낸다).
     """
     exchange, raw = parse_exchange_and_ticker(args, default_exchange)
     if not raw:
         return exchange, None
     ticker = await exchange_adapter.resolve_ticker(user_id, exchange, raw)
     if exchange_adapter.get_exchange(exchange).requires_numeric_ticker() and ticker and any('가' <= c <= '힣' for c in ticker):
+        candidates = await find_kr_stock_candidates(raw, exchange_adapter, user_id, exchange)
+        if candidates:
+            await _send_ticker_disambiguation(update, user_id, raw, candidates)
+            return exchange, None
         hint = f"\n예: {cmd_hint}" if cmd_hint else ""
         await update.message.reply_text(
             f"⚠️ {exchange_display_name(exchange)}은 종목코드로 입력하세요.{hint}"
         )
         return exchange, None
     return exchange, ticker
+
+
+async def _send_ticker_disambiguation(update, user_id: str, raw_name: str, candidates: list):
+    """후보 종목 목록을 인라인 버튼으로 제시한다. 선택 시 원본 명령을 코드로 치환해 재실행."""
+    original_text = update.message.text or ""
+    token = create_disambiguation_token(user_id, original_text, raw_name, candidates)
+    buttons = [
+        [InlineKeyboardButton(f"{name} ({code})", callback_data=f"tickerpick|{token}|{idx}")]
+        for idx, (name, code) in enumerate(candidates)
+    ]
+    await update.message.reply_text(
+        f"🔍 '{raw_name}'과 정확히 일치하는 종목을 찾지 못했습니다. 후보 중 선택해 주세요:",
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+
+
+async def ticker_disambiguation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = str(update.effective_chat.id)
+    try:
+        _, token, idx_s = query.data.split("|")
+        idx = int(idx_s)
+    except (ValueError, AttributeError):
+        await query.edit_message_text("⚠️ 잘못된 요청입니다.")
+        return
+
+    code, original_text_or_err, raw_name = pop_valid_disambiguation(token, user_id, idx)
+    if code is None:
+        await query.edit_message_text(f"⚠️ {original_text_or_err}")
+        return
+
+    original_text = original_text_or_err
+    patched_text = original_text.replace(raw_name, code, 1)
+    await query.edit_message_text(f"✅ 선택한 종목으로 다시 실행합니다: {patched_text}")
+
+    from telegram import Message, MessageEntity
+    # CommandHandler.check_update는 message.entities[0]이 offset=0의 BOT_COMMAND여야
+    # 명령으로 인식한다 — 합성 메시지는 직접 채워줘야 함.
+    entities = []
+    command_part = patched_text.split(maxsplit=1)[0] if patched_text else ""
+    if command_part.startswith("/"):
+        entities = [MessageEntity(type=MessageEntity.BOT_COMMAND, offset=0, length=len(command_part))]
+    synthetic_message = Message(
+        message_id=query.message.message_id,
+        date=query.message.date,
+        chat=query.message.chat,
+        from_user=query.from_user,
+        text=patched_text,
+        entities=entities,
+    )
+    synthetic_message.set_bot(context.bot)
+    synthetic_update = Update(update_id=0, message=synthetic_message)
+    await context.application.process_update(synthetic_update)
 
 LLM_COMMAND_CATALOG = "\n".join([
     "asset req=- opt=exchange run=now ex=show my assets",
@@ -777,7 +841,9 @@ def main():
     application.add_handler(CallbackQueryHandler(manual_order_handlers.manual_order_confirm_callback, pattern="^(manualrun|manualcancel)\\|"))
     application.add_handler(CallbackQueryHandler(query_handlers.cancel_confirm_callback, pattern="^(cancelrun|cancelabort)\\|"))
     application.add_handler(CallbackQueryHandler(nl_intent_handlers.natural_language_confirm_callback, pattern="^nl(run|cancel)\\|"))
-    
+    application.add_handler(CallbackQueryHandler(ticker_disambiguation_callback, pattern="^tickerpick\\|"))
+    application.add_handler(CallbackQueryHandler(nl_intent_handlers.nl_ticker_disambiguation_callback, pattern="^nltickerpick\\|"))
+
     # [중요] 알 수 없는 명령어 처리 (가장 마지막에 등록)
     application.add_handler(MessageHandler(filters.COMMAND, system_handlers.unknown_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, nl_intent_handlers.natural_language_command))
