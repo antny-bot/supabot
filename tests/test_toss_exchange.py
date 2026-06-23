@@ -1,7 +1,11 @@
 import asyncio
+from datetime import datetime, timedelta
+
 import pytest
 from unittest.mock import AsyncMock, patch
 from core.exchange_adapter import ExchangeAdapter
+from core.exchanges.toss import TossExchange
+from core.parsers import KST, is_kis_regular_session
 
 
 class DummyUsers:
@@ -428,6 +432,134 @@ def test_toss_cancel_order_fail():
     adapter._request_toss = fake_request_toss
     ok = asyncio.run(adapter.cancel_order("u1", "toss", "ord001"))
     assert ok is False
+
+
+# ── NXT 애프터마켓 캘린더(market-calendar/KR) ───────────────────────────────────
+# 토스 국내주식은 KRX+NXT 통합 모드로 15:30~20:00 애프터마켓도 체결/취소가 발생한다.
+# 기존 is_kis_regular_session()(09:00~15:35 KRX 단독 가정) 고정 휴리스틱은 이 구간을
+# "장 마감"으로 오판해 체결 감지를 놓치므로, 실시간 캘린더 캐시가 있으면 그걸 우선한다.
+
+def test_is_market_open_true_during_nxt_after_market_window():
+    adapter = ExchangeAdapter(None)
+    toss = TossExchange(adapter)
+    now = datetime.now(KST)
+    adapter._toss_kr_calendar = {
+        "today": {
+            "date": now.strftime("%Y-%m-%d"),
+            "integrated": {
+                "preMarket": None,
+                "regularMarket": None,
+                "afterMarket": {
+                    "startTime": (now - timedelta(minutes=30)).isoformat(),
+                    "endTime": (now + timedelta(minutes=30)).isoformat(),
+                },
+            },
+        },
+    }
+    assert toss.is_market_open("005930") is True
+
+
+def test_next_check_timestamp_uses_next_business_day_after_all_sessions_close():
+    adapter = ExchangeAdapter(None)
+    toss = TossExchange(adapter)
+    now = datetime.now(KST)
+    next_start = now + timedelta(hours=10)
+    adapter._toss_kr_calendar = {
+        "today": {
+            "integrated": {
+                "regularMarket": {
+                    "startTime": (now - timedelta(hours=5)).isoformat(),
+                    "endTime": (now - timedelta(hours=1)).isoformat(),
+                },
+            },
+        },
+        "nextBusinessDay": {
+            "integrated": {
+                "preMarket": {
+                    "startTime": next_start.isoformat(),
+                    "endTime": (next_start + timedelta(hours=1)).isoformat(),
+                },
+            },
+        },
+    }
+    assert toss.is_market_open("005930") is False
+    assert abs(toss.next_check_timestamp("005930") - next_start.timestamp()) < 1
+
+
+def test_is_market_open_falls_back_to_static_heuristic_without_calendar():
+    adapter = ExchangeAdapter(None)
+    toss = TossExchange(adapter)
+    adapter._toss_kr_calendar = None
+    assert toss.is_market_open("005930") == is_kis_regular_session()
+
+
+def test_is_market_open_false_on_explicit_holiday_even_within_kis_hours():
+    adapter = ExchangeAdapter(None)
+    toss = TossExchange(adapter)
+    adapter._toss_kr_calendar = {"today": {"integrated": None}}
+    assert toss.is_market_open("005930") is False
+
+
+def test_us_stock_ignores_kr_calendar_cache():
+    adapter = ExchangeAdapter(None)
+    toss = TossExchange(adapter)
+    now = datetime.now(KST)
+    # KR 캐시가 "지금 열려있음"으로 차 있어도 미국 종목엔 영향 없어야 함
+    adapter._toss_kr_calendar = {
+        "today": {
+            "integrated": {
+                "regularMarket": {
+                    "startTime": (now - timedelta(minutes=5)).isoformat(),
+                    "endTime": (now + timedelta(minutes=5)).isoformat(),
+                },
+            },
+        },
+    }
+    from core.parsers import is_us_regular_session
+    assert toss.is_market_open("AAPL") == is_us_regular_session()
+
+
+def test_ensure_toss_kr_calendar_caches_for_same_day():
+    adapter = ExchangeAdapter(None)
+    now = datetime.now(KST)
+    calls = []
+
+    async def fake_request_toss(user_id, method, path, params=None, body=None, need_account=True):
+        calls.append(path)
+        return {
+            "result": {
+                "today": {
+                    "date": now.strftime("%Y-%m-%d"),
+                    "integrated": {
+                        "regularMarket": {
+                            "startTime": now.isoformat(),
+                            "endTime": (now + timedelta(hours=6)).isoformat(),
+                        },
+                    },
+                },
+            }
+        }
+
+    adapter._request_toss = fake_request_toss
+    asyncio.run(adapter.ensure_toss_kr_calendar("u1"))
+    asyncio.run(adapter.ensure_toss_kr_calendar("u1"))
+
+    assert calls == ["/api/v1/market-calendar/KR"]  # 같은 날짜 — 두 번째 호출은 캐시 적중
+
+
+def test_ensure_toss_kr_calendar_keeps_stale_cache_on_fetch_failure():
+    adapter = ExchangeAdapter(None)
+    stale = {"today": {"date": "2020-01-01", "integrated": {}}}
+    adapter._toss_kr_calendar = stale
+
+    async def fake_request_toss(*a, **kw):
+        return None
+
+    adapter._request_toss = fake_request_toss
+    result = asyncio.run(adapter.ensure_toss_kr_calendar("u1"))
+
+    assert result == stale
+    assert adapter._toss_kr_calendar == stale
 
 
 # ── KRX tick size (KIS/Toss) ───────────────────────────────────────────────────

@@ -55,7 +55,7 @@ from core.parsers import (
     parse_exchange_and_ticker, parse_number, parse_rsi_range, parse_optional_krw,
     parse_rsi_interval, parse_config_value, validate_config_update,
     has_gemini_key, get_user_rsi_interval, is_strategy_order,
-    is_kis_regular_session, next_kis_regular_session, kis_next_check_timestamp,
+    is_kis_regular_session, next_kis_regular_session,
     interpolate_range, resolve_linked_rsi_target,
     _format_seconds, get_dca_weights,
 )
@@ -361,6 +361,10 @@ async def sync_orders(application):
         ticker = ord['ticker']
 
         ex_obj = exchange_adapter.get_exchange(exchange)
+        if exchange == "toss" and str(ticker).isdigit():
+            # NXT 애프터마켓(15:30~20:00 KST)을 반영한 실제 운영시간 캐시 갱신 — 캐시는
+            # 당일 1회만 조회되고(ensure_toss_kr_calendar 내부 dedup) 이후 호출은 즉시 반환됨.
+            await exchange_adapter.ensure_toss_kr_calendar(user_id)
         if not ex_obj.is_market_open(ticker):
             next_check = ex_obj.next_check_timestamp(ticker)
             status = ord.get("status") if ord.get("status") in ("pending_reorder", "reserved") else "market_closed"
@@ -532,18 +536,21 @@ async def sync_orders(application):
         # 2. 주문 종료 처리 (체결 완료 또는 취소)
         if state in ["done", "cancel"] and not keep_order_for_retry:
             if state == "cancel":
-                if exchange == "kis" and is_strategy_order(ord):
-                    next_check = kis_next_check_timestamp()
+                # supports_reserved_orders(KIS/Toss)는 정규장 정책을 공유한다 — exchange == "kis"
+                # 하드코딩은 Toss 전략 주문이 거래소측 만료/취소(예: 장 마감 후 미체결 잔량 정리)를
+                # "외부 개입"으로 오인해 재주문 없이 추적을 끊는 버그였다(line 410의 동일 버그 패턴).
+                if getattr(ex_obj, "supports_reserved_orders", False) and is_strategy_order(ord):
+                    next_check = ex_obj.next_check_timestamp(ticker)
                     order_manager.mark_reorder_pending(ord['uuid'], next_check)
                     await application.bot.send_message(
                         chat_id=user_id,
-                        text=f"⏳ [한국투자증권] {ticker} 전략 주문이 만료/취소되어 다음 정규장 재주문 예정입니다.",
+                        text=f"⏳ [{exchange_display_name(exchange)}] {ticker} 전략 주문이 만료/취소되어 다음 정규장 재주문 예정입니다.",
                     )
                     await asyncio.sleep(0.2)
                     continue
                 await application.bot.send_message(
                     chat_id=user_id,
-                    text=f"🛑 [{exchange.upper()}] {ticker} 외부 개입 감지\n"
+                    text=f"🛑 [{exchange_display_name(exchange)}] {ticker} 외부 개입 감지\n"
                          f"• 주문이 거래소에서 취소되었습니다. 추적을 중단합니다.",
                 )
             if state == "done":
