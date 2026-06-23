@@ -403,18 +403,24 @@ async def sync_orders(application):
 
         res = await exchange_adapter.get_order_status(user_id, exchange, ord['uuid'], ticker)
         if not res:
-            if exchange == "kis" and is_strategy_order(ord):
-                order_manager.mark_reorder_pending(ord["uuid"], kis_next_check_timestamp())
+            # KIS/Toss(RegularSessionExchange, supports_reserved_orders)는 정규장 정책을 공유한다
+            # (docs/detail/kis_market_policy.md: "이 문서 제목은 KIS 기준이지만 Toss도 동일하게 적용된다").
+            # exchange == "kis" 하드코딩 분기는 Toss 주문을 누락시켜 체결 감지·trade_log 기록이
+            # 영구히 멈추는 원인이었다 — capability 기반으로 일반화.
+            if getattr(ex_obj, "supports_reserved_orders", False) and is_strategy_order(ord):
+                order_manager.mark_reorder_pending(ord["uuid"], ex_obj.next_check_timestamp(ticker))
                 await application.bot.send_message(
                     chat_id=user_id,
-                    text=f"⏳ [한국투자증권] {ticker} 전략 주문 확인이 불가하여 다음 정규장 재주문 대기로 전환합니다.",
+                    text=f"⏳ [{exchange_display_name(exchange)}] {ticker} 전략 주문 확인이 불가하여 다음 정규장 재주문 대기로 전환합니다.",
                 )
-            elif exchange == "kis":
+            elif getattr(ex_obj, "supports_reserved_orders", False):
                 order_manager.remove_order(ord["uuid"])
                 await application.bot.send_message(
                     chat_id=user_id,
-                    text=f"🛑 [한국투자증권] {ticker} 수동 주문 확인이 불가하여 추적을 종료합니다.\n자동 재주문은 하지 않습니다.",
+                    text=f"🛑 [{exchange_display_name(exchange)}] {ticker} 수동 주문 확인이 불가하여 추적을 종료합니다.\n자동 재주문은 하지 않습니다.",
                 )
+            else:
+                append_operational_event("warning", "sync_orders", f"{exchange} get_order_status returned no result", ticker)
             continue
         state = res['state']
         exec_vol = res['executed_volume']
@@ -611,6 +617,16 @@ async def order_sync_loop(application):
 _OPS_ALERT_COOLDOWN_SECONDS = 6 * 3600  # 동일 알림 재전송 최소 간격
 _ops_alert_last_sent: dict = {}
 
+
+def _ops_alert_key(issue: str) -> str:
+    """이슈 문자열에서 변동되는 수치를 제거해 쿨다운 dedup 키로 쓴다.
+
+    issue 문자열 자체(예: "주문 실패율 높음 [toss]: 17/22건 (77% 실패)")는 실패 건수가
+    매 사이클 바뀌므로 그대로 키로 쓰면 동일 사안인데도 쿨다운이 매번 풀려 알림이 반복 발송된다.
+    """
+    return re.sub(r"\d+", "#", issue)
+
+
 async def _check_ops_health(application):
     """메트릭 임계 초과 시 관리자에게 알림 전송. 동일 알림은 쿨다운 내 재전송하지 않는다."""
     if not ADMIN_CHAT_ID:
@@ -621,7 +637,7 @@ async def _check_ops_health(application):
     now = time.time()
     due_issues = [
         issue for issue in issues
-        if now - _ops_alert_last_sent.get(issue, 0) >= _OPS_ALERT_COOLDOWN_SECONDS
+        if now - _ops_alert_last_sent.get(_ops_alert_key(issue), 0) >= _OPS_ALERT_COOLDOWN_SECONDS
     ]
     if not due_issues:
         return
@@ -629,7 +645,7 @@ async def _check_ops_health(application):
     try:
         await application.bot.send_message(chat_id=ADMIN_CHAT_ID, text=msg, parse_mode="HTML")
         for issue in due_issues:
-            _ops_alert_last_sent[issue] = now
+            _ops_alert_last_sent[_ops_alert_key(issue)] = now
     except Exception as e:
         _log.warning("Ops health alert failed", exc_info=e, extra={"event": "ops_alert_failed"})
 

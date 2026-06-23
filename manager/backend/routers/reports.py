@@ -1,3 +1,4 @@
+import asyncio
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -359,6 +360,26 @@ def _build_holdings_rows(positions, current_prices):
     return rows, oversold_count
 
 
+def _fetch_kr_stock_prices_sync(codes: set[str]) -> dict[str, float]:
+    """KRX 국내 종목 최근 종가를 FinanceDataReader로 조회 (KIS/Toss 국내주식 공용).
+
+    실시간 시세가 아니라 최근 일봉 종가이며, 공개 현재가 API가 없는 KIS/Toss
+    국내주식 보유분에 대한 근사 평가용이다. 실패한 종목은 조용히 건너뛴다(0 표시 유지).
+    """
+    import FinanceDataReader as fdr
+
+    out: dict[str, float] = {}
+    start = (datetime.now() - timedelta(days=10)).strftime("%Y-%m-%d")
+    for code in codes:
+        try:
+            df = fdr.DataReader(code, start=start)
+            if df is not None and not df.empty:
+                out[code] = float(df["Close"].iloc[-1])
+        except Exception:
+            continue
+    return out
+
+
 async def _fetch_current_prices(position_rows, bot_user_id):
     if not position_rows:
         return {}
@@ -366,6 +387,7 @@ async def _fetch_current_prices(position_rows, bot_user_id):
     # exchange별 ticker set 및 (user_id, exchange, ticker) 목록 구성
     upbit_tickers: set[str] = set()
     bithumb_tickers: set[str] = set()
+    kr_stock_codes: set[str] = set()
     keys_by_ticker: dict[tuple[str, str], list[tuple]] = defaultdict(list)
 
     for row in position_rows:
@@ -378,7 +400,10 @@ async def _fetch_current_prices(position_rows, bot_user_id):
             upbit_tickers.add(ticker)
         elif exchange == "bithumb":
             bithumb_tickers.add(ticker)
-        # KIS: 공개 현재가 API 없으므로 skip
+        elif exchange in ("kis", "toss") and ticker.isdigit():
+            # 국내주식(숫자 종목코드)만 지원 — 토스 해외주식(알파벳 티커)은 공개 현재가
+            # 소스가 없어 KIS와 동일하게 미지원으로 남겨둔다(현재가 "—" 표시).
+            kr_stock_codes.add(ticker)
 
     prices: dict[tuple, float] = {}
     try:
@@ -410,6 +435,20 @@ async def _fetch_current_prices(position_rows, bot_user_id):
                                 prices[key] = price
     except Exception:
         pass
+
+    if kr_stock_codes:
+        try:
+            kr_prices = await asyncio.wait_for(
+                asyncio.get_event_loop().run_in_executor(None, _fetch_kr_stock_prices_sync, kr_stock_codes),
+                timeout=15,
+            )
+            for code, price in kr_prices.items():
+                if price > 0:
+                    for exchange in ("kis", "toss"):
+                        for key in keys_by_ticker[(exchange, code)]:
+                            prices[key] = price
+        except Exception:
+            pass
 
     return prices
 
