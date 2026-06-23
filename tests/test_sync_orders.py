@@ -260,6 +260,35 @@ async def test_concurrently_removed_order_skips_external_cancel_alert(tmp_path, 
     assert not any("외부 개입" in t for t in sent_texts)
 
 
+# T: Toss 전략 주문이 거래소측에서 취소(state=cancel)되면 KIS와 동일하게
+# pending_reorder로 전환되어야 한다 — exchange == "kis" 하드코딩 시절엔 "외부 개입"으로
+# 오인해 추적을 끊고 재주문을 누락시켰다(사용자 보고: 미체결분이 거래소에서 취소되면
+# 다음날 자동 재주문이 안 됨).
+async def test_toss_strategy_order_cancel_marks_pending_reorder(tmp_path, monkeypatch):
+    om = _make_order_manager(tmp_path)
+    om.add_order("321", "toss", "005930", "uuid-toss-1", 70000, 10, side="bid", strategy="rsitrade")
+    monkeypatch.setattr(main, "order_manager", om)
+
+    mock_adapter = MagicMock()
+    mock_adapter.get_order_status = AsyncMock(return_value={"state": "cancel", "executed_volume": 0.0})
+    mock_adapter.get_exchange = lambda exchange: MagicMock(
+        supports_reserved_orders=True,
+        is_market_open=lambda ticker=None: True,
+        next_check_timestamp=lambda ticker=None: 9_999_999.0,
+    )
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    app = _make_app()
+    await main.sync_orders(app)
+
+    assert om.orders[0]["status"] == "pending_reorder"
+    assert om.orders[0]["next_check_at"] == 9_999_999.0
+    sent_text = app.bot.send_message.call_args.kwargs.get("text", "")
+    assert "토스증권" in sent_text
+    assert "재주문 예정" in sent_text
+    assert "외부 개입" not in sent_text
+
+
 # T: next_check_at이 미래인 주문은 이번 사이클에서 거래소 재조회를 건너뛴다
 async def test_future_next_check_at_skips_order(tmp_path, monkeypatch):
     om = _make_order_manager(tmp_path)
