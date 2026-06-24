@@ -293,3 +293,19 @@ class OrderManager:
     def get_orders_by_group_no(self, user_id, group_no) -> list:
         return [o for o in self.orders
                 if o["user_id"] == str(user_id) and o.get("group_no") == int(group_no)]
+
+    def clear_user_orders(self, user_id) -> int:
+        """해당 유저의 모든 주문 추적을 DB+메모리에서 제거한다. 거래소 취소는 호출자 책임."""
+        user_id = str(user_id)
+        uuids = [o["uuid"] for o in self.orders if o["user_id"] == user_id]
+        if is_db_available():
+            try:
+                get_db().table("orders").delete().eq("user_id", user_id).execute()
+            except Exception as e:
+                _log.error("Failed to clear user orders in DB", exc_info=e, extra={"event": "db_orders_clear_error", "user_id": user_id})
+        self.orders = [o for o in self.orders if o["user_id"] != user_id]
+        for u in uuids:
+            self._uuid_set.discard(u)
+        if not is_db_available():
+            self._save_orders_to_file()
+        return len(uuids)

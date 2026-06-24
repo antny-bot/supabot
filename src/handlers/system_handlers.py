@@ -3,10 +3,11 @@
 `_log`/`GIT_SHA`/`VERSION`/`BUILD_DATE`/`BOT_DISPLAY_NAME`/`user_manager`/
 `order_manager` 등은 main.py 소유 상태로 남는다 (main.<name>으로 접근).
 """
+import asyncio
 import html as _html
 import time
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from main import check_auth, check_details_help
@@ -15,6 +16,8 @@ from core.command_log import log_command
 from core.db import get_db, is_db_available
 from core.formatters import build_help_message, build_account_summary
 from core import trading_gate
+from core.operational_events import append_operational_event
+from core.trade_log import clear_user_trades
 
 
 # --- 디버그용 글로벌 메시지 핸들러 ---
@@ -75,6 +78,97 @@ async def resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
         return
     trading_gate.set_trading_halt(False, by_user_id=str(update.effective_chat.id))
     await update.message.reply_text("✅ 전체 거래를 재개했습니다. 신규 주문이 다시 허용됩니다.")
+
+
+@check_auth
+async def resetuser_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
+    """특정 유저의 주문 추적·실적을 완전 초기화 (관리자 전용). 거래소 미체결 주문은 먼저 취소를 시도한다."""
+    if not user.get("is_admin"):
+        await update.message.reply_text("❌ 어드민 전용 명령어입니다.")
+        return
+    admin_user_id = str(update.effective_chat.id)
+    args = context.args
+    if not args:
+        await update.message.reply_text("⚠️ 리셋할 유저 ID를 입력하세요. 예: <code>/resetuser 123456789</code>", parse_mode="HTML")
+        return
+    target_user_id = args[0]
+    target_user = main.user_manager.get_user(target_user_id)
+    if not target_user:
+        await update.message.reply_text(f"❌ 유저 {_html.escape(target_user_id)}를 찾을 수 없습니다.")
+        return
+
+    open_orders = [o for o in main.order_manager.get_user_orders(target_user_id) if o.get("status") not in ("done", "cancel")]
+    failed = []
+    for ord in open_orders:
+        try:
+            ok = await main.exchange_adapter.cancel_order(target_user_id, ord["exchange"], ord["uuid"], ord["ticker"])
+        except Exception:
+            ok = False
+        if ok:
+            main.order_manager.remove_order(ord["uuid"])
+        else:
+            failed.append(ord)
+        await asyncio.sleep(0.1)
+
+    if failed:
+        lines = "\n".join(f"- [{f['exchange']}] {f['ticker']} ({f['uuid']})" for f in failed)
+        await update.message.reply_text(
+            "⚠️ 다음 미체결 주문의 거래소 취소에 실패하여 리셋을 중단했습니다:\n"
+            f"{_html.escape(lines)}\n\n"
+            "거래소 상태를 직접 확인한 뒤 다시 시도해 주세요.",
+            parse_mode="HTML",
+        )
+        return
+
+    token = main.create_reset_token(admin_user_id, target_user_id)
+    keyboard = [[InlineKeyboardButton("✅ 리셋 확정", callback_data=f"resetrun|{token}"),
+                 InlineKeyboardButton("❌ 취소", callback_data=f"resetabort|{token}")]]
+    await update.message.reply_text(
+        f"🧨 유저 <code>{_html.escape(target_user_id)}</code>의 주문 추적과 거래 실적을 "
+        "<b>완전히 초기화</b>합니다.\n"
+        "(미체결 주문 취소 완료 — orders/trade_logs 전체 삭제, 되돌릴 수 없습니다)\n\n"
+        "계속하시겠습니까?",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="HTML",
+    )
+
+
+async def reset_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    action, token = query.data.split("|", 1)
+    if action == "resetabort":
+        main._pending_reset_users.pop(token, None)
+        await query.edit_message_text("ℹ️ 리셋을 취소했습니다.")
+        return
+
+    admin_user_id = str(query.from_user.id)
+    pending, error = main.pop_valid_reset_token(token, admin_user_id)
+    if error:
+        await query.edit_message_text(f"⚠️ {error}")
+        return
+
+    target_user_id = pending["target_user_id"]
+    order_count = main.order_manager.clear_user_orders(target_user_id)
+    trade_count = clear_user_trades(target_user_id)
+
+    append_operational_event(
+        "warning", "resetuser",
+        f"admin reset user orders/trades",
+        f"admin={admin_user_id} target={target_user_id} orders={order_count} trades={trade_count}",
+    )
+
+    try:
+        await context.bot.send_message(
+            chat_id=target_user_id,
+            text="🧨 관리자에 의해 주문 추적과 거래 실적이 초기화되었습니다.",
+        )
+    except Exception:
+        pass
+
+    await query.edit_message_text(
+        f"✅ 유저 {target_user_id} 리셋 완료 — 주문 {order_count}건, 체결 내역 {trade_count}건 삭제됨."
+    )
 
 
 @check_auth

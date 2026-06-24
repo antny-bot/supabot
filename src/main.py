@@ -37,8 +37,11 @@ from core.manual_order_tokens import (
     pop_valid_manual_order,
     create_cancel_token,
     pop_valid_cancel_token,
+    create_reset_token,
+    pop_valid_reset_token,
     _pending_manual_orders,
     _pending_cancel_orders,
+    _pending_reset_users,
 )
 from core.stock_resolver import find_kr_stock_candidates
 from core.ticker_disambiguation import (
@@ -833,6 +836,7 @@ def main():
     application.add_handler(CommandHandler("dbsync", system_handlers.dbsync_command))
     application.add_handler(CommandHandler("halt", system_handlers.halt_command))
     application.add_handler(CommandHandler("resume", system_handlers.resume_command))
+    application.add_handler(CommandHandler("resetuser", system_handlers.resetuser_command))
     application.add_handler(CommandHandler("nlstats", system_handlers.nlstats_command))
     application.add_handler(CommandHandler("info", system_handlers.info_command))
     for command_name in ACCOUNT_COMMAND_ALIASES:
@@ -864,6 +868,7 @@ def main():
     application.add_handler(CallbackQueryHandler(strategy_handlers.sgridrsi_confirm_callback, pattern="^sgridrsirun"))
     application.add_handler(CallbackQueryHandler(manual_order_handlers.manual_order_confirm_callback, pattern="^(manualrun|manualcancel)\\|"))
     application.add_handler(CallbackQueryHandler(query_handlers.cancel_confirm_callback, pattern="^(cancelrun|cancelabort)\\|"))
+    application.add_handler(CallbackQueryHandler(system_handlers.reset_confirm_callback, pattern="^(resetrun|resetabort)\\|"))
     application.add_handler(CallbackQueryHandler(nl_intent_handlers.natural_language_confirm_callback, pattern="^nl(run|cancel)\\|"))
     application.add_handler(CallbackQueryHandler(ticker_disambiguation_callback, pattern="^tickerpick\\|"))
     application.add_handler(CallbackQueryHandler(nl_intent_handlers.nl_ticker_disambiguation_callback, pattern="^nltickerpick\\|"))

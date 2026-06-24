@@ -77,6 +77,37 @@ def _period_cutoff_ts(period):
     return 0.0
 
 
+def clear_user_trades(user_id, path=TRADE_LOG_PATH) -> int:
+    """해당 유저의 체결 내역을 DB(trade_logs)와 파일(jsonl)에서 모두 제거한다."""
+    user_id = str(user_id)
+    if is_db_available():
+        try:
+            get_db().table("trade_logs").delete().eq("user_id", user_id).execute()
+        except Exception:
+            pass
+    if not os.path.exists(path):
+        return 0
+    with open(path, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+    removed = 0
+    kept = []
+    for line in lines:
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            kept.append(line)
+            continue
+        if rec.get("user_id") == user_id:
+            removed += 1
+        else:
+            kept.append(line)
+    if removed:
+        with open(path, "w", encoding="utf-8") as f:
+            f.writelines(kept)
+        os.chmod(path, 0o600)
+    return removed
+
+
 def read_trades(user_id, period="all", path=TRADE_LOG_PATH):
     cutoff = _period_cutoff_ts(period)
     if not os.path.exists(path):
