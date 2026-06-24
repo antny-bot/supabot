@@ -65,6 +65,7 @@ class TossMixin:
     async def _request_toss(self, user_id, method, path, params=None, body=None, need_account=True):
         keys = self._get_client(user_id, "toss")
         if not keys:
+            _log.error("Toss request skipped: no valid client keys", extra={"event": "toss_request_no_keys", "path": path})
             return None
 
         token = await self._get_toss_token(user_id, keys)
@@ -78,7 +79,15 @@ class TossMixin:
         if need_account:
             account_seq = keys.get("account_seq")
             if not account_seq:
-                return None
+                account_seq = await self._get_toss_account_seq(user_id, keys)
+                if account_seq:
+                    self.user_manager.update_toss_account_seq(user_id, account_seq)
+                else:
+                    _log.error(
+                        "Toss request skipped: account_seq missing and re-fetch failed",
+                        extra={"event": "toss_request_no_account_seq", "path": path},
+                    )
+                    return None
             headers["X-Tossinvest-Account"] = str(account_seq)
 
         try:
@@ -87,9 +96,11 @@ class TossMixin:
             url = f"{self._TOSS_BASE_URL}{path}"
             if method.upper() == "POST":
                 async with session.post(url, json=body, headers=headers) as resp:
+                    status = getattr(resp, "status", None)
                     result = await resp.json()
             else:
                 async with session.get(url, params=params, headers=headers) as resp:
+                    status = getattr(resp, "status", None)
                     result = await resp.json()
             metrics.record_latency("toss", (time.monotonic() - _t0) * 1000)
             if isinstance(result, dict) and result.get("error"):
@@ -101,6 +112,16 @@ class TossMixin:
                         "path": path,
                         "code": err.get("code"),
                         "message": err.get("message"),
+                    },
+                )
+            elif not isinstance(result, dict) or "result" not in result:
+                _log.error(
+                    "Toss API unexpected response shape",
+                    extra={
+                        "event": "toss_unexpected_response",
+                        "path": path,
+                        "status": status,
+                        "body": str(result)[:500],
                     },
                 )
             return result
@@ -314,13 +335,20 @@ class TossExchange(RegularSessionExchange):
         return {"cash": cash_krw, "stocks": stocks, "total_eval": cash_krw + market_value_krw}
 
     async def create_order(self, user_id, client, ticker, side, price, volume, ord_type="limit"):
+        quantity = int(float(volume))
+        if quantity < 1:
+            _log.error(
+                "Toss order skipped: quantity rounds to 0",
+                extra={"event": "toss_quantity_zero", "ticker": ticker, "user_id": str(user_id)},
+            )
+            return None
         toss_side = "BUY" if side == "bid" else "SELL"
         toss_order_type = "MARKET" if ord_type == "market" else "LIMIT"
         body = {
             "symbol": ticker,
             "side": toss_side,
             "orderType": toss_order_type,
-            "quantity": str(int(float(volume))),
+            "quantity": str(quantity),
         }
         if toss_order_type == "LIMIT":
             body["price"] = str(price)
