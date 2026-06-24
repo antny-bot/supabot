@@ -8,6 +8,7 @@ import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from .. import bot_client
 from ..db import get_db
 from ._auth import _require_login, get_session_user
 
@@ -388,6 +389,7 @@ async def _fetch_current_prices(position_rows, bot_user_id):
     upbit_tickers: set[str] = set()
     bithumb_tickers: set[str] = set()
     kr_stock_codes: set[str] = set()
+    stock_requests: list[dict] = []
     keys_by_ticker: dict[tuple[str, str], list[tuple]] = defaultdict(list)
 
     for row in position_rows:
@@ -400,10 +402,12 @@ async def _fetch_current_prices(position_rows, bot_user_id):
             upbit_tickers.add(ticker)
         elif exchange == "bithumb":
             bithumb_tickers.add(ticker)
-        elif exchange in ("kis", "toss") and ticker.isdigit():
-            # 국내주식(숫자 종목코드)만 지원 — 토스 해외주식(알파벳 티커)은 공개 현재가
-            # 소스가 없어 KIS와 동일하게 미지원으로 남겨둔다(현재가 "—" 표시).
-            kr_stock_codes.add(ticker)
+        elif exchange in ("kis", "toss"):
+            # KIS/Toss는 매니저 프로세스에 거래소 자격증명이 없어 직접 조회할 수 없으므로
+            # 봇 프로세스의 /internal/get_prices webhook을 통해 실시간 현재가를 가져온다.
+            stock_requests.append({"user_id": user_id, "exchange": exchange, "ticker": ticker})
+            if ticker.isdigit():
+                kr_stock_codes.add(ticker)
 
     prices: dict[tuple, float] = {}
     try:
@@ -436,15 +440,38 @@ async def _fetch_current_prices(position_rows, bot_user_id):
     except Exception:
         pass
 
-    if kr_stock_codes:
+    stock_keys_with_price: set[tuple[str, str]] = set()
+    if stock_requests:
+        try:
+            results = await asyncio.wait_for(
+                asyncio.get_event_loop().run_in_executor(None, bot_client.get_prices, stock_requests),
+                timeout=15,
+            )
+            for item in results:
+                price = _safe_float(item.get("price"))
+                if price > 0:
+                    key = (str(item.get("user_id")), item.get("exchange"), item.get("ticker"))
+                    prices[key] = price
+                    stock_keys_with_price.add((item.get("exchange"), item.get("ticker")))
+        except Exception:
+            pass
+
+    # 봇 webhook으로 실시간가를 못 가져온 국내(숫자코드) 종목·거래소 조합만 일봉 종가로 보완
+    missing_exchanges_by_code: dict[str, set[str]] = defaultdict(set)
+    for exchange in ("kis", "toss"):
+        for code in kr_stock_codes:
+            if keys_by_ticker[(exchange, code)] and (exchange, code) not in stock_keys_with_price:
+                missing_exchanges_by_code[code].add(exchange)
+
+    if missing_exchanges_by_code:
         try:
             kr_prices = await asyncio.wait_for(
-                asyncio.get_event_loop().run_in_executor(None, _fetch_kr_stock_prices_sync, kr_stock_codes),
+                asyncio.get_event_loop().run_in_executor(None, _fetch_kr_stock_prices_sync, set(missing_exchanges_by_code)),
                 timeout=15,
             )
             for code, price in kr_prices.items():
                 if price > 0:
-                    for exchange in ("kis", "toss"):
+                    for exchange in missing_exchanges_by_code.get(code, ()):
                         for key in keys_by_ticker[(exchange, code)]:
                             prices[key] = price
         except Exception:

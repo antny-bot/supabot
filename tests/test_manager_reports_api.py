@@ -257,3 +257,43 @@ def test_api_reports_holdings_admin_aggregates_multi_user_prices(monkeypatch):
         "roi_pct": 80.0,
         "oversold": False,
     }]
+
+
+def test_fetch_current_prices_uses_bot_webhook_for_toss_and_kis(monkeypatch):
+    """KIS/Toss 보유분은 봇의 /internal/get_prices webhook(bot_client.get_prices)으로
+    실시간가를 조회해야 한다 (해외주식 알파벳 티커 포함, 숫자 종목코드로 제한되지 않음)."""
+    captured = {}
+
+    def fake_get_prices(requests_):
+        captured["requests"] = requests_
+        return [
+            {"user_id": "user-1", "exchange": "toss", "ticker": "005930", "price": 71000.0},
+            {"user_id": "user-1", "exchange": "toss", "ticker": "AAPL", "price": 230.5},
+            # kis 005930은 의도적으로 빠뜨려 FinanceDataReader 폴백을 유도한다.
+        ]
+
+    def fake_fdr_fallback(codes):
+        captured["fallback_codes"] = set(codes)
+        return {"005930": 70500.0}
+
+    monkeypatch.setattr(reports_router.bot_client, "get_prices", fake_get_prices)
+    monkeypatch.setattr(reports_router, "_fetch_kr_stock_prices_sync", fake_fdr_fallback)
+
+    position_rows = [
+        {"user_id": "user-1", "exchange": "toss", "ticker": "005930"},
+        {"user_id": "user-1", "exchange": "toss", "ticker": "AAPL"},
+        {"user_id": "user-1", "exchange": "kis", "ticker": "005930"},
+    ]
+
+    prices = asyncio.run(reports_router._fetch_current_prices(position_rows, "user-1"))
+
+    assert {"user_id": "user-1", "exchange": "toss", "ticker": "005930"} in captured["requests"]
+    assert {"user_id": "user-1", "exchange": "toss", "ticker": "AAPL"} in captured["requests"]
+    assert {"user_id": "user-1", "exchange": "kis", "ticker": "005930"} in captured["requests"]
+
+    # toss는 webhook이 가격을 반환했으므로 폴백 대상에서 빠지고, kis만 폴백된다.
+    assert captured["fallback_codes"] == {"005930"}
+
+    assert prices[("user-1", "toss", "005930")] == 71000.0
+    assert prices[("user-1", "toss", "AAPL")] == 230.5
+    assert prices[("user-1", "kis", "005930")] == 70500.0
