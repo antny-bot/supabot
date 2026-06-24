@@ -212,6 +212,8 @@ FastAPI 백엔드 + React/TypeScript(Vite+Tailwind) SPA 프론트엔드. Synolog
 
 6. **UTF-8.** 소스 파일 내 한글 주석/메시지 처리 시 UTF-8 인코딩 명시.
 
+7. **`/resetuser`(관리자 전용, `system_handlers.resetuser_command`)는 비가역적.** 거래소 미체결 주문 취소 → confirm → 대상 유저의 `orders`/`trade_logs`(DB+`trades.jsonl`) 전체 삭제. 거래소 취소 실패 시 자동 중단되지만, 삭제 자체는 백업 없이는 복구 불가 — 실행 전 Supabase 백업 확보 권장. 상세: `docs/impl/main_handlers.md`.
+
 ## 검증 절차
 
 ```bash
