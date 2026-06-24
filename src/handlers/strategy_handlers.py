@@ -471,7 +471,7 @@ async def rsitrade_confirm_callback(update: Update, context: ContextTypes.DEFAUL
     if not user:
         await query.edit_message_text("❌ 사용자 설정을 찾을 수 없어 주문을 중단합니다.")
         return
-    if ex == "kis" and get_user_rsi_interval(user) != "day":
+    if not main.exchange_adapter.get_exchange(ex).supports_minute_candles() and get_user_rsi_interval(user) != "day":
         await query.edit_message_text(main._KIS_RSI_MINUTE_ERROR)
         return
 
@@ -616,7 +616,7 @@ async def sgridrsi_confirm_callback(update: Update, context: ContextTypes.DEFAUL
     if not user:
         await query.edit_message_text("❌ 사용자 설정을 찾을 수 없어 주문을 중단합니다.")
         return
-    if ex == "kis" and get_user_rsi_interval(user) != "day":
+    if not main.exchange_adapter.get_exchange(ex).supports_minute_candles() and get_user_rsi_interval(user) != "day":
         await query.edit_message_text(main._KIS_RSI_MINUTE_ERROR)
         return
     ok, error_msg = validate_max_order(user, bg / ct, is_usd=is_us_stock_ticker(ex, tk))

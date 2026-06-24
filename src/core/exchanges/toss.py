@@ -191,6 +191,9 @@ class TossExchange(RegularSessionExchange):
     def min_order_amount(self) -> float:
         return 1
 
+    def supports_minute_candles(self) -> bool:
+        return False
+
     def requires_numeric_ticker(self) -> bool:
         return True
 

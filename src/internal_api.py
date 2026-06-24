@@ -183,8 +183,8 @@ async def _internal_execute_rsitrade_handler(request: _web.Request) -> _web.Resp
         if not user:
             return _web.Response(status=404, text="User not found")
 
-        if ex == "kis" and get_user_rsi_interval(user) != "day":
-            return _web.Response(status=400, text="한투 KIS는 일봉(day) 기준 RSI만 지원합니다.")
+        if not _exchange_adapter.get_exchange(ex).supports_minute_candles() and get_user_rsi_interval(user) != "day":
+            return _web.Response(status=400, text="한투/토스는 일봉(day) 기준 RSI만 지원합니다.")
 
         dca_weights = get_dca_weights(ct) if dca_mode else None
         per_order_budgets = [bg * w for w in dca_weights] if dca_weights else [bg / ct] * ct
@@ -272,4 +272,32 @@ async def _internal_cancel_order_handler(request: _web.Request) -> _web.Response
         return _web.Response(text=_json.dumps({"ok": bool(ok)}), content_type="application/json")
     except Exception as e:
         _log.warning("internal cancel_order failed", exc_info=e, extra={"event": "cancel_order_error"})
+        return _web.Response(status=500, text=str(e))
+
+
+async def _internal_get_prices_handler(request: _web.Request) -> _web.Response:
+    """매니저 리포트용 실시간 현재가 조회 (KIS/Toss는 봇 프로세스 내 자격증명이 필요해
+    매니저가 직접 호출할 수 없으므로, 이 webhook을 통해서만 조회 가능하다)."""
+    if not await _verify_webhook_request(request):
+        return _web.Response(status=401)
+    try:
+        data = await request.json()
+        items = data.get("requests") or []
+
+        async def _fetch_one(item):
+            user_id = str(item["user_id"])
+            exchange = item["exchange"]
+            ticker = item["ticker"]
+            try:
+                ticker_data = await _exchange_adapter.get_ticker(exchange, ticker, user_id=user_id)
+            except Exception as e:
+                _log.warning("internal get_prices ticker fetch failed", exc_info=e, extra={"event": "get_prices_error"})
+                ticker_data = None
+            price = float(ticker_data["trade_price"]) if ticker_data and ticker_data.get("trade_price") else 0.0
+            return {"user_id": user_id, "exchange": exchange, "ticker": ticker, "price": price}
+
+        results = await asyncio.gather(*[_fetch_one(item) for item in items])
+        return _web.Response(text=_json.dumps({"prices": results}), content_type="application/json")
+    except Exception as e:
+        _log.warning("internal get_prices failed", exc_info=e, extra={"event": "get_prices_error"})
         return _web.Response(status=500, text=str(e))

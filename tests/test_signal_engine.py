@@ -212,6 +212,24 @@ def test_get_indicators_kis_minute_falls_back_to_day():
     assert calls[0] == "day"
 
 
+def test_get_indicators_toss_minute_falls_back_to_day():
+    """Toss + 분봉 요청 시에도 KIS와 동일하게 interval이 day로 폴백되어야 함."""
+    calls = []
+
+    class TrackingAdapter:
+        async def get_candles(self, exchange, ticker, interval, count, user_id=None):
+            calls.append(interval)
+            return _long_candles()
+        @staticmethod
+        def adjust_price_to_tick(p): return float(p)
+        def get_exchange(self, exchange):
+            return _EXCHANGE_CLASSES[exchange](self)
+
+    engine = SignalEngine(DummyUsers(), TrackingAdapter())
+    asyncio.run(engine.get_indicators("toss", "005930", interval="60"))
+    assert calls[0] == "day"
+
+
 # ── snooze ────────────────────────────────────────────────────────────────────
 
 def test_set_snooze_1h():

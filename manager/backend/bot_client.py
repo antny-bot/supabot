@@ -95,6 +95,22 @@ def cancel_order(user_id: str, exchange: str, uuid: str, ticker: str) -> tuple[b
     except Exception as e:
         return False, str(e)
 
+def get_prices(requests_: list[dict]) -> list[dict]:
+    """봇 프로세스에 있는 거래소 자격증명을 통해 실시간 현재가를 조회한다.
+
+    requests_: [{"user_id": str, "exchange": str, "ticker": str}, ...]
+    반환: [{"user_id", "exchange", "ticker", "price"}, ...] (실패 시 빈 리스트)
+    """
+    if not requests_:
+        return []
+    try:
+        resp = _send_signed_request("/internal/get_prices", {"requests": requests_})
+        if resp.ok:
+            return resp.json().get("prices", [])
+        return []
+    except Exception:
+        return []
+
 def execute_rsitrade(user_id: str, exchange: str, ticker: str, buy_rsi_range: str, sell_rsi_range: str, count: int, budget: float, weighted: bool = False) -> tuple[bool, str]:
     """Send RSITrade execution request via the bot's /internal/execute_rsitrade endpoint with signature."""
     try:

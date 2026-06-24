@@ -765,6 +765,7 @@ async def post_init(application):
         notify_app.router.add_post("/internal/execute_sgrid", internal_api._internal_execute_sgrid_handler)
         notify_app.router.add_post("/internal/execute_rsitrade", internal_api._internal_execute_rsitrade_handler)
         notify_app.router.add_post("/internal/cancel_order", internal_api._internal_cancel_order_handler)
+        notify_app.router.add_post("/internal/get_prices", internal_api._internal_get_prices_handler)
         _notify_runner = _web.AppRunner(notify_app)
         await _notify_runner.setup()
         port = int(os.environ.get("INTERNAL_PORT", 8765))
