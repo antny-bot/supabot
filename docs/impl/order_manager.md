@@ -52,6 +52,7 @@ manager.update_next_check_at(uuid, next_check_at)
 manager.remove_order(uuid)
 manager.get_user_orders(user_id, exchange=None)
 manager.get_strategy_orders(user_id, strategy)
+manager.clear_user_orders(user_id)  # 해당 유저의 모든 주문을 DB+메모리에서 삭제(거래소 취소는 호출부 책임), 삭제 건수 반환
 ```
 
 `on_order_added` 콜백: `post_init`에서 설정. 새 주문 시 `_order_wake_event` 즉시 깨움 → 폴링 대기 없이 즉시 sync.
@@ -75,3 +76,4 @@ manager.get_strategy_orders(user_id, strategy)
 
 ## 참조
 - KIS pending_reorder 상세 흐름: `docs/detail/kis_market_policy.md`
+- 유저 단위 전체 리셋(`/resetuser`, 거래소 취소 + `clear_user_orders` + `trade_log.clear_user_trades`): `docs/impl/main_handlers.md`

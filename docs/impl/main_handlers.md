@@ -162,6 +162,8 @@ API 키 포함 메시지는 캡처 즉시 삭제됨 (`delete_message`).
 
 `/cancel`, `/cancelno`도 동일한 패턴(`_pending_cancel_orders`, `create_cancel_token`/`pop_valid_cancel_token`, 10분 만료)으로 취소 대상 주문 목록을 먼저 보여주고, `cancelrun|<token>`(확정) / `cancelabort|<token>`(취소) 콜백으로 실제 취소를 실행한다 (`query_handlers.cancel_confirm_callback`).
 
+`/resetuser <user_id>`(관리자 전용, `system_handlers.resetuser_command`)는 유저의 주문 추적·실적이 꼬였을 때 완전 초기화한다. 동작 순서: ① 해당 유저의 미체결 주문(`wait`/`partial`/`pending_reorder`)을 거래소에 취소 요청(기존 `exchange_adapter.cancel_order()` 재사용) — 하나라도 취소 실패하면 중단하고 실패 목록을 보여줌 ② 모두 성공 시 `_pending_reset_users`(`create_reset_token`/`pop_valid_reset_token`, 10분 만료) 토큰으로 confirm 버튼 표시 ③ `resetrun|<token>` 확정 시 `order_manager.clear_user_orders()` + `trade_log.clear_user_trades()`로 `orders`/`trade_logs`(DB+`trades.jsonl` 파일) 를 모두 삭제하고 `operational_events`에 감사 로그를 남김, 대상 유저에게 알림 발송 (`system_handlers.reset_confirm_callback`). `command_logs`/`nl_logs`/`strategy_templates`는 범위에서 제외.
+
 ## 거래 안전장치 (kill-switch · 노출 한도)
 
 - **글로벌 거래 중지**: 관리자 `/halt`(중지)/`/resume`(재개). 상태는 `system_config.trading_halt`(`'1'`/`'0'`, DB 미사용 시 `data/trading_halt.flag` 파일 폴백)에 저장. `core.trading_gate.assert_can_trade()`가 수동/전략 주문 confirm 및 KIS 재주문(`sync_orders`) 직전에 차단한다. **손절·익절 등 보호성 매도는 차단하지 않는다**(포지션 방치 방지).
