@@ -15,6 +15,7 @@ from aiohttp import web as _web
 from core.bot_logger import get_logger
 from core.order_execution import execute_grid_orders, execute_rsitrade_orders
 from core.parsers import get_dca_weights, get_user_rsi_interval, validate_max_order
+from core.trade_log import append_trade
 
 _log = get_logger("internal_api")
 
@@ -288,7 +289,53 @@ async def _internal_sync_order_handler(request: _web.Request) -> _web.Response:
         if status_info:
             state = status_info["state"]
             executed = float(status_info["executed_volume"])
-            _order_manager.update_order_fill(uuid, executed, state)
+            
+            if state in ("done", "cancel"):
+                if state == "done":
+                    already_logged = False
+                    from core.db import is_db_available, get_db
+                    if is_db_available():
+                        try:
+                            res = get_db().table("trade_logs").select("id").eq("uuid", uuid).execute()
+                            if res.data:
+                                already_logged = True
+                        except Exception:
+                            pass
+                    
+                    from core.trade_log import TRADE_LOG_PATH
+                    if not already_logged and os.path.exists(TRADE_LOG_PATH):
+                        try:
+                            with open(TRADE_LOG_PATH, "r", encoding="utf-8") as f:
+                                for line in f:
+                                    if f'"uuid": "{uuid}"' in line or f'"uuid":"{uuid}"' in line:
+                                        already_logged = True
+                                        break
+                        except Exception:
+                            pass
+                    
+                    if not already_logged:
+                        ord_obj = None
+                        for o in _order_manager.orders:
+                            if o["uuid"] == uuid:
+                                ord_obj = o
+                                break
+                        if ord_obj:
+                            fee_amount = float(status_info.get("fee_amount") or 0.0)
+                            append_trade(
+                                user_id=user_id,
+                                exchange=exchange,
+                                ticker=ticker,
+                                side=ord_obj["side"],
+                                price=ord_obj["price"],
+                                volume=executed if executed else float(ord_obj.get("filled_volume") or ord_obj["volume"]),
+                                strategy=ord_obj.get("strategy", "manual"),
+                                uuid=uuid,
+                                fee_amount=fee_amount
+                            )
+                _order_manager.remove_order(uuid)
+            else:
+                _order_manager.update_order_fill(uuid, executed, state)
+                
             await trigger_realtime_sync()
             return _web.Response(
                 text=_json.dumps({"ok": True, "source": "exchange", "state": state, "executed": executed}),
@@ -312,7 +359,52 @@ async def _internal_force_update_order_handler(request: _web.Request) -> _web.Re
         uuid = data["uuid"]
         state = data["state"]
         executed = float(data.get("filled_volume", 0.0))
-        _order_manager.update_order_fill(uuid, executed, state)
+        
+        ord_obj = None
+        for o in _order_manager.orders:
+            if o["uuid"] == uuid:
+                ord_obj = o
+                break
+                
+        if state in ("done", "cancel"):
+            if state == "done" and ord_obj:
+                already_logged = False
+                from core.db import is_db_available, get_db
+                if is_db_available():
+                    try:
+                        res = get_db().table("trade_logs").select("id").eq("uuid", uuid).execute()
+                        if res.data:
+                            already_logged = True
+                    except Exception:
+                        pass
+                
+                from core.trade_log import TRADE_LOG_PATH
+                if not already_logged and os.path.exists(TRADE_LOG_PATH):
+                    try:
+                        with open(TRADE_LOG_PATH, "r", encoding="utf-8") as f:
+                            for line in f:
+                                if f'"uuid": "{uuid}"' in line or f'"uuid":"{uuid}"' in line:
+                                    already_logged = True
+                                    break
+                    except Exception:
+                        pass
+                
+                if not already_logged:
+                    append_trade(
+                        user_id=ord_obj["user_id"],
+                        exchange=ord_obj["exchange"],
+                        ticker=ord_obj["ticker"],
+                        side=ord_obj["side"],
+                        price=ord_obj["price"],
+                        volume=executed if executed else float(ord_obj.get("filled_volume") or ord_obj["volume"]),
+                        strategy=ord_obj.get("strategy", "manual"),
+                        uuid=uuid,
+                        fee_amount=0.0
+                    )
+            _order_manager.remove_order(uuid)
+        else:
+            _order_manager.update_order_fill(uuid, executed, state)
+            
         await trigger_realtime_sync()
         return _web.Response(text=_json.dumps({"ok": True}), content_type="application/json")
     except Exception as e:
