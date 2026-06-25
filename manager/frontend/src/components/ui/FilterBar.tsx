@@ -14,6 +14,7 @@ interface FilterBarProps {
   isOpen?: boolean
   onToggle?: () => void
   className?: string
+  disabled?: boolean
 }
 
 export default function FilterBar({
@@ -25,6 +26,7 @@ export default function FilterBar({
   isOpen = false,
   onToggle,
   className = '',
+  disabled = false,
 }: FilterBarProps) {
   const btnClass = (active: boolean) =>
     `px-3 py-1.5 rounded-lg text-app-caption font-medium transition-colors ${
@@ -50,9 +52,10 @@ export default function FilterBar({
   const isActive = value !== ''
 
   return (
-    <div className={`flex items-center ${className}`}>
+    <div className={`flex items-center transition-all duration-200 ${disabled ? 'opacity-40 pointer-events-none' : ''} ${className}`}>
       <button
         onClick={onToggle}
+        disabled={disabled}
         className={`inline-flex shrink-0 items-center gap-1.5 ${btnClass(isActive)}`}
       >
         {summaryLabel}
@@ -68,7 +71,7 @@ export default function FilterBar({
         }`}
       >
         <div className="overflow-hidden min-w-0">
-          <div className="flex flex-nowrap items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-800/40">
+          <div className="flex flex-nowrap items-center gap-1.5 p-0.5">
             {options.map((opt) => (
               <button
                 key={opt.value}

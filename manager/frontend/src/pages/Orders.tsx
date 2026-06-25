@@ -268,6 +268,7 @@ export default function Orders() {
           options={STATUS_OPTIONS}
           value={status}
           onChange={handleFilterChange(setStatus)}
+          disabled={expandedFilter !== null && expandedFilter !== 'status'}
         />
         <FilterBar
           label="거래소"
@@ -277,6 +278,7 @@ export default function Orders() {
           options={EXCHANGE_OPTIONS}
           value={exchange}
           onChange={handleFilterChange(setExchange)}
+          disabled={expandedFilter !== null && expandedFilter !== 'exchange'}
         />
         <FilterBar
           label="구분"
@@ -286,6 +288,7 @@ export default function Orders() {
           options={SIDE_OPTIONS}
           value={side}
           onChange={handleFilterChange(setSide)}
+          disabled={expandedFilter !== null && expandedFilter !== 'side'}
         />
         <DateRangePicker
           label="기간"
@@ -294,8 +297,9 @@ export default function Orders() {
           onToggle={() => toggleFilter('date')}
           value={dateRange}
           onChange={handleDateRangeChange}
+          disabled={expandedFilter !== null && expandedFilter !== 'date'}
         />
-        <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 dark:border-slate-700 dark:bg-slate-800">
+        <div className={`flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 dark:border-slate-700 dark:bg-slate-800 transition-all duration-200 ${expandedFilter !== null ? 'opacity-40 pointer-events-none' : ''}`}>
           <span className="text-xs text-slate-500 dark:text-slate-400">#배치</span>
           <input
             type="number"
@@ -303,6 +307,7 @@ export default function Orders() {
             value={groupNoInput}
             onChange={handleGroupNoInputChange}
             placeholder="번호"
+            disabled={expandedFilter !== null}
             className="w-16 bg-transparent text-xs text-slate-700 outline-none dark:text-slate-300 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           />
           {groupNoFilter !== undefined && (
@@ -315,7 +320,8 @@ export default function Orders() {
         {hasAnyFilter && (
           <button
             onClick={handleResetFilters}
-            className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700"
+            disabled={expandedFilter !== null}
+            className={`flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-600 transition-all duration-200 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 ${expandedFilter !== null ? 'opacity-40 pointer-events-none' : ''}`}
             title="필터 초기화"
           >
             <RotateCcw size={12} />

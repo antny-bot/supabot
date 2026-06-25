@@ -58,6 +58,7 @@ interface Props {
   onToggle?: () => void
   className?: string
   label?: string
+  disabled?: boolean
 }
 
 export default function DateRangePicker({
@@ -68,6 +69,7 @@ export default function DateRangePicker({
   onToggle,
   className = '',
   label,
+  disabled = false,
 }: Props) {
   const handlePreset = (mode: DateRangeValue['mode']) => {
     if (mode === 'custom') {
@@ -147,9 +149,10 @@ export default function DateRangePicker({
   const summaryLabel = label ? `${label}: ${getSummaryLabel(value)}` : getSummaryLabel(value)
 
   return (
-    <div className={`flex items-center ${className}`}>
+    <div className={`flex items-center transition-all duration-200 ${disabled ? 'opacity-40 pointer-events-none' : ''} ${className}`}>
       <button
         onClick={onToggle}
+        disabled={disabled}
         className={`inline-flex shrink-0 items-center gap-1.5 px-3 py-1.5 rounded-lg text-app-caption font-medium transition-colors ${
           value.mode !== 'all'
             ? 'bg-primary-600 text-white shadow-sm'
@@ -169,7 +172,7 @@ export default function DateRangePicker({
         }`}
       >
         <div className="overflow-hidden min-w-0">
-          <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-800/40">
+          <div className="flex items-center gap-1.5 p-0.5">
             <div className="flex flex-nowrap gap-1.5">
               {PRESETS.map((preset) => (
                 <button
@@ -190,7 +193,7 @@ export default function DateRangePicker({
             </div>
 
             {value.mode === 'custom' && (
-              <div className="flex shrink-0 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-1.5 dark:border-slate-700 dark:bg-slate-800/50">
+              <div className="flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50/50 p-1 dark:border-slate-700 dark:bg-slate-800/20">
                 <input
                   type="date"
                   value={value.from}

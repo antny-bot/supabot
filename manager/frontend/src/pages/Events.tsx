@@ -69,9 +69,11 @@ export function EventsContent() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <FilterBar collapsible isOpen={expandedFilter === 'state'} onToggle={() => toggleFilter('state')}
-          options={STATE_OPTIONS} value={state} onChange={setState} />
+          options={STATE_OPTIONS} value={state} onChange={setState}
+          disabled={expandedFilter !== null && expandedFilter !== 'state'} />
         <FilterBar collapsible isOpen={expandedFilter === 'level'} onToggle={() => toggleFilter('level')}
-          options={LEVEL_OPTIONS} value={level} onChange={setLevel} />
+          options={LEVEL_OPTIONS} value={level} onChange={setLevel}
+          disabled={expandedFilter !== null && expandedFilter !== 'level'} />
       </div>
 
       {error && <ErrorBanner message={error} />}

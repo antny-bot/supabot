@@ -143,13 +143,13 @@ Prefer these app tokens over page-local `text-*` sizing:
 #### 2. 가로 아코디언 — 다중 필터 바 (`FilterBar`, `DateRangePicker`)
 닫혀있을 때 필터 버튼들을 밀착시키고, 펼쳐질 때 우측 공간을 확보한다.
 ```tsx
-<div className={`flex items-center ${className}`}>
-  <button onClick={onToggle} className="shrink-0">{/* trigger chip */}</button>
+<div className={`flex items-center transition-all duration-200 ${disabled ? 'opacity-40 pointer-events-none' : ''} ${className}`}>
+  <button onClick={onToggle} disabled={disabled} className="shrink-0">{/* trigger chip */}</button>
   <div className={`grid transition-all duration-200 ease-in-out ${
     isOpen ? 'grid-cols-[1fr] opacity-100 ml-1.5' : 'grid-cols-[0fr] opacity-0 ml-0'
   }`}>
     <div className="overflow-hidden min-w-0">
-      <div className="flex flex-nowrap items-center gap-1.5 whitespace-nowrap">
+      <div className="flex flex-nowrap items-center gap-1.5 p-0.5 whitespace-nowrap">
         {/* filter options */}
       </div>
     </div>
@@ -157,6 +157,10 @@ Prefer these app tokens over page-local `text-*` sizing:
 </div>
 ```
 아이콘: `ChevronRight`, 열릴 때 180°(좌측 방향) 회전. **주의**: 펼쳐지는 동안 줄바꿈이 생기면 애니메이션이 끊기므로 `flex-nowrap`+`whitespace-nowrap` 필수.
+
+##### 가로 아코디언 필터 디자인 규칙
+- **경계선 및 테두리 최소화**: 아코디언이 펼쳐져 나타나는 옵션 목록 컨테이너에 전체 테두리(`border border-slate-200`)나 배경색(`bg-slate-50`)을 두르지 않는다. 복잡한 경계선은 화면을 촌스럽고 혼란스럽게 만든다. 대신 컨테이너는 단순히 padding/gap(`p-0.5 gap-1.5`)만 남기고, 내부 버튼들이 각자의 보더와 배경색을 그대로 유지해 자연스럽게 노출되도록 한다.
+- **비활성(Dimmed) 처리 연동**: 다중 필터가 배치된 화면에서 하나의 필터가 펼쳐져 활성화되면, 나머지 펼쳐지지 않은 다른 필터(및 인접 검색창, 리셋 버튼 등)는 `disabled` 처리와 함께 시각적으로 흐려져야 한다 (`opacity-40 pointer-events-none transition-all duration-200`). 이를 통해 사용자가 현재 조작하고 있는 활성 필터 영역에 완전히 집중할 수 있도록 돕는다.
 
 **공통 규칙**: 표준 duration **200ms ease-in-out**(제품적 이유 없이 변경 금지) · 트리거 칩은 항상 마운트 유지(unmount/remount 금지) · `overflow-hidden`+`min-h-0`(또는 `min-w-0`) 필수(없으면 `0fr`로 완전히 수축되지 않음) · `grid-rows-[0fr]`/`grid-cols-[1fr]`은 Tailwind JIT arbitrary value로 지원됨.
 
