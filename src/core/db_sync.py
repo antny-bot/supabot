@@ -76,14 +76,18 @@ async def _process_queue():
     _log.info("DB Connection recovered. Starting DB sync process...")
     
     async with _lock:
-        failed_tasks = []
+        # 큐 순서대로 처리하고, 실패한 task 이후는 시도하지 않고 그대로 큐에 남긴다.
+        # 처리 도중 사라진 task가 없도록 "맨 앞부터 성공한 개수"만 잘라낸다 — 실패
+        # task 1개를 제외한 나머지 전체 길이로 성공 개수를 추정하면 break 이후
+        # 아직 시도조차 안 된 task들까지 큐에서 통째로 사라진다(과거 버그).
+        processed = 0
         for task in list(_queue):
             action = task["action"]
             table = task["table"]
             key_col = task["key_col"]
             key_val = task["key_val"]
             data = task["data"]
-            
+
             try:
                 db = get_db()
                 if action == "upsert":
@@ -91,17 +95,15 @@ async def _process_queue():
                 elif action == "delete":
                     await db.table(table).delete().eq(key_col, key_val).execute_async()
                 _log.info(f"Successfully synced task: {action} on {table} ({key_val})")
+                processed += 1
             except Exception as e:
                 _log.error(f"Failed to sync task: {action} on {table} ({key_val}), will retry later", exc_info=e)
-                failed_tasks.append(task)
                 break
-                
-        success_count = len(_queue) - len(failed_tasks)
-        if success_count > 0:
-            remaining = _queue[success_count:]
-            _queue = failed_tasks + remaining
+
+        if processed > 0:
+            _queue = _queue[processed:]
             _save_queue()
-            _log.info(f"DB sync iteration finished: {success_count} tasks synced, {len(_queue)} tasks remaining")
+            _log.info(f"DB sync iteration finished: {processed} tasks synced, {len(_queue)} tasks remaining")
 
 async def sync_loop(interval=30):
     """주기적으로 큐를 처리하는 루프"""
