@@ -95,6 +95,34 @@ def cancel_order(user_id: str, exchange: str, uuid: str, ticker: str) -> tuple[b
     except Exception as e:
         return False, str(e)
 
+def sync_order(user_id: str, exchange: str, uuid: str, ticker: str) -> tuple[bool, str, dict | None]:
+    """Sync a single order's status from the exchange via the bot's /internal/sync_order endpoint."""
+    try:
+        resp = _send_signed_request(
+            "/internal/sync_order",
+            {"user_id": user_id, "exchange": exchange, "uuid": uuid, "ticker": ticker},
+        )
+        if resp.ok:
+            data = resp.json()
+            return data.get("ok", False), data.get("error", ""), data
+        return False, resp.text or f"HTTP 에러 {resp.status_code}", None
+    except Exception as e:
+        return False, str(e), None
+
+def force_update_order(uuid: str, state: str, filled_volume: float) -> tuple[bool, str]:
+    """Force update a single order's status and filled volume via the bot's /internal/force_update_order endpoint."""
+    try:
+        resp = _send_signed_request(
+            "/internal/force_update_order",
+            {"uuid": uuid, "state": state, "filled_volume": filled_volume},
+        )
+        if resp.ok:
+            data = resp.json()
+            return data.get("ok", False), ""
+        return False, resp.text or f"HTTP 에러 {resp.status_code}"
+    except Exception as e:
+        return False, str(e)
+
 def get_prices(requests_: list[dict]) -> list[dict]:
     """봇 프로세스에 있는 거래소 자격증명을 통해 실시간 현재가를 조회한다.
 

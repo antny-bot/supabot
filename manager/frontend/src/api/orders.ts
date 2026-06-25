@@ -25,3 +25,12 @@ export const fetchOrders = (
 
 export const cancelOrder = (uuid: string) =>
   api.post<{ ok: boolean; error?: string }>(`/api/orders/${encodeURIComponent(uuid)}/cancel`, {})
+
+export const syncOrder = (uuid: string) =>
+  api.post<{ ok: boolean; error?: string; data?: any }>(`/api/orders/${encodeURIComponent(uuid)}/sync`, {})
+
+export const forceUpdateOrder = (uuid: string, state: string, filledVolume: number) =>
+  api.post<{ ok: boolean; error?: string }>(`/api/orders/${encodeURIComponent(uuid)}/force-update`, {
+    state,
+    filled_volume: filledVolume,
+  })

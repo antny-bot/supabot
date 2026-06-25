@@ -25,7 +25,7 @@ KST = timezone(timedelta(hours=9))
 | /help, /commands | `help_command` | 전체 커맨드 메뉴 |
 | /info | `info_command` | build_info.py의 버전/빌드 정보 |
 | /config, /cfg | `config_command` (ConversationHandler) | 다단계 키 설정 |
-| /whomai, /me | `whoami_command` | 내 ID, 권한, 활성 상태 확인 |
+| /whoami, /me | `whoami_command` | 내 ID, 권한, 활성 상태 확인 |
 | /asset | `asset_command` | 포트폴리오 전체 잔고 |
 | /price, /p | `price_command` | 실시간 시세 |
 | /indicators, /ind | `indicators_command` | RSI/MACD/BB/Stoch 멀티지표 |
@@ -202,5 +202,5 @@ preprocess_natural_language_intent(text, user)  # 조회성 자연어 전처리
 append_natural_language_log(text, llm_intent, final_intent)  # 익명 로그 저장 (nl_logs)
 
 # core.formatters
-build_account_summary(user_id, user)  # /whomai 응답 생성
+build_account_summary(user_id, user)  # /whoami 응답 생성
 ```

@@ -75,10 +75,10 @@ def test_help_intent_runs_immediately():
     assert nl_intent_handlers._is_immediate_intent("help") is True
 
 
-def test_whomai_is_registered_and_me_is_alias():
+def test_whoami_is_registered_and_me_is_alias():
     commands = dict(main.DEFAULT_BOT_COMMANDS)
 
-    assert commands["whomai"] == "내 계정 권한 확인"
+    assert commands["whoami"] == "내 계정 권한 확인"
     assert "me" in main.ACCOUNT_COMMAND_ALIASES
     assert "me" not in commands
 

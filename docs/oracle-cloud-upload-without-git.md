@@ -130,7 +130,7 @@ USER_SECRET_KEY=...
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-Fernet 형식이 아닌 임의 문자열을 넣으면 새 API 키 저장이 실패합니다. 이미 `enc:v1:`로 저장된 `users.json`은 암호화할 때 사용한 같은 `USER_SECRET_KEY`가 있어야 복호화됩니다. 키가 다르면 봇은 기동되지만 `/whomai`에 `보안 키: 복호화 오류`가 표시되고 거래소/Gemini 키는 사용할 수 없습니다.
+Fernet 형식이 아닌 임의 문자열을 넣으면 새 API 키 저장이 실패합니다. 이미 `enc:v1:`로 저장된 `users.json`은 암호화할 때 사용한 같은 `USER_SECRET_KEY`가 있어야 복호화됩니다. 키가 다르면 봇은 기동되지만 `/whoami`에 `보안 키: 복호화 오류`가 표시되고 거래소/Gemini 키는 사용할 수 없습니다.
 
 ## 6. 업로드 후 배포
 

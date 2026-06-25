@@ -386,8 +386,10 @@ def build_start_menu_message(user, bot_name=BOT_DISPLAY_NAME):
 
 def build_help_message(user, bot_name=BOT_DISPLAY_NAME):
     admin_lines = [
+        f"<code>/halt</code> — 글로벌 거래 중지 (관리자 전용)",
+        f"<code>/resume</code> — 글로벌 거래 재개 (관리자 전용)",
+        f"<code>/resetuser</code> [유저ID] — 유저 주문/실적 완전 초기화 (관리자 전용)",
         f"<code>/nlstats</code> — 자연어 전처리 후보 통계 (관리자 전용)",
-        f"<code>/diag</code> — 운영 진단 (관리자 전용)",
         f"<code>/dbsync</code> — 주문 DB 수동 동기화 (관리자 전용)",
     ] if user.get("is_admin") else []
 

@@ -106,13 +106,13 @@ signal_engine = SignalEngine(user_manager, exchange_adapter)
 _order_wake_event: asyncio.Event = None  # post_init에서 초기화
 _pending_nl_intents = {}
 RSI_GRID_COMMAND_ALIASES = ("rsigrid", "rsitrade", "gridrsi")
-ACCOUNT_COMMAND_ALIASES = ("whomai", "me")
+ACCOUNT_COMMAND_ALIASES = ("whoami", "me")
 DEFAULT_BOT_COMMANDS = [
     # 시스템
     ("start", "시스템 접속 및 메뉴"),
     ("help", "전체 명령어 도움말"),
     ("info", "버전 및 빌드 정보"),
-    ("whomai", "내 계정 권한 확인"),
+    ("whoami", "내 계정 권한 확인"),
     # 자산
     ("asset", "통합 자산 현황"),
     ("price", "실시간 시세 조회"),
@@ -768,6 +768,8 @@ async def post_init(application):
         notify_app.router.add_post("/internal/execute_sgrid", internal_api._internal_execute_sgrid_handler)
         notify_app.router.add_post("/internal/execute_rsitrade", internal_api._internal_execute_rsitrade_handler)
         notify_app.router.add_post("/internal/cancel_order", internal_api._internal_cancel_order_handler)
+        notify_app.router.add_post("/internal/sync_order", internal_api._internal_sync_order_handler)
+        notify_app.router.add_post("/internal/force_update_order", internal_api._internal_force_update_order_handler)
         notify_app.router.add_post("/internal/get_prices", internal_api._internal_get_prices_handler)
         _notify_runner = _web.AppRunner(notify_app)
         await _notify_runner.setup()

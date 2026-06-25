@@ -145,3 +145,80 @@ async def api_cancel_order(uuid: str, user: dict = Depends(get_current_user)):
         raise
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.post("/api/orders/{uuid}/sync")
+async def api_sync_order(uuid: str, user: dict = Depends(get_current_user)):
+    is_admin = user["is_admin"]
+    bot_user_id = user["bot_user_id"]
+
+    if not is_admin and not bot_user_id:
+        raise HTTPException(status_code=403, detail="연결된 봇 계정이 없습니다.")
+
+    try:
+        db = get_db()
+        res = await db.table("orders").select("uuid,user_id,exchange,ticker").eq("uuid", uuid).execute()
+        rows = res.data
+        if not rows:
+            raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다.")
+        order = rows[0]
+
+        if not is_admin and order["user_id"] != bot_user_id:
+            raise HTTPException(status_code=403, detail="권한이 없습니다.")
+
+        ok, err, data = bot_client.sync_order(
+            user_id=order["user_id"],
+            exchange=order["exchange"],
+            uuid=order["uuid"],
+            ticker=order["ticker"],
+        )
+        if ok:
+            return JSONResponse({"ok": True, "data": data})
+        return JSONResponse({"ok": False, "error": err}, status_code=502)
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.post("/api/orders/{uuid}/force-update")
+async def api_force_update_order(
+    uuid: str,
+    payload: dict,
+    user: dict = Depends(get_current_user)
+):
+    is_admin = user["is_admin"]
+    bot_user_id = user["bot_user_id"]
+
+    if not is_admin and not bot_user_id:
+        raise HTTPException(status_code=403, detail="연결된 봇 계정이 없습니다.")
+
+    try:
+        db = get_db()
+        res = await db.table("orders").select("uuid,user_id").eq("uuid", uuid).execute()
+        rows = res.data
+        if not rows:
+            raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다.")
+        order = rows[0]
+
+        if not is_admin and order["user_id"] != bot_user_id:
+            raise HTTPException(status_code=403, detail="권한이 없습니다.")
+
+        state = payload.get("state")
+        filled_volume = float(payload.get("filled_volume", 0.0))
+
+        if state not in ("wait", "partial", "done", "cancel", "pending_reorder", "reserved", "stoploss"):
+            raise HTTPException(status_code=400, detail="유효하지 않은 주문 상태입니다.")
+
+        ok, err = bot_client.force_update_order(
+            uuid=uuid,
+            state=state,
+            filled_volume=filled_volume
+        )
+        if ok:
+            return JSONResponse({"ok": True})
+        return JSONResponse({"ok": False, "error": err}, status_code=502)
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)

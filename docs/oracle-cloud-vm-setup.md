@@ -226,7 +226,7 @@ INTERNAL_PORT=8765
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-Fernet 형식이 아닌 임의 문자열을 넣으면 새 API 키 저장이 실패합니다. 이미 암호화된 `data/users.json`은 암호화할 때 사용한 같은 `USER_SECRET_KEY`가 필요합니다. 키가 다르면 봇은 기동되지만 `/whomai`에 `보안 키: 복호화 오류`가 표시되고 거래소/Gemini 키는 사용할 수 없습니다.
+Fernet 형식이 아닌 임의 문자열을 넣으면 새 API 키 저장이 실패합니다. 이미 암호화된 `data/users.json`은 암호화할 때 사용한 같은 `USER_SECRET_KEY`가 필요합니다. 키가 다르면 봇은 기동되지만 `/whoami`에 `보안 키: 복호화 오류`가 표시되고 거래소/Gemini 키는 사용할 수 없습니다.
 
 파일 권한도 제한하세요.
 

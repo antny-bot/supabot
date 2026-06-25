@@ -275,6 +275,51 @@ async def _internal_cancel_order_handler(request: _web.Request) -> _web.Response
         return _web.Response(status=500, text=str(e))
 
 
+async def _internal_sync_order_handler(request: _web.Request) -> _web.Response:
+    if not await _verify_webhook_request(request):
+        return _web.Response(status=401)
+    try:
+        data = await request.json()
+        user_id = data["user_id"]
+        exchange = data["exchange"]
+        uuid = data["uuid"]
+        ticker = data["ticker"]
+        status_info = await _exchange_adapter.get_order_status(user_id, exchange, uuid, ticker)
+        if status_info:
+            state = status_info["state"]
+            executed = float(status_info["executed_volume"])
+            _order_manager.update_order_fill(uuid, executed, state)
+            await trigger_realtime_sync()
+            return _web.Response(
+                text=_json.dumps({"ok": True, "source": "exchange", "state": state, "executed": executed}),
+                content_type="application/json"
+            )
+        else:
+            return _web.Response(
+                text=_json.dumps({"ok": False, "error": "거래소에서 주문 정보를 찾을 수 없습니다."}),
+                content_type="application/json"
+            )
+    except Exception as e:
+        _log.warning("internal sync_order failed", exc_info=e, extra={"event": "sync_order_error"})
+        return _web.Response(status=500, text=str(e))
+
+
+async def _internal_force_update_order_handler(request: _web.Request) -> _web.Response:
+    if not await _verify_webhook_request(request):
+        return _web.Response(status=401)
+    try:
+        data = await request.json()
+        uuid = data["uuid"]
+        state = data["state"]
+        executed = float(data.get("filled_volume", 0.0))
+        _order_manager.update_order_fill(uuid, executed, state)
+        await trigger_realtime_sync()
+        return _web.Response(text=_json.dumps({"ok": True}), content_type="application/json")
+    except Exception as e:
+        _log.warning("internal force_update_order failed", exc_info=e, extra={"event": "force_update_order_error"})
+        return _web.Response(status=500, text=str(e))
+
+
 async def _internal_get_prices_handler(request: _web.Request) -> _web.Response:
     """매니저 리포트용 실시간 현재가 조회 (KIS/Toss는 봇 프로세스 내 자격증명이 필요해
     매니저가 직접 호출할 수 없으므로, 이 webhook을 통해서만 조회 가능하다)."""

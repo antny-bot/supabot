@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { usePersistedState } from '../hooks/usePersistedState'
-import { X, RotateCcw } from 'lucide-react'
-import { fetchOrders, cancelOrder } from '../api/orders'
+import { X, RotateCcw, RefreshCw } from 'lucide-react'
+import { fetchOrders, cancelOrder, syncOrder, forceUpdateOrder } from '../api/orders'
 import type { OrdersData } from '../types'
 import Badge from '../components/ui/Badge'
 import DateRangePicker, { type DateRangeValue } from '../components/ui/DateRangePicker'
@@ -60,6 +60,12 @@ export default function Orders() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [cancellingUuid, setCancellingUuid] = useState<string | null>(null)
+  const [syncingUuid, setSyncingUuid] = useState<string | null>(null)
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
+  const [editingOrder, setEditingOrder] = useState<any | null>(null)
+  const [editState, setEditState] = useState('done')
+  const [editFilledVolume, setEditFilledVolume] = useState('0')
+  const [editLoading, setEditLoading] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
   const dateFrom = dateRange.mode === 'custom' ? dateRange.from : undefined
@@ -141,6 +147,86 @@ export default function Orders() {
     }
   }
 
+  const handleSyncOrder = async (uuid: string) => {
+    setSyncingUuid(uuid)
+    try {
+      const res = await syncOrder(uuid)
+      if (res.ok) {
+        loadData(false, page, pageSize)
+        const details = res.data?.data
+        if (details) {
+          alert(`동기화 성공: 상태=[${details.state}], 체결량=[${details.executed}]`)
+        } else {
+          alert('동기화 성공!')
+        }
+      } else {
+        alert(`동기화 실패: ${res.error || '거래소에 주문 정보가 없거나 에러가 발생했습니다.'}`)
+      }
+    } catch (e) {
+      alert(`동기화 오류: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setSyncingUuid(null)
+    }
+  }
+
+  const handleSyncAllOpen = async () => {
+    if (!data || data.orders.length === 0) return
+    const openOrders = data.orders.filter(o => OPEN_STATUSES.has(o.status))
+    if (openOrders.length === 0) {
+      alert('동기화할 활성 주문이 없습니다.')
+      return
+    }
+    if (!confirm(`현재 표시된 활성 주문 ${openOrders.length}건을 거래소와 일괄 동기화하시겠습니까?`)) return
+    
+    setLoading(true)
+    let successCount = 0
+    let failCount = 0
+    
+    for (const order of openOrders) {
+      try {
+        const res = await syncOrder(order.uuid)
+        if (res.ok) successCount++
+        else failCount++
+      } catch {
+        failCount++
+      }
+    }
+    
+    loadData(false, page, pageSize)
+    alert(`동기화 완료: 성공 ${successCount}건, 실패 ${failCount}건`)
+  }
+
+  const openEditModal = (order: any) => {
+    setEditingOrder(order)
+    setEditState(order.status)
+    setEditFilledVolume(String(order.filled_volume || 0))
+    setIsEditModalOpen(true)
+  }
+
+  const handleForceUpdate = async () => {
+    if (!editingOrder) return
+    const vol = parseFloat(editFilledVolume)
+    if (isNaN(vol) || vol < 0) {
+      alert('올바른 체결 수량을 입력하세요.')
+      return
+    }
+    
+    setEditLoading(true)
+    try {
+      const res = await forceUpdateOrder(editingOrder.uuid, editState, vol)
+      if (res.ok) {
+        setIsEditModalOpen(false)
+        loadData(false, page, pageSize)
+      } else {
+        alert(`상태 변경 실패: ${res.error || '알 수 없는 오류'}`)
+      }
+    } catch (e) {
+      alert(`상태 변경 오류: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setEditLoading(false)
+    }
+  }
+
   const hasAnyFilter = status !== '' || exchange !== '' || side !== '' || dateRange.mode !== 'all' || groupNoFilter !== undefined
 
   const handleResetFilters = () => {
@@ -158,7 +244,19 @@ export default function Orders() {
     <div className="space-y-4">
       <PageHeader
         {...PAGE_META.orders}
-        actions={<SyncIndicator lastUpdated={lastUpdated} loading={loading} error={error} />}
+        actions={
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleSyncAllOpen}
+              className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+              title="활성 주문 일괄 동기화"
+            >
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+              <span>일괄 동기화</span>
+            </button>
+            <SyncIndicator lastUpdated={lastUpdated} loading={loading} error={error} />
+          </div>
+        }
       />
 
       <div className="flex flex-wrap items-center gap-2">
@@ -248,7 +346,7 @@ export default function Orders() {
                     <th className="px-4 py-3 text-right font-medium">금액</th>
                     <th className="w-32 px-4 py-3 text-left font-medium">체결률</th>
                     <th className="px-4 py-3 text-left font-medium">상태</th>
-                    <th className="px-4 py-3 text-left font-medium">취소</th>
+                    <th className="px-4 py-3 text-left font-medium">관리</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -301,19 +399,32 @@ export default function Orders() {
                       <td className="whitespace-nowrap px-4 py-2.5">
                         <Badge value={order.status} label={order.status_label} />
                       </td>
-                      <td className="whitespace-nowrap px-4 py-2.5">
-                        {OPEN_STATUSES.has(order.status) ? (
+                      <td className="whitespace-nowrap px-4 py-2.5 flex items-center gap-1.5">
+                        {OPEN_STATUSES.has(order.status) && (
                           <button
                             onClick={() => handleCancelOrder(order.uuid)}
                             disabled={cancellingUuid === order.uuid}
-                            className="rounded-md border border-red-200 px-2 py-0.5 text-xs text-red-500 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20"
+                            className="rounded border border-red-200 px-2 py-0.5 text-xs text-red-500 hover:bg-red-50 disabled:opacity-50 dark:border-red-800/60 dark:text-red-400 dark:hover:bg-red-900/20"
                             title="주문 취소"
                           >
                             {cancellingUuid === order.uuid ? '…' : '취소'}
                           </button>
-                        ) : (
-                          <span className="text-xs text-slate-300 dark:text-slate-600">—</span>
                         )}
+                        <button
+                          onClick={() => handleSyncOrder(order.uuid)}
+                          disabled={syncingUuid === order.uuid}
+                          className="rounded border border-slate-200 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+                          title="거래소 동기화"
+                        >
+                          {syncingUuid === order.uuid ? '…' : '동기화'}
+                        </button>
+                        <button
+                          onClick={() => openEditModal(order)}
+                          className="rounded border border-slate-200 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+                          title="수동 수정"
+                        >
+                          수정
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -369,17 +480,30 @@ export default function Orders() {
                         </span>
                       </div>
 
-                      {OPEN_STATUSES.has(order.status) && (
-                        <div className="flex justify-end pt-1.5">
+                      <div className="flex gap-2 pt-2">
+                        {OPEN_STATUSES.has(order.status) && (
                           <button
                             onClick={() => handleCancelOrder(order.uuid)}
                             disabled={cancellingUuid === order.uuid}
-                            className="w-full rounded-lg border border-red-200 py-1.5 text-center text-xs text-red-500 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20"
+                            className="flex-1 rounded-lg border border-red-200 py-1.5 text-center text-xs text-red-500 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20"
                           >
-                            {cancellingUuid === order.uuid ? '취소 중...' : '주문 취소'}
+                            {cancellingUuid === order.uuid ? '취소' : '취소'}
                           </button>
-                        </div>
-                      )}
+                        )}
+                        <button
+                          onClick={() => handleSyncOrder(order.uuid)}
+                          disabled={syncingUuid === order.uuid}
+                          className="flex-1 rounded-lg border border-slate-200 py-1.5 text-center text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+                        >
+                          {syncingUuid === order.uuid ? '동기화 중...' : '동기화'}
+                        </button>
+                        <button
+                          onClick={() => openEditModal(order)}
+                          className="flex-1 rounded-lg border border-slate-200 py-1.5 text-center text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+                        >
+                          수정
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -400,6 +524,91 @@ export default function Orders() {
           </>
         )}
       </div>
+      {isEditModalOpen && editingOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl dark:border-slate-800 dark:bg-slate-900">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">주문 상태 수동 변경</h3>
+              <button
+                onClick={() => setIsEditModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              <div>
+                <label className="block text-xs text-slate-500 dark:text-slate-400">주문 UUID</label>
+                <div className="mt-1 select-all font-mono text-[10px] text-slate-700 dark:text-slate-300 break-all bg-slate-50 p-2 rounded border border-slate-100 dark:bg-slate-800/50 dark:border-slate-800">
+                  {editingOrder.uuid}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-slate-500 dark:text-slate-400">거래소 / 종목</label>
+                  <div className="mt-1 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    [{editingOrder.exchange.toUpperCase()}] {editingOrder.ticker}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 dark:text-slate-400">구분 / 전략</label>
+                  <div className="mt-1 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    {editingOrder.side === 'bid' ? '매수' : '매도'} / {editingOrder.strategy}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs text-slate-500 dark:text-slate-400">주문 상태</label>
+                <select
+                  value={editState}
+                  onChange={(e) => setEditState(e.target.value)}
+                  className="mt-1.5 w-full rounded-lg border border-slate-200 bg-transparent px-3 py-2 text-xs text-slate-700 outline-none focus:border-primary-500 dark:border-slate-700 dark:text-slate-300 dark:bg-slate-800"
+                >
+                  <option value="wait">대기 (wait)</option>
+                  <option value="partial">부분체결 (partial)</option>
+                  <option value="done">체결완료 (done)</option>
+                  <option value="cancel">취소 (cancel)</option>
+                  <option value="pending_reorder">재주문대기 (pending_reorder)</option>
+                  <option value="reserved">예약 (reserved)</option>
+                  <option value="stoploss">손절 (stoploss)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs text-slate-500 dark:text-slate-400">체결 수량 (전체 수량: {editingOrder.volume})</label>
+                <input
+                  type="number"
+                  step="any"
+                  min="0"
+                  max={editingOrder.volume}
+                  value={editFilledVolume}
+                  onChange={(e) => setEditFilledVolume(e.target.value)}
+                  className="mt-1.5 w-full rounded-lg border border-slate-200 bg-transparent px-3 py-2 text-xs text-slate-700 outline-none focus:border-primary-500 dark:border-slate-700 dark:text-slate-300 dark:bg-slate-800"
+                />
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                onClick={() => setIsEditModalOpen(false)}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+              >
+                닫기
+              </button>
+              <button
+                onClick={handleForceUpdate}
+                disabled={editLoading}
+                className="rounded-lg bg-primary-600 px-4 py-2 text-xs font-semibold text-white hover:bg-primary-500 disabled:opacity-50 dark:bg-primary-500 dark:hover:bg-primary-400"
+              >
+                {editLoading ? '변경 중...' : '강제 업데이트'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
