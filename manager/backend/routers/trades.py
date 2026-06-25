@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
-from ..db import get_db
+from ..db import get_db, get_stock_name_map
 from ._auth import get_current_user
 
 router = APIRouter()
@@ -87,7 +87,10 @@ async def api_list_trades(
         ex_agg: dict = defaultdict(lambda: {"count": 0, "krw": 0.0})
         st_agg: dict = defaultdict(lambda: {"count": 0, "krw": 0.0})
 
+        stock_map = await get_stock_name_map()
         for t in trades:
+            ticker = t.get("ticker", "")
+            t["ticker"] = stock_map.get(ticker, ticker)
             price = t.get("price") or 0
             volume = t.get("volume") or 0
             krw = price * volume

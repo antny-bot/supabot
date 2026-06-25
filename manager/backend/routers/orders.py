@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
-from ..db import get_db
+from ..db import get_db, get_stock_name_map
 from ._auth import get_current_user
 from .. import bot_client
 
@@ -91,7 +91,10 @@ async def api_list_orders(
         orders = res.data
         total_count = res.count or 0
         
+        stock_map = await get_stock_name_map()
         for o in orders:
+            ticker = o.get("ticker", "")
+            o["ticker"] = stock_map.get(ticker, ticker)
             o["status_label"] = _STATUS_LABELS.get(o.get("status", ""), o.get("status", ""))
             o["created_fmt"] = _fmt_ts(o.get("created_at"))
             price = float(o.get("price") or 0)

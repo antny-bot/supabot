@@ -119,3 +119,21 @@ def get_db() -> _SupabaseClient:
             raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set")
         _client = _SupabaseClient(url, key)
     return _client
+
+async def get_stock_name_map() -> dict[str, str]:
+    """kr_stock_cache 테이블을 읽어 {code: name} 맵을 구성합니다."""
+    db = get_db()
+    rows = []
+    page_size = 1000
+    offset = 0
+    try:
+        while True:
+            res = await db.table("kr_stock_cache").select("name,code").range(offset, offset + page_size - 1).execute()
+            chunk = res.data or []
+            rows.extend(chunk)
+            if len(chunk) < page_size:
+                break
+            offset += page_size
+    except Exception:
+        pass
+    return {row["code"]: row["name"] for row in rows if "code" in row and "name" in row}

@@ -9,7 +9,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from .. import bot_client
-from ..db import get_db
+from ..db import get_db, get_stock_name_map
 from ._auth import _require_login, get_session_user
 
 router = APIRouter()
@@ -507,6 +507,10 @@ async def api_reports_pnl(request: Request, period: str = "30d",
         _, realized_events = _build_report_state(trades, window_start=window_start, window_end=window_end)
         rows = _build_pnl_rows(realized_events)
         rows.sort(key=lambda row: row["pnl"], reverse=True)
+        stock_map = await get_stock_name_map()
+        for row in rows:
+            ticker = row.get("ticker", "")
+            row["ticker"] = stock_map.get(ticker, ticker)
         total_bid = sum(row["bid_krw"] for row in rows)
         total_ask = sum(row["ask_krw"] for row in rows)
         total_fee = sum(row["fee_amount"] for row in rows)
@@ -561,8 +565,11 @@ async def api_reports_roi_ranking(request: Request, period: str = "30d",
         _, realized_events = _build_report_state(trades, window_start=window_start, window_end=window_end)
         rows = _build_pnl_rows(realized_events)
         rows.sort(key=lambda row: row["roi_pct"], reverse=True)
+        stock_map = await get_stock_name_map()
         for index, row in enumerate(rows):
             row["rank"] = index + 1
+            ticker = row.get("ticker", "")
+            row["ticker"] = stock_map.get(ticker, ticker)
         return JSONResponse({"rows": rows})
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
@@ -601,6 +608,10 @@ async def api_reports_holdings(request: Request):
             bot_user_id,
         )
         rows, oversold_count = _build_holdings_rows(positions, current_prices)
+        stock_map = await get_stock_name_map()
+        for row in rows:
+            ticker = row.get("ticker", "")
+            row["ticker"] = stock_map.get(ticker, ticker)
         total_cost = sum(row["cost_krw"] for row in rows)
         total_value = sum(row["value_krw"] for row in rows)
         total_pnl = sum(row["pnl"] for row in rows)
@@ -634,7 +645,12 @@ async def api_reports_pairs(request: Request, period: str = "30d",
         trades = await _fetch_trades(db, is_admin, bot_user_id, None)
         window_start, window_end = _resolve_window(period, date_from, date_to)
         _, realized_events = _build_report_state(trades, window_start=window_start, window_end=window_end)
-        return JSONResponse({"pairs": _build_pair_rows(realized_events)})
+        pairs = _build_pair_rows(realized_events)
+        stock_map = await get_stock_name_map()
+        for p in pairs:
+            ticker = p.get("ticker", "")
+            p["ticker"] = stock_map.get(ticker, ticker)
+        return JSONResponse({"pairs": pairs})
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
 
