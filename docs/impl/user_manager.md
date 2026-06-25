@@ -5,7 +5,7 @@
 ## 역할
 유저별 설정을 로드·영속화·기본값 적용.
 
-저장은 **DB-우선 + 파일 폴백** 구조다. `core.db.is_db_available()` (`SUPABASE_URL` + `SUPABASE_SERVICE_KEY` 존재)이면 `users` 테이블에서 로드하고, 변경을 즉시 DB로 upsert 한다. DB 미사용이거나 DB 호출 실패 시 `data/users.json` 파일로 폴백한다. 양방향 동기화는 없으며 파일은 비상 폴백이다.
+저장은 **DB-우선 + 파일 폴백** 구조다. `core.db.is_db_available()` (`SUPABASE_URL` + `SUPABASE_SERVICE_KEY` 존재)이면 `users` 테이블에서 로드하고, 변경을 즉시 DB로 upsert 한다. DB 미사용이거나 DB 호출 실패 시 `data/users.json` 파일로 폴백한다. 자동 양방향 동기화는 없다 — manager UI가 `users` 테이블에 직접 쓰는 변경(승인/비활성화/watchlist 등)은 봇 프로세스 인메모리에 자동 반영되지 않는다. `reload_from_db()`(관리자 `/dbsync` 커맨드가 호출)가 유일한 풀(pull) 경로이며, 재시작 없이 DB 상태를 즉시 인메모리에 반영한다.
 
 ## 유저 스키마
 
@@ -90,6 +90,7 @@ manager.set_active(user_id, status=True)   # True → status="active", False →
 manager.add_watchlist(user_id, exchange, ticker)
 manager.remove_watchlist(user_id, exchange, ticker)
 manager.initialize_admin(admin_chat_id)
+manager.reload_from_db()                       # DB 상태를 인메모리에 즉시 반영(/dbsync), DB 미사용 시 no-op
 ```
 
 ## 영속화 세부 사항
