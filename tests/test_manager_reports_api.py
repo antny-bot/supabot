@@ -110,11 +110,16 @@ def _trade(*, side: str, price: float, volume: float, executed_at: float, exchan
     }
 
 
+async def _fake_get_stock_name_map():
+    return {}
+
+
 def test_api_reports_pnl_buy_only_has_zero_realized_pnl(monkeypatch):
     trades = [
         _trade(side="bid", price=100.0, volume=2.0, executed_at=1_700_000_000.0),
     ]
     monkeypatch.setattr(reports_router, "get_db", lambda: _FakeDB(trades))
+    monkeypatch.setattr(reports_router, "get_stock_name_map", _fake_get_stock_name_map)
 
     response = asyncio.run(reports_router.api_reports_pnl(_FakeRequest(), period="30d"))
     payload = json.loads(response.body)
@@ -133,6 +138,7 @@ def test_api_reports_pnl_uses_average_cost_with_period_carry_over(monkeypatch):
         _trade(side="ask", price=180.0, volume=1.0, executed_at=now_ts - 10 * 86400),
     ]
     monkeypatch.setattr(reports_router, "get_db", lambda: _FakeDB(trades))
+    monkeypatch.setattr(reports_router, "get_stock_name_map", _fake_get_stock_name_map)
     monkeypatch.setattr(reports_router.time, "time", lambda: now_ts)
 
     response = asyncio.run(reports_router.api_reports_pnl(_FakeRequest(), period="30d"))
@@ -182,6 +188,7 @@ def test_api_reports_holdings_returns_average_cost_and_valuation(monkeypatch):
         _trade(side="ask", price=180.0, volume=0.5, executed_at=1_700_000_200.0),
     ]
     monkeypatch.setattr(reports_router, "get_db", lambda: _FakeDB(trades))
+    monkeypatch.setattr(reports_router, "get_stock_name_map", _fake_get_stock_name_map)
 
     async def fake_fetch_prices(positions, _bot_user_id):
         assert len(positions) == 1
@@ -221,6 +228,7 @@ def test_api_reports_holdings_admin_aggregates_multi_user_prices(monkeypatch):
         _trade(side="bid", price=200.0, volume=2.0, executed_at=1_700_000_100.0, exchange="kis", ticker="005930", user_id="user-2"),
     ]
     monkeypatch.setattr(reports_router, "get_db", lambda: _FakeDB(trades))
+    monkeypatch.setattr(reports_router, "get_stock_name_map", _fake_get_stock_name_map)
 
     async def fake_fetch_prices(positions, _bot_user_id):
         assert positions == [

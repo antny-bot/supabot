@@ -51,6 +51,10 @@ class _FakeDB:
         return _FakeTable(self.query)
 
 
+async def _fake_get_stock_name_map():
+    return {}
+
+
 def test_api_list_orders_adds_order_value_and_formats(monkeypatch):
     query = _FakeQuery(
         [
@@ -70,6 +74,7 @@ def test_api_list_orders_adds_order_value_and_formats(monkeypatch):
         1,
     )
     monkeypatch.setattr(orders_router, "get_db", lambda: _FakeDB(query))
+    monkeypatch.setattr(orders_router, "get_stock_name_map", _fake_get_stock_name_map)
 
     response = asyncio.run(
         orders_router.api_list_orders(
@@ -115,6 +120,7 @@ def test_api_list_orders_handles_missing_price_and_volume(monkeypatch):
         1,
     )
     monkeypatch.setattr(orders_router, "get_db", lambda: _FakeDB(query))
+    monkeypatch.setattr(orders_router, "get_stock_name_map", _fake_get_stock_name_map)
 
     response = asyncio.run(
         orders_router.api_list_orders(
