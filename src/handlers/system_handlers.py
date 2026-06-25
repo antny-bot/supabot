@@ -44,12 +44,19 @@ async def dbsync_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
     if not user.get("is_admin"):
         await update.message.reply_text("❌ 어드민 전용 명령어입니다.")
         return
-    ok = main.order_manager.reload_from_db()
-    if ok:
+    orders_ok = main.order_manager.reload_from_db()
+    users_ok = main.user_manager.reload_from_db()
+    if orders_ok and users_ok:
         await update.message.reply_text(
-            f"✅ DB 동기화 완료 — 주문 {len(main.order_manager.orders)}건 로드됨.",
+            f"✅ DB 동기화 완료 — 주문 {len(main.order_manager.orders)}건, "
+            f"유저 {len(main.user_manager.users)}명 로드됨.",
             parse_mode="HTML",
         )
+    elif orders_ok or users_ok:
+        parts = []
+        parts.append(f"주문 {len(main.order_manager.orders)}건" if orders_ok else "주문 동기화 실패")
+        parts.append(f"유저 {len(main.user_manager.users)}명" if users_ok else "유저 동기화 실패")
+        await update.message.reply_text("⚠️ DB 동기화 일부 실패 — " + ", ".join(parts), parse_mode="HTML")
     else:
         await update.message.reply_text("❌ DB 동기화 실패 (DB 미연결 또는 오류).")
 

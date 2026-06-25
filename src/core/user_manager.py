@@ -72,6 +72,24 @@ class UserManager:
                 _log.error("Failed to load users from DB, falling back to file", exc_info=e, extra={"event": "db_users_load_error"})
         return self._load_users_from_file()
 
+    def reload_from_db(self) -> bool:
+        """관리자 /dbsync 등에서 DB 상태를 인메모리에 즉시 반영한다.
+
+        manager UI는 users 테이블에 직접 쓰기 때문에(승인/비활성화/watchlist 등),
+        봇 프로세스가 재시작 전까지 그 변경을 모른다 — 이 메서드가 유일한 풀(pull) 경로다.
+        DB 미사용 환경에서는 no-op.
+        """
+        if not is_db_available():
+            return False
+        try:
+            rows = get_db().table("users").select("*").execute().data
+            self.users = {row["user_id"]: self._db_row_to_user(row) for row in rows}
+            _log.info("Reloaded users from DB", extra={"event": "users_reloaded_db", "count": len(self.users)})
+            return True
+        except Exception as e:
+            _log.error("Failed to reload users from DB", exc_info=e, extra={"event": "db_users_reload_error"})
+            return False
+
     def _load_users_from_file(self) -> dict:
         if not os.path.exists(self.file_path):
             return {}
