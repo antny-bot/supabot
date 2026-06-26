@@ -387,13 +387,14 @@ async def sync_orders(application):
             vol = int(remaining) if ex_obj.requires_integer_volume() else remaining
             res = await exchange_adapter.create_order(user_id, exchange, ticker, ord.get("side", "bid"), ord.get("price"), vol)
             action = "재주문" if ord.get("status") == "pending_reorder" else "예약주문 실행"
+            order_kind = "전략" if is_strategy_order(ord) else "자동 재주문 설정"
             label = exchange_display_name(exchange)
             if res and "uuid" in res:
                 old_uuid = ord["uuid"]
                 order_manager.replace_order_uuid(old_uuid, res["uuid"])
                 await application.bot.send_message(
                     chat_id=user_id,
-                    text=f"✅ [{label}] {ticker} 전략 주문 {action} 완료\n"
+                    text=f"✅ [{label}] {ticker} {order_kind} 주문 {action} 완료\n"
                          f"• 가격: {float(ord.get('price', 0)):,.0f}원\n"
                          f"• 잔량: {remaining:,.0f}주\n"
                          f"• 새 주문ID: {res['uuid']}",
@@ -403,7 +404,7 @@ async def sync_orders(application):
                 append_operational_event("warning", "sync_orders", f"{exchange} strategy {action} failed", ticker)
                 await application.bot.send_message(
                     chat_id=user_id,
-                    text=f"⚠️ [{label}] {ticker} 전략 주문 {action} 실패\n다음 정규장 체크 때 다시 시도합니다.",
+                    text=f"⚠️ [{label}] {ticker} {order_kind} 주문 {action} 실패\n다음 정규장 체크 때 다시 시도합니다.",
                 )
             await asyncio.sleep(0.2)
             continue
@@ -414,11 +415,14 @@ async def sync_orders(application):
             # (docs/detail/kis_market_policy.md: "이 문서 제목은 KIS 기준이지만 Toss도 동일하게 적용된다").
             # exchange == "kis" 하드코딩 분기는 Toss 주문을 누락시켜 체결 감지·trade_log 기록이
             # 영구히 멈추는 원인이었다 — capability 기반으로 일반화.
-            if getattr(ex_obj, "supports_reserved_orders", False) and is_strategy_order(ord):
+            # is_strategy_order(grid/sgrid/rsitrade) OR 수동 주문에 auto_reorder opt-in 플래그가
+            # 켜진 경우 모두 동일하게 다음 정규장 재주문 대기로 전환한다.
+            if getattr(ex_obj, "supports_reserved_orders", False) and (is_strategy_order(ord) or ord.get("auto_reorder")):
                 order_manager.mark_reorder_pending(ord["uuid"], ex_obj.next_check_timestamp(ticker))
+                order_kind = "전략" if is_strategy_order(ord) else "자동 재주문 설정"
                 await application.bot.send_message(
                     chat_id=user_id,
-                    text=f"⏳ [{exchange_display_name(exchange)}] {ticker} 전략 주문 확인이 불가하여 다음 정규장 재주문 대기로 전환합니다.",
+                    text=f"⏳ [{exchange_display_name(exchange)}] {ticker} {order_kind} 주문 확인이 불가하여 다음 정규장 재주문 대기로 전환합니다.",
                 )
             elif getattr(ex_obj, "supports_reserved_orders", False):
                 order_manager.remove_order(ord["uuid"])
@@ -542,12 +546,14 @@ async def sync_orders(application):
                 # supports_reserved_orders(KIS/Toss)는 정규장 정책을 공유한다 — exchange == "kis"
                 # 하드코딩은 Toss 전략 주문이 거래소측 만료/취소(예: 장 마감 후 미체결 잔량 정리)를
                 # "외부 개입"으로 오인해 재주문 없이 추적을 끊는 버그였다(line 410의 동일 버그 패턴).
-                if getattr(ex_obj, "supports_reserved_orders", False) and is_strategy_order(ord):
+                # is_strategy_order OR 수동 주문 auto_reorder opt-in 모두 동일하게 재주문 대기로 전환.
+                if getattr(ex_obj, "supports_reserved_orders", False) and (is_strategy_order(ord) or ord.get("auto_reorder")):
                     next_check = ex_obj.next_check_timestamp(ticker)
                     order_manager.mark_reorder_pending(ord['uuid'], next_check)
+                    order_kind = "전략" if is_strategy_order(ord) else "자동 재주문 설정"
                     await application.bot.send_message(
                         chat_id=user_id,
-                        text=f"⏳ [{exchange_display_name(exchange)}] {ticker} 전략 주문이 만료/취소되어 다음 정규장 재주문 예정입니다.",
+                        text=f"⏳ [{exchange_display_name(exchange)}] {ticker} {order_kind} 주문이 만료/취소되어 다음 정규장 재주문 예정입니다.",
                     )
                     await asyncio.sleep(0.2)
                     continue

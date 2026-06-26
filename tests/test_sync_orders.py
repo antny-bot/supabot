@@ -290,6 +290,58 @@ async def test_toss_strategy_order_cancel_marks_pending_reorder(tmp_path, monkey
     assert "외부 개입" not in sent_text
 
 
+# T: 수동 주문이라도 auto_reorder=True(opt-in)면 전략 주문과 동일하게 마감 취소 시
+# pending_reorder로 전환되고, 다음 정규장에 잔량이 재주문되어야 한다.
+async def test_manual_order_with_auto_reorder_cancel_marks_pending_reorder(tmp_path, monkeypatch):
+    om = _make_order_manager(tmp_path)
+    om.add_order("321", "toss", "005930", "uuid-toss-manual-1", 70000, 10, side="bid", strategy="manual", auto_reorder=True)
+    monkeypatch.setattr(main, "order_manager", om)
+
+    mock_adapter = MagicMock()
+    mock_adapter.ensure_toss_kr_calendar = AsyncMock()
+    mock_adapter.get_order_status = AsyncMock(return_value={"state": "cancel", "executed_volume": 0.0})
+    mock_adapter.get_exchange = lambda exchange: MagicMock(
+        supports_reserved_orders=True,
+        is_market_open=lambda ticker=None: True,
+        next_check_timestamp=lambda ticker=None: 9_999_999.0,
+    )
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    app = _make_app()
+    await main.sync_orders(app)
+
+    assert om.orders[0]["status"] == "pending_reorder"
+    assert om.orders[0]["next_check_at"] == 9_999_999.0
+    sent_text = app.bot.send_message.call_args.kwargs.get("text", "")
+    assert "재주문 예정" in sent_text
+    assert "외부 개입" not in sent_text
+
+
+# T: auto_reorder 플래그가 없는 기본 수동 주문은 기존과 동일하게 마감 취소 시
+# "외부 개입" 알림 후 추적을 종료한다 (재주문 없음) — 기본 동작 회귀 방지.
+async def test_manual_order_without_auto_reorder_cancel_removes_tracking(tmp_path, monkeypatch):
+    om = _make_order_manager(tmp_path)
+    om.add_order("322", "toss", "005930", "uuid-toss-manual-2", 70000, 10, side="bid", strategy="manual")
+    monkeypatch.setattr(main, "order_manager", om)
+
+    mock_adapter = MagicMock()
+    mock_adapter.ensure_toss_kr_calendar = AsyncMock()
+    mock_adapter.get_order_status = AsyncMock(return_value={"state": "cancel", "executed_volume": 0.0})
+    mock_adapter.get_exchange = lambda exchange: MagicMock(
+        supports_reserved_orders=True,
+        is_market_open=lambda ticker=None: True,
+        next_check_timestamp=lambda ticker=None: 9_999_999.0,
+    )
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    app = _make_app()
+    await main.sync_orders(app)
+
+    assert len(om.orders) == 0
+    sent_text = app.bot.send_message.call_args.kwargs.get("text", "")
+    assert "외부 개입" in sent_text
+
+
 # T: 토스 국내(숫자 종목코드) 주문은 사이클마다 NXT 애프터마켓 캘린더 캐시를 갱신 시도한다
 # (해당 유저의 자격으로 조회하므로 user_id를 그대로 전달해야 함).
 async def test_sync_orders_refreshes_toss_kr_calendar_for_domestic_order(tmp_path, monkeypatch):

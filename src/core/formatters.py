@@ -141,23 +141,27 @@ CMD_HELP = {
     "buy": (
         "🛍️ <b>/buy 상세 가이드 (단일 매수)</b>\n\n"
         "<b>기능:</b> 지정한 거래소에 단일 매수 주문을 즉시 전송합니다.\n"
-        "<b>구문:</b> <code>/buy [거래소] [종목] [가격] [수량]</code>\n\n"
+        "<b>구문:</b> <code>/buy [거래소] [종목] [가격|market] [수량] [유지]</code>\n\n"
         "<b>예시:</b>\n"
         "<code>/buy 빗썸 BTC 95000000 0.1</code> (빗썸에서 0.1 BTC를 9500만원에 매수)\n"
         "<code>/buy 한투 005930 70000 1</code> (한국투자증권에서 삼성전자 1주 매수 확인)\n"
         "<code>/buy 토스증권 005930 70000 1</code> (토스증권에서 삼성전자 1주 매수 확인)\n"
-        "<code>/buy 토스증권 AAPL 185.5 10</code> (토스증권 해외주식 애플 10주 매수, USD)\n\n"
+        "<code>/buy 토스증권 AAPL 185.5 10</code> (토스증권 해외주식 애플 10주 매수, USD)\n"
+        "<code>/buy 토스증권 005930 70000 10 유지</code> (장마감으로 미체결 취소 시 다음 정규장에 자동 재주문)\n\n"
         "🌎 토스증권은 AAPL, TSLA 등 해외(미국)주식 티커 입력 시 USD로 자동 처리됩니다 (한투는 국내전용).\n"
+        "🔁 끝에 <code>유지</code>(또는 <code>--keep</code>)를 붙이면 한투·토스 주문이 장마감으로 취소돼도 다음 정규장에 잔량을 자동 재주문합니다(기본값: 끔).\n"
         "⚠️ 한국투자증권·토스증권 주문은 확인 버튼을 거친 뒤 전송됩니다."
     ),
     "sell": (
         "🛍️ <b>/sell 상세 가이드 (단일 매도)</b>\n\n"
         "<b>기능:</b> 지정한 거래소에 단일 매도 주문을 즉시 전송합니다.\n"
-        "<b>구문:</b> <code>/sell [거래소] [종목] [가격] [수량]</code>\n\n"
+        "<b>구문:</b> <code>/sell [거래소] [종목] [가격|market] [수량] [유지]</code>\n\n"
         "<b>예시:</b>\n"
         "<code>/sell BTC 120000000 0.5</code> (업비트에서 0.5 BTC를 1.2억원에 매도)\n"
         "<code>/sell 토스증권 005930 72000 1</code> (토스증권에서 삼성전자 1주 매도)\n"
-        "<code>/sell 토스증권 AAPL 190 10</code> (토스증권 해외주식 애플 10주 매도, USD)\n\n"
+        "<code>/sell 토스증권 AAPL 190 10</code> (토스증권 해외주식 애플 10주 매도, USD)\n"
+        "<code>/sell 토스증권 005930 72000 1 유지</code> (장마감으로 미체결 취소 시 다음 정규장에 자동 재주문)\n\n"
+        "🔁 끝에 <code>유지</code>(또는 <code>--keep</code>)를 붙이면 한투·토스 주문이 장마감으로 취소돼도 다음 정규장에 잔량을 자동 재주문합니다(기본값: 끔).\n"
         "⚠️ 보유 수량이 주문 수량보다 많아야 합니다."
     ),
     "grid": (
@@ -637,7 +641,7 @@ def build_account_summary(user_id, user):
     )
 
 
-def build_manual_order_confirm_message(exchange, ticker, side, price, volume, user, ord_type="limit"):
+def build_manual_order_confirm_message(exchange, ticker, side, price, volume, user, ord_type="limit", auto_reorder=False):
     action = "매수" if side == "bid" else "매도"
     is_market = ord_type == "market"
     is_us = is_us_stock_ticker(exchange, ticker)
@@ -656,12 +660,14 @@ def build_manual_order_confirm_message(exchange, ticker, side, price, volume, us
     else:
         price_text = "시장가" if is_market else f"{float(price):,.0f}원"
         amount_line = "" if is_market else f"- 주문금액: {float(price) * float(volume):,.0f}원\n"
+    reorder_line = "🔁 장마감 시 자동 재주문: 켜짐 (다음 정규장에 잔량 재제출)\n" if auto_reorder else ""
     return (
         f"{'📈' if side == 'bid' else '📉'} <b>{exchange_display_name(exchange)} {action} 주문 확인</b>{env_notice}\n\n"
         f"- 종목: {ticker}\n"
         f"- 가격: {price_text}\n"
         f"- 수량: {volume_text}\n"
-        f"{amount_line}\n"
+        f"{amount_line}"
+        f"{reorder_line}\n"
         "위 내용으로 주문을 전송할까요?"
     )
 

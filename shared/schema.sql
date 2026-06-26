@@ -58,12 +58,14 @@ CREATE TABLE IF NOT EXISTS orders (
   next_check_at DOUBLE PRECISION NOT NULL DEFAULT 0,
   reorder_of    TEXT,
   stop_price    DOUBLE PRECISION,
-  trailing_stop_pct DOUBLE PRECISION
+  trailing_stop_pct DOUBLE PRECISION,
+  auto_reorder  BOOLEAN NOT NULL DEFAULT false  -- 수동 주문도 장마감 취소 시 다음 정규장 재주문 대상으로 포함할지 (opt-in)
 );
 
 -- 기존 DB 호환성 유지용 ALTER TABLE 구문
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS trailing_stop_pct DOUBLE PRECISION;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS group_no INTEGER;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS auto_reorder BOOLEAN NOT NULL DEFAULT false;
 
 -- ── Trade Logs ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS trade_logs (
