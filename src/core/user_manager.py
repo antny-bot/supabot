@@ -90,6 +90,25 @@ class UserManager:
             _log.error("Failed to reload users from DB", exc_info=e, extra={"event": "db_users_reload_error"})
             return False
 
+    def refresh_user(self, user_id) -> bool:
+        """단일 유저 row만 DB에서 다시 읽어 인메모리에 반영한다.
+
+        manager UI가 승인/비활성화 등으로 DB를 직접 갱신한 뒤, 해당 유저가 곧바로
+        /start 등을 호출했을 때 전체 reload_from_db() 없이 가볍게 동기화하기 위함.
+        DB 미사용 환경, 또는 해당 유저 row가 없으면 no-op.
+        """
+        if not is_db_available():
+            return False
+        try:
+            rows = get_db().table("users").select("*").eq("user_id", str(user_id)).execute().data
+            if not rows:
+                return False
+            self.users[str(user_id)] = self._db_row_to_user(rows[0])
+            return True
+        except Exception as e:
+            _log.error("Failed to refresh user from DB", exc_info=e, extra={"event": "db_user_refresh_error", "user_id": str(user_id)})
+            return False
+
     def _load_users_from_file(self) -> dict:
         if not os.path.exists(self.file_path):
             return {}

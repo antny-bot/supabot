@@ -213,6 +213,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_chat.id)
     username = update.effective_user.first_name
     user = user_manager.get_user(user_id)
+    if user and not user["is_active"]:
+        user_manager.refresh_user(user_id)
+        user = user_manager.get_user(user_id)
 
     if not user:
         user_manager.add_user(user_id, username)

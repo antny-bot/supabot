@@ -60,3 +60,51 @@ def test_reload_from_db_returns_false_on_error(tmp_path, monkeypatch):
     monkeypatch.setattr("core.user_manager.get_db", lambda: fake_db)
 
     assert manager.reload_from_db() is False
+
+
+def test_refresh_user_updates_single_user_in_place(tmp_path, monkeypatch):
+    """manager가 승인 처리한 직후, /start나 /internal/notify가 reload_from_db()
+    전체 테이블 스캔 없이도 해당 유저 한 명만 가볍게 동기화할 수 있어야 한다."""
+    monkeypatch.setattr("core.user_manager.is_db_available", lambda: False)
+    manager = UserManager(str(tmp_path / "users.json"))
+    manager.add_user("1", "alice", is_admin=False)
+    assert manager.users["1"]["status"] == "pending"
+
+    fake_db = MagicMock()
+    fake_db.table.return_value.select.return_value.eq.return_value.execute.return_value.data = [
+        _db_row("1", status="active", watchlist=["KRW-BTC"]),
+    ]
+    monkeypatch.setattr("core.user_manager.is_db_available", lambda: True)
+    monkeypatch.setattr("core.user_manager.get_db", lambda: fake_db)
+
+    assert manager.refresh_user("1") is True
+    assert manager.users["1"]["status"] == "active"
+    assert manager.users["1"]["exchanges"]["upbit"]["watchlist"] == ["KRW-BTC"]
+
+
+def test_refresh_user_is_noop_without_db(tmp_path, monkeypatch):
+    monkeypatch.setattr("core.user_manager.is_db_available", lambda: False)
+    manager = UserManager(str(tmp_path / "users.json"))
+    manager.add_user("1", "alice", is_admin=False)
+
+    assert manager.refresh_user("1") is False
+
+
+def test_refresh_user_returns_false_when_row_missing(tmp_path, monkeypatch):
+    manager = UserManager(str(tmp_path / "users.json"))
+    monkeypatch.setattr("core.user_manager.is_db_available", lambda: True)
+    fake_db = MagicMock()
+    fake_db.table.return_value.select.return_value.eq.return_value.execute.return_value.data = []
+    monkeypatch.setattr("core.user_manager.get_db", lambda: fake_db)
+
+    assert manager.refresh_user("999") is False
+
+
+def test_refresh_user_returns_false_on_error(tmp_path, monkeypatch):
+    manager = UserManager(str(tmp_path / "users.json"))
+    monkeypatch.setattr("core.user_manager.is_db_available", lambda: True)
+    fake_db = MagicMock()
+    fake_db.table.return_value.select.return_value.eq.return_value.execute.side_effect = RuntimeError("boom")
+    monkeypatch.setattr("core.user_manager.get_db", lambda: fake_db)
+
+    assert manager.refresh_user("1") is False
