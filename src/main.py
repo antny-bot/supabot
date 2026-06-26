@@ -347,6 +347,15 @@ LLM_COMMAND_CATALOG = "\n".join([
     "help req=- opt=- run=now ex=what can you do",
 ])
 
+# 손절매도 발행 일시 실패 시 동일 사이클 내 재시도 횟수 (미보호 포지션 창 축소).
+_STOPLOSS_PLACE_RETRIES = 3
+
+# KIS/Toss 수동 주문 상태 조회가 None을 반환할 때, 일시 오류(토큰만료/레이트리밋/타임아웃)와
+# 실제 "주문 없음"을 구분할 수 없으므로 연속 실패가 이 횟수에 도달해야 추적을 종료한다.
+_STATUS_CHECK_FAIL_LIMIT = 3
+_status_check_failures: dict = {}
+
+
 # --- 주문 동기화 및 자동 대응 엔진 ---
 async def sync_orders(application):
     """현재 추적 중인 주문들의 상태를 거래소와 동기화하고 자동 대응 수행"""
@@ -431,14 +440,29 @@ async def sync_orders(application):
                     text=f"⏳ [{exchange_display_name(exchange)}] {ticker} {order_kind} 주문 확인이 불가하여 다음 정규장 재주문 대기로 전환합니다.",
                 )
             elif getattr(ex_obj, "supports_reserved_orders", False):
-                order_manager.remove_order(ord["uuid"])
-                await application.bot.send_message(
-                    chat_id=user_id,
-                    text=f"🛑 [{exchange_display_name(exchange)}] {ticker} 수동 주문 확인이 불가하여 추적을 종료합니다.\n자동 재주문은 하지 않습니다.",
-                )
+                # KIS/Toss 수동 주문 조회 None은 토큰만료·레이트리밋·타임아웃 등 일시 오류로도
+                # 발생한다 — 단 1회 실패로 살아있는 미체결 주문 추적을 끊으면 안 된다(과거 버그).
+                # 연속 _STATUS_CHECK_FAIL_LIMIT회 실패해야 비로소 "주문 없음"으로 보고 종료한다.
+                fails = _status_check_failures.get(ord["uuid"], 0) + 1
+                if fails < _STATUS_CHECK_FAIL_LIMIT:
+                    _status_check_failures[ord["uuid"]] = fails
+                    append_operational_event(
+                        "warning", "sync_orders",
+                        f"{exchange} manual order status check failed ({fails}/{_STATUS_CHECK_FAIL_LIMIT}), retrying",
+                        ticker,
+                    )
+                else:
+                    _status_check_failures.pop(ord["uuid"], None)
+                    order_manager.remove_order(ord["uuid"])
+                    await application.bot.send_message(
+                        chat_id=user_id,
+                        text=f"🛑 [{exchange_display_name(exchange)}] {ticker} 수동 주문 확인이 불가하여 추적을 종료합니다.\n자동 재주문은 하지 않습니다.",
+                    )
             else:
                 append_operational_event("warning", "sync_orders", f"{exchange} get_order_status returned no result", ticker)
             continue
+        # 조회가 성공하면 누적 실패 카운터를 초기화한다.
+        _status_check_failures.pop(ord["uuid"], None)
         state = res['state']
         exec_vol = res['executed_volume']
         keep_order_for_retry = False
@@ -470,22 +494,48 @@ async def sync_orders(application):
                 if cancel_ok:
                     remaining = float(ord["volume"]) - float(ord["filled_volume"])
                     sl_price = exchange_adapter.get_exchange(exchange).adjust_price_to_tick(current_price * 0.999, ticker)
-                    sl_res = await exchange_adapter.create_order(
-                        user_id, exchange, ticker, "ask", sl_price, remaining
-                    )
+                    # 익절매도를 취소해 잔량을 푼 뒤 손절매도를 발행한다. 발행이 일시적으로
+                    # 실패(거래소 거부/네트워크)할 수 있으므로 짧게 재시도해 미보호 포지션 창을 줄인다.
+                    sl_res = None
+                    for _sl_attempt in range(_STOPLOSS_PLACE_RETRIES):
+                        sl_res = await exchange_adapter.create_order(
+                            user_id, exchange, ticker, "ask", sl_price, remaining
+                        )
+                        if sl_res and "uuid" in sl_res:
+                            break
+                        await asyncio.sleep(0.3)
+                    # 익절매도는 이미 취소됐으므로 원주문(쉬고 있던 ask)은 더 이상 거래소에 없다 →
+                    # 추적에서 제거한다(유지하면 다음 사이클에 "외부 개입"으로 오인됨).
                     order_manager.remove_order(ord["uuid"])
                     if sl_res and "uuid" in sl_res:
                         order_manager.add_order(
                             user_id, exchange, ticker, sl_res["uuid"],
                             sl_price, remaining, side="ask", strategy="stoploss",
                         )
-                    await application.bot.send_message(
-                        chat_id=user_id,
-                        text=f"🛑 [{ticker}] 손절 실행\n"
-                             f"• 현재가: {current_price:,.0f}원\n"
-                             f"• 손절 기준가: {float(ord['stop_price']):,.0f}원\n"
-                             f"• 손절 주문이 제출되었습니다.",
-                    )
+                        await application.bot.send_message(
+                            chat_id=user_id,
+                            text=f"🛑 [{ticker}] 손절 실행\n"
+                                 f"• 현재가: {current_price:,.0f}원\n"
+                                 f"• 손절 기준가: {float(ord['stop_price']):,.0f}원\n"
+                                 f"• 손절 주문이 제출되었습니다.",
+                        )
+                    else:
+                        # 익절매도는 취소됐는데 손절매도 발행이 끝내 실패 → 잔량이 무방비로 남는다.
+                        # 자동 재발행할 수단이 없으므로(쉬던 주문 uuid는 이미 죽음) 정직하게 실패를
+                        # 알리고 즉시 수동 매도를 요청한다. 과거엔 항상 "제출되었습니다"로 오보했다.
+                        append_operational_event(
+                            "error", "sync_orders",
+                            f"{exchange} stop-loss order placement failed after retries (position unprotected)",
+                            ticker,
+                        )
+                        await application.bot.send_message(
+                            chat_id=user_id,
+                            text=f"🚨 [{ticker}] 손절 주문 발행 실패\n"
+                                 f"• 현재가: {current_price:,.0f}원\n"
+                                 f"• 손절 기준가: {float(ord['stop_price']):,.0f}원\n"
+                                 f"• 기존 익절 주문은 취소되었으나 손절 매도가 접수되지 않았습니다.\n"
+                                 f"• ⚠️ 잔량이 무방비 상태입니다. 즉시 수동으로 매도해 주세요.",
+                        )
                 await asyncio.sleep(0.2)
                 continue
 

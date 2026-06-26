@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import time
@@ -95,10 +96,24 @@ class OrderManager:
             _log.error("Failed to reload orders from DB", exc_info=e, extra={"event": "db_orders_reload_error"})
             return False
 
+    @staticmethod
+    async def flush_pending_writes():
+        """진행 중인 fire-and-forget DB 쓰기(_db_upsert/_db_delete)를 모두 완료시킨다.
+
+        reload 직전에 호출해, 아직 DB에 반영되지 않은 인메모리 변경(체결 기록 등)이
+        stale read로 되돌려지는 것을 막는다. 되돌려지면 같은 체결을 다시 감지해
+        연동 익절매도를 중복 발행하는 등 실거래 손실로 이어질 수 있다.
+        """
+        pending = [t for t in list(_bg_tasks) if not t.done()]
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+
     async def reload_from_db_async(self) -> bool:
         """폴링 사이클 시작 시 DB 상태를 비동기로 인메모리에 반영한다."""
         if not is_db_available():
             return False
+        # 인메모리 변경이 DB에 모두 반영된 뒤 읽어야 stale read로 인한 중복 처리(중복 주문)를 막는다.
+        await self.flush_pending_writes()
         try:
             self.orders = await self._fetch_all_orders_async()
             self._uuid_set = {o["uuid"] for o in self.orders}

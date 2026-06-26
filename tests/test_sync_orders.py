@@ -204,6 +204,40 @@ async def test_stoploss_triggers_when_price_below_stop_price(tmp_path, monkeypat
     assert "손절 실행" in sent_text
 
 
+# T5b: 손절매도 발행이 끝내 실패하면 — 원주문은 제거하되 stoploss 주문은 만들지 않고,
+# "제출되었습니다" 오보 대신 정직한 실패 경고를 보낸다. 발행은 _STOPLOSS_PLACE_RETRIES회 재시도.
+async def test_stoploss_placement_failure_alerts_without_false_success(tmp_path, monkeypatch):
+    main._status_check_failures.clear()
+    monkeypatch.setattr(main.asyncio, "sleep", AsyncMock())
+    om = _make_order_manager(tmp_path)
+    om.add_order(
+        "222", "upbit", "KRW-ETH", "sell-uuid-fail", 4_000_000, 0.1,
+        side="ask", strategy="rsitrade_sell", stop_price=3_000_000,
+    )
+    monkeypatch.setattr(main, "order_manager", om)
+
+    mock_adapter = MagicMock()
+    mock_adapter.get_order_status = AsyncMock(return_value={"state": "wait", "executed_volume": 0.0})
+    mock_adapter.get_ticker = AsyncMock(return_value={"trade_price": 2_500_000})  # 손절 기준가 미만
+    mock_adapter.cancel_order = AsyncMock(return_value=True)
+    mock_adapter.create_order = AsyncMock(return_value=None)  # 손절매도 발행 실패
+    _wire_real_exchanges(mock_adapter)
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    app = _make_app()
+    await main.sync_orders(app)
+
+    # 취소된 익절매도는 추적에서 제거되고, stoploss 주문은 생성되지 않아야 한다
+    assert not any(o["uuid"] == "sell-uuid-fail" for o in om.orders)
+    assert not any(o["strategy"] == "stoploss" for o in om.orders)
+    # 발행을 재시도했는지
+    assert mock_adapter.create_order.await_count == main._STOPLOSS_PLACE_RETRIES
+    # 정직한 실패 알림 (과거의 "제출되었습니다" 오보가 없어야 함)
+    sent_text = app.bot.send_message.call_args.kwargs.get("text", "")
+    assert "발행 실패" in sent_text
+    assert "제출되었습니다" not in sent_text
+
+
 # T6: rsitrade_sell 포지션 — 현재가가 stop_price 이상이면 손절 미발동
 async def test_stoploss_does_not_trigger_when_price_above_stop_price(tmp_path, monkeypatch):
     om = _make_order_manager(tmp_path)
@@ -340,6 +374,64 @@ async def test_manual_order_without_auto_reorder_cancel_removes_tracking(tmp_pat
     assert len(om.orders) == 0
     sent_text = app.bot.send_message.call_args.kwargs.get("text", "")
     assert "외부 개입" in sent_text
+
+
+# T: KIS/Toss 수동 주문 조회가 일시적으로 None을 반환해도 단번에 추적을 끊지 않고,
+# 연속 _STATUS_CHECK_FAIL_LIMIT회 실패해야 비로소 종료한다(살아있는 주문 유실 방지).
+async def test_manual_order_transient_status_failure_retained_then_dropped(tmp_path, monkeypatch):
+    main._status_check_failures.clear()
+    om = _make_order_manager(tmp_path)
+    om.add_order("900", "toss", "005930", "uuid-toss-flaky", 70000, 10, side="bid", strategy="manual")
+    monkeypatch.setattr(main, "order_manager", om)
+
+    mock_adapter = MagicMock()
+    mock_adapter.ensure_toss_kr_calendar = AsyncMock()
+    mock_adapter.get_order_status = AsyncMock(return_value=None)  # 일시 조회 실패
+    mock_adapter.get_exchange = lambda exchange: MagicMock(
+        supports_reserved_orders=True,
+        is_market_open=lambda ticker=None: True,
+        next_check_timestamp=lambda ticker=None: 9_999_999.0,
+    )
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    app = _make_app()
+    # 임계치 직전까지는 주문이 추적에 남아있어야 한다
+    for _ in range(main._STATUS_CHECK_FAIL_LIMIT - 1):
+        await main.sync_orders(app)
+        assert any(o["uuid"] == "uuid-toss-flaky" for o in om.orders)
+    # 임계치에 도달하면 추적 종료
+    await main.sync_orders(app)
+    assert not any(o["uuid"] == "uuid-toss-flaky" for o in om.orders)
+    sent_texts = [c.kwargs.get("text", "") for c in app.bot.send_message.call_args_list]
+    assert any("추적을 종료" in t for t in sent_texts)
+
+
+# T: 일시 조회 실패 뒤 조회가 다시 성공하면 누적 실패 카운터가 초기화되어,
+# 이후 단발 실패가 누적으로 추적 종료를 유발하지 않는다.
+async def test_manual_order_status_failure_counter_resets_on_success(tmp_path, monkeypatch):
+    main._status_check_failures.clear()
+    om = _make_order_manager(tmp_path)
+    om.add_order("901", "toss", "005930", "uuid-toss-recover", 70000, 10, side="bid", strategy="manual")
+    monkeypatch.setattr(main, "order_manager", om)
+
+    results = [None, None, {"state": "wait", "executed_volume": 0.0}, None]
+    mock_adapter = MagicMock()
+    mock_adapter.ensure_toss_kr_calendar = AsyncMock()
+    mock_adapter.get_order_status = AsyncMock(side_effect=results)
+    mock_adapter.get_exchange = lambda exchange: MagicMock(
+        supports_reserved_orders=True,
+        is_market_open=lambda ticker=None: True,
+        next_check_timestamp=lambda ticker=None: 9_999_999.0,
+    )
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    app = _make_app()
+    for _ in range(len(results)):
+        await main.sync_orders(app)
+
+    # 2회 실패 → 1회 성공(카운터 리셋) → 1회 실패. 누적 임계치 미달이므로 추적 유지.
+    assert any(o["uuid"] == "uuid-toss-recover" for o in om.orders)
+    assert main._status_check_failures.get("uuid-toss-recover") == 1
 
 
 # T: 토스 국내(숫자 종목코드) 주문은 사이클마다 NXT 애프터마켓 캘린더 캐시를 갱신 시도한다
