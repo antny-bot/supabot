@@ -9,7 +9,7 @@ _pending_cancel_orders = {}
 _pending_reset_users = {}
 
 
-def create_manual_order_token(user_id, exchange, side, ticker, price, volume, ord_type="limit"):
+def create_manual_order_token(user_id, exchange, side, ticker, price, volume, ord_type="limit", auto_reorder=False):
     token = str(len(_pending_manual_orders) + 1)
     while token in _pending_manual_orders:
         token = str(int(token) + 1)
@@ -21,6 +21,7 @@ def create_manual_order_token(user_id, exchange, side, ticker, price, volume, or
         "price": float(price),
         "volume": float(volume),
         "ord_type": ord_type,
+        "auto_reorder": bool(auto_reorder),
         "created_at": time.time(),
     }
     return token
