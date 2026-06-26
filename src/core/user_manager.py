@@ -351,6 +351,14 @@ class UserManager:
             return True
         return False
 
+    def update_username(self, user_id, username):
+        user = self.users.get(str(user_id))
+        if not user:
+            return False
+        user["username"] = username
+        self._upsert_user(user_id)
+        return True
+
     def update_preference(self, user_id, key, value):
         user = self.users.get(str(user_id))
         if not user:

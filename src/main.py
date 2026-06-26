@@ -232,6 +232,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif not user["is_active"]:
         await update.message.reply_text("⏳ 현재 승인 대기 중입니다. 잠시만 기다려 주세요!")
     else:
+        if username and username != user.get("username"):
+            user_manager.update_username(user_id, username)
+            user["username"] = username
         await update.message.reply_text(build_start_menu_message(user), parse_mode="HTML")
 
 
