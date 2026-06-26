@@ -98,6 +98,7 @@ async def _internal_notify_handler(request: _web.Request) -> _web.Response:
     try:
         data = await request.json()
         app = request.app["bot_application"]
+        _user_manager.refresh_user(data["chat_id"])
         await app.bot.send_message(
             chat_id=data["chat_id"],
             text=data["text"],
