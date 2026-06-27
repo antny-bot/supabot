@@ -751,6 +751,7 @@ async def order_sync_loop(application):
         try:
             prefs = await _get_admin_prefs_async()
             await order_manager.reload_from_db_async()
+            await user_manager.reload_from_db_async()
             await sync_orders(application)
             metrics.record_poll_ok()
             interval = prefs["poll_active_interval"] if order_manager.orders \
@@ -803,6 +804,7 @@ async def signal_analysis_loop(application):
     while True:
         try:
             prefs = await _get_admin_prefs_async()
+            await user_manager.reload_from_db_async()
             await signal_engine.analyze_watchlist(application)
             metrics.record_signal_ok()
             _ops_check_counter += 1

@@ -1,6 +1,6 @@
 import os
 import sys
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SRC = os.path.join(ROOT, "src")
@@ -108,3 +108,42 @@ def test_refresh_user_returns_false_on_error(tmp_path, monkeypatch):
     monkeypatch.setattr("core.user_manager.get_db", lambda: fake_db)
 
     assert manager.refresh_user("1") is False
+
+
+# M5: order_sync_loop/signal_analysis_loop가 매 사이클 호출하는 비동기 reload —
+# manager UI의 차단/비활성화가 /start·/dbsync 없이도 다음 폴링 사이클에 반영되어야 한다.
+async def test_reload_from_db_async_replaces_in_memory_users(tmp_path, monkeypatch):
+    monkeypatch.setattr("core.user_manager.is_db_available", lambda: False)
+    manager = UserManager(str(tmp_path / "users.json"))
+    manager.add_user("1", "alice", is_admin=False)
+    assert manager.users["1"]["status"] == "pending"
+
+    fake_response = MagicMock()
+    fake_response.data = [_db_row("1", status="active", watchlist=["KRW-BTC"])]
+    fake_db = MagicMock()
+    fake_db.table.return_value.select.return_value.execute_async = AsyncMock(return_value=fake_response)
+    monkeypatch.setattr("core.user_manager.is_db_available", lambda: True)
+    monkeypatch.setattr("core.user_manager.get_db", lambda: fake_db)
+
+    assert await manager.reload_from_db_async() is True
+    assert manager.users["1"]["status"] == "active"
+    assert manager.users["1"]["exchanges"]["upbit"]["watchlist"] == ["KRW-BTC"]
+
+
+async def test_reload_from_db_async_is_noop_without_db(tmp_path, monkeypatch):
+    monkeypatch.setattr("core.user_manager.is_db_available", lambda: False)
+    manager = UserManager(str(tmp_path / "users.json"))
+    manager.add_user("1", "alice", is_admin=False)
+
+    assert await manager.reload_from_db_async() is False
+    assert "1" in manager.users
+
+
+async def test_reload_from_db_async_returns_false_on_error(tmp_path, monkeypatch):
+    manager = UserManager(str(tmp_path / "users.json"))
+    monkeypatch.setattr("core.user_manager.is_db_available", lambda: True)
+    fake_db = MagicMock()
+    fake_db.table.return_value.select.return_value.execute_async = AsyncMock(side_effect=RuntimeError("boom"))
+    monkeypatch.setattr("core.user_manager.get_db", lambda: fake_db)
+
+    assert await manager.reload_from_db_async() is False
