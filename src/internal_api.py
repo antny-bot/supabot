@@ -49,10 +49,10 @@ async def _verify_webhook_request(request: _web.Request) -> bool:
     allowed_ips_str = os.environ.get("ALLOWED_WEBHOOK_IPS", "").strip()
     if allowed_ips_str:
         allowed_ips = [ip.strip() for ip in allowed_ips_str.split(",") if ip.strip()]
+        # X-Forwarded-For는 클라이언트가 임의로 위조할 수 있어(신뢰 가능한 프록시 홉을
+        # 구성하지 않는 한) 화이트리스트 우회 수단이 된다(L2). 실제 TCP 연결의 피어
+        # 주소(request.remote)만 신뢰한다.
         client_ip = request.remote
-        xff = request.headers.get("X-Forwarded-For")
-        if xff:
-            client_ip = xff.split(",")[0].strip()
         if client_ip not in allowed_ips and client_ip != "127.0.0.1":
             _log.warning(f"Webhook blocked: IP {client_ip} is not in whitelist")
             return False
