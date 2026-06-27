@@ -316,8 +316,11 @@ class KisMixin:
             side_code = str(item.get("sll_buy_dvsn_cd", ""))
             side_name = str(item.get("sll_buy_dvsn_cd_name", ""))
             side = "bid" if side_code == "02" or "매수" in side_name else "ask"
+            order_no = str(item.get("odno", ""))
+            org_no = str(item.get("ord_gno_brno", ""))
             orders.append({
-                "order_no": str(item.get("odno", "")),
+                "uuid": f"{org_no}:{order_no}" if order_no else None,
+                "order_no": order_no,
                 "market": item.get("pdno", ticker),
                 "side": side,
                 "price": float(item.get("ord_unpr", 0) or item.get("avg_prvs", 0) or 0),
@@ -403,3 +406,11 @@ class KisExchange(RegularSessionExchange):
 
     async def get_order_history(self, user_id, client, ticker=None):
         return await self.adapter._get_kis_order_history(user_id, client, ticker)
+
+    async def get_open_orders(self, user_id, client, ticker=None):
+        """미체결(아직 done이 아닌) 주문만 추출 — _get_kis_order_history는 CCLD_DVSN="00"(전체)
+        조회라 오늘자 체결+미체결 주문을 모두 포함하므로 추가 API 호출 없이 필터링한다."""
+        orders = await self.adapter._get_kis_order_history(user_id, client, ticker)
+        if not orders:
+            return orders
+        return [o for o in orders if o.get("status") != "done"]

@@ -355,6 +355,35 @@ _STOPLOSS_PLACE_RETRIES = 3
 _STATUS_CHECK_FAIL_LIMIT = 3
 _status_check_failures: dict = {}
 
+# 재주문/예약주문 매칭 시 가격 비교 허용 오차(원). 거래소 틱 단위 보정 잔차를 흡수한다.
+_REORDER_PRICE_TOLERANCE = 1.0
+
+
+async def _find_duplicate_open_order(exchange_adapter, user_id, exchange, ticker, side, price, volume):
+    """재주문/예약주문 발행 직전, 이전 사이클의 create_order 응답이 유실됐을 뿐 실제로는
+    거래소에 이미 제출된 동일 스펙의 미체결 주문이 있는지 확인한다.
+
+    응답 유실 시 그냥 재시도하면 거래소엔 살아있는 주문이 그대로 있는 채로 동일 주문을
+    한 번 더 제출해 중복 주문이 발생할 수 있다(M3). KIS/Toss만 get_open_orders를 지원한다.
+    """
+    try:
+        open_orders = await exchange_adapter.get_open_orders(user_id, exchange, ticker)
+    except Exception:
+        return None
+    if not open_orders:
+        return None
+    for o in open_orders:
+        if not o.get("uuid"):
+            continue
+        if o.get("side") != side:
+            continue
+        if abs(float(o.get("price", 0)) - float(price)) > _REORDER_PRICE_TOLERANCE:
+            continue
+        if abs(float(o.get("volume", 0)) - float(volume)) > 1e-6:
+            continue
+        return o
+    return None
+
 
 # --- 주문 동기화 및 자동 대응 엔진 ---
 async def sync_orders(application):
@@ -400,7 +429,12 @@ async def sync_orders(application):
                 order_manager.update_next_check_at(ord["uuid"], ex_obj.next_check_timestamp(ticker))
                 continue
             vol = int(remaining) if ex_obj.requires_integer_volume() else remaining
-            res = await exchange_adapter.create_order(user_id, exchange, ticker, ord.get("side", "bid"), ord.get("price"), vol)
+            side = ord.get("side", "bid")
+            price = ord.get("price")
+            # M3: 직전 사이클에서 create_order 응답이 유실됐을 수 있으므로, 재발행 전에
+            # 동일 스펙의 미체결 주문이 이미 거래소에 있는지 먼저 확인해 중복 제출을 막는다.
+            dup = await _find_duplicate_open_order(exchange_adapter, user_id, exchange, ticker, side, price, vol)
+            res = dup if dup else await exchange_adapter.create_order(user_id, exchange, ticker, side, price, vol)
             action = "재주문" if ord.get("status") == "pending_reorder" else "예약주문 실행"
             order_kind = "전략" if is_strategy_order(ord) else "자동 재주문 설정"
             label = exchange_display_name(exchange)

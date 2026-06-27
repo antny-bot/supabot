@@ -369,6 +369,51 @@ def test_toss_create_order_sell():
     assert calls[0]["side"] == "SELL"
 
 
+# ── get_open_orders (M3: 재주문 응답유실 중복발행 방지용 미체결 조회) ──────────────────
+
+def test_toss_get_open_orders_uses_status_open_and_maps_fields():
+    adapter = make_adapter()
+
+    FAKE_RESPONSE = {
+        "result": {
+            "orders": [
+                {
+                    "orderId": "open-1",
+                    "symbol": "005930",
+                    "side": "BUY",
+                    "price": 70000,
+                    "quantity": 10,
+                    "status": "PENDING",
+                    "orderedAt": "2026-01-01T00:00:00",
+                    "execution": {"filledQuantity": 0, "commission": 0},
+                }
+            ]
+        }
+    }
+    calls = []
+
+    async def fake_request_toss(user_id, method, path, params=None, body=None, need_account=True):
+        calls.append({"method": method, "path": path, "params": params})
+        return FAKE_RESPONSE
+
+    adapter._request_toss = fake_request_toss
+    result = asyncio.run(adapter.get_open_orders("u1", "toss", "005930"))
+
+    assert calls[0]["params"]["status"] == "OPEN"
+    assert calls[0]["params"]["symbol"] == "005930"
+    assert result[0]["uuid"] == "open-1"
+    assert result[0]["side"] == "bid"
+    assert result[0]["price"] == 70000
+    assert result[0]["volume"] == 10
+
+
+def test_toss_get_open_orders_returns_none_on_bad_response():
+    adapter = make_adapter()
+    adapter._request_toss = AsyncMock(return_value=None)
+    result = asyncio.run(adapter.get_open_orders("u1", "toss", "005930"))
+    assert result is None
+
+
 # ── get_order_status ───────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("toss_status,expected_state,exec_qty,total_qty", [
