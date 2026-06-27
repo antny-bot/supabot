@@ -293,28 +293,8 @@ async def _internal_sync_order_handler(request: _web.Request) -> _web.Response:
             
             if state in ("done", "cancel"):
                 if state == "done":
-                    already_logged = False
-                    from core.db import is_db_available, get_db
-                    if is_db_available():
-                        try:
-                            res = get_db().table("trade_logs").select("id").eq("uuid", uuid).execute()
-                            if res.data:
-                                already_logged = True
-                        except Exception:
-                            pass
-                    
-                    from core.trade_log import TRADE_LOG_PATH
-                    if not already_logged and os.path.exists(TRADE_LOG_PATH):
-                        try:
-                            with open(TRADE_LOG_PATH, "r", encoding="utf-8") as f:
-                                for line in f:
-                                    if f'"uuid": "{uuid}"' in line or f'"uuid":"{uuid}"' in line:
-                                        already_logged = True
-                                        break
-                        except Exception:
-                            pass
-                    
-                    if not already_logged:
+                    from core.trade_log import is_trade_logged
+                    if not is_trade_logged(uuid):
                         ord_obj = None
                         for o in _order_manager.orders:
                             if o["uuid"] == uuid:
@@ -369,28 +349,8 @@ async def _internal_force_update_order_handler(request: _web.Request) -> _web.Re
                 
         if state in ("done", "cancel"):
             if state == "done" and ord_obj:
-                already_logged = False
-                from core.db import is_db_available, get_db
-                if is_db_available():
-                    try:
-                        res = get_db().table("trade_logs").select("id").eq("uuid", uuid).execute()
-                        if res.data:
-                            already_logged = True
-                    except Exception:
-                        pass
-                
-                from core.trade_log import TRADE_LOG_PATH
-                if not already_logged and os.path.exists(TRADE_LOG_PATH):
-                    try:
-                        with open(TRADE_LOG_PATH, "r", encoding="utf-8") as f:
-                            for line in f:
-                                if f'"uuid": "{uuid}"' in line or f'"uuid":"{uuid}"' in line:
-                                    already_logged = True
-                                    break
-                    except Exception:
-                        pass
-                
-                if not already_logged:
+                from core.trade_log import is_trade_logged
+                if not is_trade_logged(uuid):
                     append_trade(
                         user_id=ord_obj["user_id"],
                         exchange=ord_obj["exchange"],
