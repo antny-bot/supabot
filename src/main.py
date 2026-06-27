@@ -385,6 +385,80 @@ async def _find_duplicate_open_order(exchange_adapter, user_id, exchange, ticker
     return None
 
 
+def _find_linked_sell_order(buy_uuid):
+    """주어진 rsitrade 매수 주문에 연동된 익절매도 주문(reorder_of==buy_uuid)을 찾는다.
+
+    add_order(매도 생성)와 update_order_fill(매수 체결 기록)은 둘 다 fire-and-forget DB
+    쓰기라 그 사이 크래시 시 DB엔 매도 주문만 남고 매수의 filled_volume은 갱신되지 않을 수
+    있다(M4). 재시작/재폴링 시 같은 체결을 다시 감지해도 이미 매도 주문이 존재하면 중복
+    발행하지 않도록 reorder_of를 매수-매도 연결 키로 사용한다.
+    """
+    for o in order_manager.orders:
+        if o.get("strategy") == "rsitrade_sell" and o.get("reorder_of") == buy_uuid:
+            return o
+    return None
+
+
+async def _create_linked_sell_order(application, ord, exec_vol, state):
+    """rsitrade 매수 체결 시 연동된 익절매도 주문을 생성한다.
+
+    sync_orders의 정상 처리 경로와 startup_recovery의 크래시 복구 경로가 동일 로직을
+    공유한다. 생성 전 _find_linked_sell_order로 멱등성을 확인해, 직전 실행이 매도 주문
+    생성까지는 마쳤으나 매수 체결 기록(filled_volume) 갱신 전에 죽은 경우에도 매도를
+    중복 발행하지 않고 매수의 filled_volume만 동기화한다.
+
+    Returns: "created" | "exists" | "no_price" | "zero_volume" | "failed"
+    """
+    user_id = ord["user_id"]
+    exchange = ord["exchange"]
+    ticker = ord["ticker"]
+    newly_filled = exec_vol - ord["filled_volume"]
+
+    if _find_linked_sell_order(ord["uuid"]):
+        order_manager.update_order_fill(ord["uuid"], exec_vol, state)
+        return "exists"
+
+    target_rsi = resolve_linked_rsi_target(ord["linked_to"])
+    user = user_manager.get_user(user_id) or {"preferences": UserManager.DEFAULT_PREFERENCES}
+    sell_price = await signal_engine.get_price_by_rsi(
+        exchange,
+        ticker,
+        target_rsi,
+        side="ask",
+        interval=get_user_rsi_interval(user),
+        user_id=user_id,
+    )
+    if not sell_price:
+        return "no_price"
+
+    ex = exchange_adapter.get_exchange(exchange)
+    sell_volume = ex.round_volume(newly_filled)
+    if ex.requires_integer_volume() and sell_volume <= 0:
+        return "zero_volume"
+
+    s_res = await exchange_adapter.create_order(user_id, exchange, ticker, "ask", sell_price, sell_volume)
+    if not (s_res and "uuid" in s_res):
+        return "failed"
+
+    stop_loss_pct = float(user.get("preferences", {}).get("stop_loss_pct", 0) or 0)
+    stop_price = (
+        ex.adjust_price_to_tick(ord["price"] * (1 - stop_loss_pct / 100), ticker)
+        if stop_loss_pct > 0 else None
+    )
+    order_manager.add_order(user_id, exchange, ticker, s_res["uuid"], sell_price, sell_volume,
+                             side="ask", strategy="rsitrade_sell", target_rsi=target_rsi,
+                             stop_price=stop_price, group_no=ord.get("group_no"),
+                             reorder_of=ord["uuid"])
+    order_manager.update_order_fill(ord["uuid"], exec_vol, state)
+    await application.bot.send_message(
+        chat_id=user_id,
+        text=f"✅ [{ticker}] 매수 체결 및 익절 예약 완료\n"
+             f"• 체결: {newly_filled:.4f}개\n"
+             f"• 익절가: {sell_price:,.0f}원 (RSI {target_rsi} 목표)",
+    )
+    return "created"
+
+
 # --- 주문 동기화 및 자동 대응 엔진 ---
 async def sync_orders(application):
     """현재 추적 중인 주문들의 상태를 거래소와 동기화하고 자동 대응 수행"""
@@ -579,45 +653,12 @@ async def sync_orders(application):
             
             # 매수 체결 시 -> 연동된 매도(익절) 주문 생성 (rsitrade 전략인 경우)
             if ord['side'] == 'bid' and ord['strategy'] == 'rsitrade' and ord['linked_to']:
-                target_rsi = resolve_linked_rsi_target(ord['linked_to'])
-                
-                user = user_manager.get_user(user_id) or {"preferences": UserManager.DEFAULT_PREFERENCES}
-                sell_price = await signal_engine.get_price_by_rsi(
-                    exchange,
-                    ticker,
-                    target_rsi,
-                    side="ask",
-                    interval=get_user_rsi_interval(user),
-                    user_id=user_id,
-                )
-                if sell_price:
-                    ex = exchange_adapter.get_exchange(exchange)
-                    sell_volume = ex.round_volume(newly_filled)
-                    if ex.requires_integer_volume() and sell_volume <= 0:
-                        keep_order_for_retry = True
-                        await asyncio.sleep(0.2)
-                        continue
-                    # 매도 주문 전송
-                    s_res = await exchange_adapter.create_order(user_id, exchange, ticker, "ask", sell_price, sell_volume)
-                    if s_res and 'uuid' in s_res:
-                        stop_loss_pct = float(user.get("preferences", {}).get("stop_loss_pct", 0) or 0)
-                        stop_price = (
-                            ex.adjust_price_to_tick(ord["price"] * (1 - stop_loss_pct / 100), ticker)
-                            if stop_loss_pct > 0 else None
-                        )
-                        order_manager.add_order(user_id, exchange, ticker, s_res['uuid'], sell_price, sell_volume,
-                                             side="ask", strategy="rsitrade_sell", target_rsi=target_rsi,
-                                             stop_price=stop_price, group_no=ord.get("group_no"))
-                        order_manager.update_order_fill(ord['uuid'], exec_vol, state)
-                        await application.bot.send_message(
-                            chat_id=user_id,
-                            text=f"✅ [{ticker}] 매수 체결 및 익절 예약 완료\n"
-                                 f"• 체결: {newly_filled:.4f}개\n"
-                                 f"• 익절가: {sell_price:,.0f}원 (RSI {target_rsi} 목표)",
-                        )
-                    else:
-                        keep_order_for_retry = True
-                else:
+                outcome = await _create_linked_sell_order(application, ord, exec_vol, state)
+                if outcome == "zero_volume":
+                    keep_order_for_retry = True
+                    await asyncio.sleep(0.2)
+                    continue
+                if outcome in ("no_price", "failed"):
                     keep_order_for_retry = True
             
             # 일반 체결 알림
@@ -775,22 +816,41 @@ async def signal_analysis_loop(application):
 
 # --- 자동 복구 및 초기화 로직 ---
 async def startup_recovery(application):
-    """봇 시작 시 미완료된 전략 주문들을 점검하고 복구"""
+    """봇 시작 시 rsitrade 매수 체결 후 연동 익절매도 발행이 누락된 주문을 복구한다.
+
+    sync_orders의 매수체결→익절매도 생성(add_order)과 매수 체결기록(update_order_fill)
+    사이에 봇이 크래시하면, 재시작 시 매수의 filled_volume이 stale한 채로 남아있을 수
+    있다(M4). 정상적으로는 다음 sync_orders 폴링에서 자연 복구되지만, 그 창을 줄이기
+    위해 기동 시 즉시 1회 점검한다. _create_linked_sell_order의 멱등성 체크 덕분에
+    이미 매도 주문이 생성된 경우(매도만 남고 매수 기록이 안 된 경우)에도 중복 발행 없이
+    매수의 filled_volume만 동기화한다.
+    """
     _log.info("Startup recovery started", extra={"event": "startup_recovery_start"})
-    all_orders = list(order_manager.orders)
+    targets = [
+        ord for ord in list(order_manager.orders)
+        if ord.get('side') == 'bid' and ord.get('strategy') == 'rsitrade' and ord.get('linked_to')
+    ]
     recovered_count = 0
-    
-    for ord in all_orders:
-        # 매수 주문인데 거래소 상태 확인
-        res = await exchange_adapter.get_order_status(ord['user_id'], ord['exchange'], ord['uuid'], ord.get("ticker"))
-        if res and res['state'] == 'done':
-            # 매수는 완료되었으나 봇이 꺼져서 매도 주문을 못 낸 경우 복구
-            if ord['side'] == 'bid' and ord['strategy'] == 'rsitrade' and ord['linked_to']:
-                # (sync_orders와 동일한 로직으로 매도 주문 생성 시도)
-                recovered_count += 1
-                # 로직 중복 방지를 위해 sync_orders가 다음 루프에서 처리하도록 filled_volume만 0으로 세팅되어 있다면 
-                # 자연스럽게 sync_orders에서 처리됩니다.
-    
+
+    for ord in targets:
+        if not order_manager.has_order(ord["uuid"]):
+            continue
+        try:
+            res = await exchange_adapter.get_order_status(ord['user_id'], ord['exchange'], ord['uuid'], ord.get("ticker"))
+        except Exception as e:
+            _log.warning("Startup recovery: order status check failed", exc_info=e,
+                         extra={"event": "startup_recovery_status_error", "uuid": ord['uuid']})
+            continue
+        if not res:
+            continue
+        exec_vol = float(res.get('executed_volume', 0) or 0)
+        if exec_vol <= float(ord.get('filled_volume', 0)):
+            continue
+        outcome = await _create_linked_sell_order(application, ord, exec_vol, res['state'])
+        if outcome == "created":
+            recovered_count += 1
+            _log.info("Startup recovery: linked sell order created", extra={"event": "startup_recovery_recovered", "uuid": ord['uuid']})
+
     if recovered_count > 0:
         _log.info("Startup recovery complete", extra={"event": "startup_recovery_done", "recovered": recovered_count})
 

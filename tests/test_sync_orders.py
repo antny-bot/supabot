@@ -170,6 +170,51 @@ async def test_rsitrade_buy_fill_sets_stop_price_when_configured(tmp_path, monke
     assert sell_orders[0]["stop_price"] == pytest.approx(47_500_000, rel=0.01)
 
 
+# M4: 매수 체결 감지 시 연동 매도 주문이 이미 존재하면(크래시 복구 시나리오) 중복 발행하지 않음
+async def test_rsitrade_buy_fill_skips_duplicate_sell_when_already_exists(tmp_path, monkeypatch):
+    om = _make_order_manager(tmp_path)
+    om.add_order(
+        "789", "upbit", "KRW-ETH", "buy-uuid-dup", 3_000_000, 0.1,
+        side="bid", strategy="rsitrade", linked_to="65-75",
+    )
+    # add_order(매도 생성) 이후 update_order_fill(매수 체결기록) 전에 크래시한 상황을 재현:
+    # 매도 주문(reorder_of=buy-uuid-dup)은 이미 DB/메모리에 있으나 매수의 filled_volume은 0.
+    om.add_order(
+        "789", "upbit", "KRW-ETH", "sell-uuid-existing", 4_500_000, 0.1,
+        side="ask", strategy="rsitrade_sell", reorder_of="buy-uuid-dup",
+    )
+    monkeypatch.setattr(main, "order_manager", om)
+
+    async def fake_get_order_status(user_id, exchange, uuid, ticker=None):
+        if uuid == "buy-uuid-dup":
+            return {"state": "done", "executed_volume": 0.1}
+        return {"state": "wait", "executed_volume": 0.0}  # 매도 주문은 아직 미체결
+
+    mock_adapter = MagicMock()
+    mock_adapter.get_order_status = AsyncMock(side_effect=fake_get_order_status)
+    mock_adapter.create_order = AsyncMock(return_value={"uuid": "should-not-be-used"})
+    _wire_real_exchanges(mock_adapter)
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    mock_engine = MagicMock()
+    mock_engine.get_price_by_rsi = AsyncMock(return_value=4_500_000)
+    monkeypatch.setattr(main, "signal_engine", mock_engine)
+
+    mock_um = MagicMock()
+    mock_um.get_user = MagicMock(return_value=_default_user())
+    monkeypatch.setattr(main, "user_manager", mock_um)
+
+    app = _make_app()
+    await main.sync_orders(app)
+
+    # 이미 매도 주문이 있으므로 create_order(매도 발행)는 호출되지 않아야 함(중복 방지)
+    mock_adapter.create_order.assert_not_called()
+    # 매수는 체결 완료(state=done)로 처리되어 추적에서 제거됨
+    assert not any(o["uuid"] == "buy-uuid-dup" for o in om.orders)
+    # 기존 매도 주문은 그대로 유지됨 (재생성/중복 없음)
+    assert any(o["uuid"] == "sell-uuid-existing" for o in om.orders)
+
+
 # T5: rsitrade_sell 포지션 stop-loss 발동 → 손절 주문 제출
 async def test_stoploss_triggers_when_price_below_stop_price(tmp_path, monkeypatch):
     om = _make_order_manager(tmp_path)
@@ -574,3 +619,99 @@ def test_has_order_index_consistency(tmp_path):
 
     om.remove_order("uuid-2")
     assert om.has_order("uuid-2") is False
+
+
+# ── M4: startup_recovery 실제 복구 동작 ──────────────────────────────────────
+
+async def test_startup_recovery_creates_missing_linked_sell_order(tmp_path, monkeypatch):
+    """매수 전량체결이 filled_volume에 반영되기 전 크래시한 경우, 기동 시 누락된 익절매도를 생성."""
+    om = _make_order_manager(tmp_path)
+    om.add_order(
+        "789", "upbit", "KRW-ETH", "buy-uuid-recover", 3_000_000, 0.1,
+        side="bid", strategy="rsitrade", linked_to="65-75",
+    )
+    monkeypatch.setattr(main, "order_manager", om)
+
+    mock_adapter = MagicMock()
+    mock_adapter.get_order_status = AsyncMock(return_value={"state": "done", "executed_volume": 0.1})
+    mock_adapter.create_order = AsyncMock(return_value={"uuid": "sell-uuid-recovered"})
+    _wire_real_exchanges(mock_adapter)
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    mock_engine = MagicMock()
+    mock_engine.get_price_by_rsi = AsyncMock(return_value=4_500_000)
+    monkeypatch.setattr(main, "signal_engine", mock_engine)
+
+    mock_um = MagicMock()
+    mock_um.get_user = MagicMock(return_value=_default_user())
+    monkeypatch.setattr(main, "user_manager", mock_um)
+
+    app = _make_app()
+    await main.startup_recovery(app)
+
+    mock_adapter.create_order.assert_called_once()
+    sell_orders = [o for o in om.orders if o["uuid"] == "sell-uuid-recovered"]
+    assert len(sell_orders) == 1
+    assert sell_orders[0]["strategy"] == "rsitrade_sell"
+    assert sell_orders[0]["reorder_of"] == "buy-uuid-recover"
+    app.bot.send_message.assert_called_once()
+
+
+async def test_startup_recovery_skips_when_linked_sell_already_exists(tmp_path, monkeypatch):
+    """매도 주문은 이미 생성됐으나 매수 체결기록만 누락된 경우 — 재생성 없이 동기화만 수행."""
+    om = _make_order_manager(tmp_path)
+    om.add_order(
+        "789", "upbit", "KRW-ETH", "buy-uuid-recover2", 3_000_000, 0.1,
+        side="bid", strategy="rsitrade", linked_to="65-75",
+    )
+    om.add_order(
+        "789", "upbit", "KRW-ETH", "sell-uuid-already-there", 4_500_000, 0.1,
+        side="ask", strategy="rsitrade_sell", reorder_of="buy-uuid-recover2",
+    )
+    monkeypatch.setattr(main, "order_manager", om)
+
+    mock_adapter = MagicMock()
+    mock_adapter.get_order_status = AsyncMock(return_value={"state": "done", "executed_volume": 0.1})
+    mock_adapter.create_order = AsyncMock(return_value={"uuid": "should-not-be-created"})
+    _wire_real_exchanges(mock_adapter)
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    mock_engine = MagicMock()
+    mock_engine.get_price_by_rsi = AsyncMock(return_value=4_500_000)
+    monkeypatch.setattr(main, "signal_engine", mock_engine)
+
+    mock_um = MagicMock()
+    mock_um.get_user = MagicMock(return_value=_default_user())
+    monkeypatch.setattr(main, "user_manager", mock_um)
+
+    app = _make_app()
+    await main.startup_recovery(app)
+
+    mock_adapter.create_order.assert_not_called()
+    buy_orders = [o for o in om.orders if o["uuid"] == "buy-uuid-recover2"]
+    assert len(buy_orders) == 1
+    # 매도는 재생성하지 않되, 매수의 filled_volume은 동기화되어야 함(다음 사이클 재처리 방지)
+    assert buy_orders[0]["filled_volume"] == pytest.approx(0.1)
+    assert any(o["uuid"] == "sell-uuid-already-there" for o in om.orders)
+
+
+async def test_startup_recovery_ignores_orders_without_new_fill(tmp_path, monkeypatch):
+    """거래소 체결량이 filled_volume과 같으면(정상 추적 중) 복구 대상이 아니다."""
+    om = _make_order_manager(tmp_path)
+    om.add_order(
+        "789", "upbit", "KRW-ETH", "buy-uuid-normal", 3_000_000, 0.1,
+        side="bid", strategy="rsitrade", linked_to="65-75",
+    )
+    monkeypatch.setattr(main, "order_manager", om)
+
+    mock_adapter = MagicMock()
+    mock_adapter.get_order_status = AsyncMock(return_value={"state": "wait", "executed_volume": 0.0})
+    mock_adapter.create_order = AsyncMock(return_value={"uuid": "should-not-be-created"})
+    _wire_real_exchanges(mock_adapter)
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    app = _make_app()
+    await main.startup_recovery(app)
+
+    mock_adapter.create_order.assert_not_called()
+    assert any(o["uuid"] == "buy-uuid-normal" for o in om.orders)
