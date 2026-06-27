@@ -202,3 +202,18 @@ class ExchangeAdapter(CommonMixin, UpbitMixin, BithumbMixin, TossMixin, KisMixin
         if not client:
             return None
         return await self._exchanges[exchange].get_order_history(user_id, client, ticker=ticker)
+
+    async def get_open_orders(self, user_id, exchange, ticker=None):
+        """진행 중(미체결) 주문 목록. 거래소가 지원하지 않으면 None.
+
+        재주문/예약주문 제출 직전 응답유실로 인한 중복 발행을 막기 위한 용도(KIS/Toss만 구현).
+        """
+        ex = self._exchanges.get(exchange)
+        if ex is None or not hasattr(ex, "get_open_orders"):
+            return None
+        if ticker and exchange in ("kis", "toss"):
+            ticker = await self._resolve(user_id, exchange, ticker)
+        client = self._get_client(user_id, exchange)
+        if not client:
+            return None
+        return await ex.get_open_orders(user_id, client, ticker=ticker)

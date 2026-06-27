@@ -347,6 +347,118 @@ LLM_COMMAND_CATALOG = "\n".join([
     "help req=- opt=- run=now ex=what can you do",
 ])
 
+# 손절매도 발행 일시 실패 시 동일 사이클 내 재시도 횟수 (미보호 포지션 창 축소).
+_STOPLOSS_PLACE_RETRIES = 3
+
+# KIS/Toss 수동 주문 상태 조회가 None을 반환할 때, 일시 오류(토큰만료/레이트리밋/타임아웃)와
+# 실제 "주문 없음"을 구분할 수 없으므로 연속 실패가 이 횟수에 도달해야 추적을 종료한다.
+_STATUS_CHECK_FAIL_LIMIT = 3
+_status_check_failures: dict = {}
+
+# 재주문/예약주문 매칭 시 가격 비교 허용 오차(원). 거래소 틱 단위 보정 잔차를 흡수한다.
+_REORDER_PRICE_TOLERANCE = 1.0
+
+
+async def _find_duplicate_open_order(exchange_adapter, user_id, exchange, ticker, side, price, volume):
+    """재주문/예약주문 발행 직전, 이전 사이클의 create_order 응답이 유실됐을 뿐 실제로는
+    거래소에 이미 제출된 동일 스펙의 미체결 주문이 있는지 확인한다.
+
+    응답 유실 시 그냥 재시도하면 거래소엔 살아있는 주문이 그대로 있는 채로 동일 주문을
+    한 번 더 제출해 중복 주문이 발생할 수 있다(M3). KIS/Toss만 get_open_orders를 지원한다.
+    """
+    try:
+        open_orders = await exchange_adapter.get_open_orders(user_id, exchange, ticker)
+    except Exception:
+        return None
+    if not open_orders:
+        return None
+    for o in open_orders:
+        if not o.get("uuid"):
+            continue
+        if o.get("side") != side:
+            continue
+        if abs(float(o.get("price", 0)) - float(price)) > _REORDER_PRICE_TOLERANCE:
+            continue
+        if abs(float(o.get("volume", 0)) - float(volume)) > 1e-6:
+            continue
+        return o
+    return None
+
+
+def _find_linked_sell_order(buy_uuid):
+    """주어진 rsitrade 매수 주문에 연동된 익절매도 주문(reorder_of==buy_uuid)을 찾는다.
+
+    add_order(매도 생성)와 update_order_fill(매수 체결 기록)은 둘 다 fire-and-forget DB
+    쓰기라 그 사이 크래시 시 DB엔 매도 주문만 남고 매수의 filled_volume은 갱신되지 않을 수
+    있다(M4). 재시작/재폴링 시 같은 체결을 다시 감지해도 이미 매도 주문이 존재하면 중복
+    발행하지 않도록 reorder_of를 매수-매도 연결 키로 사용한다.
+    """
+    for o in order_manager.orders:
+        if o.get("strategy") == "rsitrade_sell" and o.get("reorder_of") == buy_uuid:
+            return o
+    return None
+
+
+async def _create_linked_sell_order(application, ord, exec_vol, state):
+    """rsitrade 매수 체결 시 연동된 익절매도 주문을 생성한다.
+
+    sync_orders의 정상 처리 경로와 startup_recovery의 크래시 복구 경로가 동일 로직을
+    공유한다. 생성 전 _find_linked_sell_order로 멱등성을 확인해, 직전 실행이 매도 주문
+    생성까지는 마쳤으나 매수 체결 기록(filled_volume) 갱신 전에 죽은 경우에도 매도를
+    중복 발행하지 않고 매수의 filled_volume만 동기화한다.
+
+    Returns: "created" | "exists" | "no_price" | "zero_volume" | "failed"
+    """
+    user_id = ord["user_id"]
+    exchange = ord["exchange"]
+    ticker = ord["ticker"]
+    newly_filled = exec_vol - ord["filled_volume"]
+
+    if _find_linked_sell_order(ord["uuid"]):
+        order_manager.update_order_fill(ord["uuid"], exec_vol, state)
+        return "exists"
+
+    target_rsi = resolve_linked_rsi_target(ord["linked_to"])
+    user = user_manager.get_user(user_id) or {"preferences": UserManager.DEFAULT_PREFERENCES}
+    sell_price = await signal_engine.get_price_by_rsi(
+        exchange,
+        ticker,
+        target_rsi,
+        side="ask",
+        interval=get_user_rsi_interval(user),
+        user_id=user_id,
+    )
+    if not sell_price:
+        return "no_price"
+
+    ex = exchange_adapter.get_exchange(exchange)
+    sell_volume = ex.round_volume(newly_filled)
+    if ex.requires_integer_volume() and sell_volume <= 0:
+        return "zero_volume"
+
+    s_res = await exchange_adapter.create_order(user_id, exchange, ticker, "ask", sell_price, sell_volume)
+    if not (s_res and "uuid" in s_res):
+        return "failed"
+
+    stop_loss_pct = float(user.get("preferences", {}).get("stop_loss_pct", 0) or 0)
+    stop_price = (
+        ex.adjust_price_to_tick(ord["price"] * (1 - stop_loss_pct / 100), ticker)
+        if stop_loss_pct > 0 else None
+    )
+    order_manager.add_order(user_id, exchange, ticker, s_res["uuid"], sell_price, sell_volume,
+                             side="ask", strategy="rsitrade_sell", target_rsi=target_rsi,
+                             stop_price=stop_price, group_no=ord.get("group_no"),
+                             reorder_of=ord["uuid"])
+    order_manager.update_order_fill(ord["uuid"], exec_vol, state)
+    await application.bot.send_message(
+        chat_id=user_id,
+        text=f"✅ [{ticker}] 매수 체결 및 익절 예약 완료\n"
+             f"• 체결: {newly_filled:.4f}개\n"
+             f"• 익절가: {sell_price:,.0f}원 (RSI {target_rsi} 목표)",
+    )
+    return "created"
+
+
 # --- 주문 동기화 및 자동 대응 엔진 ---
 async def sync_orders(application):
     """현재 추적 중인 주문들의 상태를 거래소와 동기화하고 자동 대응 수행"""
@@ -391,7 +503,12 @@ async def sync_orders(application):
                 order_manager.update_next_check_at(ord["uuid"], ex_obj.next_check_timestamp(ticker))
                 continue
             vol = int(remaining) if ex_obj.requires_integer_volume() else remaining
-            res = await exchange_adapter.create_order(user_id, exchange, ticker, ord.get("side", "bid"), ord.get("price"), vol)
+            side = ord.get("side", "bid")
+            price = ord.get("price")
+            # M3: 직전 사이클에서 create_order 응답이 유실됐을 수 있으므로, 재발행 전에
+            # 동일 스펙의 미체결 주문이 이미 거래소에 있는지 먼저 확인해 중복 제출을 막는다.
+            dup = await _find_duplicate_open_order(exchange_adapter, user_id, exchange, ticker, side, price, vol)
+            res = dup if dup else await exchange_adapter.create_order(user_id, exchange, ticker, side, price, vol)
             action = "재주문" if ord.get("status") == "pending_reorder" else "예약주문 실행"
             order_kind = "전략" if is_strategy_order(ord) else "자동 재주문 설정"
             label = exchange_display_name(exchange)
@@ -431,14 +548,29 @@ async def sync_orders(application):
                     text=f"⏳ [{exchange_display_name(exchange)}] {ticker} {order_kind} 주문 확인이 불가하여 다음 정규장 재주문 대기로 전환합니다.",
                 )
             elif getattr(ex_obj, "supports_reserved_orders", False):
-                order_manager.remove_order(ord["uuid"])
-                await application.bot.send_message(
-                    chat_id=user_id,
-                    text=f"🛑 [{exchange_display_name(exchange)}] {ticker} 수동 주문 확인이 불가하여 추적을 종료합니다.\n자동 재주문은 하지 않습니다.",
-                )
+                # KIS/Toss 수동 주문 조회 None은 토큰만료·레이트리밋·타임아웃 등 일시 오류로도
+                # 발생한다 — 단 1회 실패로 살아있는 미체결 주문 추적을 끊으면 안 된다(과거 버그).
+                # 연속 _STATUS_CHECK_FAIL_LIMIT회 실패해야 비로소 "주문 없음"으로 보고 종료한다.
+                fails = _status_check_failures.get(ord["uuid"], 0) + 1
+                if fails < _STATUS_CHECK_FAIL_LIMIT:
+                    _status_check_failures[ord["uuid"]] = fails
+                    append_operational_event(
+                        "warning", "sync_orders",
+                        f"{exchange} manual order status check failed ({fails}/{_STATUS_CHECK_FAIL_LIMIT}), retrying",
+                        ticker,
+                    )
+                else:
+                    _status_check_failures.pop(ord["uuid"], None)
+                    order_manager.remove_order(ord["uuid"])
+                    await application.bot.send_message(
+                        chat_id=user_id,
+                        text=f"🛑 [{exchange_display_name(exchange)}] {ticker} 수동 주문 확인이 불가하여 추적을 종료합니다.\n자동 재주문은 하지 않습니다.",
+                    )
             else:
                 append_operational_event("warning", "sync_orders", f"{exchange} get_order_status returned no result", ticker)
             continue
+        # 조회가 성공하면 누적 실패 카운터를 초기화한다.
+        _status_check_failures.pop(ord["uuid"], None)
         state = res['state']
         exec_vol = res['executed_volume']
         keep_order_for_retry = False
@@ -470,22 +602,48 @@ async def sync_orders(application):
                 if cancel_ok:
                     remaining = float(ord["volume"]) - float(ord["filled_volume"])
                     sl_price = exchange_adapter.get_exchange(exchange).adjust_price_to_tick(current_price * 0.999, ticker)
-                    sl_res = await exchange_adapter.create_order(
-                        user_id, exchange, ticker, "ask", sl_price, remaining
-                    )
+                    # 익절매도를 취소해 잔량을 푼 뒤 손절매도를 발행한다. 발행이 일시적으로
+                    # 실패(거래소 거부/네트워크)할 수 있으므로 짧게 재시도해 미보호 포지션 창을 줄인다.
+                    sl_res = None
+                    for _sl_attempt in range(_STOPLOSS_PLACE_RETRIES):
+                        sl_res = await exchange_adapter.create_order(
+                            user_id, exchange, ticker, "ask", sl_price, remaining
+                        )
+                        if sl_res and "uuid" in sl_res:
+                            break
+                        await asyncio.sleep(0.3)
+                    # 익절매도는 이미 취소됐으므로 원주문(쉬고 있던 ask)은 더 이상 거래소에 없다 →
+                    # 추적에서 제거한다(유지하면 다음 사이클에 "외부 개입"으로 오인됨).
                     order_manager.remove_order(ord["uuid"])
                     if sl_res and "uuid" in sl_res:
                         order_manager.add_order(
                             user_id, exchange, ticker, sl_res["uuid"],
                             sl_price, remaining, side="ask", strategy="stoploss",
                         )
-                    await application.bot.send_message(
-                        chat_id=user_id,
-                        text=f"🛑 [{ticker}] 손절 실행\n"
-                             f"• 현재가: {current_price:,.0f}원\n"
-                             f"• 손절 기준가: {float(ord['stop_price']):,.0f}원\n"
-                             f"• 손절 주문이 제출되었습니다.",
-                    )
+                        await application.bot.send_message(
+                            chat_id=user_id,
+                            text=f"🛑 [{ticker}] 손절 실행\n"
+                                 f"• 현재가: {current_price:,.0f}원\n"
+                                 f"• 손절 기준가: {float(ord['stop_price']):,.0f}원\n"
+                                 f"• 손절 주문이 제출되었습니다.",
+                        )
+                    else:
+                        # 익절매도는 취소됐는데 손절매도 발행이 끝내 실패 → 잔량이 무방비로 남는다.
+                        # 자동 재발행할 수단이 없으므로(쉬던 주문 uuid는 이미 죽음) 정직하게 실패를
+                        # 알리고 즉시 수동 매도를 요청한다. 과거엔 항상 "제출되었습니다"로 오보했다.
+                        append_operational_event(
+                            "error", "sync_orders",
+                            f"{exchange} stop-loss order placement failed after retries (position unprotected)",
+                            ticker,
+                        )
+                        await application.bot.send_message(
+                            chat_id=user_id,
+                            text=f"🚨 [{ticker}] 손절 주문 발행 실패\n"
+                                 f"• 현재가: {current_price:,.0f}원\n"
+                                 f"• 손절 기준가: {float(ord['stop_price']):,.0f}원\n"
+                                 f"• 기존 익절 주문은 취소되었으나 손절 매도가 접수되지 않았습니다.\n"
+                                 f"• ⚠️ 잔량이 무방비 상태입니다. 즉시 수동으로 매도해 주세요.",
+                        )
                 await asyncio.sleep(0.2)
                 continue
 
@@ -495,45 +653,12 @@ async def sync_orders(application):
             
             # 매수 체결 시 -> 연동된 매도(익절) 주문 생성 (rsitrade 전략인 경우)
             if ord['side'] == 'bid' and ord['strategy'] == 'rsitrade' and ord['linked_to']:
-                target_rsi = resolve_linked_rsi_target(ord['linked_to'])
-                
-                user = user_manager.get_user(user_id) or {"preferences": UserManager.DEFAULT_PREFERENCES}
-                sell_price = await signal_engine.get_price_by_rsi(
-                    exchange,
-                    ticker,
-                    target_rsi,
-                    side="ask",
-                    interval=get_user_rsi_interval(user),
-                    user_id=user_id,
-                )
-                if sell_price:
-                    ex = exchange_adapter.get_exchange(exchange)
-                    sell_volume = ex.round_volume(newly_filled)
-                    if ex.requires_integer_volume() and sell_volume <= 0:
-                        keep_order_for_retry = True
-                        await asyncio.sleep(0.2)
-                        continue
-                    # 매도 주문 전송
-                    s_res = await exchange_adapter.create_order(user_id, exchange, ticker, "ask", sell_price, sell_volume)
-                    if s_res and 'uuid' in s_res:
-                        stop_loss_pct = float(user.get("preferences", {}).get("stop_loss_pct", 0) or 0)
-                        stop_price = (
-                            ex.adjust_price_to_tick(ord["price"] * (1 - stop_loss_pct / 100), ticker)
-                            if stop_loss_pct > 0 else None
-                        )
-                        order_manager.add_order(user_id, exchange, ticker, s_res['uuid'], sell_price, sell_volume,
-                                             side="ask", strategy="rsitrade_sell", target_rsi=target_rsi,
-                                             stop_price=stop_price, group_no=ord.get("group_no"))
-                        order_manager.update_order_fill(ord['uuid'], exec_vol, state)
-                        await application.bot.send_message(
-                            chat_id=user_id,
-                            text=f"✅ [{ticker}] 매수 체결 및 익절 예약 완료\n"
-                                 f"• 체결: {newly_filled:.4f}개\n"
-                                 f"• 익절가: {sell_price:,.0f}원 (RSI {target_rsi} 목표)",
-                        )
-                    else:
-                        keep_order_for_retry = True
-                else:
+                outcome = await _create_linked_sell_order(application, ord, exec_vol, state)
+                if outcome == "zero_volume":
+                    keep_order_for_retry = True
+                    await asyncio.sleep(0.2)
+                    continue
+                if outcome in ("no_price", "failed"):
                     keep_order_for_retry = True
             
             # 일반 체결 알림
@@ -626,6 +751,7 @@ async def order_sync_loop(application):
         try:
             prefs = await _get_admin_prefs_async()
             await order_manager.reload_from_db_async()
+            await user_manager.reload_from_db_async()
             await sync_orders(application)
             metrics.record_poll_ok()
             interval = prefs["poll_active_interval"] if order_manager.orders \
@@ -678,6 +804,7 @@ async def signal_analysis_loop(application):
     while True:
         try:
             prefs = await _get_admin_prefs_async()
+            await user_manager.reload_from_db_async()
             await signal_engine.analyze_watchlist(application)
             metrics.record_signal_ok()
             _ops_check_counter += 1
@@ -691,22 +818,41 @@ async def signal_analysis_loop(application):
 
 # --- 자동 복구 및 초기화 로직 ---
 async def startup_recovery(application):
-    """봇 시작 시 미완료된 전략 주문들을 점검하고 복구"""
+    """봇 시작 시 rsitrade 매수 체결 후 연동 익절매도 발행이 누락된 주문을 복구한다.
+
+    sync_orders의 매수체결→익절매도 생성(add_order)과 매수 체결기록(update_order_fill)
+    사이에 봇이 크래시하면, 재시작 시 매수의 filled_volume이 stale한 채로 남아있을 수
+    있다(M4). 정상적으로는 다음 sync_orders 폴링에서 자연 복구되지만, 그 창을 줄이기
+    위해 기동 시 즉시 1회 점검한다. _create_linked_sell_order의 멱등성 체크 덕분에
+    이미 매도 주문이 생성된 경우(매도만 남고 매수 기록이 안 된 경우)에도 중복 발행 없이
+    매수의 filled_volume만 동기화한다.
+    """
     _log.info("Startup recovery started", extra={"event": "startup_recovery_start"})
-    all_orders = list(order_manager.orders)
+    targets = [
+        ord for ord in list(order_manager.orders)
+        if ord.get('side') == 'bid' and ord.get('strategy') == 'rsitrade' and ord.get('linked_to')
+    ]
     recovered_count = 0
-    
-    for ord in all_orders:
-        # 매수 주문인데 거래소 상태 확인
-        res = await exchange_adapter.get_order_status(ord['user_id'], ord['exchange'], ord['uuid'], ord.get("ticker"))
-        if res and res['state'] == 'done':
-            # 매수는 완료되었으나 봇이 꺼져서 매도 주문을 못 낸 경우 복구
-            if ord['side'] == 'bid' and ord['strategy'] == 'rsitrade' and ord['linked_to']:
-                # (sync_orders와 동일한 로직으로 매도 주문 생성 시도)
-                recovered_count += 1
-                # 로직 중복 방지를 위해 sync_orders가 다음 루프에서 처리하도록 filled_volume만 0으로 세팅되어 있다면 
-                # 자연스럽게 sync_orders에서 처리됩니다.
-    
+
+    for ord in targets:
+        if not order_manager.has_order(ord["uuid"]):
+            continue
+        try:
+            res = await exchange_adapter.get_order_status(ord['user_id'], ord['exchange'], ord['uuid'], ord.get("ticker"))
+        except Exception as e:
+            _log.warning("Startup recovery: order status check failed", exc_info=e,
+                         extra={"event": "startup_recovery_status_error", "uuid": ord['uuid']})
+            continue
+        if not res:
+            continue
+        exec_vol = float(res.get('executed_volume', 0) or 0)
+        if exec_vol <= float(ord.get('filled_volume', 0)):
+            continue
+        outcome = await _create_linked_sell_order(application, ord, exec_vol, res['state'])
+        if outcome == "created":
+            recovered_count += 1
+            _log.info("Startup recovery: linked sell order created", extra={"event": "startup_recovery_recovered", "uuid": ord['uuid']})
+
     if recovered_count > 0:
         _log.info("Startup recovery complete", extra={"event": "startup_recovery_done", "recovered": recovered_count})
 

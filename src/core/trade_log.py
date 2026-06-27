@@ -11,6 +11,36 @@ TRADE_LOG_MAX_LINES = 10_000
 KST = timezone(timedelta(hours=9))
 
 
+def is_trade_logged(uuid, path=TRADE_LOG_PATH) -> bool:
+    """해당 uuid가 이미 체결 기록(DB 또는 파일)에 존재하는지 확인한다(중복 기록 방지).
+
+    DB의 uuid 인덱스 조회를 우선 사용. DB 미사용/조회 실패 시에만 파일을 줄 단위로
+    JSON 파싱해 정확히 일치하는지 확인한다(이전엔 라인 부분문자열 매칭이었음 — L3).
+    """
+    if is_db_available():
+        try:
+            res = get_db().table("trade_logs").select("id").eq("uuid", uuid).execute()
+            if res.data:
+                return True
+            return False
+        except Exception:
+            pass
+    if not os.path.exists(path):
+        return False
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if rec.get("uuid") == uuid:
+                    return True
+    except Exception:
+        pass
+    return False
+
+
 def append_trade(user_id, exchange, ticker, side, price, volume, strategy, uuid, fee_amount=0.0, path=TRADE_LOG_PATH):
     ts = time.time()
     record = {

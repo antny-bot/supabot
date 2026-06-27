@@ -482,3 +482,32 @@ class TossExchange(RegularSessionExchange):
                 "fee_amount": float(exec_info.get("commission") or 0),
             })
         return result
+
+    async def get_open_orders(self, user_id, client, ticker=None):
+        """진행 중(PENDING/PARTIAL_FILLED 등) 주문 목록 — status=OPEN은 limit/cursor 무시하고 전량 반환."""
+        params = {"status": "OPEN"}
+        if ticker:
+            params["symbol"] = ticker
+        res = await self.adapter._request_toss(user_id, "GET", "/api/v1/orders", params=params)
+        if not isinstance(res, dict):
+            return None
+        orders = (res.get("result") or {}).get("orders") or []
+        result = []
+        for o in orders:
+            exec_info = o.get("execution") or {}
+            qty = float(o.get("quantity") or 0)
+            exec_qty = float(exec_info.get("filledQuantity") or 0)
+            toss_side = o.get("side", "")
+            side = "bid" if toss_side == "BUY" else "ask"
+            result.append({
+                "uuid": o.get("orderId"),
+                "market": o.get("symbol", ticker),
+                "side": side,
+                "price": float(o.get("price") or 0),
+                "volume": qty,
+                "executed_volume": exec_qty,
+                "status": self.adapter._normalize_toss_status(o.get("status", "")),
+                "created_at": o.get("orderedAt", ""),
+                "fee_amount": float(exec_info.get("commission") or 0),
+            })
+        return result

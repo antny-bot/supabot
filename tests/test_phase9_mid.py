@@ -89,6 +89,65 @@ def test_create_order_passes_ord_type_to_kis():
     assert captured_ord_type["ord_type"] == "market"
 
 
+# ── KIS get_open_orders (M3: 재주문 응답유실 중복발행 방지용 미체결 조회) ───────────
+
+def test_kis_get_open_orders_filters_out_done_status():
+    """오늘자 전체 주문(체결+미체결) 중 미체결(status != done)만 반환해야 함."""
+    from core.exchange_adapter import ExchangeAdapter
+
+    class _DummyUsers:
+        def get_user(self, _):
+            return {"exchanges": {"kis": {
+                "app_key": "k", "app_secret": "s",
+                "account_no": "12345678", "product_code": "01", "env": "paper"
+            }}}
+
+    adapter = ExchangeAdapter(_DummyUsers())
+
+    async def fake_request_kis(user_id, method, path, tr_id, body=None, params=None):
+        return {"rt_cd": "0", "output1": [
+            {
+                "odno": "0001", "ord_gno_brno": "ORG1", "pdno": "005930",
+                "sll_buy_dvsn_cd": "02", "sll_buy_dvsn_cd_name": "매수",
+                "ord_unpr": "70000", "ord_qty": "10", "tot_ccld_qty": "0",
+                "ord_dt": "20260101",
+            },
+            {
+                "odno": "0002", "ord_gno_brno": "ORG1", "pdno": "005930",
+                "sll_buy_dvsn_cd": "02", "sll_buy_dvsn_cd_name": "매수",
+                "ord_unpr": "65000", "ord_qty": "5", "tot_ccld_qty": "5",
+                "ord_dt": "20260101",
+            },
+        ]}
+
+    adapter._request_kis = fake_request_kis
+    keys = {"account_no": "12345678", "product_code": "01", "env": "paper",
+            "app_key": "k", "app_secret": "s"}
+    result = asyncio.run(adapter.get_open_orders("user1", "kis", "005930"))
+
+    assert len(result) == 1
+    assert result[0]["uuid"] == "ORG1:0001"
+    assert result[0]["status"] == "wait"
+    assert result[0]["price"] == 70000
+    assert result[0]["volume"] == 10
+
+
+def test_kis_get_open_orders_returns_none_when_history_unavailable():
+    from core.exchange_adapter import ExchangeAdapter
+
+    class _DummyUsers:
+        def get_user(self, _):
+            return {"exchanges": {"kis": {
+                "app_key": "k", "app_secret": "s",
+                "account_no": "12345678", "product_code": "01", "env": "paper"
+            }}}
+
+    adapter = ExchangeAdapter(_DummyUsers())
+    adapter._request_kis = AsyncMock(return_value=None)
+    result = asyncio.run(adapter.get_open_orders("user1", "kis", "005930"))
+    assert result is None
+
+
 # ── 시장가 manual order token ────────────────────────────────────────────────
 
 def test_manual_order_token_stores_ord_type():
