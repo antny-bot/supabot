@@ -141,9 +141,8 @@ class UserManager:
 
     # ── DB ↔ memory conversion ────────────────────────────────────────────────
 
-    @staticmethod
-    def _db_row_to_user(row: dict) -> dict:
-        return {
+    def _db_row_to_user(self, row: dict) -> dict:
+        user = {
             "username": row.get("username", ""),
             "is_admin": row.get("is_admin", False),
             "is_active": row.get("status") == "active",
@@ -153,6 +152,10 @@ class UserManager:
             "llm": row.get("llm") or {},
             "api_validation": row.get("api_validation") or {},
         }
+        # 기본값 보정은 DB 행이 메모리로 들어오는 이 지점에서 1회만 수행한다(L4).
+        # get_user()는 매 호출마다 보정+업서트를 유발하던 읽기-시-쓰기 증폭 경로였다.
+        self._ensure_user_defaults(user)
+        return user
 
     @staticmethod
     def _user_to_db_row(user_id: str, user: dict) -> dict:
@@ -229,8 +232,6 @@ class UserManager:
 
     def get_user(self, user_id):
         stored_user = self.users.get(str(user_id))
-        if stored_user and self._ensure_user_defaults(stored_user):
-            self._upsert_user(user_id)
         return self._decrypt_user_copy(stored_user) if stored_user else None
 
     def _ensure_all_user_defaults(self):
