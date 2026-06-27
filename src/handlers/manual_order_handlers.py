@@ -146,13 +146,23 @@ async def manual_order_confirm_callback(update: Update, context: ContextTypes.DE
     if not can_ok:
         await query.edit_message_text(can_msg)
         return
-    if side == "bid" and not is_market:
-        ok, error_msg = validate_max_order(user, price * volume)
+    if side == "bid":
+        order_krw = price * volume
+        if is_market:
+            # 시장가 매수는 확정 가격이 없어(price=0) 한도 검증이 그냥 통과되던 우회구멍이었다(L1).
+            # 현재가로 노출을 추정해 동일하게 한도를 적용하고, 추정이 불가하면 안전하게 차단한다.
+            tkr = await main.exchange_adapter.get_ticker(exchange, ticker, user_id)
+            current_price = float(tkr.get("trade_price", 0)) if tkr else 0.0
+            if current_price <= 0:
+                await query.edit_message_text("⚠️ 현재가 조회에 실패하여 주문 한도를 검증할 수 없습니다. 잠시 후 다시 시도해 주세요.")
+                return
+            order_krw = current_price * volume
+        ok, error_msg = validate_max_order(user, order_krw)
         if not ok:
             await query.edit_message_text(error_msg)
             return
         exp_ok, exp_msg = trading_gate.check_can_place_order(
-            user, main.order_manager.get_user_orders(user_id), price * volume,
+            user, main.order_manager.get_user_orders(user_id), order_krw,
             is_usd=is_us_stock_ticker(exchange, ticker),
         )
         if not exp_ok:
