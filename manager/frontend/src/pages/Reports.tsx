@@ -7,6 +7,8 @@ import { PAGE_META } from '../config/pageMeta'
 // Lazy loaded section components
 import PnlSection from './reports/PnlSection'
 import StrategySection from './reports/StrategySection'
+import ExchangeSection from './reports/ExchangeSection'
+import DailySection from './reports/DailySection'
 import RoiRankingSection from './reports/RoiRankingSection'
 import MonthlySection from './reports/MonthlySection'
 import HoldingsSection from './reports/HoldingsSection'
@@ -16,14 +18,16 @@ import WinStatsSection from './reports/WinStatsSection'
 const REPORT_TABS = [
   { id: 'holdings', label: '현재 투자중' },
   { id: 'pnl',      label: '실현 손익' },
+  { id: 'daily',    label: '일별 손익' },
   { id: 'monthly',  label: '월별 손익' },
   { id: 'strategy', label: '전략별 분석' },
+  { id: 'exchange', label: '거래소별 분석' },
   { id: 'ranking',  label: '수익률 랭킹' },
   { id: 'pairs',    label: '거래 페어' },
   { id: 'winstats', label: '승률/손익비' },
 ]
 
-const PERIOD_SENSITIVE_TABS = new Set(['pnl', 'strategy', 'ranking', 'pairs', 'winstats'])
+const PERIOD_SENSITIVE_TABS = new Set(['pnl', 'daily', 'strategy', 'exchange', 'ranking', 'pairs', 'winstats'])
 const DEFAULT_RANGE: DateRangeValue = { mode: '30d', from: '', to: '' }
 
 export default function Reports() {
@@ -46,7 +50,9 @@ export default function Reports() {
       {/* Tab content — lazy mount */}
       <div key={activeTab} className="animate-fade-in-up">
         {activeTab === 'pnl'      && <PnlSection dateRange={dateRange} />}
+        {activeTab === 'daily'    && <DailySection dateRange={dateRange} />}
         {activeTab === 'strategy' && <StrategySection dateRange={dateRange} />}
+        {activeTab === 'exchange' && <ExchangeSection dateRange={dateRange} />}
         {activeTab === 'ranking'  && <RoiRankingSection dateRange={dateRange} />}
         {activeTab === 'monthly'  && <MonthlySection />}
         {activeTab === 'holdings' && <HoldingsSection />}

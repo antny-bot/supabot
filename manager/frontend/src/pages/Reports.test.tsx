@@ -7,6 +7,8 @@ vi.mock('./reports/HoldingsSection', () => ({ default: () => <div>holdings secti
 vi.mock('./reports/PnlSection', () => ({ default: () => <div>pnl section</div> }))
 vi.mock('./reports/MonthlySection', () => ({ default: () => <div>monthly section</div> }))
 vi.mock('./reports/StrategySection', () => ({ default: () => <div>strategy section</div> }))
+vi.mock('./reports/ExchangeSection', () => ({ default: () => <div>exchange section</div> }))
+vi.mock('./reports/DailySection', () => ({ default: () => <div>daily section</div> }))
 vi.mock('./reports/RoiRankingSection', () => ({ default: () => <div>ranking section</div> }))
 vi.mock('./reports/PairsSection', () => ({ default: () => <div>pairs section</div> }))
 vi.mock('./reports/WinStatsSection', () => ({ default: () => <div>winstats section</div> }))
