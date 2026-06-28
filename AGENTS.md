@@ -66,9 +66,9 @@ FastAPI 백엔드 + React/TypeScript(Vite+Tailwind) SPA 프론트엔드. Synolog
 | `manager/backend/db.py` | Supabase REST 클라이언트 (= `src/core/db.py`) |
 | `manager/backend/auth.py` | Supabase Auth 이메일/비번 로그인 |
 | `manager/backend/bot_client.py` | 봇 `/internal/notify` 단방향 호출 |
-| `manager/backend/routers/` | dashboard, users, orders, trades, events, sysconfig, reports, templates, mfa, analytics |
+| `manager/backend/routers/` | dashboard, users, orders, trades, events, sysconfig, reports, templates, mfa, analytics, stock_cache (11개) |
 
-라우트: `/admin/dashboard`, `/admin/users`(+approve/deactivate/activate/block/DELETE), `/admin/orders`, `/admin/trades`, `/admin/events`, `/admin/config`, `/analytics`(admin only). 상세: `manager/README.md`.
+라우트: `/admin/dashboard`, `/admin/users`(+approve/deactivate/activate/block/DELETE), `/admin/orders`, `/admin/trades`, `/admin/events`, `/admin/config`, `/admin/reports`(손익·보유·승률·거래소/일별 분석), `/admin/templates`(전략 템플릿), `/analytics`(admin only), 종목 캐시 관리(`/api/stock-cache`, admin only). 상세: `manager/README.md`.
 
 ## 핵심 데이터 스키마
 
@@ -149,7 +149,7 @@ FastAPI 백엔드 + React/TypeScript(Vite+Tailwind) SPA 프론트엔드. Synolog
 | `system_config` | 폴링/분석 간격 등 시스템 설정. `_get_admin_prefs()`가 우선 읽음 (key: poll_active_interval=60, poll_no_order_interval=300, signal_analysis_interval=300) |
 | `command_logs` | 명령어 사용 raw 로그 (오늘치만 보관, pg_cron이 매일 집계 후 삭제) |
 | `command_log_daily` | 명령어 사용 일별 요약 (date·user·command·hour·weekday·count). Analytics 분석 원본. |
-| `kr_stock_cache` | 한국 주식 종목명→코드 DB 캐시 (KIS search-stock-info 결과, TTL 90일). `src/core/stock_resolver.py` |
+| `kr_stock_cache` | 한국 주식 종목명→코드 DB 캐시 (KIS search-stock-info 결과, TTL 90일). 봇은 `src/core/stock_resolver.py`로 읽고, manager는 `manager/backend/routers/stock_cache.py`로 CRUD·CSV 입출력·KRX 일괄 갱신 |
 
 - 모든 테이블 RLS 활성. `service_role` 키(봇/manager 서버용)는 RLS 우회.
 - `src/core/db.py`는 supabase-py 대신 requests로 REST 호출 (Oracle Cloud의 HTTP/2 ALPN 차단 회피).

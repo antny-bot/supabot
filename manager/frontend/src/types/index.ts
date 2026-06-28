@@ -194,6 +194,34 @@ export interface StrategyReport {
   rows: StrategyRow[]
 }
 
+export interface ExchangeRow {
+  exchange: string
+  bid_krw: number
+  ask_krw: number
+  fee_amount: number
+  pnl: number
+  roi_pct: number
+  trade_count: number
+  win_rate: number
+}
+
+export interface ExchangeReport {
+  rows: ExchangeRow[]
+}
+
+export interface DailyRow {
+  date: string
+  bid_krw: number
+  ask_krw: number
+  fee_amount: number
+  pnl: number
+  cumulative_pnl: number
+}
+
+export interface DailyReport {
+  rows: DailyRow[]
+}
+
 export interface RoiRankRow extends PnlRow {
   rank: number
 }
