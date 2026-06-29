@@ -102,7 +102,9 @@ export default function ExchangeSection({ dateRange }: { dateRange: DateRangeVal
                   <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(r.bid_krw)}</td>
                   <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(r.ask_krw)}</td>
                   <td className={`${TD} text-right font-mono text-xs text-slate-500`}>{krwFmt(r.fee_amount)}</td>
-                  <td className={`${TD} text-right font-mono text-xs font-medium ${pctColor(r.pnl)}`}>{krwFmt(Math.abs(r.pnl))}</td>
+                  <td className={`${TD} text-right font-mono text-xs font-medium ${pctColor(r.pnl)}`}>
+                    {r.pnl >= 0 ? '+' : '-'}{krwFmt(Math.abs(r.pnl))}
+                  </td>
                   <td className={`${TD} text-right font-mono text-xs font-medium ${pctColor(r.roi_pct)}`}>{pctFmt(r.roi_pct)}</td>
                   <td className={TD}><ProgressBar value={r.win_rate} /></td>
                 </tr>
