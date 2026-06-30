@@ -6,10 +6,10 @@ from telegram.ext import ContextTypes
 
 import main
 from main import check_auth, check_details_help, resolve_ticker_for_command
-from core.parsers import normalize_exchange, exchange_display_name, parse_exchange_and_ticker, is_us_stock_ticker
-from core.formatters import build_report_view, build_cancel_confirm_message
-from core.stock_resolver import kr_stock_display
+from core.parsers import normalize_exchange, exchange_display_name, parse_exchange_and_ticker
+from core.formatters import build_cancel_confirm_message, build_report_view_page
 from core.trade_log import read_trades
+from handlers import list_view_handlers
 
 
 @check_auth
@@ -24,90 +24,22 @@ async def asset_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
         exchanges = [exchange]
     else:
         exchanges = ["upbit", "bithumb", "kis", "toss"]
-    min_display_krw = float(user["preferences"].get("asset_min_display_krw", 10000))
 
     status_msg = await update.message.reply_text("🔄 자산 정보를 불러오는 중입니다...")
 
-    full_msg = "💰 <b>통합 자산 현황</b>\n\n"
-    total_eval_krw = 0
-
+    balances_by_ex = {}
+    ticker_prices_by_ex = {}
     for ex in exchanges:
         balances = await main.exchange_adapter.get_balances(user_id, ex)
-        if balances is None:
-            full_msg += f"❌ <b>{exchange_display_name(ex)}</b>: API 키가 설정되지 않았거나 오류 발생\n\n"
-            continue
+        balances_by_ex[ex] = balances
+        # 거래소별 현재가 정보 가져오기 (코인 평가액 계산용, KIS/토스는 불필요)
+        if balances is not None and ex not in ("kis", "toss"):
+            ticker_prices_by_ex[ex] = await main.exchange_adapter.get_krw_ticker_prices(ex)
 
-        if ex in ("kis", "toss"):
-            ex_env_label = main.exchange_adapter.get_exchange(ex).env_label(balances)
-            env_label = f" ({ex_env_label})" if ex_env_label else ""
-            full_msg += f"🏛️ <b>{exchange_display_name(ex)}</b>{env_label}\n"
-            cash = float(balances.get("cash", 0))
-            ex_eval = float(balances.get("total_eval", 0))
-            full_msg += f"- 💵 예수금: {cash:,.0f}원\n"
-
-            stocks = sorted(balances.get("stocks", []), key=lambda s: float(s.get("value", 0)), reverse=True)
-            top5 = stocks[:5]
-            rest = stocks[5:]
-            for stock in top5:
-                value = float(stock.get("value", 0))
-                name = stock.get('name') or stock.get('code')
-                currency = stock.get("currency", "KRW")
-                qty = stock.get('quantity', 0)
-                if currency == "KRW":
-                    full_msg += f"- 📈 {name} ({qty:,.0f}주)\n"
-                    full_msg += f"   └ {value:,.0f}원\n"
-                else:
-                    full_msg += f"- 📈 {name} ({qty:,.2f}주, {currency})\n"
-                    full_msg += f"   └ {value:,.2f} {currency}\n"
-            others_count = len(rest)
-            others_value = sum(float(s.get("value", 0)) for s in rest if s.get("currency", "KRW") == "KRW")
-            if others_count > 0:
-                full_msg += f"- 📦 기타 {others_count}개 종목: {others_value:,.0f}원\n"
-            full_msg += f"   └ 계좌 평가액: {ex_eval:,.0f}원\n\n"
-            total_eval_krw += ex_eval
-            continue
-
-        # 거래소별 현재가 정보 가져오기 (평가액 계산용)
-        ticker_prices = await main.exchange_adapter.get_krw_ticker_prices(ex)
-
-        full_msg += f"🏛️ <b>{ex.upper()}</b>\n"
-        ex_eval = 0
-        cash_krw = 0.0
-        coin_items = []
-
-        for b in balances:
-            qty = float(b['balance']) + float(b['locked'])
-            if qty <= 0: continue
-
-            currency = b['currency']
-            if currency == "KRW":
-                ex_eval += qty
-                cash_krw += qty
-            else:
-                price = ticker_prices.get(currency, 0)
-                value = qty * price
-                ex_eval += value
-                coin_items.append({"currency": currency, "qty": qty, "value": value})
-
-        full_msg += f"- 💵 KRW: {cash_krw:,.0f}원\n"
-
-        coin_items.sort(key=lambda x: x["value"], reverse=True)
-        top5 = coin_items[:5]
-        rest = coin_items[5:]
-        for item in top5:
-            full_msg += f"- 🪙 {item['currency']} ({item['qty']:.4f}개)\n"
-            if item['value'] > 0:
-                full_msg += f"   └ {item['value']:,.0f}원\n"
-        others_count = len(rest)
-        others_value = sum(i["value"] for i in rest)
-        if others_count > 0:
-            full_msg += f"- 📦 기타 {others_count}개 종목: {others_value:,.0f}원\n"
-
-        full_msg += f"   └ 거래소 평가액: {ex_eval:,.0f}원\n\n"
-        total_eval_krw += ex_eval
-
-    full_msg += f"💳 <b>총 합계 자산: {total_eval_krw:,.0f}원</b>"
-    await status_msg.edit_text(full_msg, parse_mode="HTML")
+    snapshot = {"exchanges": exchanges, "balances": balances_by_ex, "ticker_prices": ticker_prices_by_ex}
+    token = main.create_list_view_token(user_id, "asset", {"expanded_exchanges": []}, snapshot=snapshot)
+    full_msg, markup = list_view_handlers.build_asset_message(snapshot, set(), token)
+    await status_msg.edit_text(full_msg, reply_markup=markup, parse_mode="HTML")
 
 
 @check_auth
@@ -122,21 +54,9 @@ async def orders_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
         await update.message.reply_text("⏳ 봇이 추적 중인 거래소 미체결 주문은 없습니다.\nRSI/거미줄 전략 대기 상태는 /status에서 확인하세요.")
         return
 
-    msg = "⏳ <b>현재 추적 중인 미체결 주문</b>\n\n"
-    _order_status_names = {"wait": "대기", "partial": "부분체결", "pending_reorder": "재주문대기", "market_closed": "장외대기", "reserved": "예약"}
-    for ord in orders:
-        group_tag = f" [<b>#{ord['group_no']}</b>]" if ord.get("group_no") else ""
-        side_str = "매수" if ord["side"] == "bid" else "매도"
-        status_str = _order_status_names.get(ord.get("status"), "")
-        status_tag = f" — {status_str}" if status_str else ""
-        msg += f"📌 <b>[{exchange_display_name(ord['exchange'])}]</b> {kr_stock_display(ord['exchange'], ord['ticker'])}{group_tag}\n"
-        if is_us_stock_ticker(ord['exchange'], ord['ticker']):
-            msg += f"   └ ${ord['price']:,.2f} ({side_str}, {ord['volume']:.0f}주){status_tag}\n"
-        else:
-            msg += f"   └ {ord['price']:,.0f}원 ({side_str}, {ord['volume']:.4f}개){status_tag}\n"
-
-    msg += "\n배치 번호로 취소: <code>/cancelno [번호]</code>"
-    await update.message.reply_text(msg, parse_mode="HTML")
+    token = main.create_list_view_token(user_id, "orders", {"expanded": False, "exchange": exchange})
+    msg, markup = list_view_handlers.build_orders_message(user_id, exchange, False, token)
+    await update.message.reply_text(msg, reply_markup=markup, parse_mode="HTML")
 
 
 @check_auth
@@ -378,7 +298,13 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
             "팁: 주문이 전량 체결되면 자동으로 기록됩니다."
         )
         return
-    await update.message.reply_text(build_report_view(trades, period), parse_mode="HTML")
+
+    token = main.create_list_view_token(user_id, "report", {"page": 0}, snapshot={"trades": trades, "period": period})
+    text, page, total_pages = build_report_view_page(trades, period, 0)
+    markup = None
+    if total_pages > 1:
+        markup = InlineKeyboardMarkup([[InlineKeyboardButton("▶️ 다음", callback_data=f"lv|report|{token}|next")]])
+    await update.message.reply_text(text, reply_markup=markup, parse_mode="HTML")
 
 
 @check_auth
@@ -396,20 +322,9 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE, us
         await update.message.reply_text(f"ℹ️ {exchange_display_name(exchange)}의 최근 체결 내역이 없습니다.")
         return
 
-    # 상위 5건만 표시
-    msg = f"📜 <b>[{exchange_display_name(exchange)}] 최근 체결 내역</b> (최근 5건)\n\n"
-    for ord in history[:5]:
-        side = "🔴 매수" if ord.get('side', '').lower() in ['bid', 'buy'] else "🔵 매도"
-        tk = ord.get('market', ticker)
-        price = float(ord.get('price', 0))
-        vol = float(ord.get('volume', 0))
-        date = ord.get('created_at', '').split('T')[0]
-        is_usd = is_us_stock_ticker(exchange, tk)
-
-        msg += f"- {date} | {side} | {kr_stock_display(exchange, tk)}\n"
-        if is_usd:
-            msg += f"  └ ${price:,.2f} | {vol:.0f}주\n"
-        else:
-            msg += f"  └ {price:,.0f}원 | {vol:.4f}개\n"
-
-    await update.message.reply_text(msg, parse_mode="HTML")
+    token = main.create_list_view_token(
+        user_id, "history", {"page": 0},
+        snapshot={"exchange": exchange, "ticker": ticker, "history": history},
+    )
+    msg, markup, _ = list_view_handlers.build_history_message(exchange, ticker, history, 0, token)
+    await update.message.reply_text(msg, reply_markup=markup, parse_mode="HTML")

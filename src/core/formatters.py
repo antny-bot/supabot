@@ -723,10 +723,15 @@ def build_rsi_preview_lines(ticker, rsi_prices, budget, total_count=None, per_or
     return lines
 
 
-def build_report_view(trades: list, period: str = "all") -> str:
-    """체결 기록 기반 수익률 리포트 메시지 생성."""
-    period_label = {"today": "오늘", "week": "최근 7일", "month": "최근 30일"}.get(period, "전체")
+REPORT_PAGE_SIZE = 10  # /report 페이지네이션 — 페이지당 종목 그룹 수
 
+
+def aggregate_trades(trades: list):
+    """체결 기록을 (exchange,ticker)별로 집계하고 통화별 합계를 계산한다.
+
+    반환: (by_key, totals) — by_key는 정렬 전 dict, totals는 KRW/USD 합산치.
+    /report 페이지네이션에서 재집계 없이 페이지만 다시 그릴 때 재사용한다.
+    """
     by_key: dict = defaultdict(lambda: {"bid_krw": 0.0, "ask_krw": 0.0, "bid_count": 0, "ask_count": 0})
     for t in trades:
         key = (t.get("exchange", ""), t.get("ticker", ""))
@@ -736,15 +741,19 @@ def build_report_view(trades: list, period: str = "all") -> str:
         by_key[key][f"{side}_count"] += 1
 
     # USD(토스 해외주식)와 KRW는 통화가 달라 합산할 수 없으므로 합계를 분리한다.
-    total_bid_krw = sum(v["bid_krw"] for k, v in by_key.items() if not is_us_stock_ticker(k[0], k[1]))
-    total_ask_krw = sum(v["ask_krw"] for k, v in by_key.items() if not is_us_stock_ticker(k[0], k[1]))
-    total_bid_usd = sum(v["bid_krw"] for k, v in by_key.items() if is_us_stock_ticker(k[0], k[1]))
-    total_ask_usd = sum(v["ask_krw"] for k, v in by_key.items() if is_us_stock_ticker(k[0], k[1]))
-    net_krw = total_ask_krw - total_bid_krw
-    net_usd = total_ask_usd - total_bid_usd
+    totals = {
+        "bid_krw": sum(v["bid_krw"] for k, v in by_key.items() if not is_us_stock_ticker(k[0], k[1])),
+        "ask_krw": sum(v["ask_krw"] for k, v in by_key.items() if not is_us_stock_ticker(k[0], k[1])),
+        "bid_usd": sum(v["bid_krw"] for k, v in by_key.items() if is_us_stock_ticker(k[0], k[1])),
+        "ask_usd": sum(v["ask_krw"] for k, v in by_key.items() if is_us_stock_ticker(k[0], k[1])),
+    }
+    return by_key, totals
 
-    lines = [f"📊 <b>수익률 리포트 ({period_label})</b>", ""]
-    for (exchange, ticker), stats in sorted(by_key.items()):
+
+def render_report_ticker_lines(by_key_items) -> list:
+    """종목별(거래소,티커) 매수/매도/손익 라인을 만든다. 페이지 슬라이스에 적용 가능."""
+    lines = []
+    for (exchange, ticker), stats in by_key_items:
         pnl = stats["ask_krw"] - stats["bid_krw"]
         sign = "+" if pnl >= 0 else ""
         ex_label = exchange_display_name(exchange) if exchange else exchange.upper()
@@ -759,16 +768,60 @@ def build_report_view(trades: list, period: str = "all") -> str:
         if stats["bid_count"] and stats["ask_count"]:
             lines.append(f"  손익(추정): {sign}{unit}{pnl:,.2f}{suffix}" if is_usd else f"  손익(추정): {sign}{pnl:,.0f}원")
         lines.append("")
+    return lines
 
+
+def render_report_totals_lines(totals: dict) -> list:
+    """전체 거래 기준 합계 라인 — 페이지와 무관하게 항상 동일하게 표시."""
+    net_krw = totals["ask_krw"] - totals["bid_krw"]
+    net_usd = totals["ask_usd"] - totals["bid_usd"]
     net_sign_krw = "+" if net_krw >= 0 else ""
-    lines.append(f"💰 합계(KRW): 매수 {total_bid_krw:,.0f}원 / 매도 {total_ask_krw:,.0f}원")
-    lines.append(f"📈 총 손익(추정, KRW): {net_sign_krw}{net_krw:,.0f}원")
-    if total_bid_usd or total_ask_usd:
+    lines = [
+        f"💰 합계(KRW): 매수 {totals['bid_krw']:,.0f}원 / 매도 {totals['ask_krw']:,.0f}원",
+        f"📈 총 손익(추정, KRW): {net_sign_krw}{net_krw:,.0f}원",
+    ]
+    if totals["bid_usd"] or totals["ask_usd"]:
         net_sign_usd = "+" if net_usd >= 0 else ""
-        lines.append(f"💰 합계(USD, 토스 해외주식): 매수 ${total_bid_usd:,.2f} / 매도 ${total_ask_usd:,.2f}")
+        lines.append(f"💰 합계(USD, 토스 해외주식): 매수 ${totals['bid_usd']:,.2f} / 매도 ${totals['ask_usd']:,.2f}")
         lines.append(f"📈 총 손익(추정, USD): {net_sign_usd}${net_usd:,.2f}")
+    return lines
+
+
+def build_report_view(trades: list, period: str = "all") -> str:
+    """체결 기록 기반 수익률 리포트 메시지 생성 (전체, 페이지네이션 없음)."""
+    period_label = {"today": "오늘", "week": "최근 7일", "month": "최근 30일"}.get(period, "전체")
+    by_key, totals = aggregate_trades(trades)
+
+    lines = [f"📊 <b>수익률 리포트 ({period_label})</b>", ""]
+    lines.extend(render_report_ticker_lines(sorted(by_key.items())))
+    lines.extend(render_report_totals_lines(totals))
     lines.append("")
     lines.append("⚠️ 손익은 가격×수량 기준 추정치입니다. 수수료 미반영.")
     lines.append("")
     lines.append("📊 더 상세한 내역과 리포트는 [웹 대시보드]에서 확인하실 수 있습니다.")
     return "\n".join(lines)
+
+
+def build_report_view_page(trades: list, period: str = "all", page: int = 0, page_size: int = REPORT_PAGE_SIZE):
+    """/report 페이지네이션용 — 종목 그룹을 page_size개씩 잘라 보여주고 합계는 항상 전체 기준.
+
+    반환: (text, page, total_pages)
+    """
+    period_label = {"today": "오늘", "week": "최근 7일", "month": "최근 30일"}.get(period, "전체")
+    by_key, totals = aggregate_trades(trades)
+    items = sorted(by_key.items())
+    total_pages = max(1, (len(items) + page_size - 1) // page_size)
+    page = max(0, min(page, total_pages - 1))
+    page_items = items[page * page_size: (page + 1) * page_size]
+
+    lines = [f"📊 <b>수익률 리포트 ({period_label})</b>"]
+    if total_pages > 1:
+        lines.append(f"📄 {page + 1}/{total_pages} 페이지 (종목 {len(items)}개 중 {page * page_size + 1}-{page * page_size + len(page_items)}번째)")
+    lines.append("")
+    lines.extend(render_report_ticker_lines(page_items))
+    lines.extend(render_report_totals_lines(totals))
+    lines.append("")
+    lines.append("⚠️ 손익은 가격×수량 기준 추정치입니다. 수수료 미반영.")
+    lines.append("")
+    lines.append("📊 더 상세한 내역과 리포트는 [웹 대시보드]에서 확인하실 수 있습니다.")
+    return "\n".join(lines), page, total_pages

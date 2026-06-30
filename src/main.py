@@ -48,6 +48,12 @@ from core.ticker_disambiguation import (
     create_disambiguation_token,
     pop_valid_disambiguation,
 )
+from core.list_view_tokens import (
+    create_list_view_token,
+    peek_list_view,
+    update_list_view_state,
+    discard_list_view,
+)
 import internal_api
 from internal_api import trigger_realtime_sync
 from core.secret_crypto import can_decrypt_secrets, has_secret_key
@@ -956,7 +962,7 @@ async def post_shutdown(application):
 def main():
     _validate_env()
 
-    from handlers import watch_handlers, manual_order_handlers, status_handlers, query_handlers, config_handlers, strategy_handlers, nl_intent_handlers, system_handlers
+    from handlers import watch_handlers, manual_order_handlers, status_handlers, query_handlers, config_handlers, strategy_handlers, nl_intent_handlers, system_handlers, list_view_handlers
 
     # post_init을 통해 백그라운드 태스크를 봇 생명주기에 안전하게 편입시킵니다.
     application = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).post_shutdown(post_shutdown).build()
@@ -1028,6 +1034,7 @@ def main():
     application.add_handler(CallbackQueryHandler(strategy_handlers.sgridrsi_confirm_callback, pattern="^sgridrsirun"))
     application.add_handler(CallbackQueryHandler(manual_order_handlers.manual_order_confirm_callback, pattern="^(manualrun|manualcancel)\\|"))
     application.add_handler(CallbackQueryHandler(query_handlers.cancel_confirm_callback, pattern="^(cancelrun|cancelabort)\\|"))
+    application.add_handler(CallbackQueryHandler(list_view_handlers.list_view_callback, pattern="^lv\\|"))
     application.add_handler(CallbackQueryHandler(system_handlers.reset_confirm_callback, pattern="^(resetrun|resetabort)\\|"))
     application.add_handler(CallbackQueryHandler(nl_intent_handlers.natural_language_confirm_callback, pattern="^nl(run|cancel)\\|"))
     application.add_handler(CallbackQueryHandler(ticker_disambiguation_callback, pattern="^tickerpick\\|"))
