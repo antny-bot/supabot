@@ -361,6 +361,10 @@ _STOPLOSS_PLACE_RETRIES = 3
 _STATUS_CHECK_FAIL_LIMIT = 3
 _status_check_failures: dict = {}
 
+# 재주문/예약주문 제출이 연속으로 실패하면 추적을 종료한다(무한 반복 방지).
+_REORDER_FAIL_LIMIT = 5
+_reorder_failures: dict = {}
+
 # 재주문/예약주문 매칭 시 가격 비교 허용 오차(원). 거래소 틱 단위 보정 잔차를 흡수한다.
 _REORDER_PRICE_TOLERANCE = 1.0
 
@@ -520,6 +524,7 @@ async def sync_orders(application):
             label = exchange_display_name(exchange)
             if res and "uuid" in res:
                 old_uuid = ord["uuid"]
+                _reorder_failures.pop(old_uuid, None)
                 order_manager.replace_order_uuid(old_uuid, res["uuid"])
                 await application.bot.send_message(
                     chat_id=user_id,
@@ -529,12 +534,28 @@ async def sync_orders(application):
                          f"• 새 주문ID: {res['uuid']}",
                 )
             else:
-                order_manager.update_next_check_at(ord["uuid"], ex_obj.next_check_timestamp(ticker))
-                append_operational_event("warning", "sync_orders", f"{exchange} strategy {action} failed", ticker)
-                await application.bot.send_message(
-                    chat_id=user_id,
-                    text=f"⚠️ [{label}] {ticker} {order_kind} 주문 {action} 실패\n다음 정규장 체크 때 다시 시도합니다.",
-                )
+                error_detail = ""
+                if isinstance(res, dict) and res.get("error"):
+                    err = res["error"]
+                    error_detail = f"\n• 사유: {err.get('message') or err.get('code') or ''}"
+                fails = _reorder_failures.get(ord["uuid"], 0) + 1
+                _reorder_failures[ord["uuid"]] = fails
+                if fails >= _REORDER_FAIL_LIMIT:
+                    _reorder_failures.pop(ord["uuid"], None)
+                    order_manager.remove_order(ord["uuid"])
+                    append_operational_event("warning", "sync_orders", f"{exchange} {action} failed {fails}x, giving up", ticker)
+                    await application.bot.send_message(
+                        chat_id=user_id,
+                        text=f"🛑 [{label}] {ticker} {order_kind} 주문 {action} {fails}회 연속 실패로 추적을 종료합니다.{error_detail}\n"
+                             f"필요 시 수동으로 다시 주문해 주세요.",
+                    )
+                else:
+                    order_manager.update_next_check_at(ord["uuid"], ex_obj.next_check_timestamp(ticker))
+                    append_operational_event("warning", "sync_orders", f"{exchange} strategy {action} failed ({fails}/{_REORDER_FAIL_LIMIT})", ticker)
+                    await application.bot.send_message(
+                        chat_id=user_id,
+                        text=f"⚠️ [{label}] {ticker} {order_kind} 주문 {action} 실패 ({fails}/{_REORDER_FAIL_LIMIT}){error_detail}\n다음 정규장 체크 때 다시 시도합니다.",
+                    )
             await asyncio.sleep(0.2)
             continue
 

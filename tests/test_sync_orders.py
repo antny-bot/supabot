@@ -715,3 +715,94 @@ async def test_startup_recovery_ignores_orders_without_new_fill(tmp_path, monkey
 
     mock_adapter.create_order.assert_not_called()
     assert any(o["uuid"] == "buy-uuid-normal" for o in om.orders)
+
+
+# ── 재주문/예약주문 연속 실패 → 에러 사유 포함 + 추적 종료 ────────────────────
+
+async def test_reorder_failure_shows_error_detail_and_gives_up_after_limit(tmp_path, monkeypatch):
+    """재주문이 _REORDER_FAIL_LIMIT회 연속 실패하면 추적을 종료하고 에러 사유를 표시한다."""
+    main._reorder_failures.clear()
+    om = _make_order_manager(tmp_path)
+    om.add_order(
+        "600", "toss", "403850", "uuid-reorder-fail", 5000, 10,
+        side="bid", strategy="manual", auto_reorder=True, status="pending_reorder",
+    )
+    monkeypatch.setattr(main, "order_manager", om)
+
+    error_response = {"error": {"code": "INVALID_ORDER", "message": "주문 가격이 유효하지 않습니다"}}
+    mock_adapter = MagicMock()
+    mock_adapter.ensure_toss_kr_calendar = AsyncMock()
+    mock_adapter.create_order = AsyncMock(return_value=error_response)
+    mock_adapter.get_open_orders = AsyncMock(return_value=[])
+    mock_adapter.get_exchange = lambda exchange: MagicMock(
+        supports_reserved_orders=True,
+        is_market_open=lambda ticker=None: True,
+        next_check_timestamp=lambda ticker=None: 9_999_999.0,
+        requires_integer_volume=lambda: True,
+    )
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    app = _make_app()
+    # 임계치 직전까지는 주문이 유지되어야 한다
+    for i in range(main._REORDER_FAIL_LIMIT - 1):
+        om.orders[0]["status"] = "pending_reorder"
+        om.orders[0]["next_check_at"] = 0.0
+        await main.sync_orders(app)
+        assert any(o["uuid"] == "uuid-reorder-fail" for o in om.orders), f"iteration {i}"
+
+    # 중간 메시지에 에러 사유와 카운터가 포함되어야 한다
+    sent_texts = [c.kwargs.get("text", "") for c in app.bot.send_message.call_args_list]
+    assert any("주문 가격이 유효하지 않습니다" in t for t in sent_texts)
+    assert any(f"/{main._REORDER_FAIL_LIMIT})" in t for t in sent_texts)
+
+    # 임계치 도달 시 추적 종료
+    om.orders[0]["status"] = "pending_reorder"
+    om.orders[0]["next_check_at"] = 0.0
+    await main.sync_orders(app)
+    assert not any(o["uuid"] == "uuid-reorder-fail" for o in om.orders)
+    sent_texts = [c.kwargs.get("text", "") for c in app.bot.send_message.call_args_list]
+    assert any("연속 실패로 추적을 종료" in t for t in sent_texts)
+    assert any("수동으로 다시 주문" in t for t in sent_texts)
+
+
+async def test_reorder_failure_counter_resets_on_success(tmp_path, monkeypatch):
+    """재주문 실패 후 성공하면 카운터가 리셋된다."""
+    main._reorder_failures.clear()
+    om = _make_order_manager(tmp_path)
+    om.add_order(
+        "601", "toss", "005930", "uuid-reorder-recover", 70000, 10,
+        side="bid", strategy="rsitrade", status="pending_reorder",
+    )
+    monkeypatch.setattr(main, "order_manager", om)
+
+    results = [
+        {"error": {"code": "TEMP", "message": "일시 오류"}},
+        {"error": {"code": "TEMP", "message": "일시 오류"}},
+        {"uuid": "new-order-uuid", "orderId": "new-order-uuid"},
+    ]
+    mock_adapter = MagicMock()
+    mock_adapter.ensure_toss_kr_calendar = AsyncMock()
+    mock_adapter.create_order = AsyncMock(side_effect=results)
+    mock_adapter.get_open_orders = AsyncMock(return_value=[])
+    mock_adapter.get_exchange = lambda exchange: MagicMock(
+        supports_reserved_orders=True,
+        is_market_open=lambda ticker=None: True,
+        next_check_timestamp=lambda ticker=None: 9_999_999.0,
+        requires_integer_volume=lambda: True,
+    )
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    app = _make_app()
+    # 2회 실패
+    for _ in range(2):
+        om.orders[0]["status"] = "pending_reorder"
+        om.orders[0]["next_check_at"] = 0.0
+        await main.sync_orders(app)
+    assert main._reorder_failures.get("uuid-reorder-recover") == 2
+
+    # 3회차 성공 → 카운터 리셋 + uuid 교체
+    om.orders[0]["status"] = "pending_reorder"
+    om.orders[0]["next_check_at"] = 0.0
+    await main.sync_orders(app)
+    assert om.orders[0]["uuid"] == "new-order-uuid"
+    assert "uuid-reorder-recover" not in main._reorder_failures
