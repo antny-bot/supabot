@@ -385,6 +385,31 @@ async def _find_duplicate_open_order(exchange_adapter, user_id, exchange, ticker
     return None
 
 
+def _extract_order_submit_failure_reason(res):
+    """거래소 주문 발행 실패 응답에서 사용자/운영자가 볼 수 있는 최소 원인을 뽑아낸다.
+
+    토스/KIS는 에러 시 {"error": {"code": ..., "message": ...}} 형태를 그대로 반환할 수 있다.
+    기존 sync_orders는 이 정보를 버리고 generic 실패 메시지만 보내 원인 파악이 어려웠다.
+    """
+    if not isinstance(res, dict):
+        return None
+    err = res.get("error")
+    if isinstance(err, dict):
+        code = str(err.get("code") or "").strip()
+        msg = str(err.get("message") or err.get("error_description") or err.get("description") or "").strip()
+        if code and msg:
+            return f"{code}: {msg}"
+        if code:
+            return code
+        if msg:
+            return msg
+    for key in ("message", "error_description", "description"):
+        val = str(res.get(key) or "").strip()
+        if val:
+            return val
+    return None
+
+
 def _find_linked_sell_order(buy_uuid):
     """주어진 rsitrade 매수 주문에 연동된 익절매도 주문(reorder_of==buy_uuid)을 찾는다.
 
@@ -524,10 +549,13 @@ async def sync_orders(application):
                 )
             else:
                 order_manager.update_next_check_at(ord["uuid"], ex_obj.next_check_timestamp(ticker))
-                append_operational_event("warning", "sync_orders", f"{exchange} strategy {action} failed", ticker)
+                reason = _extract_order_submit_failure_reason(res)
+                details = f"{ticker} | {reason}" if reason else ticker
+                append_operational_event("warning", "sync_orders", f"{exchange} strategy {action} failed", details)
+                reason_text = f"\n사유: {reason}" if reason else ""
                 await application.bot.send_message(
                     chat_id=user_id,
-                    text=f"⚠️ [{label}] {ticker} {order_kind} 주문 {action} 실패\n다음 정규장 체크 때 다시 시도합니다.",
+                    text=f"⚠️ [{label}] {ticker} {order_kind} 주문 {action} 실패{reason_text}\n다음 정규장 체크 때 다시 시도합니다.",
                 )
             await asyncio.sleep(0.2)
             continue
