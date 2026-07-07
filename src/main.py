@@ -401,9 +401,13 @@ async def sync_orders(application):
             else:
                 order_manager.update_next_check_at(ord["uuid"], ex_obj.next_check_timestamp(ticker))
                 append_operational_event("warning", "sync_orders", f"{exchange} strategy {action} failed", ticker)
+                err_detail = ""
+                if isinstance(res, dict) and res.get("error"):
+                    err = res["error"]
+                    err_detail = f"\n• 오류: {err.get('code', '')} {err.get('message', '')}".strip()
                 await application.bot.send_message(
                     chat_id=user_id,
-                    text=f"⚠️ [{label}] {ticker} 전략 주문 {action} 실패\n다음 정규장 체크 때 다시 시도합니다.",
+                    text=f"⚠️ [{label}] {ticker} 전략 주문 {action} 실패\n다음 정규장 체크 때 다시 시도합니다.{err_detail}",
                 )
             await asyncio.sleep(0.2)
             continue
