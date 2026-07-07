@@ -253,6 +253,65 @@ def _build_strategy_rows(realized_events):
     return rows
 
 
+def _build_exchange_rows(realized_events):
+    agg: dict[str, dict] = defaultdict(lambda: {
+        "bid_krw": 0.0,
+        "ask_krw": 0.0,
+        "fee_amount": 0.0,
+        "trade_count": 0,
+        "win_count": 0,
+    })
+    for event in realized_events:
+        exchange = event["exchange"] or "?"
+        agg[exchange]["bid_krw"] += event["bid_krw"]
+        agg[exchange]["ask_krw"] += event["ask_krw"]
+        agg[exchange]["fee_amount"] += event["fee_amount"]
+        agg[exchange]["trade_count"] += 1
+        if event["pnl"] > 0:
+            agg[exchange]["win_count"] += 1
+
+    rows = []
+    for exchange, value in agg.items():
+        pnl = value["ask_krw"] - value["fee_amount"] - value["bid_krw"]
+        trade_count = value["trade_count"]
+        rows.append({
+            "exchange": exchange,
+            "bid_krw": _round_money(value["bid_krw"]),
+            "ask_krw": _round_money(value["ask_krw"]),
+            "fee_amount": _round_money(value["fee_amount"]),
+            "pnl": _round_money(pnl),
+            "roi_pct": round(pnl / value["bid_krw"] * 100, 2) if value["bid_krw"] > _EPSILON else 0.0,
+            "trade_count": trade_count,
+            "win_rate": round(value["win_count"] / trade_count * 100, 1) if trade_count else 0.0,
+        })
+    return rows
+
+
+def _build_daily_rows(realized_events):
+    agg: dict[str, dict] = defaultdict(lambda: {"bid_krw": 0.0, "ask_krw": 0.0, "fee_amount": 0.0})
+    for event in realized_events:
+        day = datetime.fromtimestamp(event["executed_at"]).strftime("%Y-%m-%d")
+        agg[day]["bid_krw"] += event["bid_krw"]
+        agg[day]["ask_krw"] += event["ask_krw"]
+        agg[day]["fee_amount"] += event["fee_amount"]
+
+    rows = []
+    cumulative = 0.0
+    for day in sorted(agg.keys()):
+        value = agg[day]
+        pnl = value["ask_krw"] - value["fee_amount"] - value["bid_krw"]
+        cumulative += pnl
+        rows.append({
+            "date": day,
+            "bid_krw": _round_money(value["bid_krw"]),
+            "ask_krw": _round_money(value["ask_krw"]),
+            "fee_amount": _round_money(value["fee_amount"]),
+            "pnl": _round_money(pnl),
+            "cumulative_pnl": _round_money(cumulative),
+        })
+    return rows
+
+
 def _build_monthly_rows(realized_events):
     agg: dict[str, dict] = defaultdict(lambda: {"bid_krw": 0.0, "ask_krw": 0.0, "fee_amount": 0.0})
     for event in realized_events:
@@ -545,6 +604,46 @@ async def api_reports_strategy(request: Request, period: str = "30d",
         rows = _build_strategy_rows(realized_events)
         rows.sort(key=lambda row: row["pnl"], reverse=True)
         return JSONResponse({"rows": rows})
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@router.get("/api/reports/exchange")
+async def api_reports_exchange(request: Request, period: str = "30d",
+                              date_from: str | None = None, date_to: str | None = None):
+    ctx, err = _auth_guard(request)
+    if err:
+        return err
+    is_admin, bot_user_id = ctx
+    if period not in _PERIODS:
+        period = "30d"
+    try:
+        db = get_db()
+        trades = await _fetch_trades(db, is_admin, bot_user_id, None)
+        window_start, window_end = _resolve_window(period, date_from, date_to)
+        _, realized_events = _build_report_state(trades, window_start=window_start, window_end=window_end)
+        rows = _build_exchange_rows(realized_events)
+        rows.sort(key=lambda row: row["pnl"], reverse=True)
+        return JSONResponse({"rows": rows})
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@router.get("/api/reports/daily")
+async def api_reports_daily(request: Request, period: str = "30d",
+                            date_from: str | None = None, date_to: str | None = None):
+    ctx, err = _auth_guard(request)
+    if err:
+        return err
+    is_admin, bot_user_id = ctx
+    if period not in _PERIODS:
+        period = "30d"
+    try:
+        db = get_db()
+        trades = await _fetch_trades(db, is_admin, bot_user_id, None)
+        window_start, window_end = _resolve_window(period, date_from, date_to)
+        _, realized_events = _build_report_state(trades, window_start=window_start, window_end=window_end)
+        return JSONResponse({"rows": _build_daily_rows(realized_events)})
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
 

@@ -2,6 +2,8 @@ import { api } from './client'
 import type {
   PnlReport,
   StrategyReport,
+  ExchangeReport,
+  DailyReport,
   RoiRankingReport,
   MonthlyReport,
   HoldingsReport,
@@ -24,6 +26,8 @@ function buildPeriodParams(range: DateRangeValue): string {
 
 export const fetchReportPnl        = (range: DateRangeValue) => api.get<PnlReport>(`/api/reports/pnl?${buildPeriodParams(range)}`)
 export const fetchReportStrategy   = (range: DateRangeValue) => api.get<StrategyReport>(`/api/reports/strategy?${buildPeriodParams(range)}`)
+export const fetchReportExchange   = (range: DateRangeValue) => api.get<ExchangeReport>(`/api/reports/exchange?${buildPeriodParams(range)}`)
+export const fetchReportDaily      = (range: DateRangeValue) => api.get<DailyReport>(`/api/reports/daily?${buildPeriodParams(range)}`)
 export const fetchReportRoiRanking = (range: DateRangeValue) => api.get<RoiRankingReport>(`/api/reports/roi-ranking?${buildPeriodParams(range)}`)
 export const fetchReportMonthly    = ()                      => api.get<MonthlyReport>('/api/reports/monthly')
 export const fetchReportHoldings   = ()                      => api.get<HoldingsReport>('/api/reports/holdings')

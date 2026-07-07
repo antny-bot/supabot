@@ -26,13 +26,13 @@ KST = timezone(timedelta(hours=9))
 | /info | `info_command` | build_info.py의 버전/빌드 정보 |
 | /config, /cfg | `config_command` (ConversationHandler) | 다단계 키 설정 |
 | /whoami, /me | `whoami_command` | 내 ID, 권한, 활성 상태 확인 |
-| /asset | `asset_command` | 포트폴리오 전체 잔고 |
+| /asset | `asset_command` | 포트폴리오 전체 잔고. 거래소별 top5 + "기타 N개" 요약, 인라인 버튼으로 거래소별 기타 종목 펼치기/접기 |
 | /price, /p | `price_command` | 실시간 시세 |
 | /indicators, /ind | `indicators_command` | RSI/MACD/BB/Stoch 멀티지표 |
-| /history | `history_command` | 최근 체결 내역 |
-| /report | `report_command` | 기간별 수익률 리포트 |
-| /orders | `orders_command` | 추적 중 미체결 주문 목록 |
-| /status | `status_command` | 전략 대시보드 |
+| /history | `history_command` | 최근 체결 내역. 5건씩 인라인 버튼(◀️이전/▶️다음)으로 페이지네이션 |
+| /report | `report_command` | 기간별 수익률 리포트. 종목 10개씩 인라인 버튼으로 페이지네이션, 합계는 모든 페이지에 항상 표시 |
+| /orders | `orders_command` | 추적 중 미체결 주문 목록. 기본은 배치(`group_no`)별 요약, 인라인 버튼으로 전체 펼치기/그룹으로 접기 |
+| /status | `status_command` | 전략 대시보드. 그룹당 상위 3건만 표시, 생략된 항목 있으면 인라인 버튼으로 전체 펼치기/접기 |
 | /buy | `buy_command` | 단일 지정가 매수 확인 후 전송; 확인 요청 10분 만료 |
 | /sell | `sell_command` | 단일 지정가 매도 확인 후 전송; 확인 요청 10분 만료 |
 | /grid | `grid_command` | 가격 범위 → N개 분할 매수 |
@@ -161,6 +161,8 @@ API 키 포함 메시지는 캡처 즉시 삭제됨 (`delete_message`).
 전략 `/grid`,`/sgrid`,`/rsitrade`,`/sgridrsi`도 동일한 패턴으로 `core.strategy_tokens`(`create_strategy_token`/`pop_valid_strategy_token`, 10분 만료) 단일 사용 토큰을 쓴다. confirm 콜백 데이터는 `gridrun|<token>` 등 토큰만 싣고 payload는 서버 메모리에 보관한다 — 텔레그램 callback_data 64바이트 한도 회피 + 더블탭 시 두 번째 클릭은 만료 처리(중복 주문 방지).
 
 `/cancel`, `/cancelno`도 동일한 패턴(`_pending_cancel_orders`, `create_cancel_token`/`pop_valid_cancel_token`, 10분 만료)으로 취소 대상 주문 목록을 먼저 보여주고, `cancelrun|<token>`(확정) / `cancelabort|<token>`(취소) 콜백으로 실제 취소를 실행한다 (`query_handlers.cancel_confirm_callback`).
+
+`/orders`,`/status`,`/history`,`/report`,`/asset`은 긴 리스트 출력을 인라인 버튼으로 펼치기/페이지네이션한다. 위 confirm 토큰들과 달리 한 메시지에서 여러 번(펼치기/접기/이전/다음) 클릭해야 하므로 `core.list_view_tokens`(`create_list_view_token`/`peek_list_view`/`update_list_view_state`, 10분 sliding TTL)는 **단일 사용(pop)이 아니라 비파괴 조회(peek)** 로 동작한다 — 클릭마다 마지막 접근 시각을 갱신해 보고 있는 메시지는 만료되지 않는다. 콜백 데이터 포맷은 `lv|<kind>|<token>|<action>[|<extra>]`(`kind`: orders/status/history/report/asset, `action`: toggle/prev/next), 단일 핸들러 `list_view_handlers.list_view_callback`이 `kind`로 분기한다. `/orders`,`/status`는 로컬 `order_manager` 데이터라 클릭마다 라이브 재조회하고, `/history`,`/report`,`/asset`은 거래소 API/DB 조회 비용이 있어 명령어 실행 시점에 토큰에 스냅샷을 저장해두고 버튼 클릭은 그 스냅샷만 다시 그린다(재조회 없음).
 
 `/resetuser <user_id>`(관리자 전용, `system_handlers.resetuser_command`)는 유저의 주문 추적·실적이 꼬였을 때 완전 초기화한다. 동작 순서: ① 해당 유저의 미체결 주문(`wait`/`partial`/`pending_reorder`)을 거래소에 취소 요청(기존 `exchange_adapter.cancel_order()` 재사용) — 하나라도 취소 실패하면 중단하고 실패 목록을 보여줌 ② 모두 성공 시 `_pending_reset_users`(`create_reset_token`/`pop_valid_reset_token`, 10분 만료) 토큰으로 confirm 버튼 표시 ③ `resetrun|<token>` 확정 시 `order_manager.clear_user_orders()` + `trade_log.clear_user_trades()`로 `orders`/`trade_logs`(DB+`trades.jsonl` 파일) 를 모두 삭제하고 `operational_events`에 감사 로그를 남김, 대상 유저에게 알림 발송 (`system_handlers.reset_confirm_callback`). `command_logs`/`nl_logs`/`strategy_templates`는 범위에서 제외.
 

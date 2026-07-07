@@ -267,6 +267,64 @@ def test_api_reports_holdings_admin_aggregates_multi_user_prices(monkeypatch):
     }]
 
 
+def test_api_reports_exchange_rolls_up_realized_pnl_per_exchange(monkeypatch):
+    now_ts = 1_719_700_000.0
+    trades = [
+        # upbit: 매수 100 → 매도 180 (수익)
+        _trade(side="bid", price=100.0, volume=1.0, executed_at=now_ts - 20 * 86400, exchange="upbit"),
+        _trade(side="ask", price=180.0, volume=1.0, executed_at=now_ts - 10 * 86400, exchange="upbit"),
+        # bithumb: 매수 200 → 매도 150 (손실)
+        _trade(side="bid", price=200.0, volume=1.0, executed_at=now_ts - 20 * 86400, exchange="bithumb", ticker="KRW-ETH"),
+        _trade(side="ask", price=150.0, volume=1.0, executed_at=now_ts - 5 * 86400, exchange="bithumb", ticker="KRW-ETH"),
+    ]
+    monkeypatch.setattr(reports_router, "get_db", lambda: _FakeDB(trades))
+    monkeypatch.setattr(reports_router.time, "time", lambda: now_ts)
+
+    response = asyncio.run(reports_router.api_reports_exchange(_FakeRequest(), period="30d"))
+    payload = json.loads(response.body)
+
+    # pnl 내림차순 정렬 → upbit(+80) 먼저, bithumb(-50) 다음
+    assert [r["exchange"] for r in payload["rows"]] == ["upbit", "bithumb"]
+    upbit, bithumb = payload["rows"]
+    assert upbit == {
+        "exchange": "upbit",
+        "bid_krw": 100,
+        "ask_krw": 180,
+        "fee_amount": 0,
+        "pnl": 80,
+        "roi_pct": 80.0,
+        "trade_count": 1,
+        "win_rate": 100.0,
+    }
+    assert bithumb["pnl"] == -50
+    assert bithumb["win_rate"] == 0.0
+
+
+def test_api_reports_daily_books_pnl_per_day_with_cumulative(monkeypatch):
+    # 2024-06-17 매수, 06-18 매도(+30), 06-19 매도(-20)
+    trades = [
+        _trade(side="bid", price=100.0, volume=2.0, executed_at=1_718_600_000.0),
+        _trade(side="ask", price=130.0, volume=1.0, executed_at=1_718_690_000.0),
+        _trade(side="ask", price=80.0, volume=1.0, executed_at=1_718_780_000.0),
+    ]
+    monkeypatch.setattr(reports_router, "get_db", lambda: _FakeDB(trades))
+
+    response = asyncio.run(reports_router.api_reports_daily(_FakeRequest(), period="all"))
+    payload = json.loads(response.body)
+
+    rows = payload["rows"]
+    # 날짜 오름차순 + 누적합 검증
+    assert [r["date"] for r in rows] == sorted(r["date"] for r in rows)
+    pnls = [r["pnl"] for r in rows]
+    assert sum(pnls) == 10
+    assert rows[-1]["cumulative_pnl"] == 10
+    # 누적값이 단조적으로 직전 누적 + 당일 손익과 일치
+    running = 0
+    for r in rows:
+        running += r["pnl"]
+        assert r["cumulative_pnl"] == running
+
+
 def test_fetch_current_prices_uses_bot_webhook_for_toss_and_kis(monkeypatch):
     """KIS/Toss 보유분은 봇의 /internal/get_prices webhook(bot_client.get_prices)으로
     실시간가를 조회해야 한다 (해외주식 알파벳 티커 포함, 숫자 종목코드로 제한되지 않음)."""

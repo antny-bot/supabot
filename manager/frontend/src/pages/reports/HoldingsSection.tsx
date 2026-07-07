@@ -32,7 +32,7 @@ export default function HoldingsSection() {
     { label: '평가금액', value: krwFmt(summary.total_value), Icon: DollarSign, bg: 'bg-slate-700' },
     {
       label: '평가손익',
-      value: krwFmt(Math.abs(summary.total_pnl)),
+      value: `${summary.total_pnl >= 0 ? '+' : '-'}${krwFmt(Math.abs(summary.total_pnl))}`,
       Icon: Award,
       bg: summary.total_pnl >= 0 ? 'bg-up-500' : 'bg-down-500',
       extra: pctFmt(summary.total_roi_pct),

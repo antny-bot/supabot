@@ -37,6 +37,10 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
         return
     offset = 2 if is_exchange_token(args[0], exchange) else 1
 
+    auto_reorder = args[-1].lower() in ("유지", "--keep") if len(args) > offset + 2 else False
+    if auto_reorder:
+        args = args[:-1]
+
     try:
         is_market = args[offset].lower() == "market"
         if is_market:
@@ -53,12 +57,12 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
             await update.message.reply_text(error_msg)
             return
 
-    token = main.create_manual_order_token(user_id, exchange, "bid", ticker, price, volume, ord_type=ord_type)
+    token = main.create_manual_order_token(user_id, exchange, "bid", ticker, price, volume, ord_type=ord_type, auto_reorder=auto_reorder)
     confirm_data = f"manualrun|{token}"
     keyboard = [[InlineKeyboardButton("✅ 매수 실행", callback_data=confirm_data),
                  InlineKeyboardButton("❌ 취소", callback_data=f"manualcancel|{token}")]]
     await update.message.reply_text(
-        build_manual_order_confirm_message(exchange, ticker, "bid", price, volume, user, ord_type=ord_type),
+        build_manual_order_confirm_message(exchange, ticker, "bid", price, volume, user, ord_type=ord_type, auto_reorder=auto_reorder),
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
@@ -84,6 +88,10 @@ async def sell_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
         return
     offset = 2 if is_exchange_token(args[0], exchange) else 1
 
+    auto_reorder = args[-1].lower() in ("유지", "--keep") if len(args) > offset + 2 else False
+    if auto_reorder:
+        args = args[:-1]
+
     try:
         is_market = args[offset].lower() == "market"
         if is_market:
@@ -94,12 +102,12 @@ async def sell_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user)
         await update.message.reply_text("⚠️ 가격과 수량은 숫자여야 합니다.")
         return
 
-    token = main.create_manual_order_token(user_id, exchange, "ask", ticker, price, volume, ord_type=ord_type)
+    token = main.create_manual_order_token(user_id, exchange, "ask", ticker, price, volume, ord_type=ord_type, auto_reorder=auto_reorder)
     confirm_data = f"manualrun|{token}"
     keyboard = [[InlineKeyboardButton("✅ 매도 실행", callback_data=confirm_data),
                  InlineKeyboardButton("❌ 취소", callback_data=f"manualcancel|{token}")]]
     await update.message.reply_text(
-        build_manual_order_confirm_message(exchange, ticker, "ask", price, volume, user, ord_type=ord_type),
+        build_manual_order_confirm_message(exchange, ticker, "ask", price, volume, user, ord_type=ord_type, auto_reorder=auto_reorder),
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
@@ -132,18 +140,29 @@ async def manual_order_confirm_callback(update: Update, context: ContextTypes.DE
     price = float(pending["price"])
     volume = float(pending["volume"])
     ord_type = pending.get("ord_type", "limit")
+    auto_reorder = pending.get("auto_reorder", False)
     is_market = ord_type == "market"
     can_ok, can_msg = trading_gate.assert_can_trade()
     if not can_ok:
         await query.edit_message_text(can_msg)
         return
-    if side == "bid" and not is_market:
-        ok, error_msg = validate_max_order(user, price * volume)
+    if side == "bid":
+        order_krw = price * volume
+        if is_market:
+            # 시장가 매수는 확정 가격이 없어(price=0) 한도 검증이 그냥 통과되던 우회구멍이었다(L1).
+            # 현재가로 노출을 추정해 동일하게 한도를 적용하고, 추정이 불가하면 안전하게 차단한다.
+            tkr = await main.exchange_adapter.get_ticker(exchange, ticker, user_id)
+            current_price = float(tkr.get("trade_price", 0)) if tkr else 0.0
+            if current_price <= 0:
+                await query.edit_message_text("⚠️ 현재가 조회에 실패하여 주문 한도를 검증할 수 없습니다. 잠시 후 다시 시도해 주세요.")
+                return
+            order_krw = current_price * volume
+        ok, error_msg = validate_max_order(user, order_krw)
         if not ok:
             await query.edit_message_text(error_msg)
             return
         exp_ok, exp_msg = trading_gate.check_can_place_order(
-            user, main.order_manager.get_user_orders(user_id), price * volume,
+            user, main.order_manager.get_user_orders(user_id), order_krw,
             is_usd=is_us_stock_ticker(exchange, ticker),
         )
         if not exp_ok:
@@ -166,7 +185,7 @@ async def manual_order_confirm_callback(update: Update, context: ContextTypes.DE
     if res and "uuid" in res:
         main.order_manager.add_order(
             user_id, exchange, ticker, res["uuid"], price, volume, side=side, strategy="manual",
-            status="reserved" if is_reserved else "wait",
+            status="reserved" if is_reserved else "wait", auto_reorder=auto_reorder,
         )
         if is_reserved:
             await context.bot.send_message(

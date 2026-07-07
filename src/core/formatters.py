@@ -45,6 +45,14 @@ CMD_HELP = {
         "• 처음 사용 시 관리자의 승인이 필요합니다.\n"
         "• 승인 후에는 언제든지 <code>/start</code>로 주요 메뉴를 다시 볼 수 있습니다."
     ),
+    "status": (
+        "📊 <b>/status 상세 가이드</b>\n\n"
+        "<b>기능:</b> 가동 중인 거미줄/RSI 전략 주문을 거래소·종목·배치별로 묶어 진행 상황을 보여주는 통합 대시보드입니다.\n"
+        "<b>구문:</b> <code>/status</code>\n\n"
+        "<b>안내:</b>\n"
+        "거래소 실제 미체결 주문 원장은 <code>/orders</code>에서 확인하세요.\n"
+        "🔘 그룹당 상위 3건만 기본 표시되며, 생략된 항목이 있으면 인라인 버튼으로 전체를 펼쳐볼 수 있습니다."
+    ),
     "config": (
         "⚙️ <b>/config 상세 가이드</b>\n\n"
         "<b>기능:</b> 거래소 API 키와 사용자 기본 설정을 관리합니다.\n\n"
@@ -93,7 +101,8 @@ CMD_HELP = {
         "1. <code>/asset</code> (모든 거래소 조회)\n"
         "2. <code>/asset 빗썸</code> (빗썸 잔고만 조회)\n"
         "3. <code>/asset 토스증권</code> (토스증권 잔고만 조회)\n"
-        "⚠️ 설정한 최소 표시 금액 이하의 소액 자산은 '기타'로 합산 표시됩니다."
+        "⚠️ 설정한 최소 표시 금액 이하의 소액 자산은 '기타'로 합산 표시됩니다.\n"
+        "🔘 거래소별 상위 5개 종목만 기본 표시되며, '기타' 종목이 있으면 인라인 버튼으로 거래소별로 펼쳐볼 수 있습니다."
     ),
     "price": (
         "📊 <b>/price 상세 가이드</b>\n\n"
@@ -136,28 +145,43 @@ CMD_HELP = {
         "1. <code>/history</code> (업비트 전체 최근 내역)\n"
         "2. <code>/history 빗썸</code> (빗썸 전체 최근 내역)\n"
         "3. <code>/history BTC</code> (업비트 비트코인 거래 내역)\n"
-        "4. <code>/history 토스증권 005930</code> (토스증권 삼성전자 내역)"
+        "4. <code>/history 토스증권 005930</code> (토스증권 삼성전자 내역)\n\n"
+        "🔘 5건씩 표시되며, ◀️ 이전 / ▶️ 다음 버튼으로 나머지 내역을 더 볼 수 있습니다."
+    ),
+    "report": (
+        "📊 <b>/report 상세 가이드</b>\n\n"
+        "<b>기능:</b> 기간별 실현 손익과 종목별 매수/매도 체결을 요약한 리포트를 보여줍니다.\n"
+        "<b>구문:</b> <code>/report [today|week|month|all]</code>\n\n"
+        "<b>옵션:</b>\n"
+        "• 기간 생략 시 <code>all</code>(전체) 기준\n\n"
+        "<b>안내:</b>\n"
+        "⚠️ 손익은 가격×수량 기준 추정치이며 수수료는 반영되지 않습니다.\n"
+        "🔘 종목 10개씩 표시되며, ◀️ 이전 / ▶️ 다음 버튼으로 더 볼 수 있습니다. 합계는 페이지와 무관하게 항상 전체 거래 기준으로 표시됩니다."
     ),
     "buy": (
         "🛍️ <b>/buy 상세 가이드 (단일 매수)</b>\n\n"
         "<b>기능:</b> 지정한 거래소에 단일 매수 주문을 즉시 전송합니다.\n"
-        "<b>구문:</b> <code>/buy [거래소] [종목] [가격] [수량]</code>\n\n"
+        "<b>구문:</b> <code>/buy [거래소] [종목] [가격|market] [수량] [유지]</code>\n\n"
         "<b>예시:</b>\n"
         "<code>/buy 빗썸 BTC 95000000 0.1</code> (빗썸에서 0.1 BTC를 9500만원에 매수)\n"
         "<code>/buy 한투 005930 70000 1</code> (한국투자증권에서 삼성전자 1주 매수 확인)\n"
         "<code>/buy 토스증권 005930 70000 1</code> (토스증권에서 삼성전자 1주 매수 확인)\n"
-        "<code>/buy 토스증권 AAPL 185.5 10</code> (토스증권 해외주식 애플 10주 매수, USD)\n\n"
+        "<code>/buy 토스증권 AAPL 185.5 10</code> (토스증권 해외주식 애플 10주 매수, USD)\n"
+        "<code>/buy 토스증권 005930 70000 10 유지</code> (장마감으로 미체결 취소 시 다음 정규장에 자동 재주문)\n\n"
         "🌎 토스증권은 AAPL, TSLA 등 해외(미국)주식 티커 입력 시 USD로 자동 처리됩니다 (한투는 국내전용).\n"
+        "🔁 끝에 <code>유지</code>(또는 <code>--keep</code>)를 붙이면 한투·토스 주문이 장마감으로 취소돼도 다음 정규장에 잔량을 자동 재주문합니다(기본값: 끔).\n"
         "⚠️ 한국투자증권·토스증권 주문은 확인 버튼을 거친 뒤 전송됩니다."
     ),
     "sell": (
         "🛍️ <b>/sell 상세 가이드 (단일 매도)</b>\n\n"
         "<b>기능:</b> 지정한 거래소에 단일 매도 주문을 즉시 전송합니다.\n"
-        "<b>구문:</b> <code>/sell [거래소] [종목] [가격] [수량]</code>\n\n"
+        "<b>구문:</b> <code>/sell [거래소] [종목] [가격|market] [수량] [유지]</code>\n\n"
         "<b>예시:</b>\n"
         "<code>/sell BTC 120000000 0.5</code> (업비트에서 0.5 BTC를 1.2억원에 매도)\n"
         "<code>/sell 토스증권 005930 72000 1</code> (토스증권에서 삼성전자 1주 매도)\n"
-        "<code>/sell 토스증권 AAPL 190 10</code> (토스증권 해외주식 애플 10주 매도, USD)\n\n"
+        "<code>/sell 토스증권 AAPL 190 10</code> (토스증권 해외주식 애플 10주 매도, USD)\n"
+        "<code>/sell 토스증권 005930 72000 1 유지</code> (장마감으로 미체결 취소 시 다음 정규장에 자동 재주문)\n\n"
+        "🔁 끝에 <code>유지</code>(또는 <code>--keep</code>)를 붙이면 한투·토스 주문이 장마감으로 취소돼도 다음 정규장에 잔량을 자동 재주문합니다(기본값: 끔).\n"
         "⚠️ 보유 수량이 주문 수량보다 많아야 합니다."
     ),
     "grid": (
@@ -197,7 +221,8 @@ CMD_HELP = {
         "<b>옵션:</b>\n"
         "• <code>거래소</code>: 업비트, 빗썸, 한투, 토스증권 (생략 시 기본 거래소)\n\n"
         "<b>안내:</b>\n"
-        "봇을 통해 생성한 주문뿐만 아니라 직접 거래소에서 건 미체결 주문도 모두 조회됩니다."
+        "봇을 통해 생성한 주문뿐만 아니라 직접 거래소에서 건 미체결 주문도 모두 조회됩니다.\n"
+        "🔘 거미줄/RSI 같은 배치(batch) 주문은 기본적으로 그룹 단위 요약(건수/상태)으로 표시되며, 인라인 버튼으로 그룹을 풀어 개별 주문을 모두 펼쳐볼 수 있습니다."
     ),
     "cancel": (
         "🛑 <b>/cancel 상세 가이드</b>\n\n"
@@ -411,7 +436,7 @@ def build_help_message(user, bot_name=BOT_DISPLAY_NAME):
         format_section("💼 자산 및 시세 조회", [
             f"<code>/asset</code> — 통합 자산 및 소액 자산 요약 조회",
             f"<code>/price</code> [종목] — 실시간 시세 및 변동률 <i>(/p 단축)</i>",
-            f"<code>/history</code> [종목] — 최근 체결 내역 확인 (5건)",
+            f"<code>/history</code> [종목] — 최근 체결 내역 확인 (5건씩 페이지네이션)",
         ]),
         "",
         format_section("📈 자동 거래 및 순환 매매", [
@@ -637,7 +662,7 @@ def build_account_summary(user_id, user):
     )
 
 
-def build_manual_order_confirm_message(exchange, ticker, side, price, volume, user, ord_type="limit"):
+def build_manual_order_confirm_message(exchange, ticker, side, price, volume, user, ord_type="limit", auto_reorder=False):
     action = "매수" if side == "bid" else "매도"
     is_market = ord_type == "market"
     is_us = is_us_stock_ticker(exchange, ticker)
@@ -656,12 +681,14 @@ def build_manual_order_confirm_message(exchange, ticker, side, price, volume, us
     else:
         price_text = "시장가" if is_market else f"{float(price):,.0f}원"
         amount_line = "" if is_market else f"- 주문금액: {float(price) * float(volume):,.0f}원\n"
+    reorder_line = "🔁 장마감 시 자동 재주문: 켜짐 (다음 정규장에 잔량 재제출)\n" if auto_reorder else ""
     return (
         f"{'📈' if side == 'bid' else '📉'} <b>{exchange_display_name(exchange)} {action} 주문 확인</b>{env_notice}\n\n"
         f"- 종목: {ticker}\n"
         f"- 가격: {price_text}\n"
         f"- 수량: {volume_text}\n"
-        f"{amount_line}\n"
+        f"{amount_line}"
+        f"{reorder_line}\n"
         "위 내용으로 주문을 전송할까요?"
     )
 
@@ -717,10 +744,15 @@ def build_rsi_preview_lines(ticker, rsi_prices, budget, total_count=None, per_or
     return lines
 
 
-def build_report_view(trades: list, period: str = "all") -> str:
-    """체결 기록 기반 수익률 리포트 메시지 생성."""
-    period_label = {"today": "오늘", "week": "최근 7일", "month": "최근 30일"}.get(period, "전체")
+REPORT_PAGE_SIZE = 10  # /report 페이지네이션 — 페이지당 종목 그룹 수
 
+
+def aggregate_trades(trades: list):
+    """체결 기록을 (exchange,ticker)별로 집계하고 통화별 합계를 계산한다.
+
+    반환: (by_key, totals) — by_key는 정렬 전 dict, totals는 KRW/USD 합산치.
+    /report 페이지네이션에서 재집계 없이 페이지만 다시 그릴 때 재사용한다.
+    """
     by_key: dict = defaultdict(lambda: {"bid_krw": 0.0, "ask_krw": 0.0, "bid_count": 0, "ask_count": 0})
     for t in trades:
         key = (t.get("exchange", ""), t.get("ticker", ""))
@@ -730,15 +762,19 @@ def build_report_view(trades: list, period: str = "all") -> str:
         by_key[key][f"{side}_count"] += 1
 
     # USD(토스 해외주식)와 KRW는 통화가 달라 합산할 수 없으므로 합계를 분리한다.
-    total_bid_krw = sum(v["bid_krw"] for k, v in by_key.items() if not is_us_stock_ticker(k[0], k[1]))
-    total_ask_krw = sum(v["ask_krw"] for k, v in by_key.items() if not is_us_stock_ticker(k[0], k[1]))
-    total_bid_usd = sum(v["bid_krw"] for k, v in by_key.items() if is_us_stock_ticker(k[0], k[1]))
-    total_ask_usd = sum(v["ask_krw"] for k, v in by_key.items() if is_us_stock_ticker(k[0], k[1]))
-    net_krw = total_ask_krw - total_bid_krw
-    net_usd = total_ask_usd - total_bid_usd
+    totals = {
+        "bid_krw": sum(v["bid_krw"] for k, v in by_key.items() if not is_us_stock_ticker(k[0], k[1])),
+        "ask_krw": sum(v["ask_krw"] for k, v in by_key.items() if not is_us_stock_ticker(k[0], k[1])),
+        "bid_usd": sum(v["bid_krw"] for k, v in by_key.items() if is_us_stock_ticker(k[0], k[1])),
+        "ask_usd": sum(v["ask_krw"] for k, v in by_key.items() if is_us_stock_ticker(k[0], k[1])),
+    }
+    return by_key, totals
 
-    lines = [f"📊 <b>수익률 리포트 ({period_label})</b>", ""]
-    for (exchange, ticker), stats in sorted(by_key.items()):
+
+def render_report_ticker_lines(by_key_items) -> list:
+    """종목별(거래소,티커) 매수/매도/손익 라인을 만든다. 페이지 슬라이스에 적용 가능."""
+    lines = []
+    for (exchange, ticker), stats in by_key_items:
         pnl = stats["ask_krw"] - stats["bid_krw"]
         sign = "+" if pnl >= 0 else ""
         ex_label = exchange_display_name(exchange) if exchange else exchange.upper()
@@ -753,16 +789,60 @@ def build_report_view(trades: list, period: str = "all") -> str:
         if stats["bid_count"] and stats["ask_count"]:
             lines.append(f"  손익(추정): {sign}{unit}{pnl:,.2f}{suffix}" if is_usd else f"  손익(추정): {sign}{pnl:,.0f}원")
         lines.append("")
+    return lines
 
+
+def render_report_totals_lines(totals: dict) -> list:
+    """전체 거래 기준 합계 라인 — 페이지와 무관하게 항상 동일하게 표시."""
+    net_krw = totals["ask_krw"] - totals["bid_krw"]
+    net_usd = totals["ask_usd"] - totals["bid_usd"]
     net_sign_krw = "+" if net_krw >= 0 else ""
-    lines.append(f"💰 합계(KRW): 매수 {total_bid_krw:,.0f}원 / 매도 {total_ask_krw:,.0f}원")
-    lines.append(f"📈 총 손익(추정, KRW): {net_sign_krw}{net_krw:,.0f}원")
-    if total_bid_usd or total_ask_usd:
+    lines = [
+        f"💰 합계(KRW): 매수 {totals['bid_krw']:,.0f}원 / 매도 {totals['ask_krw']:,.0f}원",
+        f"📈 총 손익(추정, KRW): {net_sign_krw}{net_krw:,.0f}원",
+    ]
+    if totals["bid_usd"] or totals["ask_usd"]:
         net_sign_usd = "+" if net_usd >= 0 else ""
-        lines.append(f"💰 합계(USD, 토스 해외주식): 매수 ${total_bid_usd:,.2f} / 매도 ${total_ask_usd:,.2f}")
+        lines.append(f"💰 합계(USD, 토스 해외주식): 매수 ${totals['bid_usd']:,.2f} / 매도 ${totals['ask_usd']:,.2f}")
         lines.append(f"📈 총 손익(추정, USD): {net_sign_usd}${net_usd:,.2f}")
+    return lines
+
+
+def build_report_view(trades: list, period: str = "all") -> str:
+    """체결 기록 기반 수익률 리포트 메시지 생성 (전체, 페이지네이션 없음)."""
+    period_label = {"today": "오늘", "week": "최근 7일", "month": "최근 30일"}.get(period, "전체")
+    by_key, totals = aggregate_trades(trades)
+
+    lines = [f"📊 <b>수익률 리포트 ({period_label})</b>", ""]
+    lines.extend(render_report_ticker_lines(sorted(by_key.items())))
+    lines.extend(render_report_totals_lines(totals))
     lines.append("")
     lines.append("⚠️ 손익은 가격×수량 기준 추정치입니다. 수수료 미반영.")
     lines.append("")
     lines.append("📊 더 상세한 내역과 리포트는 [웹 대시보드]에서 확인하실 수 있습니다.")
     return "\n".join(lines)
+
+
+def build_report_view_page(trades: list, period: str = "all", page: int = 0, page_size: int = REPORT_PAGE_SIZE):
+    """/report 페이지네이션용 — 종목 그룹을 page_size개씩 잘라 보여주고 합계는 항상 전체 기준.
+
+    반환: (text, page, total_pages)
+    """
+    period_label = {"today": "오늘", "week": "최근 7일", "month": "최근 30일"}.get(period, "전체")
+    by_key, totals = aggregate_trades(trades)
+    items = sorted(by_key.items())
+    total_pages = max(1, (len(items) + page_size - 1) // page_size)
+    page = max(0, min(page, total_pages - 1))
+    page_items = items[page * page_size: (page + 1) * page_size]
+
+    lines = [f"📊 <b>수익률 리포트 ({period_label})</b>"]
+    if total_pages > 1:
+        lines.append(f"📄 {page + 1}/{total_pages} 페이지 (종목 {len(items)}개 중 {page * page_size + 1}-{page * page_size + len(page_items)}번째)")
+    lines.append("")
+    lines.extend(render_report_ticker_lines(page_items))
+    lines.extend(render_report_totals_lines(totals))
+    lines.append("")
+    lines.append("⚠️ 손익은 가격×수량 기준 추정치입니다. 수수료 미반영.")
+    lines.append("")
+    lines.append("📊 더 상세한 내역과 리포트는 [웹 대시보드]에서 확인하실 수 있습니다.")
+    return "\n".join(lines), page, total_pages

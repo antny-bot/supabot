@@ -90,6 +90,45 @@ class UserManager:
             _log.error("Failed to reload users from DB", exc_info=e, extra={"event": "db_users_reload_error"})
             return False
 
+    async def reload_from_db_async(self) -> bool:
+        """폴링/시그널 루프 등에서 매 사이클 DB 상태를 비동기로 인메모리에 반영한다.
+
+        manager UI가 유저를 차단/비활성화해도 기존엔 해당 유저가 /start를 다시 호출하거나
+        관리자가 /dbsync 하기 전까지 봇 프로세스가 이를 모른다(M5) — 시그널 알림이 계속 가고
+        명령 처리도 stale is_active로 통과될 수 있다. order_sync_loop/signal_analysis_loop가
+        매 사이클 이를 호출해 차단 반영 지연을 한 사이클 이내로 줄인다. DB 미사용 환경에서는 no-op.
+        """
+        if not is_db_available():
+            return False
+        try:
+            res = await get_db().table("users").select("*").execute_async()
+            rows = res.data
+            self.users = {row["user_id"]: self._db_row_to_user(row) for row in rows}
+            _log.info("Reloaded users from DB (async)", extra={"event": "users_reloaded_db_async", "count": len(self.users)})
+            return True
+        except Exception as e:
+            _log.error("Failed to reload users from DB (async)", exc_info=e, extra={"event": "db_users_reload_error_async"})
+            return False
+
+    def refresh_user(self, user_id) -> bool:
+        """단일 유저 row만 DB에서 다시 읽어 인메모리에 반영한다.
+
+        manager UI가 승인/비활성화 등으로 DB를 직접 갱신한 뒤, 해당 유저가 곧바로
+        /start 등을 호출했을 때 전체 reload_from_db() 없이 가볍게 동기화하기 위함.
+        DB 미사용 환경, 또는 해당 유저 row가 없으면 no-op.
+        """
+        if not is_db_available():
+            return False
+        try:
+            rows = get_db().table("users").select("*").eq("user_id", str(user_id)).execute().data
+            if not rows:
+                return False
+            self.users[str(user_id)] = self._db_row_to_user(rows[0])
+            return True
+        except Exception as e:
+            _log.error("Failed to refresh user from DB", exc_info=e, extra={"event": "db_user_refresh_error", "user_id": str(user_id)})
+            return False
+
     def _load_users_from_file(self) -> dict:
         if not os.path.exists(self.file_path):
             return {}
@@ -102,9 +141,8 @@ class UserManager:
 
     # ── DB ↔ memory conversion ────────────────────────────────────────────────
 
-    @staticmethod
-    def _db_row_to_user(row: dict) -> dict:
-        return {
+    def _db_row_to_user(self, row: dict) -> dict:
+        user = {
             "username": row.get("username", ""),
             "is_admin": row.get("is_admin", False),
             "is_active": row.get("status") == "active",
@@ -114,6 +152,10 @@ class UserManager:
             "llm": row.get("llm") or {},
             "api_validation": row.get("api_validation") or {},
         }
+        # 기본값 보정은 DB 행이 메모리로 들어오는 이 지점에서 1회만 수행한다(L4).
+        # get_user()는 매 호출마다 보정+업서트를 유발하던 읽기-시-쓰기 증폭 경로였다.
+        self._ensure_user_defaults(user)
+        return user
 
     @staticmethod
     def _user_to_db_row(user_id: str, user: dict) -> dict:
@@ -190,8 +232,6 @@ class UserManager:
 
     def get_user(self, user_id):
         stored_user = self.users.get(str(user_id))
-        if stored_user and self._ensure_user_defaults(stored_user):
-            self._upsert_user(user_id)
         return self._decrypt_user_copy(stored_user) if stored_user else None
 
     def _ensure_all_user_defaults(self):
@@ -331,6 +371,14 @@ class UserManager:
             self._upsert_user(user_id_str)
             return True
         return False
+
+    def update_username(self, user_id, username):
+        user = self.users.get(str(user_id))
+        if not user:
+            return False
+        user["username"] = username
+        self._upsert_user(user_id)
+        return True
 
     def update_preference(self, user_id, key, value):
         user = self.users.get(str(user_id))

@@ -170,6 +170,51 @@ async def test_rsitrade_buy_fill_sets_stop_price_when_configured(tmp_path, monke
     assert sell_orders[0]["stop_price"] == pytest.approx(47_500_000, rel=0.01)
 
 
+# M4: 매수 체결 감지 시 연동 매도 주문이 이미 존재하면(크래시 복구 시나리오) 중복 발행하지 않음
+async def test_rsitrade_buy_fill_skips_duplicate_sell_when_already_exists(tmp_path, monkeypatch):
+    om = _make_order_manager(tmp_path)
+    om.add_order(
+        "789", "upbit", "KRW-ETH", "buy-uuid-dup", 3_000_000, 0.1,
+        side="bid", strategy="rsitrade", linked_to="65-75",
+    )
+    # add_order(매도 생성) 이후 update_order_fill(매수 체결기록) 전에 크래시한 상황을 재현:
+    # 매도 주문(reorder_of=buy-uuid-dup)은 이미 DB/메모리에 있으나 매수의 filled_volume은 0.
+    om.add_order(
+        "789", "upbit", "KRW-ETH", "sell-uuid-existing", 4_500_000, 0.1,
+        side="ask", strategy="rsitrade_sell", reorder_of="buy-uuid-dup",
+    )
+    monkeypatch.setattr(main, "order_manager", om)
+
+    async def fake_get_order_status(user_id, exchange, uuid, ticker=None):
+        if uuid == "buy-uuid-dup":
+            return {"state": "done", "executed_volume": 0.1}
+        return {"state": "wait", "executed_volume": 0.0}  # 매도 주문은 아직 미체결
+
+    mock_adapter = MagicMock()
+    mock_adapter.get_order_status = AsyncMock(side_effect=fake_get_order_status)
+    mock_adapter.create_order = AsyncMock(return_value={"uuid": "should-not-be-used"})
+    _wire_real_exchanges(mock_adapter)
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    mock_engine = MagicMock()
+    mock_engine.get_price_by_rsi = AsyncMock(return_value=4_500_000)
+    monkeypatch.setattr(main, "signal_engine", mock_engine)
+
+    mock_um = MagicMock()
+    mock_um.get_user = MagicMock(return_value=_default_user())
+    monkeypatch.setattr(main, "user_manager", mock_um)
+
+    app = _make_app()
+    await main.sync_orders(app)
+
+    # 이미 매도 주문이 있으므로 create_order(매도 발행)는 호출되지 않아야 함(중복 방지)
+    mock_adapter.create_order.assert_not_called()
+    # 매수는 체결 완료(state=done)로 처리되어 추적에서 제거됨
+    assert not any(o["uuid"] == "buy-uuid-dup" for o in om.orders)
+    # 기존 매도 주문은 그대로 유지됨 (재생성/중복 없음)
+    assert any(o["uuid"] == "sell-uuid-existing" for o in om.orders)
+
+
 # T5: rsitrade_sell 포지션 stop-loss 발동 → 손절 주문 제출
 async def test_stoploss_triggers_when_price_below_stop_price(tmp_path, monkeypatch):
     om = _make_order_manager(tmp_path)
@@ -202,6 +247,40 @@ async def test_stoploss_triggers_when_price_below_stop_price(tmp_path, monkeypat
     app.bot.send_message.assert_called_once()
     sent_text = app.bot.send_message.call_args.kwargs.get("text", "")
     assert "손절 실행" in sent_text
+
+
+# T5b: 손절매도 발행이 끝내 실패하면 — 원주문은 제거하되 stoploss 주문은 만들지 않고,
+# "제출되었습니다" 오보 대신 정직한 실패 경고를 보낸다. 발행은 _STOPLOSS_PLACE_RETRIES회 재시도.
+async def test_stoploss_placement_failure_alerts_without_false_success(tmp_path, monkeypatch):
+    main._status_check_failures.clear()
+    monkeypatch.setattr(main.asyncio, "sleep", AsyncMock())
+    om = _make_order_manager(tmp_path)
+    om.add_order(
+        "222", "upbit", "KRW-ETH", "sell-uuid-fail", 4_000_000, 0.1,
+        side="ask", strategy="rsitrade_sell", stop_price=3_000_000,
+    )
+    monkeypatch.setattr(main, "order_manager", om)
+
+    mock_adapter = MagicMock()
+    mock_adapter.get_order_status = AsyncMock(return_value={"state": "wait", "executed_volume": 0.0})
+    mock_adapter.get_ticker = AsyncMock(return_value={"trade_price": 2_500_000})  # 손절 기준가 미만
+    mock_adapter.cancel_order = AsyncMock(return_value=True)
+    mock_adapter.create_order = AsyncMock(return_value=None)  # 손절매도 발행 실패
+    _wire_real_exchanges(mock_adapter)
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    app = _make_app()
+    await main.sync_orders(app)
+
+    # 취소된 익절매도는 추적에서 제거되고, stoploss 주문은 생성되지 않아야 한다
+    assert not any(o["uuid"] == "sell-uuid-fail" for o in om.orders)
+    assert not any(o["strategy"] == "stoploss" for o in om.orders)
+    # 발행을 재시도했는지
+    assert mock_adapter.create_order.await_count == main._STOPLOSS_PLACE_RETRIES
+    # 정직한 실패 알림 (과거의 "제출되었습니다" 오보가 없어야 함)
+    sent_text = app.bot.send_message.call_args.kwargs.get("text", "")
+    assert "발행 실패" in sent_text
+    assert "제출되었습니다" not in sent_text
 
 
 # T6: rsitrade_sell 포지션 — 현재가가 stop_price 이상이면 손절 미발동
@@ -290,6 +369,177 @@ async def test_toss_strategy_order_cancel_marks_pending_reorder(tmp_path, monkey
     assert "외부 개입" not in sent_text
 
 
+# T: 수동 주문이라도 auto_reorder=True(opt-in)면 전략 주문과 동일하게 마감 취소 시
+# pending_reorder로 전환되고, 다음 정규장에 잔량이 재주문되어야 한다.
+async def test_manual_order_with_auto_reorder_cancel_marks_pending_reorder(tmp_path, monkeypatch):
+    om = _make_order_manager(tmp_path)
+    om.add_order("321", "toss", "005930", "uuid-toss-manual-1", 70000, 10, side="bid", strategy="manual", auto_reorder=True)
+    monkeypatch.setattr(main, "order_manager", om)
+
+    mock_adapter = MagicMock()
+    mock_adapter.ensure_toss_kr_calendar = AsyncMock()
+    mock_adapter.get_order_status = AsyncMock(return_value={"state": "cancel", "executed_volume": 0.0})
+    mock_adapter.get_exchange = lambda exchange: MagicMock(
+        supports_reserved_orders=True,
+        is_market_open=lambda ticker=None: True,
+        next_check_timestamp=lambda ticker=None: 9_999_999.0,
+    )
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    app = _make_app()
+    await main.sync_orders(app)
+
+    assert om.orders[0]["status"] == "pending_reorder"
+    assert om.orders[0]["next_check_at"] == 9_999_999.0
+    sent_text = app.bot.send_message.call_args.kwargs.get("text", "")
+    assert "재주문 예정" in sent_text
+    assert "외부 개입" not in sent_text
+
+
+# T: auto_reorder 플래그가 없는 기본 수동 주문은 기존과 동일하게 마감 취소 시
+# "외부 개입" 알림 후 추적을 종료한다 (재주문 없음) — 기본 동작 회귀 방지.
+async def test_manual_order_without_auto_reorder_cancel_removes_tracking(tmp_path, monkeypatch):
+    om = _make_order_manager(tmp_path)
+    om.add_order("322", "toss", "005930", "uuid-toss-manual-2", 70000, 10, side="bid", strategy="manual")
+    monkeypatch.setattr(main, "order_manager", om)
+
+    mock_adapter = MagicMock()
+    mock_adapter.ensure_toss_kr_calendar = AsyncMock()
+    mock_adapter.get_order_status = AsyncMock(return_value={"state": "cancel", "executed_volume": 0.0})
+    mock_adapter.get_exchange = lambda exchange: MagicMock(
+        supports_reserved_orders=True,
+        is_market_open=lambda ticker=None: True,
+        next_check_timestamp=lambda ticker=None: 9_999_999.0,
+    )
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    app = _make_app()
+    await main.sync_orders(app)
+
+    assert len(om.orders) == 0
+    sent_text = app.bot.send_message.call_args.kwargs.get("text", "")
+    assert "외부 개입" in sent_text
+
+
+# T: pending_reorder 주문 재발행 직전, 동일 스펙의 미체결 주문이 거래소에 이미 있으면
+# (직전 사이클 create_order 응답 유실로 의심) 새로 발행하지 않고 기존 주문을 채택한다(M3).
+async def test_reorder_adopts_existing_open_order_instead_of_duplicate_submit(tmp_path, monkeypatch):
+    om = _make_order_manager(tmp_path)
+    om.add_order(
+        "501", "toss", "005930", "uuid-toss-pending", 70000, 10,
+        side="bid", strategy="rsitrade", status="pending_reorder",
+    )
+    monkeypatch.setattr(main, "order_manager", om)
+
+    mock_adapter = MagicMock()
+    mock_adapter.ensure_toss_kr_calendar = AsyncMock()
+    mock_adapter.create_order = AsyncMock(return_value={"uuid": "should-not-be-used"})
+    mock_adapter.get_open_orders = AsyncMock(return_value=[
+        {"uuid": "existing-open-order", "side": "bid", "price": 70000, "volume": 10, "status": "wait"},
+    ])
+    mock_adapter.get_exchange = lambda exchange: MagicMock(
+        supports_reserved_orders=True,
+        is_market_open=lambda ticker=None: True,
+        next_check_timestamp=lambda ticker=None: 9_999_999.0,
+        requires_integer_volume=lambda: True,
+    )
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    app = _make_app()
+    await main.sync_orders(app)
+
+    mock_adapter.create_order.assert_not_called()
+    assert om.orders[0]["uuid"] == "existing-open-order"
+    sent_text = app.bot.send_message.call_args.kwargs.get("text", "")
+    assert "완료" in sent_text
+
+
+# T: 미체결 중복 주문이 없으면 정상적으로 새 재주문을 발행한다 (회귀 방지).
+async def test_reorder_submits_new_order_when_no_duplicate_exists(tmp_path, monkeypatch):
+    om = _make_order_manager(tmp_path)
+    om.add_order(
+        "502", "toss", "005930", "uuid-toss-pending-2", 70000, 10,
+        side="bid", strategy="rsitrade", status="pending_reorder",
+    )
+    monkeypatch.setattr(main, "order_manager", om)
+
+    mock_adapter = MagicMock()
+    mock_adapter.ensure_toss_kr_calendar = AsyncMock()
+    mock_adapter.create_order = AsyncMock(return_value={"uuid": "new-order-uuid"})
+    mock_adapter.get_open_orders = AsyncMock(return_value=[])
+    mock_adapter.get_exchange = lambda exchange: MagicMock(
+        supports_reserved_orders=True,
+        is_market_open=lambda ticker=None: True,
+        next_check_timestamp=lambda ticker=None: 9_999_999.0,
+        requires_integer_volume=lambda: True,
+    )
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    app = _make_app()
+    await main.sync_orders(app)
+
+    mock_adapter.create_order.assert_awaited_once()
+    assert om.orders[0]["uuid"] == "new-order-uuid"
+
+
+# T: KIS/Toss 수동 주문 조회가 일시적으로 None을 반환해도 단번에 추적을 끊지 않고,
+# 연속 _STATUS_CHECK_FAIL_LIMIT회 실패해야 비로소 종료한다(살아있는 주문 유실 방지).
+async def test_manual_order_transient_status_failure_retained_then_dropped(tmp_path, monkeypatch):
+    main._status_check_failures.clear()
+    om = _make_order_manager(tmp_path)
+    om.add_order("900", "toss", "005930", "uuid-toss-flaky", 70000, 10, side="bid", strategy="manual")
+    monkeypatch.setattr(main, "order_manager", om)
+
+    mock_adapter = MagicMock()
+    mock_adapter.ensure_toss_kr_calendar = AsyncMock()
+    mock_adapter.get_order_status = AsyncMock(return_value=None)  # 일시 조회 실패
+    mock_adapter.get_exchange = lambda exchange: MagicMock(
+        supports_reserved_orders=True,
+        is_market_open=lambda ticker=None: True,
+        next_check_timestamp=lambda ticker=None: 9_999_999.0,
+    )
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    app = _make_app()
+    # 임계치 직전까지는 주문이 추적에 남아있어야 한다
+    for _ in range(main._STATUS_CHECK_FAIL_LIMIT - 1):
+        await main.sync_orders(app)
+        assert any(o["uuid"] == "uuid-toss-flaky" for o in om.orders)
+    # 임계치에 도달하면 추적 종료
+    await main.sync_orders(app)
+    assert not any(o["uuid"] == "uuid-toss-flaky" for o in om.orders)
+    sent_texts = [c.kwargs.get("text", "") for c in app.bot.send_message.call_args_list]
+    assert any("추적을 종료" in t for t in sent_texts)
+
+
+# T: 일시 조회 실패 뒤 조회가 다시 성공하면 누적 실패 카운터가 초기화되어,
+# 이후 단발 실패가 누적으로 추적 종료를 유발하지 않는다.
+async def test_manual_order_status_failure_counter_resets_on_success(tmp_path, monkeypatch):
+    main._status_check_failures.clear()
+    om = _make_order_manager(tmp_path)
+    om.add_order("901", "toss", "005930", "uuid-toss-recover", 70000, 10, side="bid", strategy="manual")
+    monkeypatch.setattr(main, "order_manager", om)
+
+    results = [None, None, {"state": "wait", "executed_volume": 0.0}, None]
+    mock_adapter = MagicMock()
+    mock_adapter.ensure_toss_kr_calendar = AsyncMock()
+    mock_adapter.get_order_status = AsyncMock(side_effect=results)
+    mock_adapter.get_exchange = lambda exchange: MagicMock(
+        supports_reserved_orders=True,
+        is_market_open=lambda ticker=None: True,
+        next_check_timestamp=lambda ticker=None: 9_999_999.0,
+    )
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    app = _make_app()
+    for _ in range(len(results)):
+        await main.sync_orders(app)
+
+    # 2회 실패 → 1회 성공(카운터 리셋) → 1회 실패. 누적 임계치 미달이므로 추적 유지.
+    assert any(o["uuid"] == "uuid-toss-recover" for o in om.orders)
+    assert main._status_check_failures.get("uuid-toss-recover") == 1
+
+
 # T: 토스 국내(숫자 종목코드) 주문은 사이클마다 NXT 애프터마켓 캘린더 캐시를 갱신 시도한다
 # (해당 유저의 자격으로 조회하므로 user_id를 그대로 전달해야 함).
 async def test_sync_orders_refreshes_toss_kr_calendar_for_domestic_order(tmp_path, monkeypatch):
@@ -369,3 +619,190 @@ def test_has_order_index_consistency(tmp_path):
 
     om.remove_order("uuid-2")
     assert om.has_order("uuid-2") is False
+
+
+# ── M4: startup_recovery 실제 복구 동작 ──────────────────────────────────────
+
+async def test_startup_recovery_creates_missing_linked_sell_order(tmp_path, monkeypatch):
+    """매수 전량체결이 filled_volume에 반영되기 전 크래시한 경우, 기동 시 누락된 익절매도를 생성."""
+    om = _make_order_manager(tmp_path)
+    om.add_order(
+        "789", "upbit", "KRW-ETH", "buy-uuid-recover", 3_000_000, 0.1,
+        side="bid", strategy="rsitrade", linked_to="65-75",
+    )
+    monkeypatch.setattr(main, "order_manager", om)
+
+    mock_adapter = MagicMock()
+    mock_adapter.get_order_status = AsyncMock(return_value={"state": "done", "executed_volume": 0.1})
+    mock_adapter.create_order = AsyncMock(return_value={"uuid": "sell-uuid-recovered"})
+    _wire_real_exchanges(mock_adapter)
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    mock_engine = MagicMock()
+    mock_engine.get_price_by_rsi = AsyncMock(return_value=4_500_000)
+    monkeypatch.setattr(main, "signal_engine", mock_engine)
+
+    mock_um = MagicMock()
+    mock_um.get_user = MagicMock(return_value=_default_user())
+    monkeypatch.setattr(main, "user_manager", mock_um)
+
+    app = _make_app()
+    await main.startup_recovery(app)
+
+    mock_adapter.create_order.assert_called_once()
+    sell_orders = [o for o in om.orders if o["uuid"] == "sell-uuid-recovered"]
+    assert len(sell_orders) == 1
+    assert sell_orders[0]["strategy"] == "rsitrade_sell"
+    assert sell_orders[0]["reorder_of"] == "buy-uuid-recover"
+    app.bot.send_message.assert_called_once()
+
+
+async def test_startup_recovery_skips_when_linked_sell_already_exists(tmp_path, monkeypatch):
+    """매도 주문은 이미 생성됐으나 매수 체결기록만 누락된 경우 — 재생성 없이 동기화만 수행."""
+    om = _make_order_manager(tmp_path)
+    om.add_order(
+        "789", "upbit", "KRW-ETH", "buy-uuid-recover2", 3_000_000, 0.1,
+        side="bid", strategy="rsitrade", linked_to="65-75",
+    )
+    om.add_order(
+        "789", "upbit", "KRW-ETH", "sell-uuid-already-there", 4_500_000, 0.1,
+        side="ask", strategy="rsitrade_sell", reorder_of="buy-uuid-recover2",
+    )
+    monkeypatch.setattr(main, "order_manager", om)
+
+    mock_adapter = MagicMock()
+    mock_adapter.get_order_status = AsyncMock(return_value={"state": "done", "executed_volume": 0.1})
+    mock_adapter.create_order = AsyncMock(return_value={"uuid": "should-not-be-created"})
+    _wire_real_exchanges(mock_adapter)
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    mock_engine = MagicMock()
+    mock_engine.get_price_by_rsi = AsyncMock(return_value=4_500_000)
+    monkeypatch.setattr(main, "signal_engine", mock_engine)
+
+    mock_um = MagicMock()
+    mock_um.get_user = MagicMock(return_value=_default_user())
+    monkeypatch.setattr(main, "user_manager", mock_um)
+
+    app = _make_app()
+    await main.startup_recovery(app)
+
+    mock_adapter.create_order.assert_not_called()
+    buy_orders = [o for o in om.orders if o["uuid"] == "buy-uuid-recover2"]
+    assert len(buy_orders) == 1
+    # 매도는 재생성하지 않되, 매수의 filled_volume은 동기화되어야 함(다음 사이클 재처리 방지)
+    assert buy_orders[0]["filled_volume"] == pytest.approx(0.1)
+    assert any(o["uuid"] == "sell-uuid-already-there" for o in om.orders)
+
+
+async def test_startup_recovery_ignores_orders_without_new_fill(tmp_path, monkeypatch):
+    """거래소 체결량이 filled_volume과 같으면(정상 추적 중) 복구 대상이 아니다."""
+    om = _make_order_manager(tmp_path)
+    om.add_order(
+        "789", "upbit", "KRW-ETH", "buy-uuid-normal", 3_000_000, 0.1,
+        side="bid", strategy="rsitrade", linked_to="65-75",
+    )
+    monkeypatch.setattr(main, "order_manager", om)
+
+    mock_adapter = MagicMock()
+    mock_adapter.get_order_status = AsyncMock(return_value={"state": "wait", "executed_volume": 0.0})
+    mock_adapter.create_order = AsyncMock(return_value={"uuid": "should-not-be-created"})
+    _wire_real_exchanges(mock_adapter)
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    app = _make_app()
+    await main.startup_recovery(app)
+
+    mock_adapter.create_order.assert_not_called()
+    assert any(o["uuid"] == "buy-uuid-normal" for o in om.orders)
+
+
+# ── 재주문/예약주문 연속 실패 → 에러 사유 포함 + 추적 종료 ────────────────────
+
+async def test_reorder_failure_shows_error_detail_and_gives_up_after_limit(tmp_path, monkeypatch):
+    """재주문이 _REORDER_FAIL_LIMIT회 연속 실패하면 추적을 종료하고 에러 사유를 표시한다."""
+    main._reorder_failures.clear()
+    om = _make_order_manager(tmp_path)
+    om.add_order(
+        "600", "toss", "403850", "uuid-reorder-fail", 5000, 10,
+        side="bid", strategy="manual", auto_reorder=True, status="pending_reorder",
+    )
+    monkeypatch.setattr(main, "order_manager", om)
+
+    error_response = {"error": {"code": "INVALID_ORDER", "message": "주문 가격이 유효하지 않습니다"}}
+    mock_adapter = MagicMock()
+    mock_adapter.ensure_toss_kr_calendar = AsyncMock()
+    mock_adapter.create_order = AsyncMock(return_value=error_response)
+    mock_adapter.get_open_orders = AsyncMock(return_value=[])
+    mock_adapter.get_exchange = lambda exchange: MagicMock(
+        supports_reserved_orders=True,
+        is_market_open=lambda ticker=None: True,
+        next_check_timestamp=lambda ticker=None: 9_999_999.0,
+        requires_integer_volume=lambda: True,
+    )
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    app = _make_app()
+    # 임계치 직전까지는 주문이 유지되어야 한다
+    for i in range(main._REORDER_FAIL_LIMIT - 1):
+        om.orders[0]["status"] = "pending_reorder"
+        om.orders[0]["next_check_at"] = 0.0
+        await main.sync_orders(app)
+        assert any(o["uuid"] == "uuid-reorder-fail" for o in om.orders), f"iteration {i}"
+
+    # 중간 메시지에 에러 사유와 카운터가 포함되어야 한다
+    sent_texts = [c.kwargs.get("text", "") for c in app.bot.send_message.call_args_list]
+    assert any("주문 가격이 유효하지 않습니다" in t for t in sent_texts)
+    assert any(f"/{main._REORDER_FAIL_LIMIT})" in t for t in sent_texts)
+
+    # 임계치 도달 시 추적 종료
+    om.orders[0]["status"] = "pending_reorder"
+    om.orders[0]["next_check_at"] = 0.0
+    await main.sync_orders(app)
+    assert not any(o["uuid"] == "uuid-reorder-fail" for o in om.orders)
+    sent_texts = [c.kwargs.get("text", "") for c in app.bot.send_message.call_args_list]
+    assert any("연속 실패로 추적을 종료" in t for t in sent_texts)
+    assert any("수동으로 다시 주문" in t for t in sent_texts)
+
+
+async def test_reorder_failure_counter_resets_on_success(tmp_path, monkeypatch):
+    """재주문 실패 후 성공하면 카운터가 리셋된다."""
+    main._reorder_failures.clear()
+    om = _make_order_manager(tmp_path)
+    om.add_order(
+        "601", "toss", "005930", "uuid-reorder-recover", 70000, 10,
+        side="bid", strategy="rsitrade", status="pending_reorder",
+    )
+    monkeypatch.setattr(main, "order_manager", om)
+
+    results = [
+        {"error": {"code": "TEMP", "message": "일시 오류"}},
+        {"error": {"code": "TEMP", "message": "일시 오류"}},
+        {"uuid": "new-order-uuid", "orderId": "new-order-uuid"},
+    ]
+    mock_adapter = MagicMock()
+    mock_adapter.ensure_toss_kr_calendar = AsyncMock()
+    mock_adapter.create_order = AsyncMock(side_effect=results)
+    mock_adapter.get_open_orders = AsyncMock(return_value=[])
+    mock_adapter.get_exchange = lambda exchange: MagicMock(
+        supports_reserved_orders=True,
+        is_market_open=lambda ticker=None: True,
+        next_check_timestamp=lambda ticker=None: 9_999_999.0,
+        requires_integer_volume=lambda: True,
+    )
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    app = _make_app()
+    # 2회 실패
+    for _ in range(2):
+        om.orders[0]["status"] = "pending_reorder"
+        om.orders[0]["next_check_at"] = 0.0
+        await main.sync_orders(app)
+    assert main._reorder_failures.get("uuid-reorder-recover") == 2
+
+    # 3회차 성공 → 카운터 리셋 + uuid 교체
+    om.orders[0]["status"] = "pending_reorder"
+    om.orders[0]["next_check_at"] = 0.0
+    await main.sync_orders(app)
+    assert om.orders[0]["uuid"] == "new-order-uuid"
+    assert "uuid-reorder-recover" not in main._reorder_failures

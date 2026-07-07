@@ -25,20 +25,21 @@ Synology Docker에 배포한다. 봇과 직접 의존하지 않으며, Telegram 
 
 ## 라우터 / 라우트
 
-`manager/backend/routers/` 10개 라우터로 구성된다.
+`manager/backend/routers/` 11개 라우터로 구성된다.
 
 | 라우터 | 주요 라우트 | 비고 |
 |--------|------------|------|
-| `dashboard` | `GET /api/dashboard` | admin: 전체 통계 / user: 개인 통계 |
+| `dashboard` | `GET /api/dashboard`, `GET /admin/dashboard` | admin: 전체 통계 / user: 개인 통계 |
 | `users` | `GET /api/users`, approve/deactivate/activate/block/DELETE, `PATCH .../email`, `POST .../invite-auth-account`, `POST .../reset-auth-password` | admin only |
-| `orders` | `GET /api/orders` | status·exchange 필터, 페이지네이션 |
+| `orders` | `GET /api/orders`, `POST .../{uuid}/cancel`·`/sync`·`/force-update` | status·exchange 필터, 페이지네이션. cancel은 거래소 취소(실거래) |
 | `trades` | `GET /api/trades` | 기간 필터, 거래소·전략별 집계 |
-| `events` | `GET /api/events`, PATCH read/archive | admin only |
+| `events` | `GET /api/events`, PATCH `read`/`unread`/`archive`/`unarchive` | admin only |
 | `sysconfig` | `GET /api/sysconfig`, `POST /api/sysconfig` | admin only |
-| `reports` | `GET /api/reports/{pnl,strategy,roi-ranking,monthly,holdings,pairs,win-stats}` | PnL·보유자산·승률 분석 |
-| `templates` | `GET/POST/PATCH/DELETE /api/templates`, execute | 전략 템플릿 CRUD·실행 |
-| `mfa` | MFA 설정·검증 | — |
+| `reports` | `GET /api/reports/{pnl,daily,monthly,strategy,exchange,roi-ranking,holdings,pairs,win-stats,nl-logs}`, `GET /api/nl-logs` | PnL·보유자산·승률 분석. nl-logs는 admin only |
+| `templates` | `GET/POST/PATCH/DELETE /api/templates`, `duplicate`, `execute` | 전략 템플릿 CRUD·복제·실행 |
+| `mfa` | `POST /api/login/mfa`, `/api/mfa/{setup,enable,disable}` | MFA 설정·검증 |
 | `analytics` | `GET /api/analytics/{overview,activity,commands,users,heatmap}` | admin only, 사용 분석 |
+| `stock_cache` | `GET/POST /api/stock-cache`, `DELETE .../{name}`, `POST .../upload`·`/refresh`, `GET .../export` | admin only. KRX 종목명↔코드 캐시(`kr_stock_cache`) CRUD·CSV 입출력·FinanceDataReader 일괄 갱신 |
 
 ### Analytics 엔드포인트 상세
 
