@@ -512,6 +512,12 @@ async def sync_orders(application):
             if trading_gate.is_trading_halted():
                 order_manager.update_next_check_at(ord["uuid"], ex_obj.next_check_timestamp(ticker))
                 continue
+            # KIS/Toss 등 국내 주식의 경우, 정규장 시작(09:00 KST) 전에 예약주문을 제출하면
+            # 당일 기준가 미확정 등으로 인해 상/하한가 초과 에러가 발생할 수 있으므로
+            # 거래소에서 주문 제출 허용 여부(is_order_placement_allowed)를 판별해 보류한다.
+            if not getattr(ex_obj, "is_order_placement_allowed", lambda t: True)(ticker):
+                order_manager.update_next_check_at(ord["uuid"], ex_obj.next_check_timestamp(ticker))
+                continue
             vol = int(remaining) if ex_obj.requires_integer_volume() else remaining
             side = ord.get("side", "bid")
             price = ord.get("price")

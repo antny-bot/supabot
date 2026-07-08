@@ -297,6 +297,18 @@ class TossExchange(RegularSessionExchange):
             return super().next_check_timestamp(ticker)
         return next_start.timestamp()
 
+    def is_order_placement_allowed(self, ticker=None) -> bool:
+        if self.is_us_stock(ticker):
+            return True
+        # 국내 주식의 경우, 09:00 KST 정규장 시작 전에는 예약주문 전송을 보류한다.
+        # (당일 기준가 미확정 등으로 인한 상/하한가 초과 에러 방지)
+        from datetime import datetime, time
+        from core.parsers import KST
+        now_kst = datetime.now(KST)
+        if now_kst.time() < time(9, 0):
+            return False
+        return True
+
     def adjust_price_to_tick(self, price, ticker=None):
         if self.is_us_stock(ticker):
             return CommonMixin.adjust_us_price_to_tick(price)
