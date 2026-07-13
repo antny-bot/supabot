@@ -844,3 +844,50 @@ async def test_sync_orders_defers_reorder_before_9am_for_domestic_stock(tmp_path
     assert om.orders[0]["next_check_at"] == 9999999.0
     assert om.orders[0]["status"] == "pending_reorder"  # 상태는 pending_reorder 유지
 
+
+async def test_sync_orders_defers_reorder_when_price_exceeds_upper_limit(tmp_path, monkeypatch):
+    """주문 가격이 상한가를 초과하는 경우 실제 주문을 제출하지 않고 대기시킨다."""
+    om = _make_order_manager(tmp_path)
+    om.add_order(
+        "700", "toss", "005930", "uuid-limit-test", 100000, 10,
+        side="bid", strategy="manual", auto_reorder=True, status="pending_reorder",
+    )
+    monkeypatch.setattr(main, "order_manager", om)
+
+    mock_adapter = MagicMock()
+    mock_adapter.ensure_toss_kr_calendar = AsyncMock()
+    mock_adapter.create_order = AsyncMock()
+    mock_adapter.get_open_orders = AsyncMock(return_value=[])
+
+    mock_exchange = MagicMock()
+    mock_exchange.supports_reserved_orders = True
+    mock_exchange.is_market_open = lambda ticker=None: True
+    mock_exchange.next_check_timestamp = lambda ticker=None: 9999999.0
+    mock_exchange.requires_integer_volume = lambda: True
+    mock_exchange.is_order_placement_allowed = lambda ticker=None: True
+    mock_exchange.is_us_stock = lambda ticker=None: False
+
+    async def mock_get_ticker(ticker, user_id=None):
+        return {
+            "upper_limit_price": 90000.0,
+            "lower_limit_price": 50000.0,
+            "trade_price": 70000.0,
+        }
+    mock_exchange.get_ticker = mock_get_ticker
+
+    mock_adapter.get_exchange = lambda exchange: mock_exchange
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    app = _make_app()
+
+    # 실행
+    await main.sync_orders(app)
+
+    # 1. create_order가 호출되지 않았어야 함
+    mock_adapter.create_order.assert_not_called()
+
+    # 2. next_check_at 이 9999999.0 으로 업데이트되었어야 함
+    assert om.orders[0]["next_check_at"] == 9999999.0
+    assert om.orders[0]["status"] == "pending_reorder"
+
+

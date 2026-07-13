@@ -439,6 +439,22 @@ class TossExchange(RegularSessionExchange):
         price = float(item.get("lastPrice") or 0)
         currency = item.get("currency") or "KRW"
 
+        upper_limit = None
+        lower_limit = None
+        if not self.is_us_stock(ticker):
+            try:
+                limit_res = await self.adapter._request_toss(
+                    user_id, "GET", "/api/v1/price-limits", params={"symbol": ticker}, need_account=False
+                )
+                if isinstance(limit_res, dict) and "result" in limit_res:
+                    res_val = limit_res["result"]
+                    if res_val.get("upperLimitPrice"):
+                        upper_limit = float(res_val["upperLimitPrice"])
+                    if res_val.get("lowerLimitPrice"):
+                        lower_limit = float(res_val["lowerLimitPrice"])
+            except Exception as e:
+                _log.warning(f"Failed to fetch Toss price limits for {ticker}: {e}")
+
         # /api/v1/prices는 symbol·lastPrice·currency만 제공 — 고가/저가/거래량/등락은
         # 일봉 캔들(오늘+전일)로 별도 계산해야 함 (docs/toss.json PriceResponse 참고).
         high = low = volume = change_price = 0.0
@@ -455,6 +471,13 @@ class TossExchange(RegularSessionExchange):
                     change_price = price - prev_close
                     change_rate = change_price / prev_close
 
+        if not self.is_us_stock(ticker) and (upper_limit is None or lower_limit is None):
+            if 'prev_close' in locals() and prev_close:
+                if upper_limit is None:
+                    upper_limit = CommonMixin.adjust_krx_price_to_tick(prev_close * 1.3)
+                if lower_limit is None:
+                    lower_limit = CommonMixin.adjust_krx_price_to_tick(prev_close * 0.7)
+
         return {
             "market": ticker,
             "stock_name": item.get("name") or item.get("stockName") or item.get("issueName") or "",
@@ -465,6 +488,8 @@ class TossExchange(RegularSessionExchange):
             "high_price": high,
             "low_price": low,
             "acc_trade_price_24h": price * volume if currency == "KRW" else volume,
+            "upper_limit_price": upper_limit,
+            "lower_limit_price": lower_limit,
         }
 
     async def get_order_history(self, user_id, client, ticker=None):

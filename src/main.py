@@ -521,6 +521,48 @@ async def sync_orders(application):
             vol = int(remaining) if ex_obj.requires_integer_volume() else remaining
             side = ord.get("side", "bid")
             price = ord.get("price")
+
+            # 국내 주식(KIS, Toss)에 대한 상하한가 초과 여부 사전 검증
+            is_kr_stock = False
+            if exchange == "kis":
+                is_kr_stock = True
+            elif exchange == "toss" and not getattr(ex_obj, "is_us_stock", lambda t: False)(ticker):
+                is_kr_stock = True
+
+            if is_kr_stock:
+                try:
+                    ticker_info = await ex_obj.get_ticker(ticker, user_id=user_id)
+                    if ticker_info:
+                        upper_limit = ticker_info.get("upper_limit_price")
+                        lower_limit = ticker_info.get("lower_limit_price")
+                        price_val = float(price) if price is not None else 0.0
+
+                        is_limit_exceeded = False
+                        limit_reason = ""
+                        if upper_limit is not None and price_val > float(upper_limit):
+                            is_limit_exceeded = True
+                            limit_reason = f"주문가격이 상한가({float(upper_limit):,.0f}원) 초과입니다."
+                        elif lower_limit is not None and price_val < float(lower_limit):
+                            is_limit_exceeded = True
+                            limit_reason = f"주문가격이 하한가({float(lower_limit):,.0f}원) 미만입니다."
+
+                        if is_limit_exceeded:
+                            order_manager.update_next_check_at(ord["uuid"], ex_obj.next_check_timestamp(ticker))
+                            action = "재주문" if ord.get("status") == "pending_reorder" else "예약주문 실행"
+                            order_kind = "전략" if is_strategy_order(ord) else "자동 재주문 설정"
+                            label = exchange_display_name(exchange)
+
+                            append_operational_event("warning", "sync_orders", f"{exchange} {action} postponed: {limit_reason}", ticker)
+                            await application.bot.send_message(
+                                chat_id=user_id,
+                                text=f"⚠️ [{label}] {ticker} {order_kind} 주문 {action} 실패 (상하한가 제한)\n"
+                                     f"• 사유: {limit_reason}\n"
+                                     f"다음 정규장 체크 때 다시 시도합니다.",
+                            )
+                            await asyncio.sleep(0.2)
+                            continue
+                except Exception as e:
+                    _log.warning(f"Error checking price limits for {exchange} {ticker} during sync: {e}")
             # M3: 직전 사이클에서 create_order 응답이 유실됐을 수 있으므로, 재발행 전에
             # 동일 스펙의 미체결 주문이 이미 거래소에 있는지 먼저 확인해 중복 제출을 막는다.
             dup = await _find_duplicate_open_order(exchange_adapter, user_id, exchange, ticker, side, price, vol)

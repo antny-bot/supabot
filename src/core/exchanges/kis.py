@@ -6,6 +6,7 @@ from core.bot_logger import get_logger
 from core.metrics import metrics
 from core.exchanges.regular_session import RegularSessionExchange
 from core.parsers import is_kis_regular_session, kis_next_check_timestamp
+from core.exchanges.common import CommonMixin
 
 _log = get_logger("exchange_adapter")
 
@@ -139,15 +140,42 @@ class KisMixin:
         output = res.get("output", {}) if isinstance(res, dict) else {}
         if not output:
             return None
+
+        trade_price = float(output.get("stck_prpr", 0) or 0)
+        change_price = float(output.get("prdy_vrss", 0) or 0)
+
+        upper_limit = None
+        lower_limit = None
+        if output.get("stck_mxpr"):
+            try:
+                upper_limit = float(output["stck_mxpr"])
+            except (TypeError, ValueError):
+                pass
+        if output.get("stck_llam"):
+            try:
+                lower_limit = float(output["stck_llam"])
+            except (TypeError, ValueError):
+                pass
+
+        if upper_limit is None or lower_limit is None:
+            prev_close = trade_price - change_price
+            if prev_close > 0:
+                if upper_limit is None:
+                    upper_limit = CommonMixin.adjust_krx_price_to_tick(prev_close * 1.3)
+                if lower_limit is None:
+                    lower_limit = CommonMixin.adjust_krx_price_to_tick(prev_close * 0.7)
+
         return {
             "market": self._normalize_kis_ticker(ticker),
             "stock_name": output.get("hts_kor_isnm", ""),
-            "trade_price": float(output.get("stck_prpr", 0) or 0),
+            "trade_price": trade_price,
             "change_rate": float(output.get("prdy_ctrt", 0) or 0) / 100,
-            "change_price": float(output.get("prdy_vrss", 0) or 0),
+            "change_price": change_price,
             "high_price": float(output.get("stck_hgpr", 0) or 0),
             "low_price": float(output.get("stck_lwpr", 0) or 0),
             "acc_trade_price_24h": float(output.get("acml_tr_pbmn", 0) or 0),
+            "upper_limit_price": upper_limit,
+            "lower_limit_price": lower_limit,
         }
 
     async def _get_kis_balances(self, user_id, keys):
