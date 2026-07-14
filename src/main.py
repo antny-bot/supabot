@@ -365,6 +365,9 @@ _status_check_failures: dict = {}
 _REORDER_FAIL_LIMIT = 5
 _reorder_failures: dict = {}
 
+# 상하한가 제한으로 인한 주문 보류(postponed) 경고 중복 전송 방지용 캐시 (uuid -> True)
+_limit_warned_orders: dict = {}
+
 # 재주문/예약주문 매칭 시 가격 비교 허용 오차(원). 거래소 틱 단위 보정 잔차를 흡수한다.
 _REORDER_PRICE_TOLERANCE = 1.0
 
@@ -472,6 +475,12 @@ async def _create_linked_sell_order(application, ord, exec_vol, state):
 # --- 주문 동기화 및 자동 대응 엔진 ---
 async def sync_orders(application):
     """현재 추적 중인 주문들의 상태를 거래소와 동기화하고 자동 대응 수행"""
+    # 현재 추적 중이지 않은 주문의 limit warning 캐시 정리
+    active_uuids = {o["uuid"] for o in order_manager.orders}
+    for uid in list(_limit_warned_orders.keys()):
+        if uid not in active_uuids:
+            _limit_warned_orders.pop(uid, None)
+
     initial_state = [(o['uuid'], o.get('status'), o.get('filled_volume'), o.get('stop_price')) for o in order_manager.orders]
     all_orders = list(order_manager.orders)
     _price_cache = {}  # 동일 sync 사이클 내 중복 API 호출 방지: {(exchange, ticker): price}
@@ -548,18 +557,20 @@ async def sync_orders(application):
 
                         if is_limit_exceeded:
                             order_manager.update_next_check_at(ord["uuid"], ex_obj.next_check_timestamp(ticker))
-                            action = "재주문" if ord.get("status") == "pending_reorder" else "예약주문 실행"
-                            order_kind = "전략" if is_strategy_order(ord) else "자동 재주문 설정"
-                            label = exchange_display_name(exchange)
+                            if ord["uuid"] not in _limit_warned_orders:
+                                action = "재주문" if ord.get("status") == "pending_reorder" else "예약주문 실행"
+                                order_kind = "전략" if is_strategy_order(ord) else "자동 재주문 설정"
+                                label = exchange_display_name(exchange)
 
-                            append_operational_event("warning", "sync_orders", f"{exchange} {action} postponed: {limit_reason}", ticker)
-                            await application.bot.send_message(
-                                chat_id=user_id,
-                                text=f"⚠️ [{label}] {ticker} {order_kind} 주문 {action} 실패 (상하한가 제한)\n"
-                                     f"• 사유: {limit_reason}\n"
-                                     f"다음 정규장 체크 때 다시 시도합니다.",
-                            )
-                            await asyncio.sleep(0.2)
+                                append_operational_event("warning", "sync_orders", f"{exchange} {action} postponed: {limit_reason}", ticker)
+                                await application.bot.send_message(
+                                    chat_id=user_id,
+                                    text=f"⚠️ [{label}] {ticker} {order_kind} 주문 {action} 실패 (상하한가 제한)\n"
+                                         f"• 사유: {limit_reason}\n"
+                                         f"다음 정규장 체크 때 다시 시도합니다.",
+                                )
+                                _limit_warned_orders[ord["uuid"]] = True
+                                await asyncio.sleep(0.2)
                             continue
                 except Exception as e:
                     _log.warning(f"Error checking price limits for {exchange} {ticker} during sync: {e}")
@@ -573,6 +584,7 @@ async def sync_orders(application):
             if res and "uuid" in res:
                 old_uuid = ord["uuid"]
                 _reorder_failures.pop(old_uuid, None)
+                _limit_warned_orders.pop(old_uuid, None)
                 order_manager.replace_order_uuid(old_uuid, res["uuid"])
                 await application.bot.send_message(
                     chat_id=user_id,
@@ -590,6 +602,7 @@ async def sync_orders(application):
                 _reorder_failures[ord["uuid"]] = fails
                 if fails >= _REORDER_FAIL_LIMIT:
                     _reorder_failures.pop(ord["uuid"], None)
+                    _limit_warned_orders.pop(ord["uuid"], None)
                     order_manager.remove_order(ord["uuid"])
                     append_operational_event("warning", "sync_orders", f"{exchange} {action} failed {fails}x, giving up", ticker)
                     await application.bot.send_message(

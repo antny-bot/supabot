@@ -891,3 +891,51 @@ async def test_sync_orders_defers_reorder_when_price_exceeds_upper_limit(tmp_pat
     assert om.orders[0]["status"] == "pending_reorder"
 
 
+async def test_sync_orders_limits_notification_to_once_per_order(tmp_path, monkeypatch):
+    """주문 가격이 상한가를 계속 초과해도 사용자에게 중복 알림이 전송되지 않고 최초 1회만 가는지 확인한다."""
+    om = _make_order_manager(tmp_path)
+    om.add_order(
+        "700", "toss", "005930", "uuid-limit-once-test", 100000, 10,
+        side="bid", strategy="manual", auto_reorder=True, status="pending_reorder",
+    )
+    monkeypatch.setattr(main, "order_manager", om)
+    monkeypatch.setattr(main, "_limit_warned_orders", {})
+
+    mock_adapter = MagicMock()
+    mock_adapter.ensure_toss_kr_calendar = AsyncMock()
+    mock_adapter.create_order = AsyncMock()
+    mock_adapter.get_open_orders = AsyncMock(return_value=[])
+
+    mock_exchange = MagicMock()
+    mock_exchange.supports_reserved_orders = True
+    mock_exchange.is_market_open = lambda ticker=None: True
+    mock_exchange.next_check_timestamp = lambda ticker=None: 9999999.0
+    mock_exchange.requires_integer_volume = lambda: True
+    mock_exchange.is_order_placement_allowed = lambda ticker=None: True
+    mock_exchange.is_us_stock = lambda ticker=None: False
+
+    async def mock_get_ticker(ticker, user_id=None):
+        return {
+            "upper_limit_price": 90000.0,
+            "lower_limit_price": 50000.0,
+            "trade_price": 70000.0,
+        }
+    mock_exchange.get_ticker = mock_get_ticker
+
+    mock_adapter.get_exchange = lambda exchange: mock_exchange
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    app = _make_app()
+
+    # 1회차 실행 -> 알림 발송됨
+    await main.sync_orders(app)
+    assert app.bot.send_message.call_count == 1
+    assert "uuid-limit-once-test" in main._limit_warned_orders
+
+    # 2회차 실행 -> 알림이 추가로 발송되지 않음
+    om.orders[0]["next_check_at"] = 0.0
+    await main.sync_orders(app)
+    assert app.bot.send_message.call_count == 1
+
+
+
