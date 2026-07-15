@@ -398,6 +398,31 @@ async def _find_duplicate_open_order(exchange_adapter, user_id, exchange, ticker
     return None
 
 
+def _extract_order_submit_failure_reason(res):
+    """거래소 주문 발행 실패 응답에서 사용자/운영자가 볼 수 있는 최소 원인을 뽑아낸다.
+
+    토스/KIS는 에러 시 {"error": {"code": ..., "message": ...}} 형태를 그대로 반환할 수 있다.
+    기존 sync_orders는 이 정보를 버리고 generic 실패 메시지만 보내 원인 파악이 어려웠다.
+    """
+    if not isinstance(res, dict):
+        return None
+    err = res.get("error")
+    if isinstance(err, dict):
+        code = str(err.get("code") or "").strip()
+        msg = str(err.get("message") or err.get("error_description") or err.get("description") or "").strip()
+        if code and msg:
+            return f"{code}: {msg}"
+        if code:
+            return code
+        if msg:
+            return msg
+    for key in ("message", "error_description", "description"):
+        val = str(res.get(key) or "").strip()
+        if val:
+            return val
+    return None
+
+
 def _find_linked_sell_order(buy_uuid):
     """주어진 rsitrade 매수 주문에 연동된 익절매도 주문(reorder_of==buy_uuid)을 찾는다.
 
@@ -594,17 +619,20 @@ async def sync_orders(application):
                          f"• 새 주문ID: {res['uuid']}",
                 )
             else:
-                error_detail = ""
-                if isinstance(res, dict) and res.get("error"):
-                    err = res["error"]
-                    error_detail = f"\n• 사유: {err.get('message') or err.get('code') or ''}"
+                reason = _extract_order_submit_failure_reason(res)
+                error_detail = f"\n• 사유: {reason}" if reason else ""
                 fails = _reorder_failures.get(ord["uuid"], 0) + 1
                 _reorder_failures[ord["uuid"]] = fails
                 if fails >= _REORDER_FAIL_LIMIT:
                     _reorder_failures.pop(ord["uuid"], None)
                     _limit_warned_orders.pop(ord["uuid"], None)
                     order_manager.remove_order(ord["uuid"])
-                    append_operational_event("warning", "sync_orders", f"{exchange} {action} failed {fails}x, giving up", ticker)
+                    append_operational_event(
+                        "warning",
+                        "sync_orders",
+                        f"{exchange} {action} failed {fails}x, giving up: {reason or ''}",
+                        details=res,
+                    )
                     await application.bot.send_message(
                         chat_id=user_id,
                         text=f"🛑 [{label}] {ticker} {order_kind} 주문 {action} {fails}회 연속 실패로 추적을 종료합니다.{error_detail}\n"
@@ -612,7 +640,12 @@ async def sync_orders(application):
                     )
                 else:
                     order_manager.update_next_check_at(ord["uuid"], ex_obj.next_check_timestamp(ticker))
-                    append_operational_event("warning", "sync_orders", f"{exchange} strategy {action} failed ({fails}/{_REORDER_FAIL_LIMIT})", ticker)
+                    append_operational_event(
+                        "warning",
+                        "sync_orders",
+                        f"{exchange} strategy {action} failed ({fails}/{_REORDER_FAIL_LIMIT}): {reason or ''}",
+                        details=res,
+                    )
                     await application.bot.send_message(
                         chat_id=user_id,
                         text=f"⚠️ [{label}] {ticker} {order_kind} 주문 {action} 실패 ({fails}/{_REORDER_FAIL_LIMIT}){error_detail}\n다음 정규장 체크 때 다시 시도합니다.",

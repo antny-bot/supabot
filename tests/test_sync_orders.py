@@ -482,6 +482,51 @@ async def test_reorder_submits_new_order_when_no_duplicate_exists(tmp_path, monk
     assert om.orders[0]["uuid"] == "new-order-uuid"
 
 
+async def test_toss_reserved_order_failure_surfaces_api_error_reason(tmp_path, monkeypatch):
+    om = _make_order_manager(tmp_path)
+    om.add_order(
+        "503", "toss", "403850", "uuid-toss-reserved-fail", 70000, 10,
+        side="bid", strategy="manual", status="reserved", auto_reorder=True,
+    )
+    monkeypatch.setattr(main, "order_manager", om)
+
+    mock_adapter = MagicMock()
+    mock_adapter.ensure_toss_kr_calendar = AsyncMock()
+    mock_adapter.create_order = AsyncMock(return_value={
+        "error": {
+            "code": "insufficient-buying-power",
+            "message": "cash buying power is insufficient",
+        }
+    })
+    mock_adapter.get_open_orders = AsyncMock(return_value=[])
+    mock_adapter.get_exchange = lambda exchange: MagicMock(
+        supports_reserved_orders=True,
+        is_market_open=lambda ticker=None: True,
+        next_check_timestamp=lambda ticker=None: 9_999_999.0,
+        requires_integer_volume=lambda: True,
+    )
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    op_events = []
+    monkeypatch.setattr(
+        main,
+        "append_operational_event",
+        lambda level, source, message, details=None: op_events.append(
+            {"level": level, "source": source, "message": message, "details": details}
+        ),
+    )
+
+    app = _make_app()
+    await main.sync_orders(app)
+
+    sent_text = app.bot.send_message.call_args.kwargs.get("text", "")
+    assert "예약주문 실행 실패" in sent_text
+    assert "insufficient-buying-power" in sent_text
+    assert "cash buying power is insufficient" in sent_text
+    assert op_events
+    assert "insufficient-buying-power" in str(op_events[-1]["details"])
+
+
 # T: KIS/Toss 수동 주문 조회가 일시적으로 None을 반환해도 단번에 추적을 끊지 않고,
 # 연속 _STATUS_CHECK_FAIL_LIMIT회 실패해야 비로소 종료한다(살아있는 주문 유실 방지).
 async def test_manual_order_transient_status_failure_retained_then_dropped(tmp_path, monkeypatch):

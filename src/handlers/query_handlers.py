@@ -47,9 +47,11 @@ async def orders_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
     if await check_details_help(update, "orders"): return
     user_id = str(update.effective_chat.id)
     default_exchange = user["preferences"].get("default_exchange", "upbit")
-    exchange, _ = parse_exchange_and_ticker(context.args, default_exchange)
+    exchange = None
+    if context.args:
+        exchange, _ = parse_exchange_and_ticker(context.args, default_exchange)
 
-    orders = main.order_manager.get_user_orders(user_id, exchange)
+    orders = main.order_manager.get_user_orders(user_id) if exchange is None else main.order_manager.get_user_orders(user_id, exchange)
     if not orders:
         await update.message.reply_text("⏳ 봇이 추적 중인 거래소 미체결 주문은 없습니다.\nRSI/거미줄 전략 대기 상태는 /status에서 확인하세요.")
         return
