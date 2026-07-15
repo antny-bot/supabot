@@ -619,17 +619,20 @@ async def sync_orders(application):
                          f"• 새 주문ID: {res['uuid']}",
                 )
             else:
-                error_detail = ""
-                if isinstance(res, dict) and res.get("error"):
-                    err = res["error"]
-                    error_detail = f"\n• 사유: {err.get('message') or err.get('code') or ''}"
+                reason = _extract_order_submit_failure_reason(res)
+                error_detail = f"\n• 사유: {reason}" if reason else ""
                 fails = _reorder_failures.get(ord["uuid"], 0) + 1
                 _reorder_failures[ord["uuid"]] = fails
                 if fails >= _REORDER_FAIL_LIMIT:
                     _reorder_failures.pop(ord["uuid"], None)
                     _limit_warned_orders.pop(ord["uuid"], None)
                     order_manager.remove_order(ord["uuid"])
-                    append_operational_event("warning", "sync_orders", f"{exchange} {action} failed {fails}x, giving up", ticker)
+                    append_operational_event(
+                        "warning",
+                        "sync_orders",
+                        f"{exchange} {action} failed {fails}x, giving up: {reason or ''}",
+                        details=res,
+                    )
                     await application.bot.send_message(
                         chat_id=user_id,
                         text=f"🛑 [{label}] {ticker} {order_kind} 주문 {action} {fails}회 연속 실패로 추적을 종료합니다.{error_detail}\n"
@@ -637,7 +640,12 @@ async def sync_orders(application):
                     )
                 else:
                     order_manager.update_next_check_at(ord["uuid"], ex_obj.next_check_timestamp(ticker))
-                    append_operational_event("warning", "sync_orders", f"{exchange} strategy {action} failed ({fails}/{_REORDER_FAIL_LIMIT})", ticker)
+                    append_operational_event(
+                        "warning",
+                        "sync_orders",
+                        f"{exchange} strategy {action} failed ({fails}/{_REORDER_FAIL_LIMIT}): {reason or ''}",
+                        details=res,
+                    )
                     await application.bot.send_message(
                         chat_id=user_id,
                         text=f"⚠️ [{label}] {ticker} {order_kind} 주문 {action} 실패 ({fails}/{_REORDER_FAIL_LIMIT}){error_detail}\n다음 정규장 체크 때 다시 시도합니다.",
