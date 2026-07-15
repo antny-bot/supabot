@@ -48,6 +48,12 @@ from core.ticker_disambiguation import (
     create_disambiguation_token,
     pop_valid_disambiguation,
 )
+from core.list_view_tokens import (
+    create_list_view_token,
+    peek_list_view,
+    update_list_view_state,
+    discard_list_view,
+)
 import internal_api
 from internal_api import trigger_realtime_sync
 from core.secret_crypto import can_decrypt_secrets, has_secret_key
@@ -355,6 +361,13 @@ _STOPLOSS_PLACE_RETRIES = 3
 _STATUS_CHECK_FAIL_LIMIT = 3
 _status_check_failures: dict = {}
 
+# 재주문/예약주문 제출이 연속으로 실패하면 추적을 종료한다(무한 반복 방지).
+_REORDER_FAIL_LIMIT = 5
+_reorder_failures: dict = {}
+
+# 상하한가 제한으로 인한 주문 보류(postponed) 경고 중복 전송 방지용 캐시 (uuid -> True)
+_limit_warned_orders: dict = {}
+
 # 재주문/예약주문 매칭 시 가격 비교 허용 오차(원). 거래소 틱 단위 보정 잔차를 흡수한다.
 _REORDER_PRICE_TOLERANCE = 1.0
 
@@ -487,6 +500,12 @@ async def _create_linked_sell_order(application, ord, exec_vol, state):
 # --- 주문 동기화 및 자동 대응 엔진 ---
 async def sync_orders(application):
     """현재 추적 중인 주문들의 상태를 거래소와 동기화하고 자동 대응 수행"""
+    # 현재 추적 중이지 않은 주문의 limit warning 캐시 정리
+    active_uuids = {o["uuid"] for o in order_manager.orders}
+    for uid in list(_limit_warned_orders.keys()):
+        if uid not in active_uuids:
+            _limit_warned_orders.pop(uid, None)
+
     initial_state = [(o['uuid'], o.get('status'), o.get('filled_volume'), o.get('stop_price')) for o in order_manager.orders]
     all_orders = list(order_manager.orders)
     _price_cache = {}  # 동일 sync 사이클 내 중복 API 호출 방지: {(exchange, ticker): price}
@@ -527,9 +546,59 @@ async def sync_orders(application):
             if trading_gate.is_trading_halted():
                 order_manager.update_next_check_at(ord["uuid"], ex_obj.next_check_timestamp(ticker))
                 continue
+            # KIS/Toss 등 국내 주식의 경우, 정규장 시작(09:00 KST) 전에 예약주문을 제출하면
+            # 당일 기준가 미확정 등으로 인해 상/하한가 초과 에러가 발생할 수 있으므로
+            # 거래소에서 주문 제출 허용 여부(is_order_placement_allowed)를 판별해 보류한다.
+            if not getattr(ex_obj, "is_order_placement_allowed", lambda t: True)(ticker):
+                order_manager.update_next_check_at(ord["uuid"], ex_obj.next_check_timestamp(ticker))
+                continue
             vol = int(remaining) if ex_obj.requires_integer_volume() else remaining
             side = ord.get("side", "bid")
             price = ord.get("price")
+
+            # 국내 주식(KIS, Toss)에 대한 상하한가 초과 여부 사전 검증
+            is_kr_stock = False
+            if exchange == "kis":
+                is_kr_stock = True
+            elif exchange == "toss" and not getattr(ex_obj, "is_us_stock", lambda t: False)(ticker):
+                is_kr_stock = True
+
+            if is_kr_stock:
+                try:
+                    ticker_info = await ex_obj.get_ticker(ticker, user_id=user_id)
+                    if ticker_info:
+                        upper_limit = ticker_info.get("upper_limit_price")
+                        lower_limit = ticker_info.get("lower_limit_price")
+                        price_val = float(price) if price is not None else 0.0
+
+                        is_limit_exceeded = False
+                        limit_reason = ""
+                        if upper_limit is not None and price_val > float(upper_limit):
+                            is_limit_exceeded = True
+                            limit_reason = f"주문가격이 상한가({float(upper_limit):,.0f}원) 초과입니다."
+                        elif lower_limit is not None and price_val < float(lower_limit):
+                            is_limit_exceeded = True
+                            limit_reason = f"주문가격이 하한가({float(lower_limit):,.0f}원) 미만입니다."
+
+                        if is_limit_exceeded:
+                            order_manager.update_next_check_at(ord["uuid"], ex_obj.next_check_timestamp(ticker))
+                            if ord["uuid"] not in _limit_warned_orders:
+                                action = "재주문" if ord.get("status") == "pending_reorder" else "예약주문 실행"
+                                order_kind = "전략" if is_strategy_order(ord) else "자동 재주문 설정"
+                                label = exchange_display_name(exchange)
+
+                                append_operational_event("warning", "sync_orders", f"{exchange} {action} postponed: {limit_reason}", ticker)
+                                await application.bot.send_message(
+                                    chat_id=user_id,
+                                    text=f"⚠️ [{label}] {ticker} {order_kind} 주문 {action} 실패 (상하한가 제한)\n"
+                                         f"• 사유: {limit_reason}\n"
+                                         f"다음 정규장 체크 때 다시 시도합니다.",
+                                )
+                                _limit_warned_orders[ord["uuid"]] = True
+                                await asyncio.sleep(0.2)
+                            continue
+                except Exception as e:
+                    _log.warning(f"Error checking price limits for {exchange} {ticker} during sync: {e}")
             # M3: 직전 사이클에서 create_order 응답이 유실됐을 수 있으므로, 재발행 전에
             # 동일 스펙의 미체결 주문이 이미 거래소에 있는지 먼저 확인해 중복 제출을 막는다.
             dup = await _find_duplicate_open_order(exchange_adapter, user_id, exchange, ticker, side, price, vol)
@@ -539,6 +608,8 @@ async def sync_orders(application):
             label = exchange_display_name(exchange)
             if res and "uuid" in res:
                 old_uuid = ord["uuid"]
+                _reorder_failures.pop(old_uuid, None)
+                _limit_warned_orders.pop(old_uuid, None)
                 order_manager.replace_order_uuid(old_uuid, res["uuid"])
                 await application.bot.send_message(
                     chat_id=user_id,
@@ -548,15 +619,29 @@ async def sync_orders(application):
                          f"• 새 주문ID: {res['uuid']}",
                 )
             else:
-                order_manager.update_next_check_at(ord["uuid"], ex_obj.next_check_timestamp(ticker))
-                reason = _extract_order_submit_failure_reason(res)
-                details = f"{ticker} | {reason}" if reason else ticker
-                append_operational_event("warning", "sync_orders", f"{exchange} strategy {action} failed", details)
-                reason_text = f"\n사유: {reason}" if reason else ""
-                await application.bot.send_message(
-                    chat_id=user_id,
-                    text=f"⚠️ [{label}] {ticker} {order_kind} 주문 {action} 실패{reason_text}\n다음 정규장 체크 때 다시 시도합니다.",
-                )
+                error_detail = ""
+                if isinstance(res, dict) and res.get("error"):
+                    err = res["error"]
+                    error_detail = f"\n• 사유: {err.get('message') or err.get('code') or ''}"
+                fails = _reorder_failures.get(ord["uuid"], 0) + 1
+                _reorder_failures[ord["uuid"]] = fails
+                if fails >= _REORDER_FAIL_LIMIT:
+                    _reorder_failures.pop(ord["uuid"], None)
+                    _limit_warned_orders.pop(ord["uuid"], None)
+                    order_manager.remove_order(ord["uuid"])
+                    append_operational_event("warning", "sync_orders", f"{exchange} {action} failed {fails}x, giving up", ticker)
+                    await application.bot.send_message(
+                        chat_id=user_id,
+                        text=f"🛑 [{label}] {ticker} {order_kind} 주문 {action} {fails}회 연속 실패로 추적을 종료합니다.{error_detail}\n"
+                             f"필요 시 수동으로 다시 주문해 주세요.",
+                    )
+                else:
+                    order_manager.update_next_check_at(ord["uuid"], ex_obj.next_check_timestamp(ticker))
+                    append_operational_event("warning", "sync_orders", f"{exchange} strategy {action} failed ({fails}/{_REORDER_FAIL_LIMIT})", ticker)
+                    await application.bot.send_message(
+                        chat_id=user_id,
+                        text=f"⚠️ [{label}] {ticker} {order_kind} 주문 {action} 실패 ({fails}/{_REORDER_FAIL_LIMIT}){error_detail}\n다음 정규장 체크 때 다시 시도합니다.",
+                    )
             await asyncio.sleep(0.2)
             continue
 
@@ -984,7 +1069,7 @@ async def post_shutdown(application):
 def main():
     _validate_env()
 
-    from handlers import watch_handlers, manual_order_handlers, status_handlers, query_handlers, config_handlers, strategy_handlers, nl_intent_handlers, system_handlers
+    from handlers import watch_handlers, manual_order_handlers, status_handlers, query_handlers, config_handlers, strategy_handlers, nl_intent_handlers, system_handlers, list_view_handlers
 
     # post_init을 통해 백그라운드 태스크를 봇 생명주기에 안전하게 편입시킵니다.
     application = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).post_shutdown(post_shutdown).build()
@@ -1056,6 +1141,7 @@ def main():
     application.add_handler(CallbackQueryHandler(strategy_handlers.sgridrsi_confirm_callback, pattern="^sgridrsirun"))
     application.add_handler(CallbackQueryHandler(manual_order_handlers.manual_order_confirm_callback, pattern="^(manualrun|manualcancel)\\|"))
     application.add_handler(CallbackQueryHandler(query_handlers.cancel_confirm_callback, pattern="^(cancelrun|cancelabort)\\|"))
+    application.add_handler(CallbackQueryHandler(list_view_handlers.list_view_callback, pattern="^lv\\|"))
     application.add_handler(CallbackQueryHandler(system_handlers.reset_confirm_callback, pattern="^(resetrun|resetabort)\\|"))
     application.add_handler(CallbackQueryHandler(nl_intent_handlers.natural_language_confirm_callback, pattern="^nl(run|cancel)\\|"))
     application.add_handler(CallbackQueryHandler(ticker_disambiguation_callback, pattern="^tickerpick\\|"))

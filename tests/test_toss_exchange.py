@@ -81,6 +81,13 @@ def test_toss_get_ticker():
              "timestamp": "2026-06-18T09:30:00+09:00"}
         ]
     }
+    FAKE_LIMIT_RESPONSE = {
+        "result": {
+            "upperLimitPrice": "93600",
+            "lowerLimitPrice": "50400",
+            "currency": "KRW"
+        }
+    }
     FAKE_CANDLE_RESPONSE = {
         "result": {
             "candles": [
@@ -97,6 +104,9 @@ def test_toss_get_ticker():
         if "prices" in path:
             assert params == {"symbols": "005930"}
             return FAKE_PRICE_RESPONSE
+        elif "price-limits" in path:
+            assert params == {"symbol": "005930"}
+            return FAKE_LIMIT_RESPONSE
         assert "candles" in path
         return FAKE_CANDLE_RESPONSE
 
@@ -110,6 +120,8 @@ def test_toss_get_ticker():
     assert result["acc_trade_price_24h"] == 72000.0 * 3521000
     assert result["change_price"] == 72000.0 - 71600.0
     assert result["change_rate"] == (72000.0 - 71600.0) / 71600.0
+    assert result["upper_limit_price"] == 93600.0
+    assert result["lower_limit_price"] == 50400.0
 
 
 def test_toss_get_ticker_retries_once_on_empty_price_then_succeeds():
@@ -224,6 +236,7 @@ def test_request_toss_logs_error_response():
     fake_error.assert_called_once()
     assert fake_error.call_args[0][0] == "Toss API error response"
     assert fake_error.call_args[1]["extra"]["code"] == "RATE_LIMIT"
+    assert fake_error.call_args[1]["extra"]["error_message"] == "too many requests"
 
 
 def test_toss_get_ticker_us_stock_volume_is_share_count():

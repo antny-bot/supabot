@@ -46,6 +46,12 @@ class BaseExchange:
     def is_market_open(self, ticker=None) -> bool:
         return True
 
+    def is_order_placement_allowed(self, ticker=None) -> bool:
+        """예약주문이나 재주문을 실제 거래소에 전송할 수 있는 상태인지 판별.
+        기본값은 True이며, Toss 등 특정 거래소는 국내주식 장전 시점을 제한하는 등의 용도로 사용한다.
+        """
+        return True
+
     def next_check_timestamp(self, ticker=None) -> float:
         return 0.0
 
