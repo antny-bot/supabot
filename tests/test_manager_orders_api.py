@@ -94,7 +94,7 @@ def test_api_list_orders_adds_order_value_and_formats(monkeypatch):
     assert order["status_label"] == orders_router._STATUS_LABELS["wait"]
     assert order["fill_pct"] == 0
     assert order["created_fmt"] == orders_router._fmt_ts(1710000000)
-    assert query._params["status"] == "in.(wait,partial,pending_reorder,reserved)"
+    assert query._params["or"] == "status.eq.wait,status.eq.partial,status.eq.pending_reorder,status.eq.reserved"
     assert query._params["exchange"] == "eq.upbit"
     assert query._params["user_id"] == "eq.1"
     assert query._params["limit"] == 10
