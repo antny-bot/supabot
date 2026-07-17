@@ -48,7 +48,7 @@ async def api_list_orders(
     group_no: int | None = None,
     page: int = 1,
     page_size: int = 50,
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(get_current_user),
 ):
     if page < 1: page = 1
     if page_size > 200: page_size = 200
@@ -63,7 +63,8 @@ async def api_list_orders(
         db = get_db()
         q = db.table("orders").select("*", count="exact").order("created_at", desc=True)
         if status == "open":
-            q._params["status"] = "in.({})".format(",".join(_OPEN_STATUSES))
+            # PostgREST in.() 구문은 단일 값만 지원하므로 or 로 변환 (wait | partial | pending_reorder | reserved)
+            q._params["or"] = ",".join([f"status.eq.{s}" for s in _OPEN_STATUSES])
         elif status:
             q._params["status"] = f"eq.{status}"
         if exchange:
@@ -188,7 +189,7 @@ async def api_sync_order(uuid: str, user: dict = Depends(get_current_user)):
 async def api_force_update_order(
     uuid: str,
     payload: dict,
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(get_current_user),
 ):
     is_admin = user["is_admin"]
     bot_user_id = user["bot_user_id"]
