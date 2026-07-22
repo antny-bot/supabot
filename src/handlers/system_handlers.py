@@ -107,12 +107,8 @@ async def resetuser_command(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     open_orders = [o for o in main.order_manager.get_user_orders(target_user_id) if o.get("status") not in ("done", "cancel")]
     failed = []
     for ord in open_orders:
-        try:
-            ok = await main.exchange_adapter.cancel_order(target_user_id, ord["exchange"], ord["uuid"], ord["ticker"])
-        except Exception:
-            ok = False
-        if ok:
-            main.order_manager.remove_order(ord["uuid"])
+        if await main.cancel_and_remove_order(target_user_id, ord):
+            pass
         else:
             failed.append(ord)
         await asyncio.sleep(0.1)

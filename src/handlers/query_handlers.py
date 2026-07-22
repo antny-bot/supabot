@@ -140,8 +140,7 @@ async def cancel_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
 
     success_count = 0
     for ord in orders:
-        if await main.exchange_adapter.cancel_order(user_id, ord['exchange'], ord['uuid'], ord['ticker']):
-            main.order_manager.remove_order(ord['uuid'])
+        if await main.cancel_and_remove_order(user_id, ord):
             success_count += 1
         await asyncio.sleep(0.1)
 
