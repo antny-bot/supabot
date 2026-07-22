@@ -294,8 +294,7 @@ async def execute_confirmed_intent(query, context, user, intent):
         orders = [o for o in main.order_manager.get_user_orders(user_id, exchange) if o["ticker"] == ticker]
         success = 0
         for order in orders:
-            if await main.exchange_adapter.cancel_order(user_id, exchange, order["uuid"], order["ticker"]):
-                main.order_manager.remove_order(order["uuid"])
+            if await main.cancel_and_remove_order(user_id, order):
                 success += 1
             await asyncio.sleep(0.1)
         await query.edit_message_text(f"✅ {ticker} 취소 완료 ({success}/{len(orders)}건 성공)")

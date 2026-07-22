@@ -97,6 +97,11 @@ async def _process_queue():
                 _log.info(f"Successfully synced task: {action} on {table} ({key_val})")
                 processed += 1
             except Exception as e:
+                from core.db import SupabaseAPIError
+                if isinstance(e, SupabaseAPIError) and 400 <= e.status_code < 500 and e.status_code not in (401, 403, 429):
+                    _log.error(f"Permanent failure for task: {action} on {table} ({key_val}) due to status {e.status_code}. Discarding task.", exc_info=e)
+                    processed += 1
+                    continue
                 _log.error(f"Failed to sync task: {action} on {table} ({key_val}), will retry later", exc_info=e)
                 break
 

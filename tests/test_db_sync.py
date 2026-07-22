@@ -7,7 +7,15 @@ SRC = os.path.join(ROOT, "src")
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
+import pytest
 import core.db_sync as db_sync
+
+
+@pytest.fixture(autouse=True)
+def restore_db_sync_queue():
+    original_queue = list(db_sync._queue)
+    yield
+    db_sync._queue = original_queue
 
 
 def _task(key_val):

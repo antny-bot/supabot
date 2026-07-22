@@ -268,9 +268,17 @@ async def _internal_cancel_order_handler(request: _web.Request) -> _web.Response
         exchange = data["exchange"]
         uuid = data["uuid"]
         ticker = data["ticker"]
-        ok = await _exchange_adapter.cancel_order(user_id, exchange, uuid, ticker)
-        if ok:
-            _order_manager.remove_order(uuid)
+        import main
+        target_order = None
+        for o in _order_manager.orders:
+            if o["uuid"] == uuid:
+                target_order = o
+                break
+
+        if target_order:
+            ok = await main.cancel_and_remove_order(user_id, target_order)
+        else:
+            ok = await _exchange_adapter.cancel_order(user_id, exchange, uuid, ticker)
         return _web.Response(text=_json.dumps({"ok": bool(ok)}), content_type="application/json")
     except Exception as e:
         _log.warning("internal cancel_order failed", exc_info=e, extra={"event": "cancel_order_error"})

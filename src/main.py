@@ -497,6 +497,38 @@ async def _create_linked_sell_order(application, ord, exec_vol, state):
     return "created"
 
 
+async def cancel_and_remove_order(user_id: str, ord_dict: dict) -> bool:
+    """거래소에 주문 취소를 요청하고, 성공하거나 이미 종료된 주문인 경우 order_manager에서 제거합니다.
+
+    성공적으로 취소되었거나 이미 정리된 주문이면 True를 반환합니다.
+    """
+    exchange = ord_dict["exchange"]
+    uuid = ord_dict["uuid"]
+    ticker = ord_dict["ticker"]
+
+    # 1. 거래소 취소 시도
+    try:
+        cancel_ok = await exchange_adapter.cancel_order(user_id, exchange, uuid, ticker)
+        if cancel_ok:
+            order_manager.remove_order(uuid)
+            return True
+    except Exception as e:
+        _log.warning(f"Exception during cancel_order for {uuid}", exc_info=e)
+
+    # 2. 취소 실패 시 거래소 상태 재조회 (이미 취소/체결 완료되었는지 확인)
+    # 주의: status_res=None 은 키 미설정·네트워크 오류 등 일시적 실패일 수 있으므로
+    # 명시적으로 done/cancel 상태가 확인된 경우에만 order_manager에서 제거한다.
+    try:
+        status_res = await exchange_adapter.get_order_status(user_id, exchange, uuid, ticker)
+        if status_res is not None and status_res.get("state") in ("done", "cancel"):
+            order_manager.remove_order(uuid)
+            return True
+    except Exception as e:
+        _log.warning(f"Failed to check order status after cancel failure for {uuid}", exc_info=e)
+
+    return False
+
+
 # --- 주문 동기화 및 자동 대응 엔진 ---
 async def sync_orders(application):
     """현재 추적 중인 주문들의 상태를 거래소와 동기화하고 자동 대응 수행"""

@@ -5,6 +5,12 @@ import requests as _requests
 _client = None
 
 
+class SupabaseAPIError(RuntimeError):
+    def __init__(self, status_code, message):
+        super().__init__(f"Supabase [{status_code}]: {message}")
+        self.status_code = status_code
+
+
 class _APIResponse:
     def __init__(self, data, count=None):
         self.data = data
@@ -29,7 +35,7 @@ class _Query:
             timeout=30,
         )
         if not resp.ok:
-            raise RuntimeError(f"Supabase [{resp.status_code}]: {resp.text[:300]}")
+            raise SupabaseAPIError(resp.status_code, resp.text[:300])
         data = resp.json() if resp.text.strip() else []
         count = None
         cr = resp.headers.get("content-range", "")
