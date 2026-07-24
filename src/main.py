@@ -688,7 +688,7 @@ async def sync_orders(application):
         res = await exchange_adapter.get_order_status(user_id, exchange, ord['uuid'], ticker)
         if not res:
             # KIS/Toss(RegularSessionExchange, supports_reserved_orders)는 정규장 정책을 공유한다
-            # (docs/detail/kis_market_policy.md: "이 문서 제목은 KIS 기준이지만 Toss도 동일하게 적용된다").
+            # (docs/302_kis_market_policy.md: "이 문서 제목은 KIS 기준이지만 Toss도 동일하게 적용된다").
             # exchange == "kis" 하드코딩 분기는 Toss 주문을 누락시켜 체결 감지·trade_log 기록이
             # 영구히 멈추는 원인이었다 — capability 기반으로 일반화.
             # is_strategy_order(grid/sgrid/rsitrade) OR 수동 주문에 auto_reorder opt-in 플래그가

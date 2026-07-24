@@ -2,7 +2,7 @@
 
 ## 개요
 
-`llm_enabled=True` 이고 일반 텍스트 메시지가 오면, 봇이 먼저 안전한 조회 표현을 룰 기반으로 전처리한다. 전처리로 처리하지 못한 문장만 Google Gemini API로 전송해 JSON intent로 변환한다. 사용자가 "비트코인 시세 알려줘" 처럼 자연어 입력 가능.
+`llm_enabled=True` 시 텍스트 메시지 룰 기반 전처리. 미처리 문장만 Google Gemini API로 JSON intent 변환. "비트코인 시세 알려줘" 등 자연어 입력 가능.
 
 ## 사전 조건
 
@@ -12,29 +12,29 @@
 
 ## 룰 기반 전처리
 
-`preprocess_natural_language_intent(text, user)` 가 Gemini 호출 전에 실행된다.
+Gemini 호출 전 `preprocess_natural_language_intent(text, user)` 실행.
 
-전처리 대상은 조회성 action만 허용한다.
+조회성 action만 허용.
 
 | action | 예시 표현 | 처리 |
 |--------|-----------|------|
 | `status` | `주문대기중인것은?`, `예약 주문 보여줘`, `전략 상태 알려줘` | 전략 대시보드 즉시 조회 |
-| `orders` | `미체결 주문 뭐 있어?`, `오픈오더`, `거래소에 걸린 주문` | 봇이 추적 중인 미체결 주문 즉시 조회 |
+| `orders` | `미체결 주문 뭐 있어?`, `오픈오더`, `거래소에 걸린 주문` | 미체결 주문 즉시 조회 |
 | `asset` | `잔고 보여줘`, `보유 자산`, `빗썸 잔고` | 자산 조회 |
-| `price` | `BTC 시세`, `비트 얼마야`, `삼성전자 가격` | 종목 추출 가능할 때 시세 조회 |
-| `history` | `최근 체결`, `거래 내역`, `BTC 거래내역` | 최근 체결 내역 조회 |
+| `price` | `BTC 시세`, `비트 얼마야`, `삼성전자 가격` | 종목 추출 시 시세 조회 |
+| `history` | `최근 체결`, `거래 내역`, `BTC 거래내역` | 최근 체결 조회 |
 | `config_view` | `현재 설정 보여줘`, `API 등록 상태` | 설정 조회 |
 | `help` | `사용법`, `명령어 알려줘`, `도움말` | 도움말 조회 |
 
-`취소`, `중지`, `매수`, `매도`, `사줘`, `설정해`, `변경`, `켜줘`, `꺼줘` 같은 변경성 표현은 전처리하지 않는다. 해당 문장은 Gemini와 확인 버튼 흐름으로 넘긴다.
+`취소`, `중지`, `매수`, `매도`, `사줘`, `설정해`, `변경`, `켜줘`, `꺼줘` 등 변경성 표현은 전처리 제외. Gemini 및 확인 버튼 흐름으로 전달.
 
-`normalize_natural_language_intent()`는 Gemini가 반환한 intent를 후처리한다. RSI + 분할 + 매도 힌트(`매도`, `팔아`, `팔다` 등)가 모두 감지되면 action을 `sgridrsi`로 설정하고 RSI 구간을 `sell_rsi_range`에 넣는다. 매도 힌트 없이 RSI + 분할만 있으면 기존대로 `rsitrade` + `buy_rsi_range` 처리한다.
+`normalize_natural_language_intent()`로 Gemini intent 후처리. RSI+분할+매도 힌트(`매도`, `팔아`, `팔다` 등) 감지 시 action `sgridrsi`, RSI 구간 `sell_rsi_range` 지정. 매도 힌트 없는 RSI+분할은 `rsitrade` + `buy_rsi_range` 처리.
 
-문장에 `dca`, `디씨에이`, `물타기` 같은 표현이 포함되면(또는 Gemini가 `dca_mode: true`를 반환하면) `rsitrade` intent의 `dca_mode`를 `true`로 설정한다. `sgridrsi`(매도)에는 적용하지 않는다.
+문장 내 `dca`, `디씨에이`, `물타기` 포함(또는 Gemini `dca_mode: true` 반환) 시 `rsitrade` intent `dca_mode` = `true`. `sgridrsi`(매도) 미적용.
 
-전처리로 처리된 문장은 Gemini를 호출하지 않고 로그에도 남기지 않는다.
-다만 action 단위 hit 카운터는 `data/nl_preprocess_hits.json`에 저장한다. 원문, 종목, 거래소명은 저장하지 않는다.
-`비트 봐줘`처럼 종목은 있으나 조회 의도가 불명확한 문장은 Gemini 호출 전에 시세/자산/전략 상태 중 무엇을 볼지 되묻는다.
+전처리 완료 문장은 Gemini 미호출 및 노로그.
+action hit 카운터만 `data/nl_preprocess_hits.json` 저장 (원문/종목/거래소 미저장).
+`비트 봐줘` 등 종목은 있으나 의도 불명확 시 시세/자산/전략상태 되물음.
 
 ## Gemini 프롬프트 구조
 
@@ -82,7 +82,7 @@ temperature=0.1, `response_mime_type="application/json"`.
 
 ## 읽기 vs 쓰기 구분
 
-`_is_immediate_intent(action)` 으로 즉시 실행 여부 판별:
+`_is_immediate_intent(action)`으로 즉시 실행 판별:
 
 ```python
 IMMEDIATE = {"asset", "price", "orders", "status", "config_view", "history", "help"}
@@ -109,12 +109,11 @@ flowchart TD
     J --> K["natural_language_confirm_callback():<br/>1. token 존재 확인 (만료/없으면 오류)<br/>2. user_id 일치 확인 (타인 실행 방지)<br/>3. execute_confirmed_intent(query, context, user, intent)"]
 ```
 
-`execute_confirmed_intent` 는 일반 커맨드 핸들러와 동일한 내부 함수 호출 (거래소 어댑터, 검증 동일 적용).
+`execute_confirmed_intent`는 커맨드 핸들러와 동일 내부 함수 호출 (어댑터, 검증 동일 적용).
 
 ## 미처리 자연어 로그
 
-전처리로 처리하지 못해 Gemini까지 간 문장은 `append_natural_language_log()` 로 `data/nl_unmatched.jsonl`에 기록하며,
-동시에 Supabase `nl_logs` 테이블에도 적재한다.
+Gemini 호출 문장은 `append_natural_language_log()`로 `data/nl_unmatched.jsonl` 및 Supabase `nl_logs` 테이블 기록.
 
 기록 항목:
 
@@ -122,7 +121,7 @@ flowchart TD
 {"ts":"2026-05-30T16:20:00+09:00","text_norm":"BTC <NUMBER>원 주문?","llm_action":"clarify","final_action":"clarify"}
 ```
 
-로그는 패턴 분석용이며 다음 정보를 저장하지 않는다.
+로그 미저장 정보:
 
 - chat_id / user_id
 - 주문 ID, 거래소 응답 원문
@@ -134,11 +133,11 @@ flowchart TD
 - 6자리 숫자 → `<STOCK>`
 - 일반 숫자/소수 → `<NUMBER>`
 
-`data/nl_unmatched.jsonl`은 최근 500줄만 유지한다.
+`data/nl_unmatched.jsonl` 최근 500줄 유지.
 
-미처리 자연어 로그는 패턴 분석(전처리 규칙 보강용)을 위한 데이터일 뿐, 봇 내부에서 통계를 조회하는 명령은 더 이상 없다.
-과거의 `/nlstats`(admin) 명령은 봇 경량화 단계(Phase A)에서 제거되었다.
-누적된 익명 로그는 `data/nl_unmatched.jsonl` 파일과 Supabase `nl_logs` 테이블에서 직접 확인한다.
+미처리 로그는 패턴 분석용. 봇 통계 조회 명령 없음.
+과거 `/nlstats`(admin) 명령은 봇 경량화 Phase A 제거됨.
+누적 익명 로그는 `data/nl_unmatched.jsonl` 및 Supabase `nl_logs` 테이블 직접 확인.
 
 ## 오류 처리
 
@@ -146,9 +145,9 @@ flowchart TD
 |------|------|
 | Gemini API 실패 | None 반환 → "해석할 수 없습니다" 안내 |
 | token 만료 (봇 재시작 등) | "만료된 자연어 요청" |
-| 다른 유저가 확인 클릭 | "다른 사용자의 요청은 실행할 수 없습니다" |
-| `execute_confirmed_intent` 예외 | 에러 메시지 유저에게 전송 |
+| 다른 유저 확인 클릭 | "다른 사용자의 요청은 실행할 수 없습니다" |
+| `execute_confirmed_intent` 예외 | 에러 메시지 유저 전달 |
 
 ## 검증 항목 (execute_confirmed_intent 내부)
 
-거래소명, 종목, 가격, 수량, RSI 범위, 예산, `max_order_krw`, KIS 일봉 제한, KIS 정규장 정책 — 일반 커맨드 핸들러와 동일한 검증 통과 필요.
+거래소명, 종목, 가격, 수량, RSI 범위, 예산, `max_order_krw`, KIS 일봉 제한, KIS 정규장 정책 — 커맨드 핸들러 동일 검증 통과 필요.

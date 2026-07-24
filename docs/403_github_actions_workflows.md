@@ -1,0 +1,167 @@
+# GitHub Actions Workflows
+
+`E:/apps/supabot/.github/workflows/` GitHub Actions 워크플로 동작 설명.
+
+운영 규칙:
+
+- 워크플로 파일 수정 시 이 문서 동시 업데이트.
+- 트리거, 이미지 태그 정책, 배포 조건, cleanup 정책 변경 시 동일 커밋 반영.
+
+## 현재 워크플로 목록
+
+| Workflow | 파일 | 역할 |
+| --- | --- | --- |
+| Build Bot | `.github/workflows/build-bot.yml` | bot Docker 이미지 빌드 및 GHCR 푸시, release 시 Oracle VM 배포 |
+| Build Manager | `.github/workflows/build-manager.yml` | manager Docker 이미지 빌드 및 GHCR 푸시 |
+| Test | `.github/workflows/ci-test.yml` | Python 테스트 실행 |
+| Cleanup Registry and Cache | `.github/workflows/cleanup-registry-and-cache.yml` | GHCR 오래된 이미지 정리, 필요 시 수동 cache 삭제 |
+
+## Build Bot
+
+파일: [build-bot.yml](/E:/apps/supabot/.github/workflows/build-bot.yml)
+
+트리거:
+
+- `main` 브랜치 push
+- 단, 다음 경로 변경 시만 실행:
+- `src/**`
+- `scripts/**`
+- `requirements.txt`
+- `Dockerfile`
+- `docker-compose.yml`
+- GitHub Release `published`
+- release tag가 `bot-` 시작 시만 job 실행
+
+동작:
+
+1. 저장소 checkout
+2. `ghcr.io` 로그인
+3. Docker Buildx 설정
+4. 이미지 태그 결정
+5. Docker 이미지 빌드 및 GHCR 푸시
+6. release tag가 `bot-...` 이면 Oracle VM SSH 접속 배포
+
+이미지 태그:
+
+- 기본: `ghcr.io/antny-bot/supabot:latest`
+- release: `latest` + `ghcr.io/antny-bot/supabot:<release-tag>`
+
+배포 단계:
+
+```bash
+cd "${OCI_DEPLOY_PATH}"
+docker compose pull
+docker compose up -d
+docker image prune -f
+```
+
+주의:
+
+- `main` push 시 Oracle VM 배포 안 함.
+- `bot-*` release publish 시 Oracle VM 자동 배포.
+- 사용 secret: `OCI_HOST`, `OCI_USER`, `OCI_SSH_PRIVATE_KEY`, `OCI_SSH_PORT`, `OCI_DEPLOY_PATH`
+
+## Build Manager
+
+파일: [build-manager.yml](/E:/apps/supabot/.github/workflows/build-manager.yml)
+
+트리거:
+
+- `main` 브랜치 push
+- 단, `manager/**` 변경 시만 실행
+- GitHub Release `published`
+- release tag가 `manager-` 시작 시만 job 실행
+
+동작:
+
+1. 저장소 checkout
+2. `ghcr.io` 로그인
+3. Docker Buildx 설정
+4. 이미지 태그 결정
+5. `manager/` 컨텍스트 이미지 빌드 및 GHCR 푸시
+
+이미지 태그:
+
+- 기본: `ghcr.io/antny-bot/supabot-manager:latest`
+- release: `latest` + `ghcr.io/antny-bot/supabot-manager:<release-tag>`
+
+주의:
+
+- manager 워크플로 별도 자동 배포 job 없음.
+
+## Test
+
+파일: [ci-test.yml](/E:/apps/supabot/.github/workflows/ci-test.yml)
+
+트리거:
+
+- `main` push
+- `claude/**` push
+- `main` 대상 pull request
+
+동작:
+
+1. 저장소 checkout
+2. Python `3.11` 설정
+3. 루트 `requirements.txt`, `manager/requirements.txt` 설치
+4. `pytest tests/` 실행 (`-v` 제거 — `pytest.ini` `addopts = -q --tb=short -ra` 적용, 성공 `.` 1자, 실패 짧은 traceback+요약. 토큰 절약 목적. 상세: `AGENTS.md` 검증 절차 섹션)
+
+특징:
+
+- artifact 업로드 / GHCR 푸시 없음.
+- 테스트 게이트 역할.
+
+## Cleanup Registry and Cache
+
+파일: [cleanup-registry-and-cache.yml](/E:/apps/supabot/.github/workflows/cleanup-registry-and-cache.yml)
+
+트리거:
+
+- 매주 스케줄 실행
+- `cron: '25 18 * * 0'`
+- GitHub Actions UTC 기준 (한국 월요일 `03:25`)
+- 수동 실행 `workflow_dispatch`
+
+기본 정책:
+
+- GHCR 패키지 `supabot`, `supabot-manager` 최신 `10`개 버전 유지
+- 오래된 버전 삭제
+- Actions cache 삭제 기본 비활성화
+- 수동 실행시 `cleanup_caches=true` 설정으로 Actions cache 삭제
+
+세부 동작:
+
+1. 패키지 버전 목록 조회
+2. 생성일 내림차순 정렬
+3. 최신 `keep_versions`개 유지
+4. 초과분 삭제
+5. 수동 실행 + `cleanup_caches=true` 시 Actions cache 전체 삭제
+
+현재 운영 해석:
+
+- push마다 cleanup 실행 안 함.
+- build 및 cleanup 워크플로 분리 유지.
+- cleanup 주기 실행으로 GHCR 정리, cache 삭제는 필요시 수동 켬.
+
+## 배포 트러블슈팅 (자동배포 실패 시 점검 포인트)
+
+`build-bot.yml` release 자동배포(`appleboy/ssh-action` → `docker compose pull && up -d`) 실패 시 점검 순서:
+
+1. **Oracle VM SSH 접근 제한**: NSG/Security List `22/tcp` 특정 IP `/32` 제한 시, Actions runner SSH 차단 가능 (`OCI_HOST`/`OCI_USER`/`OCI_SSH_PRIVATE_KEY`/`OCI_SSH_PORT` 인바운드 규칙 확인 — `oracle-cloud-vm-setup.md` 참고).
+2. **GHCR pull 권한**: `Error response from daemon: error from registry: denied` 오류는 private GHCR 패키지 `docker login ghcr.io` 미실행 또는 `read:packages` 토큰 부재 원인 → public 전환 또는 read 권한 토큰 로그인.
+3. **빌드 방식 불일치**: `docker-compose.yml`이 `image:`(GHCR pull) vs `build: .`(로컬 빌드) 확인. `git pull` + `--build` 로컬 빌드 운영 시 GHCR pull과 충돌.
+
+긴급 fallback (자동배포 막힌 경우): VM SSH 직접 접속 수동 배포
+
+```bash
+git pull
+docker compose up -d --build
+docker compose ps
+docker compose logs -f --tail=100
+```
+
+## 운영 체크포인트
+
+- 새 워크플로 추가 시 문서 목록 및 트리거 설명 우선 갱신.
+- `paths`, `release tag prefix`, `image name`, `cron`, `keep_versions`, `cache` 정책 변경 시 문서동시 수정.
+- README 요약만 작성, 상세 설명은 본 문서 기준 유지.

@@ -22,3 +22,26 @@ tmp_oracle_supabot_key
 tmp_oracle_supabot_key.pub
 tmp_oracle_console_rsa
 tmp_oracle_console_rsa.pub
+
+# Test and coverage artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor / IDE configuration
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Agent metadata
+.agents/
+.codex/
+
