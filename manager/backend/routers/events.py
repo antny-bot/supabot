@@ -2,6 +2,10 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+
+class BulkActionRequest(BaseModel):
+    ids: list[int]
 
 from ..db import get_db
 from ._auth import get_admin_user
@@ -41,14 +45,31 @@ async def _update_event(event_id: int, payload: dict) -> JSONResponse:
 
 
 @router.get("/api/events")
-async def api_list_events(level: str | None = None, state: str | None = None, _=Depends(get_admin_user)):
+async def api_list_events(
+    level: str | None = None,
+    state: str | None = None,
+    page: int = 1,
+    limit: int = 50,
+    _=Depends(get_admin_user)
+):
     try:
-        q = get_db().table("operational_events").select("*").order("id", desc=True).limit(200)
+        q = get_db().table("operational_events").select("*", count="exact").order("id", desc=True)
         if level in _LEVELS:
             q._params["level"] = f"eq.{level}"
         if state in _STATES and state != "all":
             q = _apply_state_filter(q, state)
-        return JSONResponse((await q.execute()).data)
+        
+        start = (page - 1) * limit
+        end = start + limit - 1
+        q = q.range(start, end)
+        
+        res = await q.execute()
+        return JSONResponse({
+            "events": res.data,
+            "total": res.count or 0,
+            "page": page,
+            "limit": limit
+        })
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -73,3 +94,32 @@ async def api_archive_event(event_id: int, _=Depends(get_admin_user)):
 @router.patch("/api/events/{event_id}/unarchive")
 async def api_unarchive_event(event_id: int, _=Depends(get_admin_user)):
     return await _update_event(event_id, {"archived_at": None})
+
+
+@router.patch("/api/events/bulk/read")
+async def api_bulk_read_events(payload: BulkActionRequest, _=Depends(get_admin_user)):
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        await get_db().table("operational_events").update({"read_at": now}).in_("id", payload.ids).execute()
+        return JSONResponse({"success": True})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.patch("/api/events/bulk/archive")
+async def api_bulk_archive_events(payload: BulkActionRequest, _=Depends(get_admin_user)):
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        await get_db().table("operational_events").update({"archived_at": now, "read_at": now}).in_("id", payload.ids).execute()
+        return JSONResponse({"success": True})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.post("/api/events/bulk/delete")
+async def api_bulk_delete_events(payload: BulkActionRequest, _=Depends(get_admin_user)):
+    try:
+        await get_db().table("operational_events").delete().in_("id", payload.ids).execute()
+        return JSONResponse({"success": True})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
