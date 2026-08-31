@@ -74,28 +74,6 @@ async def api_list_events(
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@router.patch("/api/events/{event_id}/read")
-async def api_mark_event_read(event_id: int, _=Depends(get_admin_user)):
-    now = datetime.now(timezone.utc).isoformat()
-    return await _update_event(event_id, {"read_at": now})
-
-
-@router.patch("/api/events/{event_id}/unread")
-async def api_mark_event_unread(event_id: int, _=Depends(get_admin_user)):
-    return await _update_event(event_id, {"read_at": None})
-
-
-@router.patch("/api/events/{event_id}/archive")
-async def api_archive_event(event_id: int, _=Depends(get_admin_user)):
-    now = datetime.now(timezone.utc).isoformat()
-    return await _update_event(event_id, {"archived_at": now, "read_at": now})
-
-
-@router.patch("/api/events/{event_id}/unarchive")
-async def api_unarchive_event(event_id: int, _=Depends(get_admin_user)):
-    return await _update_event(event_id, {"archived_at": None})
-
-
 @router.patch("/api/events/bulk/read")
 async def api_bulk_read_events(payload: BulkActionRequest, _=Depends(get_admin_user)):
     try:
@@ -123,3 +101,25 @@ async def api_bulk_delete_events(payload: BulkActionRequest, _=Depends(get_admin
         return JSONResponse({"success": True})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.patch("/api/events/{event_id}/read")
+async def api_mark_event_read(event_id: int, _=Depends(get_admin_user)):
+    now = datetime.now(timezone.utc).isoformat()
+    return await _update_event(event_id, {"read_at": now})
+
+
+@router.patch("/api/events/{event_id}/unread")
+async def api_mark_event_unread(event_id: int, _=Depends(get_admin_user)):
+    return await _update_event(event_id, {"read_at": None})
+
+
+@router.patch("/api/events/{event_id}/archive")
+async def api_archive_event(event_id: int, _=Depends(get_admin_user)):
+    now = datetime.now(timezone.utc).isoformat()
+    return await _update_event(event_id, {"archived_at": now, "read_at": now})
+
+
+@router.patch("/api/events/{event_id}/unarchive")
+async def api_unarchive_event(event_id: int, _=Depends(get_admin_user)):
+    return await _update_event(event_id, {"archived_at": None})
