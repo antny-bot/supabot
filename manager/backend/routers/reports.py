@@ -890,3 +890,166 @@ async def api_reports_nl_logs(request: Request, limit: int = 100, offset: int = 
         return JSONResponse({"rows": result, "total": total})
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+
+def _build_drawdown_stats(realized_events):
+    sorted_events = sorted(realized_events, key=lambda e: e.get("executed_at", 0))
+
+    cumulative = 0.0
+    peak = 0.0
+    max_drawdown = 0.0
+    max_drawdown_pct = 0.0
+
+    time_series = []
+    wins = []
+    losses = []
+
+    for event in sorted_events:
+        pnl = event["pnl"]
+        cumulative += pnl
+        if cumulative > peak:
+            peak = cumulative
+
+        dd = peak - cumulative
+        dd_pct = round(dd / peak * 100, 2) if peak > 0 else 0.0
+
+        if dd > max_drawdown:
+            max_drawdown = dd
+        if dd_pct > max_drawdown_pct:
+            max_drawdown_pct = dd_pct
+
+        day_str = datetime.fromtimestamp(event["executed_at"]).strftime("%Y-%m-%d %H:%M")
+        time_series.append({
+            "timestamp": event["executed_at"],
+            "date": day_str,
+            "cumulative_pnl": _round_money(cumulative),
+            "peak": _round_money(peak),
+            "drawdown": _round_money(dd),
+            "drawdown_pct": dd_pct,
+        })
+
+        if pnl > 0:
+            wins.append(pnl)
+        else:
+            losses.append(pnl)
+
+    total_win_amount = sum(wins)
+    total_loss_amount = abs(sum(losses))
+    profit_factor = round(total_win_amount / total_loss_amount, 2) if total_loss_amount > 0 else (99.0 if total_win_amount > 0 else 0.0)
+    current_dd = round(peak - cumulative) if peak > cumulative else 0
+    current_dd_pct = round(current_dd / peak * 100, 2) if peak > 0 else 0.0
+
+    return {
+        "series": time_series,
+        "metrics": {
+            "mdd": _round_money(max_drawdown),
+            "mdd_pct": max_drawdown_pct,
+            "current_drawdown": current_dd,
+            "current_drawdown_pct": current_dd_pct,
+            "peak_pnl": _round_money(peak),
+            "cumulative_pnl": _round_money(cumulative),
+            "profit_factor": profit_factor,
+            "max_win": _round_money(max(wins)) if wins else 0,
+            "max_loss": _round_money(min(losses)) if losses else 0,
+            "win_count": len(wins),
+            "loss_count": len(losses),
+            "win_rate": round(len(wins) / (len(wins) + len(losses)) * 100, 1) if (wins or losses) else 0.0,
+        },
+    }
+
+
+@router.get("/api/reports/drawdown")
+async def api_reports_drawdown(
+    request: Request,
+    period: str = "30d",
+    date_from: str | None = None,
+    date_to: str | None = None,
+):
+    ctx, err = _auth_guard(request)
+    if err:
+        return err
+    is_admin, bot_user_id = ctx
+    if period not in _PERIODS:
+        period = "30d"
+
+    try:
+        db = get_db()
+        trades = await _fetch_trades(db, is_admin, bot_user_id, None)
+        window_start, window_end = _resolve_window(period, date_from, date_to)
+        _, realized_events = _build_report_state(trades, window_start=window_start, window_end=window_end)
+        res = _build_drawdown_stats(realized_events)
+        return JSONResponse(res)
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@router.get("/api/reports/allocation")
+async def api_reports_allocation(request: Request):
+    ctx, err = _auth_guard(request)
+    if err:
+        return err
+    is_admin, bot_user_id = ctx
+
+    try:
+        db = get_db()
+        trades = await _fetch_trades(db, is_admin, bot_user_id, None)
+        positions, _ = _build_report_state(trades)
+        current_prices = await _fetch_current_prices(
+            [
+                {"user_id": user_id, "exchange": exchange, "ticker": ticker}
+                for user_id, exchange, ticker in positions.keys()
+            ],
+            bot_user_id,
+        )
+        rows, _ = _build_holdings_rows(positions, current_prices)
+        total_value = sum(r["value_krw"] for r in rows)
+
+        by_exchange = defaultdict(float)
+        by_category = {
+            "crypto": 0.0,
+            "kr_stock": 0.0,
+            "us_stock": 0.0,
+        }
+
+        for r in rows:
+            val = r["value_krw"]
+            exch = (r["exchange"] or "").lower()
+            by_exchange[exch] += val
+            if exch in ("upbit", "bithumb"):
+                by_category["crypto"] += val
+            elif exch == "kis":
+                by_category["kr_stock"] += val
+            elif exch == "toss":
+                by_category["us_stock"] += val
+            else:
+                by_category["crypto"] += val
+
+        exchange_list = []
+        for exch, val in by_exchange.items():
+            pct = round(val / total_value * 100, 1) if total_value else 0.0
+            exchange_list.append({"name": exch.upper(), "value": round(val), "pct": pct})
+
+        cat_names = {
+            "crypto": "가상자산",
+            "kr_stock": "국내주식",
+            "us_stock": "해외주식",
+        }
+        category_list = []
+        for cat_key, cat_val in by_category.items():
+            pct = round(cat_val / total_value * 100, 1) if total_value else 0.0
+            category_list.append({
+                "name": cat_names.get(cat_key, cat_key),
+                "key": cat_key,
+                "value": round(cat_val),
+                "pct": pct,
+            })
+
+        return JSONResponse({
+            "total_value": round(total_value),
+            "by_exchange": exchange_list,
+            "by_category": category_list,
+            "asset_count": len(rows),
+        })
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)

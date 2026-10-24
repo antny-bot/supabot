@@ -4,7 +4,7 @@ import ResponsiveTabs from '../components/ui/ResponsiveTabs'
 import PageHeader from '../components/ui/PageHeader'
 import { PAGE_META } from '../config/pageMeta'
 
-// Lazy loaded section components
+// Section components
 import PnlSection from './reports/PnlSection'
 import StrategySection from './reports/StrategySection'
 import ExchangeSection from './reports/ExchangeSection'
@@ -14,20 +14,33 @@ import MonthlySection from './reports/MonthlySection'
 import HoldingsSection from './reports/HoldingsSection'
 import PairsSection from './reports/PairsSection'
 import WinStatsSection from './reports/WinStatsSection'
+import DrawdownSection from './reports/DrawdownSection'
+import AllocationSection from './reports/AllocationSection'
 
 const REPORT_TABS = [
-  { id: 'holdings', label: '현재 투자중' },
-  { id: 'pnl',      label: '실현 손익' },
-  { id: 'daily',    label: '일별 손익' },
-  { id: 'monthly',  label: '월별 손익' },
-  { id: 'strategy', label: '전략별 분석' },
-  { id: 'exchange', label: '거래소별 분석' },
-  { id: 'ranking',  label: '수익률 랭킹' },
-  { id: 'pairs',    label: '거래 페어' },
-  { id: 'winstats', label: '승률/손익비' },
+  { id: 'holdings',   label: '현재 투자중' },
+  { id: 'allocation', label: '자산 배분' },
+  { id: 'drawdown',   label: 'MDD / 리스크' },
+  { id: 'pnl',        label: '실현 손익' },
+  { id: 'daily',      label: '일별 손익' },
+  { id: 'monthly',    label: '월별 손익' },
+  { id: 'strategy',   label: '전략별 분석' },
+  { id: 'exchange',   label: '거래소별 분석' },
+  { id: 'ranking',    label: '수익률 랭킹' },
+  { id: 'pairs',      label: '거래 페어' },
+  { id: 'winstats',   label: '승률/손익비' },
 ]
 
-const PERIOD_SENSITIVE_TABS = new Set(['pnl', 'daily', 'strategy', 'exchange', 'ranking', 'pairs', 'winstats'])
+const PERIOD_SENSITIVE_TABS = new Set([
+  'pnl',
+  'daily',
+  'strategy',
+  'exchange',
+  'ranking',
+  'pairs',
+  'winstats',
+  'drawdown',
+])
 const DEFAULT_RANGE: DateRangeValue = { mode: '30d', from: '', to: '' }
 
 export default function Reports() {
@@ -43,21 +56,28 @@ export default function Reports() {
 
       {/* 기간 선택기 — 탭 아래, 기간 민감 탭에만 표시 */}
       {PERIOD_SENSITIVE_TABS.has(activeTab) && (
-        <DateRangePicker collapsible isOpen={dateFilterOpen} onToggle={() => setDateFilterOpen((v) => !v)}
-          value={dateRange} onChange={setDateRange} />
+        <DateRangePicker
+          collapsible
+          isOpen={dateFilterOpen}
+          onToggle={() => setDateFilterOpen((v) => !v)}
+          value={dateRange}
+          onChange={setDateRange}
+        />
       )}
 
-      {/* Tab content — lazy mount */}
+      {/* Tab content */}
       <div key={activeTab} className="animate-fade-in-up">
-        {activeTab === 'pnl'      && <PnlSection dateRange={dateRange} />}
-        {activeTab === 'daily'    && <DailySection dateRange={dateRange} />}
-        {activeTab === 'strategy' && <StrategySection dateRange={dateRange} />}
-        {activeTab === 'exchange' && <ExchangeSection dateRange={dateRange} />}
-        {activeTab === 'ranking'  && <RoiRankingSection dateRange={dateRange} />}
-        {activeTab === 'monthly'  && <MonthlySection />}
-        {activeTab === 'holdings' && <HoldingsSection />}
-        {activeTab === 'pairs'    && <PairsSection dateRange={dateRange} />}
-        {activeTab === 'winstats' && <WinStatsSection dateRange={dateRange} />}
+        {activeTab === 'holdings'   && <HoldingsSection />}
+        {activeTab === 'allocation' && <AllocationSection />}
+        {activeTab === 'drawdown'   && <DrawdownSection dateRange={dateRange} />}
+        {activeTab === 'pnl'        && <PnlSection dateRange={dateRange} />}
+        {activeTab === 'daily'      && <DailySection dateRange={dateRange} />}
+        {activeTab === 'strategy'   && <StrategySection dateRange={dateRange} />}
+        {activeTab === 'exchange'   && <ExchangeSection dateRange={dateRange} />}
+        {activeTab === 'ranking'    && <RoiRankingSection dateRange={dateRange} />}
+        {activeTab === 'monthly'    && <MonthlySection />}
+        {activeTab === 'pairs'      && <PairsSection dateRange={dateRange} />}
+        {activeTab === 'winstats'   && <WinStatsSection dateRange={dateRange} />}
       </div>
     </div>
   )

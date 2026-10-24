@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import AppLayout from './components/layout/AppLayout'
 import Spinner from './components/ui/Spinner'
 import { useAuthContext } from './contexts/AuthContext'
+import { ToastProvider } from './contexts/ToastContext'
 import { readDefaultPage } from './lib/navPreferences'
 
 const Login = lazy(() => import('./pages/Login'))
@@ -42,23 +43,25 @@ function DefaultRedirect() {
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/login" element={withRouteFallback(<Login />)} />
-        <Route element={<AppLayout />}>
-          <Route index element={<DefaultRedirect />} />
-          <Route path="/dashboard" element={withRouteFallback(<Dashboard />)} />
-          <Route path="/orders" element={withRouteFallback(<Orders />)} />
-          <Route path="/trades" element={withRouteFallback(<Trades />)} />
-          <Route path="/templates" element={withRouteFallback(<Templates />)} />
-          <Route path="/reports" element={withRouteFallback(<Reports />)} />
-          <Route path="/admin" element={withRouteFallback(<AdminRoute><Admin /></AdminRoute>)} />
-          <Route path="/analytics" element={<Navigate to="/admin" replace />} />
-          <Route path="/events" element={<Navigate to="/admin" replace />} />
-          <Route path="/users" element={<Navigate to="/admin" replace />} />
-          <Route path="/config" element={withRouteFallback(<Config />)} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+    <ToastProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/login" element={withRouteFallback(<Login />)} />
+          <Route element={<AppLayout />}>
+            <Route index element={<DefaultRedirect />} />
+            <Route path="/dashboard" element={withRouteFallback(<Dashboard />)} />
+            <Route path="/orders" element={withRouteFallback(<Orders />)} />
+            <Route path="/trades" element={withRouteFallback(<Trades />)} />
+            <Route path="/templates" element={withRouteFallback(<Templates />)} />
+            <Route path="/reports" element={withRouteFallback(<Reports />)} />
+            <Route path="/admin" element={withRouteFallback(<AdminRoute><Admin /></AdminRoute>)} />
+            <Route path="/analytics" element={<Navigate to="/admin" replace />} />
+            <Route path="/events" element={<Navigate to="/admin" replace />} />
+            <Route path="/users" element={<Navigate to="/admin" replace />} />
+            <Route path="/config" element={withRouteFallback(<Config />)} />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </ToastProvider>
   )
 }
