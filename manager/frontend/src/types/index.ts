@@ -117,6 +117,8 @@ export interface AnalyticsHeatmap {
 export interface DashboardStats {
   orders_open: number
   trades_24h: number
+  realized_pnl_24h?: number
+  bot_status?: string
   // 어드민 전용 (일반 유저 응답에는 없음)
   users_total?: number
   users_active?: number
@@ -319,4 +321,50 @@ export interface NlLogRow {
 export interface NlLogsReport {
   rows: NlLogRow[]
   total: number
+}
+
+
+// ── Drawdown & Allocation Reports ──────────────────────────────────────────
+
+export interface DrawdownSeriesPoint {
+  timestamp: number
+  date: string
+  cumulative_pnl: number
+  peak: number
+  drawdown: number
+  drawdown_pct: number
+}
+
+export interface DrawdownMetrics {
+  mdd: number
+  mdd_pct: number
+  current_drawdown: number
+  current_drawdown_pct: number
+  peak_pnl: number
+  cumulative_pnl: number
+  profit_factor: number
+  max_win: number
+  max_loss: number
+  win_count: number
+  loss_count: number
+  win_rate: number
+}
+
+export interface DrawdownReport {
+  series: DrawdownSeriesPoint[]
+  metrics: DrawdownMetrics
+}
+
+export interface AllocationItem {
+  name: string
+  value: number
+  pct: number
+  key?: string
+}
+
+export interface AllocationReport {
+  total_value: number
+  by_exchange: AllocationItem[]
+  by_category: AllocationItem[]
+  asset_count: number
 }

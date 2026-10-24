@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { usePersistedState } from '../hooks/usePersistedState'
-import { X, RotateCcw, RefreshCw } from 'lucide-react'
-import { fetchOrders, cancelOrder, syncOrder, forceUpdateOrder } from '../api/orders'
+import { X, RotateCcw, RefreshCw, Download, ShieldAlert } from 'lucide-react'
+import { fetchOrders, cancelOrder, cancelAllOrders, syncOrder, forceUpdateOrder } from '../api/orders'
 import type { OrdersData } from '../types'
 import Badge from '../components/ui/Badge'
 import DateRangePicker, { type DateRangeValue } from '../components/ui/DateRangePicker'
@@ -12,6 +12,8 @@ import ProgressBar from '../components/ui/ProgressBar'
 import Spinner from '../components/ui/Spinner'
 import { PAGE_META } from '../config/pageMeta'
 import { useRealtime } from '../hooks/useRealtime'
+import { useToast } from '../contexts/ToastContext'
+import { exportToCsv } from '../utils/csv'
 import { staggerDelay } from '../utils/animation'
 import { krwFmt } from '../utils/formatters'
 import Pagination from '../components/ui/Pagination'
@@ -47,6 +49,7 @@ const SIDE_OPTIONS = [
 const DEFAULT_RANGE: DateRangeValue = { mode: 'all', from: '', to: '' }
 
 export default function Orders() {
+  const toast = useToast()
   const [data, setData] = useState<OrdersData | null>(null)
   const [status, setStatus] = usePersistedState('filter:orders:status', '')
   const [exchange, setExchange] = usePersistedState('filter:orders:exchange', '')
@@ -138,10 +141,10 @@ export default function Orders() {
       if (res.ok) {
         loadData(false, page, pageSize)
       } else {
-        alert(`취소 실패: ${res.error || '알 수 없는 오류'}`)
+        toast.error(`취소 실패: ${res.error || '알 수 없는 오류'}`)
       }
     } catch (e) {
-      alert(`취소 오류: ${e instanceof Error ? e.message : String(e)}`)
+      toast.error(`취소 오류: ${e instanceof Error ? e.message : String(e)}`)
     } finally {
       setCancellingUuid(null)
     }
@@ -155,15 +158,15 @@ export default function Orders() {
         loadData(false, page, pageSize)
         const details = res.data?.data
         if (details) {
-          alert(`동기화 성공: 상태=[${details.state}], 체결량=[${details.executed}]`)
+          toast.success(`동기화 성공: 상태=[${details.state}], 체결량=[${details.executed}]`)
         } else {
-          alert('동기화 성공!')
+          toast.success('동기화 성공!')
         }
       } else {
-        alert(`동기화 실패: ${res.error || '거래소에 주문 정보가 없거나 에러가 발생했습니다.'}`)
+        toast.error(`동기화 실패: ${res.error || '거래소에 주문 정보가 없거나 에러가 발생했습니다.'}`)
       }
     } catch (e) {
-      alert(`동기화 오류: ${e instanceof Error ? e.message : String(e)}`)
+      toast.error(`동기화 오류: ${e instanceof Error ? e.message : String(e)}`)
     } finally {
       setSyncingUuid(null)
     }
@@ -173,7 +176,7 @@ export default function Orders() {
     if (!data || data.orders.length === 0) return
     const openOrders = data.orders.filter(o => OPEN_STATUSES.has(o.status))
     if (openOrders.length === 0) {
-      alert('동기화할 활성 주문이 없습니다.')
+      toast.info('동기화할 활성 주문이 없습니다.')
       return
     }
     if (!confirm(`현재 표시된 활성 주문 ${openOrders.length}건을 거래소와 일괄 동기화하시겠습니까?`)) return
@@ -193,7 +196,7 @@ export default function Orders() {
     }
     
     loadData(false, page, pageSize)
-    alert(`동기화 완료: 성공 ${successCount}건, 실패 ${failCount}건`)
+    toast.success(`동기화 완료: 성공 ${successCount}건, 실패 ${failCount}건`)
   }
 
   const openEditModal = (order: any) => {
@@ -207,7 +210,7 @@ export default function Orders() {
     if (!editingOrder) return
     const vol = parseFloat(editFilledVolume)
     if (isNaN(vol) || vol < 0) {
-      alert('올바른 체결 수량을 입력하세요.')
+      toast.warning('올바른 체결 수량을 입력하세요.')
       return
     }
     
@@ -218,16 +221,61 @@ export default function Orders() {
         setIsEditModalOpen(false)
         loadData(false, page, pageSize)
       } else {
-        alert(`상태 변경 실패: ${res.error || '알 수 없는 오류'}`)
+        toast.error(`상태 변경 실패: ${res.error || '알 수 없는 오류'}`)
       }
     } catch (e) {
-      alert(`상태 변경 오류: ${e instanceof Error ? e.message : String(e)}`)
+      toast.error(`상태 변경 오류: ${e instanceof Error ? e.message : String(e)}`)
     } finally {
       setEditLoading(false)
     }
   }
 
   const hasAnyFilter = status !== '' || exchange !== '' || side !== '' || dateRange.mode !== 'all' || groupNoFilter !== undefined
+
+  const handleCancelAll = async () => {
+    if (!confirm('현재 활성화된 모든 오픈 주문을 즉시 취소하시겠습니까?')) return
+    setLoading(true)
+    try {
+      const res = await cancelAllOrders()
+      if (res.ok) {
+        toast.success(`오픈 주문 ${res.cancelled_count}건이 일괄 취소되었습니다.`)
+        if (res.failed_count > 0) {
+          toast.warning(`실패한 주문: ${res.failed_count}건`)
+        }
+        loadData(false, page, pageSize)
+      } else {
+        toast.error('일괄 취소 중 오류가 발생했습니다.')
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '취소 요청 실패')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleExportCsv = () => {
+    if (!data || data.orders.length === 0) {
+      toast.info('내보낼 주문 목록이 없습니다.')
+      return
+    }
+    exportToCsv(
+      'orders_list',
+      [
+        { label: '주문시간', key: 'created_fmt' },
+        { label: '거래소', key: 'exchange' },
+        { label: '종목', key: 'ticker' },
+        { label: '구분', key: 'side', format: (v) => (v === 'bid' ? '매수' : '매도') },
+        { label: '상태', key: 'status_label' },
+        { label: '주문단가', key: 'price', format: (v) => krwFmt(v) },
+        { label: '주문수량', key: 'volume' },
+        { label: '체결수량', key: 'filled_volume' },
+        { label: '주문금액', key: 'order_value', format: (v) => krwFmt(v) },
+        { label: 'UUID', key: 'uuid' },
+      ],
+      data.orders,
+    )
+    toast.success('주문 목록 CSV 다운로드가 완료되었습니다.')
+  }
 
   const handleResetFilters = () => {
     setStatus('')
@@ -253,6 +301,22 @@ export default function Orders() {
             >
               <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
               <span>일괄 동기화</span>
+            </button>
+            <button
+              onClick={handleExportCsv}
+              className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+              title="주문 목록 CSV 다운로드"
+            >
+              <Download size={14} />
+              <span>CSV</span>
+            </button>
+            <button
+              onClick={handleCancelAll}
+              className="flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-400 dark:hover:bg-rose-900/60"
+              title="활성 주문 일괄 취소"
+            >
+              <ShieldAlert size={14} />
+              <span>일괄 취소</span>
             </button>
             <SyncIndicator lastUpdated={lastUpdated} loading={loading} error={error} />
           </div>

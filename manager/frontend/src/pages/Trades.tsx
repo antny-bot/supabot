@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { usePersistedState } from '../hooks/usePersistedState'
-import { BarChart2, DollarSign, TrendingDown, TrendingUp, RotateCcw } from 'lucide-react'
+import { BarChart2, DollarSign, TrendingDown, TrendingUp, RotateCcw, Download } from 'lucide-react'
 import { fetchTrades } from '../api/trades'
 import type { TradesData } from '../types'
 import Badge from '../components/ui/Badge'
@@ -14,6 +14,7 @@ import { staggerDelay } from '../utils/animation'
 import { krwFmt } from '../utils/formatters'
 import Pagination from '../components/ui/Pagination'
 import SyncIndicator from '../components/ui/SyncIndicator'
+import { exportToCsv } from '../utils/csv'
 
 const DEFAULT_RANGE: DateRangeValue = { mode: '7d', from: '', to: '' }
 
@@ -51,6 +52,25 @@ export default function Trades() {
     setPage(1)
   }
 
+  const handleExportCsv = () => {
+    if (!data || data.trades.length === 0) return
+    exportToCsv(
+      'trades_list',
+      [
+        { label: '체결시간', key: 'executed_fmt' },
+        { label: '거래소', key: 'exchange' },
+        { label: '종목', key: 'ticker' },
+        { label: '구분', key: 'side', format: (v) => (v === 'bid' ? '매수' : '매도') },
+        { label: '체결단가', key: 'price', format: (v) => krwFmt(v) },
+        { label: '체결수량', key: 'volume' },
+        { label: '체결금액', key: 'krw', format: (v) => krwFmt(v) },
+        { label: '수수료', key: 'fee', format: (v) => krwFmt(v) },
+        { label: '전략', key: 'strategy' },
+      ],
+      data.trades,
+    )
+  }
+
   const handleResetFilters = () => {
     setDateRange(DEFAULT_RANGE)
     setPage(1)
@@ -73,7 +93,20 @@ export default function Trades() {
     <div className="space-y-5">
       <PageHeader
         {...PAGE_META.trades}
-        actions={<SyncIndicator lastUpdated={lastUpdated} loading={loading} error={error} />}
+        actions={
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleExportCsv}
+              disabled={!data || data.trades.length === 0}
+              className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+              title="체결 내역 CSV 다운로드"
+            >
+              <Download size={14} />
+              <span>CSV</span>
+            </button>
+            <SyncIndicator lastUpdated={lastUpdated} loading={loading} error={error} />
+          </div>
+        }
       />
 
       <div className="flex flex-wrap items-center gap-2">

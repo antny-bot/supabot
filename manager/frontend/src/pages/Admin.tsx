@@ -25,6 +25,7 @@ import { PAGE_META } from '../config/pageMeta'
 import { useRealtime } from '../hooks/useRealtime'
 import type { ConfigItem, DashboardData, DashboardStats } from '../types'
 import { staggerDelay } from '../utils/animation'
+import { krwFmt } from '../utils/formatters'
 import { EventsContent } from './Events'
 import { UsersContent } from './Users'
 import NlLogsSection from './reports/NlLogsSection'
@@ -94,6 +95,17 @@ function DashboardTab() {
 
       {data && (
         <>
+          {/* 봇 상태 퀵 배너 */}
+          <div className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-800">
+            <div className="flex items-center gap-2.5">
+              <span className={`h-3 w-3 rounded-full ${data.stats.bot_status === 'online' ? 'bg-emerald-500 animate-pulse' : data.stats.bot_status === 'idle' ? 'bg-amber-500' : 'bg-rose-500'}`} />
+              <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                봇 백그라운드 엔진: <strong className="uppercase text-indigo-600 dark:text-indigo-400">{data.stats.bot_status ?? 'online'}</strong>
+              </span>
+            </div>
+            <span className="text-xs text-slate-500">24h 실현손익: <strong className="font-mono text-slate-700 dark:text-slate-200">{data.stats.realized_pnl_24h ? krwFmt(data.stats.realized_pnl_24h) : '0원'}</strong></span>
+          </div>
+
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
             {DASHBOARD_STAT_CONFIG.map(({ key, label, Icon, bg }, index) => (
               <div key={key} className="animate-fade-in-up" style={staggerDelay(index)}>

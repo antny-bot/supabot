@@ -1,12 +1,12 @@
+import inspect
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
+from .. import bot_client
 from ..db import get_db, get_stock_name_map
 from ._auth import get_current_user
-import inspect
-from .. import bot_client
 
 router = APIRouter()
 
@@ -51,8 +51,10 @@ async def api_list_orders(
     page_size: int = 50,
     user: dict = Depends(get_current_user),
 ):
-    if page < 1: page = 1
-    if page_size > 200: page_size = 200
+    if page < 1:
+        page = 1
+    if page_size > 200:
+        page_size = 200
 
     is_admin = user["is_admin"]
     bot_user_id = user["bot_user_id"]
@@ -92,7 +94,7 @@ async def api_list_orders(
         res = await q.execute()
         orders = res.data
         total_count = res.count or 0
-        
+
         stock_map = await get_stock_name_map()
         for o in orders:
             ticker = o.get("ticker", "")
@@ -104,13 +106,68 @@ async def api_list_orders(
             filled = float(o.get("filled_volume") or 0)
             o["order_value"] = price * vol
             o["fill_pct"] = round(filled / vol * 100) if vol else 0
-            
+
         return JSONResponse({
             "orders": orders,
             "total": total_count,
             "page": page,
-            "page_size": page_size
+            "page_size": page_size,
         })
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.post("/api/orders/cancel-all")
+async def api_cancel_all_orders(
+    user: dict = Depends(get_current_user),
+):
+    is_admin = user["is_admin"]
+    bot_user_id = user["bot_user_id"]
+
+    if not is_admin and not bot_user_id:
+        raise HTTPException(status_code=403, detail="연결된 봇 계정이 없습니다.")
+
+    try:
+        db = get_db()
+        q = db.table("orders").select("uuid,user_id,exchange,ticker,status")
+        q._params["or"] = ",".join([f"status.eq.{s}" for s in _OPEN_STATUSES])
+        if not is_admin:
+            q._params["user_id"] = f"eq.{bot_user_id}"
+
+        res = await q.execute()
+        open_orders = res.data or []
+
+        cancelled_count = 0
+        failed_count = 0
+        errors = []
+
+        for order in open_orders:
+            try:
+                _res = bot_client.cancel_order(
+                    user_id=order["user_id"],
+                    exchange=order["exchange"],
+                    uuid=order["uuid"],
+                    ticker=order["ticker"],
+                )
+                ok, err = (await _res) if inspect.isawaitable(_res) else _res
+                if ok:
+                    cancelled_count += 1
+                else:
+                    failed_count += 1
+                    errors.append(f"{order['ticker']}: {err}")
+            except Exception as item_err:
+                failed_count += 1
+                errors.append(f"{order['ticker']}: {str(item_err)}")
+
+        return JSONResponse({
+            "ok": True,
+            "total": len(open_orders),
+            "cancelled_count": cancelled_count,
+            "failed_count": failed_count,
+            "errors": errors[:5],
+        })
+    except HTTPException:
+        raise
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -220,7 +277,7 @@ async def api_force_update_order(
         _res = bot_client.force_update_order(
             uuid=uuid,
             state=state,
-            filled_volume=filled_volume
+            filled_volume=filled_volume,
         )
         ok, err = (await _res) if inspect.isawaitable(_res) else _res
         if ok:
