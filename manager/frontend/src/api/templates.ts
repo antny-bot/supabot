@@ -38,9 +38,27 @@ export interface TemplateActionResponse {
   error?: string
 }
 
-export const fetchTemplates = () => api.get<Template[]>('/api/templates')
-export const createTemplate = (payload: TemplatePayload) => api.post<Template>('/api/templates', payload)
-export const updateTemplate = (id: number, payload: TemplatePayload) => api.patch<Template>(`/api/templates/${id}`, payload)
+export const fetchTemplates = async (): Promise<Template[]> => {
+  try {
+    const res = await api.get<any>('/api/templates')
+    if (Array.isArray(res)) return res
+    if (res && Array.isArray(res.data)) return res.data
+    return []
+  } catch {
+    return []
+  }
+}
+
+export const createTemplate = async (payload: TemplatePayload): Promise<Template> => {
+  const res = await api.post<any>('/api/templates', payload)
+  return res && res.data ? res.data : res
+}
+
+export const updateTemplate = async (id: number, payload: TemplatePayload): Promise<Template> => {
+  const res = await api.patch<any>(`/api/templates/${id}`, payload)
+  return res && res.data ? res.data : res
+}
+
 export const deleteTemplate = (id: number) => api.delete<Record<string, never>>(`/api/templates/${id}`)
 export const duplicateTemplate = (id: number) => api.post<Record<string, never>>(`/api/templates/${id}/duplicate`, {})
 export const executeTemplate = (id: number) => api.post<TemplateActionResponse>(`/api/templates/${id}/execute`, {})
