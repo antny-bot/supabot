@@ -532,11 +532,17 @@ async def cancel_and_remove_order(user_id: str, ord_dict: dict) -> bool:
 # --- 주문 동기화 및 자동 대응 엔진 ---
 async def sync_orders(application):
     """현재 추적 중인 주문들의 상태를 거래소와 동기화하고 자동 대응 수행"""
-    # 현재 추적 중이지 않은 주문의 limit warning 캐시 정리
+    # 현재 추적 중이지 않은 주문의 limit warning 및 재시도 실패 캐시 정리 (메모리 누수 방지)
     active_uuids = {o["uuid"] for o in order_manager.orders}
     for uid in list(_limit_warned_orders.keys()):
         if uid not in active_uuids:
             _limit_warned_orders.pop(uid, None)
+    for uid in list(_reorder_failures.keys()):
+        if uid not in active_uuids:
+            _reorder_failures.pop(uid, None)
+    for uid in list(_status_check_failures.keys()):
+        if uid not in active_uuids:
+            _status_check_failures.pop(uid, None)
 
     initial_state = [(o['uuid'], o.get('status'), o.get('filled_volume'), o.get('stop_price')) for o in order_manager.orders]
     all_orders = list(order_manager.orders)
@@ -736,8 +742,13 @@ async def sync_orders(application):
         ):
             cache_key = (exchange, ticker)
             if cache_key not in _price_cache:
-                tkr = await exchange_adapter.get_ticker(exchange, ticker, user_id)
-                _price_cache[cache_key] = float(tkr.get("trade_price", 0)) if tkr else 0.0
+                from core.websocket_client import ticker_engine
+                ws_price = ticker_engine.get_price(exchange, ticker) if ticker_engine else None
+                if ws_price and ws_price > 0:
+                    _price_cache[cache_key] = float(ws_price)
+                else:
+                    tkr = await exchange_adapter.get_ticker(exchange, ticker, user_id)
+                    _price_cache[cache_key] = float(tkr.get("trade_price", 0)) if tkr else 0.0
             current_price = _price_cache.get(cache_key, 0.0)
 
             # 트레일링 스톱 (Trailing Stop) 로직

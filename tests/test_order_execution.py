@@ -374,6 +374,7 @@ async def test_grid_orphan_order_when_add_order_fails(tmp_path):
     om = _order_manager(tmp_path)
     adapter = _adapter()
     adapter.create_order = AsyncMock(side_effect=[{"uuid": f"u{i}"} for i in range(3)])
+    adapter.cancel_order = AsyncMock(return_value=True)
     om.add_order = MagicMock(side_effect=RuntimeError("db down"))
     bot = _bot()
 
@@ -384,6 +385,7 @@ async def test_grid_orphan_order_when_add_order_fails(tmp_path):
         is_sell=False, group_no=7, bot=bot, notify_chat_id="111",
     )
 
-    # 거래소에는 3건 발행됐지만 등록 실패 → 성공 카운트 0, 예외 비전파
+    # 거래소에는 3건 발행됐지만 등록 실패 → 자동 롤백 취소 호출 및 성공 카운트 0, 예외 비전파
     assert adapter.create_order.await_count == 3
+    assert adapter.cancel_order.await_count == 3
     assert result["success_count"] == 0

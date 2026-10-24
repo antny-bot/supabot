@@ -1,3 +1,4 @@
+import inspect
 """거미줄/RSI 전략 주문 실행 루프 (텔레그램 콜백 + HTTP 웹훅 공용).
 
 기존에 grid_confirm_callback / _internal_execute_grid_handler /
@@ -86,7 +87,7 @@ async def _execute_order_batch(
                 success += 1
             except Exception as e:
                 log.critical(
-                    "ORPHAN ORDER: 거래소 주문은 발행됐으나 추적 등록 실패 — 수동 확인 필요",
+                    "ORPHAN ORDER: 거래소 주문은 발행됐으나 추적 등록 실패 — 자동 취소 롤백 시도",
                     exc_info=e,
                     extra={
                         "event": "orphan_order", "user_id": str(user_id),
@@ -94,6 +95,16 @@ async def _execute_order_batch(
                         "side": leg["side"], "price": leg["price"], "volume": leg["volume"],
                     },
                 )
+                if not is_reserved and exchange_adapter and hasattr(exchange_adapter, "cancel_order"):
+                    try:
+                        cancel_fn = exchange_adapter.cancel_order(user_id, exchange, res["uuid"], ticker)
+                        rollback_ok = (await cancel_fn) if inspect.isawaitable(cancel_fn) else cancel_fn
+                        if rollback_ok:
+                            log.info("ORPHAN ORDER ROLLBACK: 거래소 고아 주문 취소 성공", extra={"uuid": res["uuid"]})
+                        else:
+                            log.error("ORPHAN ORDER ROLLBACK FAILED: 거래소 고아 주문 취소 실패 — 수동 확인 필요", extra={"uuid": res["uuid"]})
+                    except Exception as cancel_err:
+                        log.error("ORPHAN ORDER ROLLBACK EXCEPTION: 취소 시도 중 예외 발생", exc_info=cancel_err, extra={"uuid": res["uuid"]})
 
         await asyncio.sleep(ORDER_PLACEMENT_SLEEP_SECONDS)
 

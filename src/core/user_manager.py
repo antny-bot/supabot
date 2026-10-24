@@ -234,6 +234,18 @@ class UserManager:
         stored_user = self.users.get(str(user_id))
         return self._decrypt_user_copy(stored_user) if stored_user else None
 
+    def is_user_active(self, user_id) -> bool:
+        """암호 복호화 및 deepcopy 없이 유저 활성화 여부만 O(1)로 빠르게 확인."""
+        u = self.users.get(str(user_id))
+        return bool(u and u.get("is_active"))
+
+    def get_user_preferences(self, user_id) -> dict:
+        """대칭키 복호화 오버헤드 없이 유저의 설정값 딕셔너리만 빠르게 반환."""
+        u = self.users.get(str(user_id))
+        if not u:
+            return dict(self.DEFAULT_PREFERENCES)
+        return {**self.DEFAULT_PREFERENCES, **u.get("preferences", {})}
+
     def _ensure_all_user_defaults(self):
         changed = False
         for user in self.users.values():
