@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 
 from ..db import get_db, get_stock_name_map
 from ._auth import get_current_user
+import inspect
 from .. import bot_client
 
 router = APIRouter()
@@ -136,12 +137,13 @@ async def api_cancel_order(uuid: str, user: dict = Depends(get_current_user)):
         if order["status"] not in _OPEN_STATUSES:
             return JSONResponse({"ok": False, "error": "이미 완료되거나 취소된 주문입니다."}, status_code=400)
 
-        ok, err = bot_client.cancel_order(
+        _res = bot_client.cancel_order(
             user_id=order["user_id"],
             exchange=order["exchange"],
             uuid=order["uuid"],
             ticker=order["ticker"],
         )
+        ok, err = (await _res) if inspect.isawaitable(_res) else _res
         if ok:
             return JSONResponse({"ok": True})
         return JSONResponse({"ok": False, "error": err}, status_code=502)
@@ -170,12 +172,13 @@ async def api_sync_order(uuid: str, user: dict = Depends(get_current_user)):
         if not is_admin and order["user_id"] != bot_user_id:
             raise HTTPException(status_code=403, detail="권한이 없습니다.")
 
-        ok, err, data = bot_client.sync_order(
+        _res = bot_client.sync_order(
             user_id=order["user_id"],
             exchange=order["exchange"],
             uuid=order["uuid"],
             ticker=order["ticker"],
         )
+        ok, err, data = (await _res) if inspect.isawaitable(_res) else _res
         if ok:
             return JSONResponse({"ok": True, "data": data})
         return JSONResponse({"ok": False, "error": err}, status_code=502)
@@ -214,11 +217,12 @@ async def api_force_update_order(
         if state not in ("wait", "partial", "done", "cancel", "pending_reorder", "reserved", "stoploss"):
             raise HTTPException(status_code=400, detail="유효하지 않은 주문 상태입니다.")
 
-        ok, err = bot_client.force_update_order(
+        _res = bot_client.force_update_order(
             uuid=uuid,
             state=state,
             filled_volume=filled_volume
         )
+        ok, err = (await _res) if inspect.isawaitable(_res) else _res
         if ok:
             return JSONResponse({"ok": True})
         return JSONResponse({"ok": False, "error": err}, status_code=502)

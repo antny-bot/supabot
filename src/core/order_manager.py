@@ -108,6 +108,16 @@ class OrderManager:
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
 
+    @property
+    def lock(self) -> asyncio.Lock:
+        if not hasattr(self, "_async_lock") or self._async_lock is None:
+            self._async_lock = asyncio.Lock()
+        return self._async_lock
+
+    def get_orders_snapshot(self) -> list:
+        """현재 인메모리 주문 목록의 안전한 얕은 복사본을 반환한다."""
+        return list(self.orders)
+
     async def reload_from_db_async(self) -> bool:
         """폴링 사이클 시작 시 DB 상태를 비동기로 인메모리에 반영한다."""
         if not is_db_available():
@@ -115,8 +125,10 @@ class OrderManager:
         # 인메모리 변경이 DB에 모두 반영된 뒤 읽어야 stale read로 인한 중복 처리(중복 주문)를 막는다.
         await self.flush_pending_writes()
         try:
-            self.orders = await self._fetch_all_orders_async()
-            self._uuid_set = {o["uuid"] for o in self.orders}
+            async with self.lock:
+                new_orders = await self._fetch_all_orders_async()
+                self.orders = new_orders
+                self._uuid_set = {o["uuid"] for o in self.orders}
             _log.info("Reloaded orders from DB (async)", extra={"event": "orders_reloaded_db_async", "count": len(self.orders)})
             return True
         except Exception as e:

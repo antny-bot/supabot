@@ -40,8 +40,16 @@ class SignalEngine:
         self.exchange_adapter = exchange_adapter
         self._alert_snooze: dict[tuple[str, str, str], float] = {}
 
+    def clean_expired_snoozes(self):
+        """만료된 스누즈 항목을 정리하여 메모리 누수를 방지한다."""
+        now = time.time()
+        expired = [k for k, exp in self._alert_snooze.items() if exp <= now]
+        for k in expired:
+            self._alert_snooze.pop(k, None)
+
     def set_snooze(self, user_id: str, exchange: str, ticker: str, mode: str) -> float:
         """mode: '1h' | '2h' | 'day' — 스누즈 만료 unix timestamp 반환"""
+        self.clean_expired_snoozes()
         if mode == "1h":
             expires = time.time() + 3600
         elif mode == "2h":
@@ -118,6 +126,42 @@ class SignalEngine:
         return RSIIndicator(period=period).compute_with_next(close_series, next_close)
 
     def _search_price_for_target_rsi(self, close_series, current_price, current_rsi, target_rsi, side, period):
+        # 1. 고속 대수적 역산 (Wilder's Smoothing Inverse) 시도
+        try:
+            if side == "bid" and target_rsi >= current_rsi:
+                return current_price
+            if side == "ask" and target_rsi <= current_rsi:
+                return current_price
+
+            diffs = close_series.diff().dropna()
+            gains = diffs.clip(lower=0)
+            losses = (-diffs.clip(upper=0))
+
+            avg_gain = gains.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean().iloc[-1]
+            avg_loss = losses.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean().iloc[-1]
+
+            target_rs = float(target_rsi) / (100.0 - float(target_rsi)) if float(target_rsi) < 100 else 1e9
+
+            if side == "bid":
+                req_loss = ((period - 1) * avg_gain) / target_rs - (period - 1) * avg_loss
+                if req_loss > 0:
+                    est_price = current_price - req_loss
+                    if 0 < est_price <= current_price:
+                        check_rsi = self._calculate_rsi_for_next_close(close_series, est_price, period)
+                        if abs(check_rsi - target_rsi) <= 1.0:
+                            return est_price
+            else:
+                req_gain = target_rs * (period - 1) * avg_loss - (period - 1) * avg_gain
+                if req_gain > 0:
+                    est_price = current_price + req_gain
+                    if est_price >= current_price:
+                        check_rsi = self._calculate_rsi_for_next_close(close_series, est_price, period)
+                        if abs(check_rsi - target_rsi) <= 1.0:
+                            return est_price
+        except Exception:
+            pass
+
+        # 2. 안전 폴백: 이분 탐색
         if side == "bid":
             if target_rsi >= current_rsi:
                 return current_price
@@ -127,7 +171,7 @@ class SignalEngine:
             while low > 1 and low_rsi > target_rsi:
                 low *= 0.98
                 low_rsi = self._calculate_rsi_for_next_close(close_series, low, period)
-            for _ in range(32):
+            for _ in range(24):
                 mid = (low + high) / 2
                 mid_rsi = self._calculate_rsi_for_next_close(close_series, mid, period)
                 if mid_rsi <= target_rsi:
@@ -144,7 +188,7 @@ class SignalEngine:
         while high_rsi < target_rsi:
             high *= 1.02
             high_rsi = self._calculate_rsi_for_next_close(close_series, high, period)
-        for _ in range(32):
+        for _ in range(24):
             mid = (low + high) / 2
             mid_rsi = self._calculate_rsi_for_next_close(close_series, mid, period)
             if mid_rsi >= target_rsi:
@@ -186,9 +230,12 @@ class SignalEngine:
 
     async def analyze_watchlist(self, application):
         """Scan watchlists and send alerts based on RSI and (optionally) Bollinger Bands."""
+        self.clean_expired_snoozes()
         users = self.user_manager.users
         tasks = []
         sem = asyncio.Semaphore(3)  # Rate Limit 방지를 위한 동시 호출 세마포어
+
+        cycle_cache = {}
 
         async def analyze_single_ticker(user_id, user_data, exchange, ticker):
             async with sem:
@@ -196,7 +243,10 @@ class SignalEngine:
                 threshold = float(user_data["preferences"].get("signal_rsi_threshold", 30))
                 use_bb = user_data["preferences"].get("signal_bb_alert", False)
 
-                indicators = await self.get_indicators(exchange, ticker, interval=interval, user_id=user_id)
+                cache_key = (exchange, ticker, interval)
+                if cache_key not in cycle_cache:
+                    cycle_cache[cache_key] = await self.get_indicators(exchange, ticker, interval=interval, user_id=user_id)
+                indicators = cycle_cache.get(cache_key)
                 if indicators is None:
                     return
 
