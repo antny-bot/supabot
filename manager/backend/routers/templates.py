@@ -57,8 +57,8 @@ async def api_list_templates(user: dict = Depends(get_current_user)):
                 return JSONResponse({"error": "연결된 봇 계정이 없습니다."}, status_code=403)
             q._params["user_id"] = f"eq.{bot_user_id}"
 
-        rows = (await q.execute()).data
-        return JSONResponse({"ok": True, "data": rows})
+        rows = (await q.execute()).data or []
+        return JSONResponse(rows)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -133,6 +133,7 @@ async def api_get_template(template_id: int, user: dict = Depends(get_current_us
 
 
 @router.put("/api/templates/{template_id}")
+@router.patch("/api/templates/{template_id}")
 async def api_update_template(template_id: int, payload: TemplateUpdate, user: dict = Depends(get_current_user)):
     is_admin = user["is_admin"]
     bot_user_id = user["bot_user_id"]

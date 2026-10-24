@@ -109,7 +109,8 @@ export default function Templates() {
   async function loadTemplates() {
     try {
       setLoading(true)
-      setTemplates(await fetchTemplates())
+      const res = await fetchTemplates()
+      setTemplates(Array.isArray(res) ? res : [])
     } catch (caughtError) {
       if (caughtError instanceof ApiError) {
         setError(caughtError.message)
@@ -440,13 +441,13 @@ export default function Templates() {
           <div className="flex justify-center py-10">
             <Loader2 size={18} className="animate-spin text-primary-600" />
           </div>
-        ) : templates.length === 0 ? (
+        ) : !Array.isArray(templates) || templates.length === 0 ? (
           <div className="rounded-lg border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
             저장된 템플릿이 없습니다.
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {templates.map((template) => (
+            {(templates || []).map((template) => (
               <article
                 key={template.id}
                 className="rounded-xl border border-slate-200 p-4 shadow-sm transition-colors hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/40"
