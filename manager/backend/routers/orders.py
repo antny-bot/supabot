@@ -66,8 +66,7 @@ async def api_list_orders(
         db = get_db()
         q = db.table("orders").select("*", count="exact").order("created_at", desc=True)
         if status == "open":
-            # PostgREST in.() 구문은 단일 값만 지원하므로 or 로 변환 (wait | partial | pending_reorder | reserved)
-            q._params["or"] = ",".join([f"status.eq.{s}" for s in _OPEN_STATUSES])
+            q.in_("status", list(_OPEN_STATUSES))
         elif status:
             q._params["status"] = f"eq.{status}"
         if exchange:
@@ -130,7 +129,7 @@ async def api_cancel_all_orders(
     try:
         db = get_db()
         q = db.table("orders").select("uuid,user_id,exchange,ticker,status")
-        q._params["or"] = ",".join([f"status.eq.{s}" for s in _OPEN_STATUSES])
+        q.in_("status", list(_OPEN_STATUSES))
         if not is_admin:
             q._params["user_id"] = f"eq.{bot_user_id}"
 
