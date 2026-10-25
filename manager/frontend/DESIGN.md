@@ -27,7 +27,7 @@ Use `space-y-4`/`space-y-5`/`space-y-6` and keep one clear vertical rhythm.
 ## Core Components
 
 Prefer these shared building blocks before inventing new page-specific UI:
-`PageHeader`, `StatCard`, `FilterBar`, `ErrorBanner`, `Spinner`, `Badge`, `Button`, `ProgressBar`, `MfaSettingsCard`, `DisplaySettingsCard`.
+`PageHeader`, `StatCard`, `FilterBar`, `ErrorBanner`, `Spinner`, `Skeleton`, `Badge`, `Button`, `ProgressBar`, `SegmentedControl`, `BottomSheet`, `MfaSettingsCard`, `DisplaySettingsCard`.
 
 If a pattern repeats on 2+ pages, extract it into `src/components/ui` (or another shared folder) instead of duplicating markup.
 
@@ -119,6 +119,11 @@ Prefer these app tokens over page-local `text-*` sizing:
 
 ## Page Architecture
 
+- **Dashboard** (`/dashboard`): 3초 룰 기반 글랜스 UI 적용. 모바일 뷰에서는 통합 히어로 카드(총자산, 당일손익, 7일 스파크라인)와 세그먼트 스위처 제공. 데스크톱 뷰에서는 3-Column 워크벤치 제공.
+- **Orders** (`/orders`): `활성 주문(Open)`과 `주문 이력(History)` 듀얼 뷰 탭 분리. 모바일에서는 통합 필터 바텀시트(`BottomSheet`) 및 슬림 카드 뷰 제공.
+- **Trades** (`/trades`): 체결 거래 목록과 함께 실시간 매수/매도 비율 게이지 바(Bull/Bear ratio) 및 모바일 타임라인 카드 제공.
+- **Templates** (`/templates`): 전략 템플릿 카드 라이브러리 및 폼 모달 제공 (그리드, 스마트그리드, RSI).
+- **Reports** (`/reports`): 11개 세부 리포트를 3대 허브(`포트폴리오 자산`, `수익 & 리스크`, `트레이딩 분석`) 및 상단 카테고리 스위처로 계층화.
 - **Admin** (`/admin`, admin-only): 3개 탭 — 유저관리(`<UsersContent />` from `pages/Users.tsx`), 이벤트(`<EventsContent />` from `pages/Events.tsx`), 주문 및 신호 주기(모니터링 간격 설정 폼). `/users`·`/events`는 `/admin`으로 redirect. 새 admin 전용 기능은 새 라우트 대신 `Admin.tsx`에 탭 추가.
 - **Config** (`/config`): 2개 탭 — 화면 표시(`DisplaySettingsCard`, localStorage only), 보안(`MfaSettingsCard`, TOTP/MFA). 모니터링 간격은 `/admin` "주문 및 신호 주기" 탭으로 이동됨.
 

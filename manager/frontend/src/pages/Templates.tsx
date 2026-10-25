@@ -1,5 +1,15 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Copy, Loader2, Pencil, Play, Plus, Trash2, X } from 'lucide-react'
+import {
+  Copy,
+  Loader2,
+  Pencil,
+  Play,
+  Plus,
+  Trash2,
+  X,
+  Layers,
+  AlertCircle,
+} from 'lucide-react'
 import { ApiError } from '../api/client'
 import {
   createTemplate,
@@ -10,9 +20,12 @@ import {
   type Template,
   updateTemplate,
 } from '../api/templates'
+import Badge from '../components/ui/Badge'
 import PageHeader from '../components/ui/PageHeader'
-import SectionCard from '../components/ui/SectionCard'
+import { CardSkeleton } from '../components/ui/Skeleton'
 import { PAGE_META } from '../config/pageMeta'
+import { useToast } from '../contexts/ToastContext'
+import { krwFmt } from '../utils/formatters'
 
 interface TemplateFormState {
   name: string
@@ -80,477 +93,487 @@ function templateToForm(template: Template): TemplateFormState {
     exchange: template.exchange,
     ticker: template.ticker,
     strategyType,
-    startPrice: strategyType === 'grid' || strategyType === 'sgrid' ? String(template.start_price) : '',
-    endPrice: strategyType === 'grid' || strategyType === 'sgrid' ? String(template.end_price) : '',
+    startPrice: template.start_price ? String(template.start_price) : '',
+    endPrice: template.end_price ? String(template.end_price) : '',
     count: String(template.count),
     budget: String(template.budget),
     buyRsiRange: template.params?.buy_rsi_range || '25-30',
     sellRsiRange: template.params?.sell_rsi_range || '65-75',
-    weighted: template.params?.weighted || false,
+    weighted: Boolean(template.params?.weighted),
   }
 }
 
 export default function Templates() {
+  const toast = useToast()
   const [templates, setTemplates] = useState<Template[]>([])
   const [loading, setLoading] = useState(true)
-  const [submitting, setSubmitting] = useState(false)
-  const [actionLoadingId, setActionLoadingId] = useState<number | null>(null)
-  const [formOpen, setFormOpen] = useState(false)
-  const [editingTemplate, setEditingTemplate] = useState<Template | null>(null)
-  const [executeTargetTemplate, setExecuteTargetTemplate] = useState<Template | null>(null)
-  const [form, setForm] = useState<TemplateFormState>(DEFAULT_FORM)
   const [error, setError] = useState<string | null>(null)
-  const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
-  useEffect(() => {
-    void loadTemplates()
-  }, [])
+  // 모달 상태
+  const [formOpen, setFormOpen] = useState(false)
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [form, setForm] = useState<TemplateFormState>(DEFAULT_FORM)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
 
-  async function loadTemplates() {
+  // 실행 확인 모달
+  const [executingTemplate, setExecutingTemplate] = useState<Template | null>(null)
+  const [executing, setExecuting] = useState(false)
+
+  const loadTemplates = async () => {
     try {
       setLoading(true)
-      const res = await fetchTemplates()
-      setTemplates(Array.isArray(res) ? res : [])
-    } catch (caughtError) {
-      if (caughtError instanceof ApiError) {
-        setError(caughtError.message)
-      } else {
-        setError('템플릿을 불러오는 중 오류가 발생했습니다.')
-      }
+      const data = await fetchTemplates()
+      setTemplates(Array.isArray(data) ? data : [])
+      setError(null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '템플릿 목록을 불러오지 못했습니다.')
     } finally {
       setLoading(false)
     }
   }
 
-  function resetForm() {
-    setForm(DEFAULT_FORM)
-    setEditingTemplate(null)
-    setFormOpen(false)
-  }
+  useEffect(() => {
+    loadTemplates()
+  }, [])
 
-  function openCreateForm() {
-    setError(null)
-    setSuccessMessage(null)
-    setEditingTemplate(null)
+  const handleOpenCreate = () => {
+    setEditingId(null)
     setForm(DEFAULT_FORM)
-    setFormOpen((current) => !current)
-  }
-
-  function openEditForm(template: Template) {
-    setError(null)
-    setSuccessMessage(null)
-    setEditingTemplate(template)
-    setForm(templateToForm(template))
+    setFormError(null)
     setFormOpen(true)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault()
-    setError(null)
-    setSuccessMessage(null)
+  const handleOpenEdit = (template: Template) => {
+    setEditingId(template.id)
+    setForm(templateToForm(template))
+    setFormError(null)
+    setFormOpen(true)
+  }
 
+  const handleDuplicate = async (template: Template) => {
+    try {
+      await duplicateTemplate(template.id)
+      toast.success(`'${template.name}' 템플릿이 복제되었습니다.`)
+      loadTemplates()
+    } catch (e) {
+      toast.error('복제 실패: ' + (e instanceof Error ? e.message : String(e)))
+    }
+  }
+
+  const handleDelete = async (template: Template) => {
+    if (!confirm(`'${template.name}' 템플릿을 삭제하시겠습니까?`)) return
+    try {
+      await deleteTemplate(template.id)
+      toast.success('템플릿이 삭제되었습니다.')
+      loadTemplates()
+    } catch (e) {
+      toast.error('삭제 실패: ' + (e instanceof Error ? e.message : String(e)))
+    }
+  }
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault()
     if (!form.name.trim()) {
-      setError('템플릿 이름을 입력해 주세요.')
+      setFormError('템플릿 이름을 입력하세요.')
+      return
+    }
+    if (!form.ticker.trim()) {
+      setFormError('종목 코드를 입력하세요.')
       return
     }
 
-    setSubmitting(true)
-
+    setSaving(true)
+    setFormError(null)
     try {
       const payload = buildPayload(form)
-      if (editingTemplate) {
-        await updateTemplate(editingTemplate.id, payload)
-        setSuccessMessage('템플릿이 수정되었습니다.')
+      if (editingId) {
+        await updateTemplate(editingId, payload)
+        toast.success('템플릿이 수정되었습니다.')
       } else {
         await createTemplate(payload)
-        setSuccessMessage('템플릿이 저장되었습니다.')
+        toast.success('새 전략 템플릿이 생성되었습니다.')
       }
-
-      resetForm()
-      await loadTemplates()
-    } catch (caughtError) {
-      if (caughtError instanceof ApiError) {
-        setError(caughtError.message)
-      } else {
-        setError('템플릿을 저장하는 중 오류가 발생했습니다.')
-      }
+      setFormOpen(false)
+      loadTemplates()
+    } catch (e) {
+      setFormError(e instanceof ApiError ? e.message : '저장 중 오류가 발생했습니다.')
     } finally {
-      setSubmitting(false)
+      setSaving(false)
     }
   }
 
-  async function handleDelete(templateId: number) {
-    if (!confirm('정말로 이 템플릿을 삭제하시겠습니까?')) return
-
-    setActionLoadingId(templateId)
-    setError(null)
-    setSuccessMessage(null)
-
+  const handleConfirmExecute = async () => {
+    if (!executingTemplate) return
+    setExecuting(true)
     try {
-      await deleteTemplate(templateId)
-      setSuccessMessage('템플릿이 삭제되었습니다.')
-      await loadTemplates()
-    } catch (caughtError) {
-      if (caughtError instanceof ApiError) {
-        setError(caughtError.message)
-      } else {
-        setError('템플릿을 삭제하는 중 오류가 발생했습니다.')
-      }
+      const res = await executeTemplate(executingTemplate.id)
+      toast.success(res.message || '템플릿 전략이 성공적으로 실행되었습니다.')
+      setExecutingTemplate(null)
+    } catch (e) {
+      toast.error('실행 실패: ' + (e instanceof Error ? e.message : String(e)))
     } finally {
-      setActionLoadingId(null)
+      setExecuting(false)
     }
   }
-
-  async function handleDuplicate(templateId: number) {
-    setActionLoadingId(templateId)
-    setError(null)
-    setSuccessMessage(null)
-
-    try {
-      await duplicateTemplate(templateId)
-      setSuccessMessage('템플릿이 복제되었습니다.')
-      await loadTemplates()
-    } catch (caughtError) {
-      if (caughtError instanceof ApiError) {
-        setError(caughtError.message)
-      } else {
-        setError('템플릿을 복제하는 중 오류가 발생했습니다.')
-      }
-    } finally {
-      setActionLoadingId(null)
-    }
-  }
-
-  async function confirmExecute() {
-    if (!executeTargetTemplate) return
-
-    setActionLoadingId(executeTargetTemplate.id)
-    setError(null)
-    setSuccessMessage(null)
-
-    try {
-      const result = await executeTemplate(executeTargetTemplate.id)
-      setSuccessMessage(result.message || '전략 주문이 성공적으로 가동되었습니다.')
-    } catch (caughtError) {
-      if (caughtError instanceof ApiError) {
-        setError(caughtError.message)
-      } else {
-        setError('템플릿을 실행하는 중 오류가 발생했습니다.')
-      }
-    } finally {
-      setActionLoadingId(null)
-      setExecuteTargetTemplate(null)
-    }
-  }
-
-  const isGridStrategy = form.strategyType === 'grid' || form.strategyType === 'sgrid'
 
   return (
-    <div className="mx-auto max-w-screen-xl space-y-6 px-4 pb-20">
+    <div className="space-y-4 pb-8">
       <PageHeader
         {...PAGE_META.templates}
-        actions={(
+        actions={
           <button
-            type="button"
-            onClick={openCreateForm}
-            className="flex items-center gap-1.5 rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-primary-700"
+            onClick={handleOpenCreate}
+            className="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700 transition-colors"
           >
-            {formOpen && !editingTemplate ? <X size={14} /> : <Plus size={14} />}
-            {formOpen && !editingTemplate ? '닫기' : '템플릿 생성'}
+            <Plus size={15} />
+            <span>신규 전략 템플릿</span>
           </button>
-        )}
+        }
       />
 
-      {error ? (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-600 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-400">
-          {error}
+      {error && (
+        <div className="flex items-center gap-2 rounded-xl bg-rose-50 p-4 text-xs font-medium text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
+          <AlertCircle size={16} />
+          <span>{error}</span>
         </div>
-      ) : null}
+      )}
 
-      {successMessage ? (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-600 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-400">
-          {successMessage}
+      {/* 템플릿 카드 그리드 */}
+      {loading ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <CardSkeleton />
+          <CardSkeleton />
+          <CardSkeleton />
         </div>
-      ) : null}
-
-      {formOpen ? (
-        <SectionCard
-          title={editingTemplate ? '템플릿 수정' : '새 템플릿 생성'}
-          subtitle="그리드와 RSI 전략 템플릿을 저장하고 재사용할 수 있습니다."
-          contentClassName="p-4"
-        >
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-1">
-                <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">템플릿 이름</label>
-                <input
-                  type="text"
-                  value={form.name}
-                  onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))}
-                  placeholder="예: 비트코인 RSI 순환매"
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">거래소</label>
-                  <select
-                    value={form.exchange}
-                    onChange={(e) => setForm((current) => ({ ...current, exchange: e.target.value }))}
-                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-900 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                  >
-                    <option value="upbit">Upbit</option>
-                    <option value="bithumb">Bithumb</option>
-                    <option value="kis">한국투자증권 (KIS)</option>
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">종목</label>
-                  <input
-                    type="text"
-                    value={form.ticker}
-                    onChange={(e) => setForm((current) => ({ ...current, ticker: e.target.value }))}
-                    placeholder="BTC"
-                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-900 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                    required
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">전략 유형</label>
-              <select
-                value={form.strategyType}
-                onChange={(e) => setForm((current) => ({ ...current, strategyType: e.target.value }))}
-                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-900 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-              >
-                <option value="grid">Grid</option>
-                <option value="sgrid">Smart Grid</option>
-                <option value="rsitrade">RSI Trade</option>
-              </select>
-            </div>
-
-            {isGridStrategy ? (
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-1">
-                  <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">시작 가격</label>
-                  <input
-                    type="number"
-                    value={form.startPrice}
-                    onChange={(e) => setForm((current) => ({ ...current, startPrice: e.target.value }))}
-                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-900 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                    required
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">종료 가격</label>
-                  <input
-                    type="number"
-                    value={form.endPrice}
-                    onChange={(e) => setForm((current) => ({ ...current, endPrice: e.target.value }))}
-                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-900 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                    required
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-1">
-                  <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">매수 RSI 구간</label>
-                  <input
-                    type="text"
-                    value={form.buyRsiRange}
-                    onChange={(e) => setForm((current) => ({ ...current, buyRsiRange: e.target.value }))}
-                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-900 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">매도 RSI 구간</label>
-                  <input
-                    type="text"
-                    value={form.sellRsiRange}
-                    onChange={(e) => setForm((current) => ({ ...current, sellRsiRange: e.target.value }))}
-                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-900 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                  />
-                </div>
-                <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
-                  <input
-                    type="checkbox"
-                    checked={form.weighted}
-                    onChange={(e) => setForm((current) => ({ ...current, weighted: e.target.checked }))}
-                  />
-                  가중 매수 사용
-                </label>
-              </div>
-            )}
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-1">
-                <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">주문 개수</label>
-                <input
-                  type="number"
-                  value={form.count}
-                  onChange={(e) => setForm((current) => ({ ...current, count: e.target.value }))}
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-900 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                  required
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">예산</label>
-                <input
-                  type="number"
-                  value={form.budget}
-                  onChange={(e) => setForm((current) => ({ ...current, budget: e.target.value }))}
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-900 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="submit"
-                disabled={submitting}
-                className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-primary-700 disabled:opacity-60"
-              >
-                {submitting ? <Loader2 size={14} className="animate-spin" /> : null}
-                {editingTemplate ? '수정 저장' : '템플릿 저장'}
-              </button>
-              <button
-                type="button"
-                onClick={resetForm}
-                className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-              >
-                취소
-              </button>
-            </div>
-          </form>
-        </SectionCard>
-      ) : null}
-
-      <SectionCard
-        title="저장된 템플릿"
-        subtitle="자주 쓰는 전략 설정을 저장하고 재실행할 수 있습니다."
-        contentClassName="p-4"
-      >
-        {loading ? (
-          <div className="flex justify-center py-10">
-            <Loader2 size={18} className="animate-spin text-primary-600" />
+      ) : templates.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-slate-300 p-12 text-center dark:border-slate-800">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400">
+            <Layers size={24} />
           </div>
-        ) : !Array.isArray(templates) || templates.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
-            저장된 템플릿이 없습니다.
-          </div>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {(templates || []).map((template) => (
-              <article
-                key={template.id}
-                className="rounded-xl border border-slate-200 p-4 shadow-sm transition-colors hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/40"
-              >
-                <div className="mb-3 flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{template.name}</h3>
-                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                      {template.exchange.toUpperCase()} · {template.ticker}
-                    </p>
+          <h3 className="mt-3 text-sm font-semibold text-slate-800 dark:text-slate-200">
+            등록된 전략 템플릿이 없습니다
+          </h3>
+          <p className="mt-1 text-xs text-slate-500">자주 사용하는 매매 전략 설정을 템플릿으로 저장해 원클릭으로 실행하세요.</p>
+          <button
+            onClick={handleOpenCreate}
+            className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700"
+          >
+            <Plus size={14} /> 템플릿 만들기
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {templates.map((tpl) => (
+            <div
+              key={tpl.id}
+              className="flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-all hover:border-indigo-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-indigo-800"
+            >
+              <div>
+                {/* 상단: 거래소, 종목, 전략 유형 */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Badge value={tpl.exchange} label={tpl.exchange.toUpperCase()} />
+                    <span className="text-sm font-bold text-slate-900 dark:text-white">
+                      {tpl.ticker}
+                    </span>
                   </div>
-                  <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                    {template.strategy_type || 'grid'}
+                  <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    {tpl.strategy_type || 'GRID'}
                   </span>
                 </div>
 
-                <dl className="space-y-1 text-xs text-slate-600 dark:text-slate-300">
-                  <div className="flex justify-between gap-3">
-                    <dt>주문 수</dt>
-                    <dd>{template.count}</dd>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <dt>예산</dt>
-                    <dd>{template.budget.toLocaleString()}</dd>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <dt>가격 범위</dt>
-                    <dd>
-                      {template.start_price} ~ {template.end_price}
-                    </dd>
-                  </div>
-                </dl>
+                {/* 템플릿 명칭 */}
+                <h4 className="mt-2.5 text-base font-bold text-slate-800 dark:text-slate-100 truncate">
+                  {tpl.name}
+                </h4>
 
-                <div className="mt-4 flex flex-wrap gap-2">
+                {/* 파라미터 요약 그리드 */}
+                <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-slate-50 p-3 text-xs dark:bg-slate-800/50">
+                  <div>
+                    <span className="text-[11px] text-slate-400">설정 예산</span>
+                    <p className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                      {krwFmt(tpl.budget)}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[11px] text-slate-400">분할 주문 수</span>
+                    <p className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                      {tpl.count}분할
+                    </p>
+                  </div>
+                  {tpl.start_price > 0 && (
+                    <div className="col-span-2 border-t border-slate-200/60 pt-1.5 dark:border-slate-700/60">
+                      <span className="text-[11px] text-slate-400">가격 범위</span>
+                      <p className="font-mono font-medium text-slate-700 dark:text-slate-300">
+                        {tpl.start_price.toLocaleString()} ~ {tpl.end_price.toLocaleString()}원
+                      </p>
+                    </div>
+                  )}
+                  {tpl.params?.buy_rsi_range && (
+                    <div className="col-span-2 border-t border-slate-200/60 pt-1.5 dark:border-slate-700/60">
+                      <span className="text-[11px] text-slate-400">RSI 조건</span>
+                      <p className="font-mono font-medium text-slate-700 dark:text-slate-300">
+                        매수: {tpl.params.buy_rsi_range} / 매도: {tpl.params.sell_rsi_range || '—'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* 하단 액션 버튼 그룹 */}
+              <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 dark:border-slate-800">
+                <div className="flex items-center gap-1">
                   <button
-                    type="button"
-                    onClick={() => setExecuteTargetTemplate(template)}
-                    disabled={actionLoadingId === template.id}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-700 disabled:opacity-60"
-                  >
-                    <Play size={14} />
-                    실행
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openEditForm(template)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                    onClick={() => handleOpenEdit(tpl)}
+                    className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                    title="수정"
                   >
                     <Pencil size={14} />
-                    수정
                   </button>
                   <button
-                    type="button"
-                    onClick={() => handleDuplicate(template.id)}
-                    disabled={actionLoadingId === template.id}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                    onClick={() => handleDuplicate(tpl)}
+                    className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                    title="복제"
                   >
                     <Copy size={14} />
-                    복제
                   </button>
                   <button
-                    type="button"
-                    onClick={() => handleDelete(template.id)}
-                    disabled={actionLoadingId === template.id}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 dark:border-rose-900/40 dark:text-rose-400 dark:hover:bg-rose-950/20"
+                    onClick={() => handleDelete(tpl)}
+                    className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40 dark:hover:text-rose-400"
+                    title="삭제"
                   >
                     <Trash2 size={14} />
-                    삭제
                   </button>
                 </div>
-              </article>
-            ))}
-          </div>
-        )}
-      </SectionCard>
 
-      {executeTargetTemplate ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900">
-            <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">템플릿 실행 확인</h2>
-            <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-              <span className="font-semibold text-slate-700 dark:text-slate-200">{executeTargetTemplate.name}</span>
-              {' '}템플릿으로 전략 주문을 실행하시겠습니까?
+                <button
+                  onClick={() => setExecutingTemplate(tpl)}
+                  className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700 transition-colors"
+                >
+                  <Play size={13} />
+                  <span>즉시 실행</span>
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 템플릿 생성/수정 모달 */}
+      {formOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm" onClick={() => !saving && setFormOpen(false)} />
+          <div className="relative z-10 w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900 border border-slate-200 dark:border-slate-800 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                {editingId ? '전략 템플릿 수정' : '신규 전략 템플릿 만들기'}
+              </h3>
+              <button
+                onClick={() => setFormOpen(false)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {formError && (
+              <div className="mt-3 rounded-lg bg-rose-50 p-3 text-xs text-rose-600 dark:bg-rose-950/40 dark:text-rose-300">
+                {formError}
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">템플릿 이름</label>
+                <input
+                  type="text"
+                  placeholder="예: 비트코인 10분할 거미줄 매수"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white focus:border-indigo-500"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">거래소</label>
+                  <select
+                    value={form.exchange}
+                    onChange={(e) => setForm({ ...form, exchange: e.target.value })}
+                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                  >
+                    <option value="upbit">Upbit</option>
+                    <option value="bithumb">Bithumb</option>
+                    <option value="kis">한국투자증권(KIS)</option>
+                    <option value="toss">토스증권</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">종목 코드 (티커)</label>
+                  <input
+                    type="text"
+                    placeholder="BTC / 005930"
+                    value={form.ticker}
+                    onChange={(e) => setForm({ ...form, ticker: e.target.value })}
+                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs uppercase font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">전략 유형</label>
+                <select
+                  value={form.strategyType}
+                  onChange={(e) => setForm({ ...form, strategyType: e.target.value })}
+                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                >
+                  <option value="grid">그리드 (Grid)</option>
+                  <option value="sgrid">스마트 그리드 (Smart Grid)</option>
+                  <option value="rsi">RSI 조건 분할 매매</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">투자 예산 (KRW)</label>
+                  <input
+                    type="number"
+                    value={form.budget}
+                    onChange={(e) => setForm({ ...form, budget: e.target.value })}
+                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">분할 주문 수</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="50"
+                    value={form.count}
+                    onChange={(e) => setForm({ ...form, count: e.target.value })}
+                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                    required
+                  />
+                </div>
+              </div>
+
+              {form.strategyType === 'grid' || form.strategyType === 'sgrid' ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">시작 가격</label>
+                    <input
+                      type="number"
+                      placeholder="최저 매수가"
+                      value={form.startPrice}
+                      onChange={(e) => setForm({ ...form, startPrice: e.target.value })}
+                      className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">종료 가격</label>
+                    <input
+                      type="number"
+                      placeholder="최고 매도가"
+                      value={form.endPrice}
+                      onChange={(e) => setForm({ ...form, endPrice: e.target.value })}
+                      className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                      required
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">매수 RSI 범위</label>
+                    <input
+                      type="text"
+                      placeholder="25-30"
+                      value={form.buyRsiRange}
+                      onChange={(e) => setForm({ ...form, buyRsiRange: e.target.value })}
+                      className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">매도 RSI 범위</label>
+                    <input
+                      type="text"
+                      placeholder="65-75"
+                      value={form.sellRsiRange}
+                      onChange={(e) => setForm({ ...form, sellRsiRange: e.target.value })}
+                      className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-6 flex justify-end gap-2.5 border-t border-slate-100 pt-4 dark:border-slate-800">
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => setFormOpen(false)}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:text-slate-300"
+                >
+                  취소
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {saving && <Loader2 size={14} className="animate-spin" />}
+                  <span>{saving ? '저장 중...' : '저장하기'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 즉시 실행 확인 모달 */}
+      {executingTemplate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm"
+            onClick={() => !executing && setExecutingTemplate(null)}
+          />
+          <div className="relative z-10 w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+            <h3 className="text-base font-bold text-slate-900 dark:text-white">
+              전략 템플릿 즉시 실행
+            </h3>
+            <p className="mt-2 text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              <strong>'{executingTemplate.name}'</strong> 설정으로 거래소에 즉시 분할 주문을 발주합니다.
             </p>
+            <div className="mt-3 rounded-xl bg-slate-50 p-3 text-xs font-mono dark:bg-slate-800/60">
+              <p>종목: {executingTemplate.ticker} ({executingTemplate.exchange.toUpperCase()})</p>
+              <p>예산: {krwFmt(executingTemplate.budget)} ({executingTemplate.count}분할)</p>
+            </div>
             <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setExecuteTargetTemplate(null)}
-                className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                disabled={executing}
+                onClick={() => setExecutingTemplate(null)}
+                className="rounded-xl border border-slate-200 px-3.5 py-1.5 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300"
               >
                 취소
               </button>
               <button
                 type="button"
-                onClick={() => void confirmExecute()}
-                className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-700"
+                disabled={executing}
+                onClick={handleConfirmExecute}
+                className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
               >
-                실행
+                {executing && <Loader2 size={13} className="animate-spin" />}
+                <span>{executing ? '주문 발주 중...' : '확인, 즉시 발주'}</span>
               </button>
             </div>
           </div>
         </div>
-      ) : null}
+      )}
     </div>
   )
 }
