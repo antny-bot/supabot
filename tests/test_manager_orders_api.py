@@ -30,6 +30,10 @@ class _FakeQuery:
         self._params[column] = f"eq.{value}"
         return self
 
+    def in_(self, column: str, values: list):
+        self._params[column] = "in.({})".format(",".join(str(v) for v in values))
+        return self
+
     async def execute(self):
         return _FakeResponse(self._data, self._count)
 
@@ -87,6 +91,7 @@ def test_api_list_orders_adds_order_value_and_formats(monkeypatch):
     )
 
     payload = json.loads(response.body)
+    assert response.status_code == 200, f"Error: {payload}"
     order = payload["orders"][0]
 
     assert payload["total"] == 1
@@ -94,7 +99,7 @@ def test_api_list_orders_adds_order_value_and_formats(monkeypatch):
     assert order["status_label"] == orders_router._STATUS_LABELS["wait"]
     assert order["fill_pct"] == 0
     assert order["created_fmt"] == orders_router._fmt_ts(1710000000)
-    assert query._params["or"] == "status.eq.wait,status.eq.partial,status.eq.pending_reorder,status.eq.reserved"
+    assert query._params["status"] == "in.({})".format(",".join(orders_router._OPEN_STATUSES))
     assert query._params["exchange"] == "eq.upbit"
     assert query._params["user_id"] == "eq.1"
     assert query._params["limit"] == 10

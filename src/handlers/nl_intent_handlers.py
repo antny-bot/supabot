@@ -28,6 +28,7 @@ from core.parsers import (
     get_user_rsi_interval, has_gemini_key, get_dca_weights,
 )
 from core.formatters import build_config_view, format_config_value
+from core.nl_schema import TradeIntentModel
 from core.order_execution import execute_rsitrade_orders, execute_sgridrsi_orders
 from core.stock_resolver import find_kr_stock_candidates
 from core.ticker_disambiguation import (
@@ -36,10 +37,24 @@ from core.ticker_disambiguation import (
 )
 
 
-def _build_llm_prompt(user_text, user):
+def _build_llm_prompt(user_text, user, recent_context=None):
     prefs = user.get("preferences", {})
+    context_lines = []
+    if recent_context and isinstance(recent_context, list):
+        for item in recent_context:
+            role = item.get("role", "user")
+            if role == "user":
+                context_lines.append(f"User: {item.get('text', '')}")
+            elif role == "bot":
+                act = item.get("action")
+                tk = item.get("ticker")
+                context_lines.append(f"Bot resolved: action={act}, ticker={tk}")
+    context_block = ""
+    if context_lines:
+        context_block = "Recent conversation context:\n" + "\n".join(context_lines) + "\n(If the user text refers back to the ticker/subject from recent conversation, carry it over.)\n\n"
+
     return (
-        "Parse Korean trading bot text. Return JSON only.\n"
+        "Parse Korean trading bot text. Return JSON matching the schema.\n"
         "Never execute. Use null for unknown fields.\n"
         "Use help only for usage/capability questions.\n"
         "Missing required fields => clarify.\n"
@@ -50,20 +65,16 @@ def _build_llm_prompt(user_text, user):
         "grid/gridrsi is price-range; RSI range goes to gridrsi/sgridrsi not grid.\n"
         "Missing sell_rsi_range for rsitrade/gridrsi => null; server uses default.\n"
         "dca_mode=true only if user explicitly mentions DCA/물타기/가중치 분할 (rsitrade only); else null.\n"
-        "Schema: {\"action\": string, \"exchange\": string|null, \"ticker\": string|null, "
-        "\"price\": number|null, \"volume\": number|null, \"amount_krw\": number|null, "
-        "\"start_price\": number|null, \"end_price\": number|null, \"count\": integer|null, "
-        "\"buy_rsi_range\": string|null, \"sell_rsi_range\": string|null, \"dca_mode\": boolean|null, "
-        "\"config_key\": string|null, \"config_value\": string|null, \"question\": string|null}.\n"
         "Exchange: upbit|bithumb|kis|toss|null. Korean stock => kis or toss (default kis if unspecified, "
         "toss if user explicitly says 토스/tossinvest). Samsung => 005930. Crypto ticker: BTC/ETH/XRP.\n"
         f"Default exchange: {prefs.get('default_exchange', 'upbit')}.\n"
+        f"{context_block}"
         f"Commands:\n{main.LLM_COMMAND_CATALOG}\n"
         f"User text: {user_text}"
     )
 
 
-async def parse_natural_language_intent(text, user):
+async def parse_natural_language_intent(text, user, recent_context=None):
     api_key = user.get("llm", {}).get("gemini_api_key", "")
     if not api_key:
         return None
@@ -73,15 +84,19 @@ async def parse_natural_language_intent(text, user):
         client = genai.Client(api_key=api_key)
         config = types.GenerateContentConfig(
             response_mime_type="application/json",
+            response_schema=TradeIntentModel,
             temperature=0.1,
         )
         response = await asyncio.to_thread(
             client.models.generate_content,
             model=user.get("preferences", {}).get("llm_model", "gemini-2.5-flash-lite"),
-            contents=_build_llm_prompt(text, user),
+            contents=_build_llm_prompt(text, user, recent_context=recent_context),
             config=config,
         )
-        return json.loads(response.text)
+        data = json.loads(response.text)
+        if isinstance(data, dict):
+            return data
+        return None
     except Exception as e:
         main._log.warning("Gemini intent parse error", exc_info=e, extra={"event": "gemini_parse_error"})
         return None
@@ -373,6 +388,20 @@ async def execute_confirmed_intent(query, context, user, intent):
     await query.edit_message_text("⚠️ 이 자연어 요청은 아직 실행할 수 없습니다. /help에서 지원 명령을 확인해 주세요.")
 
 
+def _update_user_nl_context(context, user_text, intent):
+    if not context or not hasattr(context, "user_data") or context.user_data is None:
+        return
+    history = context.user_data.get("_nl_recent_context")
+    if not isinstance(history, list):
+        history = []
+    action = intent.get("action") if isinstance(intent, dict) else None
+    ticker = intent.get("ticker") if isinstance(intent, dict) else None
+    history.append({"role": "user", "text": user_text})
+    if action:
+        history.append({"role": "bot", "action": action, "ticker": ticker})
+    context.user_data["_nl_recent_context"] = history[-4:]
+
+
 @check_auth
 async def natural_language_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     text = (update.message.text or "").strip()
@@ -382,9 +411,12 @@ async def natural_language_command(update: Update, context: ContextTypes.DEFAULT
     log_command(user_id, "nl", source="nl")
     prefs = user.get("preferences", {})
 
+    recent_context = context.user_data.get("_nl_recent_context", []) if context and hasattr(context, "user_data") and context.user_data else []
+
     preprocessed = preprocess_natural_language_intent(text, user)
     if preprocessed:
         append_preprocess_hit(preprocessed)
+        _update_user_nl_context(context, text, preprocessed)
         if preprocessed.get("action") == "clarify":
             await update.message.reply_text(preprocessed.get("question") or _clarify_message(text, preprocessed))
             return
@@ -406,8 +438,9 @@ async def natural_language_command(update: Update, context: ContextTypes.DEFAULT
         await update.message.reply_text("💬 자연어 명령을 사용하려면 /config에서 Gemini API 키를 저장한 뒤 /config set llm_enabled on을 실행해 주세요.")
         return
 
-    llm_intent = await parse_natural_language_intent(text, user)
+    llm_intent = await parse_natural_language_intent(text, user, recent_context=recent_context)
     intent = normalize_natural_language_intent(text, llm_intent, user)
+    _update_user_nl_context(context, text, intent)
     action = intent.get("action") if isinstance(intent, dict) else None
     is_immediate = _is_immediate_intent(action)
     confirm_status = "auto" if (not intent or action in [None, "clarify"] or is_immediate) else "pending"

@@ -74,6 +74,12 @@ manager.clear_user_orders(user_id)  # 해당 유저의 모든 주문을 DB+메�
 - 파일 폴백: DB 미사용/실패 시 `data/orders.json` (인자 변경 가능), 쓰기 후 `chmod 0600` 적용.
 - asyncio 단일 이벤트 루프 → 잠금 불필요.
 
+## 웹 매니저 오픈 주문 조회 정책
+
+매니저 백엔드(`manager/backend/routers/orders.py`)의 오픈 주문(`status=open`) 목록 조회 및 일괄 취소 시 대상 상태:
+- `_OPEN_STATUSES = ("wait", "partial", "pending_reorder", "reserved")`
+- PostgREST 조회 시 `q.in_("status", list(_OPEN_STATUSES))`를 사용하여 `status=in.(wait,partial,pending_reorder,reserved)`로 쿼리합니다.
+
 ## 참조
 - KIS pending_reorder 상세 흐름: `docs/302_kis_market_policy.md`
 - 유저 전체 리셋 (`/resetuser`, 거래소 취소 + `clear_user_orders` + `trade_log.clear_user_trades`): `docs/205_main_handlers.md`
