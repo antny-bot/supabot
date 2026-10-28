@@ -18,7 +18,7 @@ def _iso_cutoff() -> str:
 async def _calc_24h_pnl_and_status(db, user_id: str | None = None) -> tuple[int, str]:
     cutoff = time.time() - 86400
     try:
-        q = db.table("trade_logs").select("side,price,volume,fee")
+        q = db.table("trade_logs").select("side,price,volume,fee_amount")
         q._params["executed_at"] = f"gte.{cutoff}"
         if user_id:
             q._params["user_id"] = f"eq.{user_id}"
@@ -29,7 +29,7 @@ async def _calc_24h_pnl_and_status(db, user_id: str | None = None) -> tuple[int,
         fee_total = 0.0
         for t in trades:
             krw = float(t.get("price") or 0) * float(t.get("volume") or 0)
-            fee = float(t.get("fee") or 0)
+            fee = float(t.get("fee_amount") or t.get("fee") or 0)
             fee_total += fee
             if t.get("side") == "ask":
                 ask_total += krw
@@ -39,14 +39,22 @@ async def _calc_24h_pnl_and_status(db, user_id: str | None = None) -> tuple[int,
     except Exception:
         pnl_24h = 0
 
-    # 봇 활성 상태 점검 (최근 이벤트 타임스탬프)
+    # 봇 활성 상태 점검 (1차: system_config bot_heartbeat, 2차: operational_events)
     bot_status = "offline"
     try:
-        status_q = db.table("operational_events").select("created_at").order("id", desc=True).limit(1)
-        ev_data = (await status_q.execute()).data
-        if ev_data:
-            created_str = ev_data[0]["created_at"]
-            dt = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
+        latest_ts_str = None
+        hb_q = db.table("system_config").select("value").eq("key", "bot_heartbeat").limit(1)
+        hb_data = (await hb_q.execute()).data
+        if hb_data and hb_data[0].get("value"):
+            latest_ts_str = hb_data[0]["value"]
+        else:
+            status_q = db.table("operational_events").select("created_at").order("id", desc=True).limit(1)
+            ev_data = (await status_q.execute()).data
+            if ev_data and ev_data[0].get("created_at"):
+                latest_ts_str = ev_data[0]["created_at"]
+
+        if latest_ts_str:
+            dt = datetime.fromisoformat(latest_ts_str.replace("Z", "+00:00"))
             now_utc = datetime.now(timezone.utc)
             diff_min = (now_utc - dt).total_seconds() / 60
             if diff_min <= 10:

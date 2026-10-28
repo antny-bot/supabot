@@ -188,6 +188,29 @@ def _write_heartbeat():
         pass
 
 
+_last_db_heartbeat = 0.0
+
+
+async def _record_db_heartbeat_async():
+    global _last_db_heartbeat
+    now = time.time()
+    # 최소 60초 간격으로 DB 하트비트 기록
+    if now - _last_db_heartbeat < 60:
+        return
+    try:
+        from core.db import get_db, is_db_available
+        if not is_db_available():
+            return
+        iso_now = datetime.now(timezone.utc).isoformat()
+        await get_db().table("system_config").upsert({
+            "key": "bot_heartbeat",
+            "value": iso_now,
+        }).execute_async()
+        _last_db_heartbeat = now
+    except Exception as e:
+        _log.debug("Failed to record DB heartbeat: %s", e)
+
+
 # ==========================================
 # 🔒 권한 검증 미들웨어
 # ==========================================
@@ -195,7 +218,7 @@ def check_auth(func):
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = str(update.effective_chat.id)
         user = user_manager.get_user(user_id)
-        
+
         if not user:
             if update.message:
                 await update.message.reply_text("👋 안녕하세요! 봇을 사용하시려면 먼저 /start 명령어를 입력해 주세요.")
@@ -204,7 +227,7 @@ def check_auth(func):
         if not user["is_active"]:
             await update.effective_chat.send_message("⏳ 관리자의 승인을 기다리는 중입니다. 승인이 완료되면 알려드릴게요!")
             return
-            
+
         return await func(update, context, user)
     return wrapper
 
@@ -814,7 +837,7 @@ async def sync_orders(application):
         # 1. 부분 체결 또는 전량 체결 발생 시
         if exec_vol > ord['filled_volume']:
             newly_filled = exec_vol - ord['filled_volume']
-            
+
             # 매수 체결 시 -> 연동된 매도(익절) 주문 생성 (rsitrade 전략인 경우)
             if ord['side'] == 'bid' and ord['strategy'] == 'rsitrade' and ord['linked_to']:
                 outcome = await _create_linked_sell_order(application, ord, exec_vol, state)
@@ -824,7 +847,7 @@ async def sync_orders(application):
                     continue
                 if outcome in ("no_price", "failed"):
                     keep_order_for_retry = True
-            
+
             # 일반 체결 알림
             else:
                 order_manager.update_order_fill(ord['uuid'], exec_vol, state)
@@ -872,7 +895,7 @@ async def sync_orders(application):
             order_manager.remove_order(ord['uuid'])
         elif state != ord.get("status"):
             order_manager.update_order_status(ord['uuid'], state)
-        
+
         await asyncio.sleep(0.2)
 
     # 상태 변경 여부 체크 후 실시간 동기화 트리거
@@ -912,6 +935,7 @@ async def order_sync_loop(application):
     while True:
         _order_wake_event.clear()
         _write_heartbeat()
+        await _record_db_heartbeat_async()
         try:
             prefs = await _get_admin_prefs_async()
             await order_manager.reload_from_db_async()
@@ -1046,7 +1070,7 @@ async def post_init(application):
     """봇 초기화 후 백그라운드 태스크 실행"""
     global _order_wake_event, _notify_runner
     _order_wake_event = asyncio.Event()
-    
+
     def _on_order_added():
         _order_wake_event.set()
         _spawn_bg(trigger_realtime_sync())
@@ -1068,9 +1092,10 @@ async def post_init(application):
         append_operational_event("warning", "post_init", "Telegram command menu update failed", e)
     await notify_admin_security_status(application)
     await startup_recovery(application)
+    await _record_db_heartbeat_async()
     _spawn_bg(order_sync_loop(application))
     _spawn_bg(signal_analysis_loop(application))
-    
+
     # DB 장애 복구 후 데이터 동기화 백그라운드 태스크 기동
     from core.db_sync import start_sync_loop
     start_sync_loop()
@@ -1106,7 +1131,7 @@ async def post_shutdown(application):
     if _notify_runner:
         await _notify_runner.cleanup()
         _notify_runner = None
-    
+
     # 웹소켓 엔진 정지
     from core.websocket_client import ticker_engine
     if ticker_engine:
@@ -1203,10 +1228,10 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, nl_intent_handlers.natural_language_command))
 
     _log.info(f"{BOT_DISPLAY_NAME} starting", extra={"event": "bot_start", "version": VERSION})
-    
+
     # 동기식으로 실행 (자체 이벤트 루프를 안전하게 생성합니다)
     application.run_polling()
-    
+
 if __name__ == "__main__":
     try:
         main()
