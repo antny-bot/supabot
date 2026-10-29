@@ -3,7 +3,10 @@ import os
 import time
 from datetime import datetime, timedelta, timezone
 
+from core.bot_logger import get_logger
 from core.db import get_db, is_db_available
+
+_log = get_logger("trade_log")
 
 TRADE_LOG_PATH = os.getenv("TRADE_LOG_PATH", "data/trades.jsonl")
 TRADE_LOG_MAX_LINES = 10_000
@@ -41,8 +44,21 @@ def is_trade_logged(uuid, path=TRADE_LOG_PATH) -> bool:
     return False
 
 
-def append_trade(user_id, exchange, ticker, side, price, volume, strategy, uuid, fee_amount=0.0, path=TRADE_LOG_PATH):
+def append_trade(
+    user_id,
+    exchange,
+    ticker,
+    side,
+    price,
+    volume,
+    strategy,
+    uuid,
+    fee_amount=0.0,
+    group_no=None,
+    path=TRADE_LOG_PATH,
+):
     ts = time.time()
+    normalized_group_no = int(group_no) if group_no is not None else None
     record = {
         "ts": ts,
         "user_id": str(user_id),
@@ -54,23 +70,32 @@ def append_trade(user_id, exchange, ticker, side, price, volume, strategy, uuid,
         "strategy": strategy,
         "uuid": uuid,
         "fee_amount": float(fee_amount),
+        "group_no": normalized_group_no,
     }
     if is_db_available():
+        db_row = {
+            "user_id": str(user_id),
+            "exchange": exchange,
+            "ticker": ticker,
+            "side": side,
+            "price": float(price),
+            "volume": float(volume),
+            "strategy": strategy,
+            "uuid": uuid,
+            "executed_at": ts,
+            "fee_amount": float(fee_amount),
+        }
+        if normalized_group_no is not None:
+            db_row["group_no"] = normalized_group_no
         try:
-            get_db().table("trade_logs").insert({
-                "user_id": str(user_id),
-                "exchange": exchange,
-                "ticker": ticker,
-                "side": side,
-                "price": float(price),
-                "volume": float(volume),
-                "strategy": strategy,
-                "uuid": uuid,
-                "executed_at": ts,
-                "fee_amount": float(fee_amount),
-            }).execute()
+            get_db().table("trade_logs").insert(db_row).execute()
         except Exception:
-            pass
+            if "group_no" in db_row:
+                db_row.pop("group_no", None)
+                try:
+                    get_db().table("trade_logs").insert(db_row).execute()
+                except Exception:
+                    pass
     try:
         dir_name = os.path.dirname(path)
         if dir_name:
@@ -138,20 +163,71 @@ def clear_user_trades(user_id, path=TRADE_LOG_PATH) -> int:
     return removed
 
 
-def read_trades(user_id, period="all", path=TRADE_LOG_PATH):
+def _match_ticker_filter(record_ticker: str, filter_ticker: str | None) -> bool:
+    if not filter_ticker:
+        return True
+    rt = str(record_ticker or "").upper()
+    ft = str(filter_ticker or "").upper().strip()
+    if rt == ft:
+        return True
+    if rt.replace("KRW-", "") == ft.replace("KRW-", ""):
+        return True
+    return False
+
+
+def read_trades(user_id, period="all", path=None, group_no=None, ticker=None):
+    if path is None:
+        path = TRADE_LOG_PATH
     cutoff = _period_cutoff_ts(period)
-    if not os.path.exists(path):
-        return []
+    target_group = int(group_no) if group_no is not None else None
     result = []
-    with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            try:
-                rec = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if rec.get("user_id") != str(user_id):
-                continue
-            if rec.get("ts", 0) < cutoff:
-                continue
-            result.append(rec)
+
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if rec.get("user_id") != str(user_id):
+                    continue
+                if rec.get("ts", 0) < cutoff:
+                    continue
+                if target_group is not None:
+                    rec_gno = rec.get("group_no")
+                    if rec_gno is None or int(rec_gno) != target_group:
+                        continue
+                if ticker and not _match_ticker_filter(rec.get("ticker", ""), ticker):
+                    continue
+                result.append(rec)
+        return result
+
+    # 로컬 파일이 없을 때 DB 폴백 조회
+    if is_db_available():
+        try:
+            q = get_db().table("trade_logs").select("*").eq("user_id", str(user_id)).order("executed_at", desc=False)
+            if cutoff > 0:
+                q._params["executed_at"] = f"gte.{cutoff}"
+            if target_group is not None:
+                q._params["group_no"] = f"eq.{target_group}"
+            rows = q.execute().data or []
+            for r in rows:
+                if ticker and not _match_ticker_filter(r.get("ticker", ""), ticker):
+                    continue
+                result.append({
+                    "ts": float(r.get("executed_at") or 0),
+                    "user_id": str(r.get("user_id") or ""),
+                    "exchange": r.get("exchange", ""),
+                    "ticker": r.get("ticker", ""),
+                    "side": r.get("side", ""),
+                    "price": float(r.get("price") or 0),
+                    "volume": float(r.get("volume") or 0),
+                    "strategy": r.get("strategy", "manual"),
+                    "uuid": r.get("uuid"),
+                    "fee_amount": float(r.get("fee_amount") or 0),
+                    "group_no": r.get("group_no"),
+                })
+        except Exception as e:
+            _log.debug("Failed to read trades from DB fallback: %s", e)
+
     return result

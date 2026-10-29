@@ -2,11 +2,12 @@ import os
 import sys
 import asyncio
 import dotenv
+import dotenv.main
 import pytest
 
 
 # config/.env가 로드되더라도 SUPABASE_URL/SUPABASE_SERVICE_KEY는 테스트 중에 비워둔다 (라이브 네트워크/타임아웃 방지)
-_orig_load_dotenv = dotenv.load_dotenv
+_orig_load_dotenv = dotenv.main.load_dotenv
 
 def _mock_load_dotenv(*args, **kwargs):
     res = _orig_load_dotenv(*args, **kwargs)
@@ -15,6 +16,7 @@ def _mock_load_dotenv(*args, **kwargs):
     return res
 
 dotenv.load_dotenv = _mock_load_dotenv
+dotenv.main.load_dotenv = _mock_load_dotenv
 
 os.environ["SUPABASE_URL"] = ""
 os.environ["SUPABASE_SERVICE_KEY"] = ""
@@ -24,7 +26,9 @@ os.environ.setdefault("USER_SECRET_KEY", "bW9jay1mZXJuZXQta2V5LWZvci10ZXN0aW5nLT
 
 @pytest.fixture(autouse=True)
 def clean_test_snooze():
-    """테스트 간 스누즈 파일 오염 방지."""
+    """테스트 간 스누즈 파일 오염 및 SUPABASE 환경변수 누출 방지."""
+    os.environ["SUPABASE_URL"] = ""
+    os.environ["SUPABASE_SERVICE_KEY"] = ""
     snooze_path = "data/snooze.json"
     if os.path.exists(snooze_path):
         try:
@@ -37,4 +41,3 @@ def clean_test_snooze():
             os.remove(snooze_path)
         except OSError:
             pass
-

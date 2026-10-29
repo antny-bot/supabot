@@ -358,8 +358,16 @@ class OrderManager:
         return [o for o in self.orders if o["user_id"] == str(user_id) and o["strategy"] == strategy]
 
     def get_next_group_no(self, user_id) -> int:
-        nums = [o["group_no"] for o in self.orders
-                if o["user_id"] == str(user_id) and o.get("group_no")]
+        uid = str(user_id)
+        nums = [int(o["group_no"]) for o in self.orders
+                if str(o.get("user_id")) == uid and o.get("group_no")]
+        try:
+            from core.trade_log import read_trades
+            for t in read_trades(uid, period="all"):
+                if t.get("group_no"):
+                    nums.append(int(t["group_no"]))
+        except Exception:
+            pass
         return (max(nums) + 1) if nums else 1
 
     def get_orders_by_group_no(self, user_id, group_no) -> list:

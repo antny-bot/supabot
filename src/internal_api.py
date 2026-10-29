@@ -349,6 +349,7 @@ async def _internal_sync_order_handler(request: _web.Request) -> _web.Response:
                                 break
                         if ord_obj:
                             fee_amount = float(status_info.get("fee_amount") or 0.0)
+                            extra_kw = {"group_no": ord_obj["group_no"]} if ord_obj.get("group_no") is not None else {}
                             append_trade(
                                 user_id=user_id,
                                 exchange=exchange,
@@ -358,7 +359,8 @@ async def _internal_sync_order_handler(request: _web.Request) -> _web.Response:
                                 volume=executed if executed else float(ord_obj.get("filled_volume") or ord_obj["volume"]),
                                 strategy=ord_obj.get("strategy", "manual"),
                                 uuid=uuid,
-                                fee_amount=fee_amount
+                                fee_amount=fee_amount,
+                                **extra_kw,
                             )
                 _order_manager.remove_order(uuid)
             else:
@@ -399,6 +401,7 @@ async def _internal_force_update_order_handler(request: _web.Request) -> _web.Re
             if state == "done" and ord_obj:
                 from core.trade_log import is_trade_logged
                 if not is_trade_logged(uuid):
+                    extra_kw = {"group_no": ord_obj["group_no"]} if ord_obj.get("group_no") is not None else {}
                     append_trade(
                         user_id=ord_obj["user_id"],
                         exchange=ord_obj["exchange"],
@@ -408,7 +411,8 @@ async def _internal_force_update_order_handler(request: _web.Request) -> _web.Re
                         volume=executed if executed else float(ord_obj.get("filled_volume") or ord_obj["volume"]),
                         strategy=ord_obj.get("strategy", "manual"),
                         uuid=uuid,
-                        fee_amount=0.0
+                        fee_amount=0.0,
+                        **extra_kw,
                     )
             _order_manager.remove_order(uuid)
         else:

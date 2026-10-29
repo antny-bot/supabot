@@ -24,6 +24,7 @@ from core.user_manager import UserManager, is_quiet_hours
 from core.trade_log import append_trade, read_trades
 from core.exchange_adapter import ExchangeAdapter
 from core.order_manager import OrderManager
+from core.dca_manager import DcaManager, execute_due_dca_schedules, check_daily_cash_alerts
 from core.signal_engine import SignalEngine
 from core.natural_language import (
     append_natural_language_log,
@@ -109,10 +110,12 @@ user_manager = UserManager()
 user_manager.initialize_admin(ADMIN_CHAT_ID)
 exchange_adapter = ExchangeAdapter(user_manager)
 order_manager = OrderManager()
+dca_manager = DcaManager()
 signal_engine = SignalEngine(user_manager, exchange_adapter)
 _order_wake_event: asyncio.Event = None  # post_init에서 초기화
 _pending_nl_intents = {}
 RSI_GRID_COMMAND_ALIASES = ("rsigrid", "rsitrade", "gridrsi")
+DCA_COMMAND_ALIASES = ("dca", "autoinvest", "periodic")
 ACCOUNT_COMMAND_ALIASES = ("whoami", "me")
 DEFAULT_BOT_COMMANDS = [
     # 시스템
@@ -136,6 +139,7 @@ DEFAULT_BOT_COMMANDS = [
     ("grid", "가격 범위 분할 매수"),
     ("sgrid", "수량 분할 매도"),
     ("rsitrade", "RSI 순환 매매"),
+    ("dca", "정기 적립식 매수/매도"),
     # 감시
     ("watch", "RSI 감시 종목 추가"),
     ("unwatch", "RSI 감시 제거"),
@@ -833,6 +837,7 @@ async def _process_order_fill(application, ord: dict, res: dict, ex_obj) -> None
                      f"• 주문이 거래소에서 취소되었습니다. 추적을 중단합니다.",
             )
         if state == "done":
+            extra_kw = {"group_no": ord["group_no"]} if ord.get("group_no") is not None else {}
             append_trade(
                 user_id=user_id,
                 exchange=exchange,
@@ -843,6 +848,7 @@ async def _process_order_fill(application, ord: dict, res: dict, ex_obj) -> None
                 strategy=ord.get("strategy", "manual"),
                 uuid=ord["uuid"],
                 fee_amount=float(res.get("fee_amount") or 0),
+                **extra_kw,
             )
         order_manager.remove_order(ord['uuid'])
     elif state != ord.get("status"):
@@ -989,11 +995,21 @@ async def order_sync_loop(application):
         try:
             prefs = await _get_admin_prefs_async()
             await order_manager.reload_from_db_async()
+            await dca_manager.reload_from_db_async()
             await user_manager.reload_from_db_async()
+            await execute_due_dca_schedules(
+                application, dca_manager, exchange_adapter, order_manager, user_manager
+            )
             await sync_orders(application)
+            await check_daily_cash_alerts(
+                application, dca_manager, order_manager, exchange_adapter, user_manager
+            )
             metrics.record_poll_ok()
             interval = prefs["poll_active_interval"] if order_manager.orders \
                        else prefs["poll_no_order_interval"]
+            dca_delay = dca_manager.nearest_next_run_delay()
+            if dca_delay is not None:
+                interval = min(float(interval), max(1.0, float(dca_delay)))
             await _interruptible_sleep(interval)
         except Exception as e:
             _log.error("Order sync loop error", exc_info=e, extra={"event": "order_sync_loop_error"})
@@ -1125,6 +1141,7 @@ async def post_init(application):
         _order_wake_event.set()
         _spawn_bg(trigger_realtime_sync())
     order_manager.on_order_added = _on_order_added
+    dca_manager.on_schedule_changed = _on_order_added
 
     try:
         await application.bot.set_my_commands(
@@ -1265,6 +1282,11 @@ def main():
     application.add_handler(CallbackQueryHandler(strategy_handlers.rsitrade_confirm_callback, pattern="^rsitrun"))
     application.add_handler(CommandHandler("sgridrsi", strategy_handlers.sgridrsi_command))
     application.add_handler(CallbackQueryHandler(strategy_handlers.sgridrsi_confirm_callback, pattern="^sgridrsirun"))
+    for command_name in DCA_COMMAND_ALIASES:
+        application.add_handler(CommandHandler(command_name, strategy_handlers.dca_command))
+    application.add_handler(CommandHandler("sdca", strategy_handlers.sdca_command))
+    application.add_handler(CallbackQueryHandler(strategy_handlers.dca_confirm_callback, pattern="^dcarun\\|"))
+    application.add_handler(CallbackQueryHandler(strategy_handlers.dca_delete_callback, pattern="^dcadel\\|"))
     application.add_handler(CallbackQueryHandler(manual_order_handlers.manual_order_confirm_callback, pattern="^(manualrun|manualcancel)\\|"))
     application.add_handler(CallbackQueryHandler(query_handlers.cancel_confirm_callback, pattern="^(cancelrun|cancelabort)\\|"))
     application.add_handler(CallbackQueryHandler(list_view_handlers.list_view_callback, pattern="^lv\\|"))

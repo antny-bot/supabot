@@ -1,5 +1,6 @@
 """조회성 커맨드 — /asset, /orders, /cancel, /cancelno, /price, /indicators, /report, /history."""
 import asyncio
+import re
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
@@ -7,8 +8,13 @@ from telegram.ext import ContextTypes
 import main
 from main import check_auth, check_details_help, resolve_ticker_for_command
 from core.parsers import normalize_exchange, exchange_display_name, parse_exchange_and_ticker
-from core.formatters import build_cancel_confirm_message, build_report_view_page
+from core.formatters import (
+    build_cancel_confirm_message,
+    build_report_view_page,
+    build_timeseries_report_view_page,
+)
 from core.trade_log import read_trades
+from core.dca_manager import analyze_user_cash_sufficiency
 from handlers import list_view_handlers
 
 
@@ -99,13 +105,25 @@ async def cancelno_command(update: Update, context: ContextTypes.DEFAULT_TYPE, u
         await update.message.reply_text("⚠️ 취소할 배치 번호를 입력하세요. 예: <code>/cancelno 1</code>", parse_mode="HTML")
         return
 
+    raw_no = str(args[-1]).strip().lstrip("#")
     try:
-        group_no = int(args[-1])
+        group_no = int(raw_no)
     except ValueError:
         await update.message.reply_text("⚠️ 배치 번호는 숫자여야 합니다. 예: <code>/cancelno 1</code>", parse_mode="HTML")
         return
 
     orders = main.order_manager.get_orders_by_group_no(user_id, group_no)
+    dca_mgr = getattr(main, "dca_manager", None)
+    dca_sched = dca_mgr.get_schedule_by_group_no(user_id, group_no) if dca_mgr else None
+
+    if not orders and dca_sched:
+        dca_mgr.remove_schedule(dca_sched["id"], user_id=user_id)
+        await update.message.reply_text(
+            f"🛑 #{group_no} 배치 정기 전략(<code>{dca_sched['id']}</code>, {dca_sched['ticker']})을 중지했습니다.",
+            parse_mode="HTML",
+        )
+        return
+
     if not orders:
         await update.message.reply_text(f"ℹ️ #{group_no} 배치 주문이 없습니다.")
         return
@@ -283,25 +301,135 @@ async def indicators_command(update: Update, context: ContextTypes.DEFAULT_TYPE,
     await update.message.reply_text(msg, parse_mode="HTML")
 
 
+_REPORT_PERIOD_ALIASES = {
+    "today": "today", "오늘": "today",
+    "week": "week", "주간": "week", "7d": "week",
+    "month": "month", "월간": "month", "30d": "month",
+    "all": "all", "전체": "all",
+}
+
+
+def parse_report_args(args: list[str]) -> tuple[str, int | None, str | None]:
+    """/report 명령 인자에서 (period, group_no, ticker)를 추출한다.
+    지원 형태:
+    - /report [today|week|month|all]
+    - /report #1 [period]  또는 /report batch:1  또는 /report 배치1
+    - /report BTC [period]  또는 /report 005930 [period]
+    - /report #1 BTC [period]
+    """
+    period = "all"
+    group_no: int | None = None
+    ticker: str | None = None
+
+    for raw in args or []:
+        tok = str(raw).strip()
+        if not tok:
+            continue
+        low = tok.lower()
+        if low in _REPORT_PERIOD_ALIASES:
+            period = _REPORT_PERIOD_ALIASES[low]
+            continue
+        m_batch = re.match(r"^(?:#|batch:|배치#?|group:)(\d+)$", low)
+        if m_batch:
+            group_no = int(m_batch.group(1))
+            continue
+        # 6자리 숫자는 국내주식 종목코드(예: 005930), 1~4자리 숫자는 배치 번호로 인식
+        if tok.isdigit() and len(tok) <= 4 and group_no is None:
+            group_no = int(tok)
+            continue
+        if ticker is None:
+            ticker = tok.upper()
+
+    return period, group_no, ticker
+
+
 @check_auth
 async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     if await check_details_help(update, "report"): return
     user_id = str(update.effective_chat.id)
     args = context.args or []
-    period = args[0].lower() if args else "all"
-    if period not in ("today", "week", "month", "all"):
-        await update.message.reply_text("⚠️ 사용법: /report [today|week|month|all]")
+    period, group_no, ticker = parse_report_args(args)
+
+    dca_mgr = getattr(main, "dca_manager", None)
+    om = getattr(main, "order_manager", None)
+    ex_adapter = getattr(main, "exchange_adapter", None)
+    cash_reports = await analyze_user_cash_sufficiency(user_id, dca_mgr, om, ex_adapter)
+
+    is_timeseries = (group_no is not None) or (ticker is not None)
+    trades = read_trades(user_id, period, group_no=group_no, ticker=ticker)
+
+    if is_timeseries:
+        dca_sched = dca_mgr.get_schedule_by_group_no(user_id, group_no) if (dca_mgr and group_no is not None) else None
+        open_orders = []
+        if om:
+            for o in om.get_user_orders(user_id):
+                if group_no is not None and o.get("group_no") != group_no:
+                    continue
+                if ticker is not None:
+                    tk_u = ticker.upper()
+                    o_tk = str(o.get("ticker") or "").upper()
+                    o_base = o_tk.split("-", 1)[1] if "-" in o_tk else o_tk
+                    if tk_u not in (o_tk, o_base):
+                        continue
+                open_orders.append(o)
+
+        if not trades and not dca_sched and not open_orders:
+            target_desc = f"#{group_no} 배치" if group_no is not None else f"{ticker} 종목"
+            await update.message.reply_text(
+                f"📊 {target_desc}에 해당하는 체결 기록이나 활성 전략이 없습니다.\n"
+                "⚠️ 사용법: <code>/report [today|week|month|all]</code> 또는 <code>/report #[배치번호]</code> · <code>/report [종목]</code>",
+                parse_mode="HTML",
+            )
+            return
+
+        snapshot = {
+            "timeseries": True,
+            "trades": trades,
+            "period": period,
+            "group_no": group_no,
+            "ticker": ticker,
+            "dca_sched": dca_sched,
+            "open_orders": open_orders,
+            "cash_reports": cash_reports,
+        }
+        token = main.create_list_view_token(user_id, "report", {"page": 0}, snapshot=snapshot)
+        text, page, total_pages = build_timeseries_report_view_page(
+            trades,
+            period=period,
+            group_no=group_no,
+            ticker=ticker,
+            page=0,
+            dca_sched=dca_sched,
+            open_orders=open_orders,
+            cash_reports=cash_reports,
+        )
+        markup = None
+        if total_pages > 1:
+            markup = InlineKeyboardMarkup([[InlineKeyboardButton("▶️ 다음", callback_data=f"lv|report|{token}|next")]])
+        await update.message.reply_text(text, reply_markup=markup, parse_mode="HTML")
         return
-    trades = read_trades(user_id, period)
+
     if not trades:
+        cash_note = ""
+        if cash_reports:
+            from core.dca_manager import format_cash_health_section
+            cash_note = "\n\n" + format_cash_health_section(cash_reports, html=True)
         await update.message.reply_text(
             "📊 해당 기간에 체결 기록이 없습니다.\n"
             "팁: 주문이 전량 체결되면 자동으로 기록됩니다."
+            f"{cash_note}",
+            parse_mode="HTML",
         )
         return
 
-    token = main.create_list_view_token(user_id, "report", {"page": 0}, snapshot={"trades": trades, "period": period})
-    text, page, total_pages = build_report_view_page(trades, period, 0)
+    snapshot = {
+        "timeseries": False,
+        "trades": trades,
+        "period": period,
+        "cash_reports": cash_reports,
+    }
+    token = main.create_list_view_token(user_id, "report", {"page": 0}, snapshot=snapshot)
+    text, page, total_pages = build_report_view_page(trades, period, 0, cash_reports=cash_reports)
     markup = None
     if total_pages > 1:
         markup = InlineKeyboardMarkup([[InlineKeyboardButton("▶️ 다음", callback_data=f"lv|report|{token}|next")]])

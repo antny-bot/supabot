@@ -1053,3 +1053,234 @@ async def api_reports_allocation(request: Request):
         })
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+
+def _build_batches_and_timeline(trades, stock_map, window_start=None, window_end=None, filter_group_no=None, filter_ticker=None):
+    """체결 로그에서 배치(#N)별 요약과 시계열(Time-Series) 체결 이벤트를 생성한다."""
+    pos_by_key: dict[tuple[str, str, int | None], dict] = defaultdict(lambda: {
+        "holding_vol": 0.0,
+        "avg_buy_price": 0.0,
+        "cum_realized_pnl": 0.0,
+    })
+    batch_agg: dict[int, dict] = {}
+    all_tickers: set[str] = set()
+    timeline: list[dict] = []
+
+    for trade in _iter_trades_asc(trades):
+        ex = str(trade.get("exchange") or "")
+        raw_tk = str(trade.get("ticker") or "")
+        disp_tk = stock_map.get(raw_tk, raw_tk)
+        side = str(trade.get("side") or "bid")
+        price = _safe_float(trade.get("price"))
+        vol = _safe_float(trade.get("volume"))
+        fee = _safe_float(trade.get("fee_amount"))
+        executed_at = _safe_float(trade.get("executed_at"))
+        strategy = str(trade.get("strategy") or "manual")
+        raw_gno = trade.get("group_no")
+        gno = int(raw_gno) if raw_gno is not None and str(raw_gno).lstrip("-").isdigit() else None
+
+        if price <= 0 or volume_is_zero(vol):
+            continue
+
+        if raw_tk:
+            all_tickers.add(raw_tk)
+
+        # 배치별 집계 (전체 이력 기준으로 평단/보유 계산 후 기간 필터 적용)
+        pos_key = (ex, raw_tk, gno if filter_group_no is not None else None)
+        pos = pos_by_key[pos_key]
+        amt = price * vol
+        trade_pnl = None
+
+        if side == "bid":
+            prev_cost = pos["holding_vol"] * pos["avg_buy_price"]
+            new_vol = pos["holding_vol"] + vol
+            pos["avg_buy_price"] = (prev_cost + amt + fee) / new_vol if new_vol > _EPSILON else price
+            pos["holding_vol"] = new_vol
+        elif side == "ask":
+            avg_c = pos["avg_buy_price"]
+            trade_pnl = (price - avg_c) * vol - fee if avg_c > _EPSILON else 0.0
+            pos["cum_realized_pnl"] += trade_pnl
+            pos["holding_vol"] = max(0.0, pos["holding_vol"] - vol)
+            if pos["holding_vol"] <= _EPSILON:
+                pos["holding_vol"] = 0.0
+
+        if gno is not None:
+            b = batch_agg.setdefault(gno, {
+                "group_no": gno,
+                "exchange": ex,
+                "ticker": disp_tk,
+                "raw_ticker": raw_tk,
+                "strategy": strategy,
+                "bid_count": 0,
+                "ask_count": 0,
+                "bid_krw": 0.0,
+                "ask_krw": 0.0,
+                "realized_pnl": 0.0,
+                "holding_vol": 0.0,
+                "avg_buy_price": 0.0,
+                "first_ts": executed_at,
+                "last_ts": executed_at,
+            })
+            if side == "bid":
+                b["bid_count"] += 1
+                b["bid_krw"] += amt
+            else:
+                b["ask_count"] += 1
+                b["ask_krw"] += amt
+                b["realized_pnl"] += (trade_pnl or 0.0)
+            b["holding_vol"] = pos["holding_vol"]
+            b["avg_buy_price"] = pos["avg_buy_price"]
+            if executed_at < b["first_ts"] or b["first_ts"] == 0:
+                b["first_ts"] = executed_at
+            if executed_at > b["last_ts"]:
+                b["last_ts"] = executed_at
+
+        # 기간 및 배치/종목 필터링
+        if window_start is not None and executed_at < window_start:
+            continue
+        if window_end is not None and executed_at >= window_end:
+            continue
+        if filter_group_no is not None and gno != filter_group_no:
+            continue
+        if filter_ticker:
+            ft = filter_ticker.upper()
+            tk_u = raw_tk.upper()
+            tk_base = tk_u.split("-", 1)[1] if "-" in tk_u else tk_u
+            disp_u = disp_tk.upper()
+            if ft not in (tk_u, tk_base, disp_u) and ft not in disp_u:
+                continue
+
+        timeline.append({
+            "seq": len(timeline) + 1,
+            "executed_at": executed_at,
+            "date_fmt": datetime.fromtimestamp(executed_at).strftime("%Y-%m-%d %H:%M") if executed_at else "-",
+            "exchange": ex,
+            "ticker": disp_tk,
+            "raw_ticker": raw_tk,
+            "side": side,
+            "price": round(price, 4),
+            "volume": round(vol, 8),
+            "amount": _round_money(amt),
+            "strategy": strategy,
+            "group_no": gno,
+            "holding_vol": round(pos["holding_vol"], 8),
+            "avg_buy_price": round(pos["avg_buy_price"], 4),
+            "trade_pnl": _round_money(trade_pnl) if trade_pnl is not None else None,
+            "cum_realized_pnl": _round_money(pos["cum_realized_pnl"]),
+        })
+
+    batches = []
+    for gno, b in sorted(batch_agg.items(), key=lambda x: x[0], reverse=True):
+        batches.append({
+            "group_no": gno,
+            "exchange": b["exchange"],
+            "ticker": b["ticker"],
+            "raw_ticker": b["raw_ticker"],
+            "strategy": b["strategy"],
+            "bid_count": b["bid_count"],
+            "ask_count": b["ask_count"],
+            "bid_krw": _round_money(b["bid_krw"]),
+            "ask_krw": _round_money(b["ask_krw"]),
+            "realized_pnl": _round_money(b["realized_pnl"]),
+            "holding_vol": round(b["holding_vol"], 8),
+            "avg_buy_price": round(b["avg_buy_price"], 4),
+            "first_at_fmt": _fmt_ts(b["first_ts"]),
+            "last_at_fmt": _fmt_ts(b["last_ts"]),
+        })
+
+    return batches, timeline, sorted(all_tickers)
+
+
+def volume_is_zero(v: float) -> bool:
+    return v <= _EPSILON
+
+
+@router.get("/api/reports/batches")
+async def api_reports_batches(
+    request: Request,
+    period: str = "30d",
+    date_from: str | None = None,
+    date_to: str | None = None,
+    group_no: int | None = None,
+    ticker: str | None = None,
+):
+    ctx, err = _auth_guard(request)
+    if err:
+        return err
+    is_admin, bot_user_id = ctx
+    if period not in _PERIODS:
+        period = "30d"
+
+    try:
+        db = get_db()
+        trades = await _fetch_trades(db, is_admin, bot_user_id, None)
+        window_start, window_end = _resolve_window(period, date_from, date_to)
+        stock_map = await get_stock_name_map()
+
+        batches, timeline, tickers = _build_batches_and_timeline(
+            trades,
+            stock_map,
+            window_start=window_start,
+            window_end=window_end,
+            filter_group_no=group_no,
+            filter_ticker=ticker,
+        )
+
+        # 최근 예수금 점검 알림(cash_monitor) 및 활성 DCA 스케줄 조회
+        cash_alerts = []
+        try:
+            ev_q = (
+                db.table("operational_events")
+                .select("level,source,message,details,created_at")
+                .order("id", desc=True)
+                .limit(20)
+            )
+            ev_q._params["source"] = "eq.cash_monitor"
+            ev_rows = (await ev_q.execute()).data or []
+            for r in ev_rows[:5]:
+                cash_alerts.append({
+                    "level": r.get("level", "warning"),
+                    "message": r.get("message", ""),
+                    "details": r.get("details", ""),
+                    "created_at": r.get("created_at", ""),
+                })
+        except Exception:
+            pass
+
+        dca_schedules = []
+        try:
+            dca_q = db.table("dca_schedules").select("*").order("created_at", desc=True).limit(100)
+            if not is_admin and bot_user_id:
+                dca_q._params["user_id"] = f"eq.{bot_user_id}"
+            dca_rows = (await dca_q.execute()).data or []
+            for s in dca_rows:
+                if s.get("status") == "active":
+                    tk = str(s.get("ticker") or "")
+                    dca_schedules.append({
+                        "id": s.get("id"),
+                        "group_no": s.get("group_no"),
+                        "exchange": s.get("exchange"),
+                        "ticker": stock_map.get(tk, tk),
+                        "raw_ticker": tk,
+                        "side": s.get("side", "bid"),
+                        "frequency": s.get("frequency"),
+                        "exec_time": s.get("exec_time"),
+                        "amount_type": s.get("amount_type"),
+                        "amount": s.get("amount"),
+                        "run_count": s.get("run_count", 0),
+                        "max_runs": s.get("max_runs"),
+                        "next_run_fmt": _fmt_ts(s.get("next_run_at")),
+                    })
+        except Exception:
+            pass
+
+        return JSONResponse({
+            "batches": batches,
+            "timeline": timeline,
+            "tickers": tickers,
+            "dca_schedules": dca_schedules,
+            "cash_alerts": cash_alerts,
+        })
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)

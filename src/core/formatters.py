@@ -846,3 +846,419 @@ def build_report_view_page(trades: list, period: str = "all", page: int = 0, pag
     lines.append("")
     lines.append("📊 더 상세한 내역과 리포트는 [웹 대시보드]에서 확인하실 수 있습니다.")
     return "\n".join(lines), page, total_pages
+
+
+
+# ── 배치(#N) 및 시계열(Time-Series) 리포트 확장 ────────────────────────────────
+
+_STRATEGY_LABELS = {
+    "dca": "정기매매(DCA)",
+    "grid": "거미줄매수",
+    "sgrid": "거미줄매도",
+    "rsitrade": "RSI순환매수",
+    "rsitrade_sell": "RSI익절매도",
+    "sgridrsi": "RSI분할매도",
+    "stoploss": "손절매도",
+    "manual": "수동주문",
+}
+
+CMD_HELP["dca"] = (
+    "📅 <b>/dca, /sdca 상세 가이드 (정기 적립식 매수/매도)</b>\n\n"
+    "<b>기능:</b> 단일 종목을 지정해 매일, 특정 요일(월수금 등), 매주 1회, 매월 1회 자동으로 매수 또는 매도합니다.\n"
+    "등록된 정기 전략은 고유 <b>배치 번호(#N)</b>로 묶여 <code>/status</code>, <code>/dca</code>, <code>/report #N</code>에서 시계열로 추적됩니다.\n\n"
+    "<b>구문:</b>\n"
+    "• <code>/dca [매수|매도] [거래소] [종목] [주기] [금액|수량] [시각(선택)] [횟수(선택)]</code>\n"
+    "• <code>/sdca [거래소] [종목] [주기] [금액|수량] [시각(선택)] [횟수(선택)]</code> (정기 매도 전용)\n"
+    "• <code>/dca</code> 또는 <code>/dca list</code> — 활성 정기 전략 목록 및 계좌 예수금 상태 조회\n"
+    "• <code>/dca stop [배치번호|ID]</code> — 특정 정기 전략 중지\n"
+    "• <code>/dca clear</code> — 모든 정기 전략 일괄 중지\n\n"
+    "<b>주기 표기법:</b>\n"
+    "• 매일: <code>매일</code>, <code>daily</code>\n"
+    "• 매주 1회: <code>매주월</code>, <code>매주금</code>, <code>매주</code>(기본 월요일)\n"
+    "• 특정 요일: <code>월수금</code>, <code>화목</code>, <code>평일</code>, <code>주말</code>\n"
+    "• 매월 1회: <code>매월15일</code>, <code>매월1일</code>, <code>매월</code>(기본 1일)\n\n"
+    "<b>예시:</b>\n"
+    "1. <code>/dca BTC 매일 5만</code> (업비트 비트코인 매일 09:05 5만원 매수)\n"
+    "2. <code>/dca 한투 005930 매주월 1주 09:10</code> (한국투자증권 삼성전자 매주 월요일 09:10 1주 매수)\n"
+    "3. <code>/dca ETH 월수금 3만 10:00 20회</code> (월·수·금 10:00 3만원 매수, 총 20회 후 종료)\n"
+    "4. <code>/sdca BTC 매월25일 0.01개</code> (매월 25일 비트코인 0.01개 정기 매도)"
+)
+CMD_HELP["sdca"] = CMD_HELP["dca"]
+
+CMD_HELP["report"] = (
+    "📊 <b>/report 상세 가이드 (수익률 & 배치·종목 시계열 리포트)</b>\n\n"
+    "<b>기능:</b> 기간별 실현 손익 요약뿐만 아니라, 특정 <b>배치(#N)</b> 또는 <b>종목</b>이 시간에 따라 어떻게 매수·매도되었는지 시계열(Time-Series)로 추적하고 계좌 예수금 가용 상태를 함께 점검합니다.\n\n"
+    "<b>구문:</b>\n"
+    "• <code>/report [today|week|month|all]</code> — 기간별 전체 종목·배치 요약 리포트\n"
+    "• <code>/report #[배치번호] [기간]</code> — 해당 배치의 시계열 매수/매도 체결 내역 및 누적 평단·손익 추적\n"
+    "• <code>/report [종목] [기간]</code> — 특정 종목의 시계열 매수/매도 체결 내역 조회\n"
+    "• <code>/report #[배치번호] [종목]</code> — 배치 + 종목 동시 필터링 시계열 조회\n\n"
+    "<b>예시:</b>\n"
+    "1. <code>/report</code> (전체 요약 + 배치 목록 + 예수금 점검)\n"
+    "2. <code>/report week</code> (최근 7일 리포트)\n"
+    "3. <code>/report #1</code> (#1 배치 전략의 시계열 매수·매도 흐름 조회)\n"
+    "4. <code>/report BTC</code> (비트코인 시계열 매수·매도 내역 조회)\n"
+    "5. <code>/report 005930 month</code> (삼성전자 최근 30일 시계열 내역 조회)"
+)
+
+
+def aggregate_trades_by_batch(trades: list) -> list[tuple[int, dict]]:
+    """group_no가 있는 체결 내역을 배치 번호별로 집계한다."""
+    by_batch: dict[int, dict] = {}
+    for t in trades:
+        gno = t.get("group_no")
+        if gno is None:
+            continue
+        try:
+            gno_int = int(gno)
+        except (TypeError, ValueError):
+            continue
+        entry = by_batch.setdefault(gno_int, {
+            "group_no": gno_int,
+            "exchange": t.get("exchange", ""),
+            "tickers": set(),
+            "strategies": set(),
+            "bid_amt": 0.0,
+            "ask_amt": 0.0,
+            "bid_vol": 0.0,
+            "ask_vol": 0.0,
+            "bid_count": 0,
+            "ask_count": 0,
+            "first_ts": str(t.get("ts") or ""),
+            "last_ts": str(t.get("ts") or ""),
+        })
+        tk = t.get("ticker", "")
+        if tk:
+            entry["tickers"].add(tk)
+        st = t.get("strategy", "")
+        if st:
+            entry["strategies"].add(st)
+        price = float(t.get("price", 0) or 0)
+        vol = float(t.get("volume", 0) or 0)
+        amt = price * vol
+        if t.get("side") == "ask":
+            entry["ask_amt"] += amt
+            entry["ask_vol"] += vol
+            entry["ask_count"] += 1
+        else:
+            entry["bid_amt"] += amt
+            entry["bid_vol"] += vol
+            entry["bid_count"] += 1
+        ts_str = str(t.get("ts") or "")
+        if ts_str:
+            if not entry["first_ts"] or ts_str < entry["first_ts"]:
+                entry["first_ts"] = ts_str
+            if not entry["last_ts"] or ts_str > entry["last_ts"]:
+                entry["last_ts"] = ts_str
+
+    return sorted(by_batch.items(), key=lambda x: x[0])
+
+
+def render_batch_summary_lines(trades: list, max_batches: int = 8) -> list[str]:
+    """전체 리포트 내에 배치(#N)별 요약 라인을 생성한다."""
+    batch_items = aggregate_trades_by_batch(trades)
+    if not batch_items:
+        return []
+    lines = ["📦 <b>배치(#N)별 전략 체결 요약</b>"]
+    shown = batch_items[-max_batches:]
+    for gno, info in shown:
+        ex = info["exchange"]
+        ex_label = exchange_display_name(ex) if ex else ""
+        tks = sorted(info["tickers"])
+        tk_label = kr_stock_display(ex, tks[0]) if tks else "-"
+        if len(tks) > 1:
+            tk_label += f" 외 {len(tks) - 1}"
+        is_usd = is_us_stock_ticker(ex, tks[0]) if tks else False
+        strats = sorted(_STRATEGY_LABELS.get(s, s) for s in info["strategies"] if s)
+        strat_str = "/".join(strats) if strats else "전략"
+        if is_usd:
+            b_str = f"매수 {info['bid_count']}건(${info['bid_amt']:,.2f})"
+            a_str = f"매도 {info['ask_count']}건(${info['ask_amt']:,.2f})"
+        else:
+            b_str = f"매수 {info['bid_count']}건({info['bid_amt']:,.0f}원)"
+            a_str = f"매도 {info['ask_count']}건({info['ask_amt']:,.0f}원)"
+        lines.append(f"• <b>#{gno}</b> [{ex_label}] {tk_label} ({strat_str}): {b_str} · {a_str}")
+    if len(batch_items) > max_batches:
+        lines.append(f"  └ 외 {len(batch_items) - max_batches}개 배치 생략")
+    lines.append("💡 시계열 상세 조회: <code>/report #[배치번호]</code> 또는 <code>/report [종목]</code>")
+    return lines
+
+
+def compute_timeseries_events(trades: list) -> tuple[list[dict], dict]:
+    """체결 내역을 시간순(오름차순)으로 정렬하고 각 시점의 누적 보유수량, 평균매수가,
+    건별 실현손익, 누적 실현손익을 계산해 반환한다.
+    """
+    sorted_trades = sorted(trades, key=lambda t: str(t.get("ts") or ""))
+    # 종목별 포지션 상태 추적
+    pos_by_key: dict[tuple[str, str], dict] = defaultdict(lambda: {
+        "holding_vol": 0.0,
+        "avg_buy_price": 0.0,
+        "cum_realized_pnl": 0.0,
+    })
+
+    events = []
+    total_bid_krw = 0.0
+    total_ask_krw = 0.0
+    total_bid_usd = 0.0
+    total_ask_usd = 0.0
+    total_bid_count = 0
+    total_ask_count = 0
+    total_realized_pnl_krw = 0.0
+    total_realized_pnl_usd = 0.0
+
+    for idx, t in enumerate(sorted_trades, start=1):
+        ex = t.get("exchange", "")
+        tk = t.get("ticker", "")
+        side = t.get("side", "bid")
+        price = float(t.get("price", 0) or 0)
+        vol = float(t.get("volume", 0) or 0)
+        amt = price * vol
+        is_usd = is_us_stock_ticker(ex, tk)
+        pos = pos_by_key[(ex, tk)]
+
+        trade_pnl = None
+        if side == "bid":
+            prev_cost = pos["holding_vol"] * pos["avg_buy_price"]
+            new_vol = pos["holding_vol"] + vol
+            pos["avg_buy_price"] = (prev_cost + amt) / new_vol if new_vol > 0 else price
+            pos["holding_vol"] = new_vol
+            total_bid_count += 1
+            if is_usd:
+                total_bid_usd += amt
+            else:
+                total_bid_krw += amt
+        else:
+            if pos["avg_buy_price"] > 0:
+                trade_pnl = (price - pos["avg_buy_price"]) * vol
+            else:
+                trade_pnl = 0.0
+            pos["cum_realized_pnl"] += trade_pnl
+            pos["holding_vol"] = max(0.0, pos["holding_vol"] - vol)
+            if pos["holding_vol"] <= 1e-12:
+                pos["holding_vol"] = 0.0
+            total_ask_count += 1
+            if is_usd:
+                total_ask_usd += amt
+                total_realized_pnl_usd += trade_pnl
+            else:
+                total_ask_krw += amt
+                total_realized_pnl_krw += trade_pnl
+
+        events.append({
+            "seq": idx,
+            "ts": str(t.get("ts") or ""),
+            "exchange": ex,
+            "ticker": tk,
+            "side": side,
+            "price": price,
+            "volume": vol,
+            "amount": amt,
+            "strategy": t.get("strategy", "manual"),
+            "group_no": t.get("group_no"),
+            "holding_vol": pos["holding_vol"],
+            "avg_buy_price": pos["avg_buy_price"],
+            "trade_pnl": trade_pnl,
+            "cum_realized_pnl": pos["cum_realized_pnl"],
+            "is_usd": is_usd,
+        })
+
+    summary = {
+        "total_events": len(events),
+        "bid_count": total_bid_count,
+        "ask_count": total_ask_count,
+        "bid_krw": total_bid_krw,
+        "ask_krw": total_ask_krw,
+        "bid_usd": total_bid_usd,
+        "ask_usd": total_ask_usd,
+        "realized_pnl_krw": total_realized_pnl_krw,
+        "realized_pnl_usd": total_realized_pnl_usd,
+        "net_cashflow_krw": total_ask_krw - total_bid_krw,
+        "net_cashflow_usd": total_ask_usd - total_bid_usd,
+    }
+    return events, summary
+
+
+def build_timeseries_report_view_page(
+    trades: list,
+    period: str = "all",
+    group_no: int | None = None,
+    ticker: str | None = None,
+    page: int = 0,
+    page_size: int = REPORT_PAGE_SIZE,
+    dca_sched: dict | None = None,
+    open_orders: list | None = None,
+    cash_reports: list[dict] | None = None,
+) -> tuple[str, int, int]:
+    """배치(#N) 또는 종목(ticker) 필터링 시 매수·매도 체결 내역을 시계열(Time-Series)로 렌더링한다."""
+    from core.dca_manager import format_dca_schedule, format_cash_health_section
+
+    period_label = {"today": "오늘", "week": "최근 7일", "month": "최근 30일"}.get(period, "전체")
+    filter_parts = []
+    if group_no is not None:
+        filter_parts.append(f"배치 #{group_no}")
+    if ticker:
+        filter_parts.append(f"종목 {ticker}")
+    filter_title = " · ".join(filter_parts) if filter_parts else "전체"
+
+    events, summary = compute_timeseries_events(trades)
+    total_pages = max(1, (len(events) + page_size - 1) // page_size)
+    page = max(0, min(page, total_pages - 1))
+    page_events = events[page * page_size: (page + 1) * page_size]
+
+    lines = [f"📈 <b>시계열 매매 리포트 ({filter_title} | {period_label})</b>"]
+    if total_pages > 1:
+        lines.append(
+            f"📄 {page + 1}/{total_pages} 페이지 (총 {len(events)}건 중 {page * page_size + 1}-{page * page_size + len(page_events)}번째)"
+        )
+
+    if dca_sched:
+        side_str = "매수" if dca_sched.get("side") == "bid" else "매도"
+        sched_str = format_dca_schedule(dca_sched)
+        run_cnt = int(dca_sched.get("run_count") or 0)
+        max_runs = dca_sched.get("max_runs")
+        run_str = f"{run_cnt}/{max_runs}회" if max_runs else f"누적 {run_cnt}회"
+        lines.append(
+            f"🔄 <b>활성 정기전략:</b> [{exchange_display_name(dca_sched['exchange'])}] {dca_sched['ticker']} "
+            f"정기 {side_str} ({sched_str}, {run_str})"
+        )
+
+    if open_orders:
+        lines.append(f"⏳ <b>현재 미체결/대기 주문:</b> {len(open_orders)}건")
+
+    lines.append("")
+    if not page_events:
+        lines.append("ℹ️ 아직 체결 완료된 내역이 없습니다.")
+    else:
+        lines.append("🕒 <b>시간순 체결 타임라인</b>")
+        for ev in page_events:
+            ts_short = ev["ts"][:16].replace("T", " ") if ev["ts"] else "-"
+            side_badge = "🔴 매수" if ev["side"] == "bid" else "🔵 매도"
+            ex_label = exchange_display_name(ev["exchange"]) if ev["exchange"] else ""
+            tk_disp = kr_stock_display(ev["exchange"], ev["ticker"])
+            g_tag = f" [<b>#{ev['group_no']}</b>]" if ev.get("group_no") else ""
+            st_label = _STRATEGY_LABELS.get(ev["strategy"], ev["strategy"])
+            is_usd = ev["is_usd"]
+            is_stock = ev["exchange"] in ("kis", "toss")
+            vol_str = f"{ev['volume']:,.0f}주" if is_stock else f"{ev['volume']:.4f}개"
+            hold_str = f"{ev['holding_vol']:,.0f}주" if is_stock else f"{ev['holding_vol']:.4f}개"
+
+            lines.append(
+                f"<b>{ev['seq']}.</b> <code>{ts_short}</code> | {side_badge} | [{ex_label}] {tk_disp}{g_tag} ({st_label})"
+            )
+            if is_usd:
+                price_str = f"${ev['price']:,.2f}"
+                amt_str = f"${ev['amount']:,.2f}"
+                avg_str = f"${ev['avg_buy_price']:,.2f}"
+            else:
+                price_str = f"{ev['price']:,.0f}원"
+                amt_str = f"{ev['amount']:,.0f}원"
+                avg_str = f"{ev['avg_buy_price']:,.0f}원"
+
+            if ev["side"] == "bid":
+                lines.append(
+                    f"   └ {price_str} × {vol_str} = <b>{amt_str}</b> (보유 {hold_str} · 평단 {avg_str})"
+                )
+            else:
+                pnl_val = ev["trade_pnl"] or 0.0
+                sign = "+" if pnl_val >= 0 else ""
+                pnl_str = f"{sign}${pnl_val:,.2f}" if is_usd else f"{sign}{pnl_val:,.0f}원"
+                lines.append(
+                    f"   └ {price_str} × {vol_str} = <b>{amt_str}</b> (실현손익 {pnl_str} · 잔여 {hold_str})"
+                )
+
+    lines.append("")
+    lines.append("📊 <b>시계열 누적 요약</b>")
+    if summary["bid_krw"] or summary["ask_krw"] or not (summary["bid_usd"] or summary["ask_usd"]):
+        rpnl = summary["realized_pnl_krw"]
+        rsign = "+" if rpnl >= 0 else ""
+        cf = summary["net_cashflow_krw"]
+        cfsign = "+" if cf >= 0 else ""
+        lines.append(
+            f"• 매수 {summary['bid_count']}건 ({summary['bid_krw']:,.0f}원) / "
+            f"매도 {summary['ask_count']}건 ({summary['ask_krw']:,.0f}원)"
+        )
+        lines.append(
+            f"• 누적 실현손익(평단기준): <b>{rsign}{rpnl:,.0f}원</b> (현금흐름 {cfsign}{cf:,.0f}원)"
+        )
+    if summary["bid_usd"] or summary["ask_usd"]:
+        rpnl_u = summary["realized_pnl_usd"]
+        rsign_u = "+" if rpnl_u >= 0 else ""
+        lines.append(
+            f"• 매수(USD) {summary['bid_count']}건 (${summary['bid_usd']:,.2f}) / "
+            f"매도(USD) {summary['ask_count']}건 (${summary['ask_usd']:,.2f})"
+        )
+        lines.append(f"• 누적 실현손익(USD): <b>{rsign_u}${rpnl_u:,.2f}</b>")
+
+    if cash_reports:
+        lines.append("")
+        lines.append(format_cash_health_section(cash_reports, html=True))
+
+    lines.append("")
+    lines.append("⚠️ 손익은 가격×수량 기준 추정치입니다. 수수료 미반영.")
+    return "\n".join(lines), page, total_pages
+
+
+def build_report_view(trades: list, period: str = "all", cash_reports: list[dict] | None = None) -> str:
+    """체결 기록 기반 수익률 리포트 메시지 생성 (전체, 페이지네이션 없음)."""
+    from core.dca_manager import format_cash_health_section
+
+    period_label = {"today": "오늘", "week": "최근 7일", "month": "최근 30일"}.get(period, "전체")
+    by_key, totals = aggregate_trades(trades)
+
+    lines = [f"📊 <b>수익률 리포트 ({period_label})</b>", ""]
+    lines.extend(render_report_ticker_lines(sorted(by_key.items())))
+    lines.extend(render_report_totals_lines(totals))
+    batch_lines = render_batch_summary_lines(trades)
+    if batch_lines:
+        lines.append("")
+        lines.extend(batch_lines)
+    if cash_reports:
+        lines.append("")
+        lines.append(format_cash_health_section(cash_reports, html=True))
+    lines.append("")
+    lines.append("⚠️ 손익은 가격×수량 기준 추정치입니다. 수수료 미반영.")
+    lines.append("")
+    lines.append("📊 더 상세한 내역과 리포트는 [웹 대시보드]에서 확인하실 수 있습니다.")
+    return "\n".join(lines)
+
+
+def build_report_view_page(
+    trades: list,
+    period: str = "all",
+    page: int = 0,
+    page_size: int = REPORT_PAGE_SIZE,
+    cash_reports: list[dict] | None = None,
+):
+    """/report 페이지네이션용 — 종목 그룹을 page_size개씩 잘라 보여주고 합계·배치요약·예수금 점검을 표시.
+
+    반환: (text, page, total_pages)
+    """
+    from core.dca_manager import format_cash_health_section
+
+    period_label = {"today": "오늘", "week": "최근 7일", "month": "최근 30일"}.get(period, "전체")
+    by_key, totals = aggregate_trades(trades)
+    items = sorted(by_key.items())
+    total_pages = max(1, (len(items) + page_size - 1) // page_size)
+    page = max(0, min(page, total_pages - 1))
+    page_items = items[page * page_size: (page + 1) * page_size]
+
+    lines = [f"📊 <b>수익률 리포트 ({period_label})</b>"]
+    if total_pages > 1:
+        lines.append(
+            f"📄 {page + 1}/{total_pages} 페이지 (종목 {len(items)}개 중 {page * page_size + 1}-{page * page_size + len(page_items)}번째)"
+        )
+    lines.append("")
+    lines.extend(render_report_ticker_lines(page_items))
+    lines.extend(render_report_totals_lines(totals))
+    batch_lines = render_batch_summary_lines(trades)
+    if batch_lines:
+        lines.append("")
+        lines.extend(batch_lines)
+    if cash_reports:
+        lines.append("")
+        lines.append(format_cash_health_section(cash_reports, html=True))
+    lines.append("")
+    lines.append("⚠️ 손익은 가격×수량 기준 추정치입니다. 수수료 미반영.")
+    lines.append("")
+    lines.append("📊 더 상세한 내역과 리포트는 [웹 대시보드]에서 확인하실 수 있습니다.")
+    return "\n".join(lines), page, total_pages
