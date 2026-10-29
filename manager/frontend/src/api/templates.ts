@@ -4,6 +4,11 @@ export interface TemplateParams {
   buy_rsi_range?: string
   sell_rsi_range?: string
   weighted?: boolean
+  schedule?: string
+  exec_time?: string
+  amount_type?: 'budget' | 'volume'
+  max_runs?: number | null
+  side?: 'bid' | 'ask'
 }
 
 export interface Template {

@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from ..db import get_db
 from ._auth import get_current_user
-from ..bot_client import execute_grid, execute_sgrid, execute_rsitrade
+from ..bot_client import execute_grid, execute_sgrid, execute_rsitrade, execute_dca
 
 router = APIRouter()
 
@@ -239,8 +239,8 @@ async def api_execute_template(template_id: int, user: dict = Depends(get_curren
             )
             success, err_msg = (await res) if inspect.isawaitable(res) else res
             msg = "거미줄 분할 매도 전략이 가동되었습니다."
-        elif stype == "rsitrade":
-            # 봇에게 RSITrade 실행 요청 전송
+        elif stype in ("rsitrade", "rsi"):
+            # 봇에게 RSITrade 실행 요청 전송 ("rsi" 구버전 값도 호환)
             params = tpl.get("params") or {}
             res = execute_rsitrade(
                 user_id=tpl["user_id"],
@@ -254,6 +254,25 @@ async def api_execute_template(template_id: int, user: dict = Depends(get_curren
             )
             success, err_msg = (await res) if inspect.isawaitable(res) else res
             msg = "RSI 순환 매매 전략이 가동되었습니다."
+        elif stype in ("dca", "sdca"):
+            params = tpl.get("params") or {}
+            side = "ask" if stype == "sdca" or params.get("side") == "ask" else "bid"
+            max_runs = params.get("max_runs")
+            if max_runs is None and int(tpl.get("count") or 0) > 0:
+                max_runs = int(tpl["count"])
+            res = execute_dca(
+                user_id=tpl["user_id"],
+                exchange=tpl["exchange"],
+                ticker=tpl["ticker"],
+                side=side,
+                schedule=params.get("schedule", "매일"),
+                amount_type=params.get("amount_type", "budget"),
+                amount=float(tpl["budget"]),
+                exec_time=params.get("exec_time", "09:05"),
+                max_runs=max_runs,
+            )
+            success, err_msg = (await res) if inspect.isawaitable(res) else res
+            msg = "정기 적립식 매수 전략이 등록되었습니다." if side == "bid" else "정기 분할 매도 전략이 등록되었습니다."
         else:
             return JSONResponse({"error": f"지원하지 않는 전략 유형입니다: {stype}"}, status_code=400)
 

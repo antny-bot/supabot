@@ -300,3 +300,89 @@ def test_cash_sufficiency_and_daily_alerts(tmp_path, monkeypatch):
     sent2 = asyncio.run(check_daily_cash_alerts(app, dm, om, adapter, um, now_ts=now_ts + 600))
     assert sent2 == 0
     assert app.bot.send_message.await_count == 1
+
+
+def test_template_execute_supports_rsi_and_dca(monkeypatch):
+    from manager.backend.routers import templates as tpl_router
+
+    captured_calls = []
+
+    class FakeQuery:
+        def __init__(self, row):
+            self.row = row
+            self._params = {}
+
+        def select(self, *_):
+            return self
+
+        def eq(self, *_):
+            return self
+
+        async def execute(self):
+            res = MagicMock()
+            res.data = [self.row]
+            return res
+
+    class FakeDB:
+        def __init__(self, row):
+            self.row = row
+
+        def table(self, _):
+            return FakeQuery(self.row)
+
+    async def fake_execute_rsitrade(**kwargs):
+        captured_calls.append(("rsitrade", kwargs))
+        return True, "OK"
+
+    async def fake_execute_dca(**kwargs):
+        captured_calls.append(("dca", kwargs))
+        return True, "OK"
+
+    monkeypatch.setattr(tpl_router, "execute_rsitrade", fake_execute_rsitrade)
+    monkeypatch.setattr(tpl_router, "execute_dca", fake_execute_dca)
+
+    # 1) 구버전 strategy_type="rsi" 및 신규 "rsitrade" 모두 호환되는지 확인
+    rsi_row = {
+        "id": 1,
+        "user_id": "u1",
+        "exchange": "upbit",
+        "ticker": "KRW-BTC",
+        "start_price": 0,
+        "end_price": 0,
+        "count": 5,
+        "budget": 500000,
+        "strategy_type": "rsi",
+        "params": {"buy_rsi_range": "20-30", "sell_rsi_range": "70-80", "weighted": True},
+    }
+    monkeypatch.setattr(tpl_router, "get_db", lambda: FakeDB(rsi_row))
+    resp_rsi = asyncio.run(
+        tpl_router.api_execute_template(1, user={"is_admin": False, "bot_user_id": "u1"})
+    )
+    assert resp_rsi.status_code == 200
+    assert captured_calls[-1][0] == "rsitrade"
+    assert captured_calls[-1][1]["weighted"] is True
+
+    # 2) dca / sdca 템플릿 실행 확인
+    sdca_row = {
+        "id": 2,
+        "user_id": "u1",
+        "exchange": "kis",
+        "ticker": "005930",
+        "start_price": 0,
+        "end_price": 0,
+        "count": 12,
+        "budget": 2,
+        "strategy_type": "sdca",
+        "params": {"schedule": "매주금", "exec_time": "10:00", "amount_type": "volume", "max_runs": 12},
+    }
+    monkeypatch.setattr(tpl_router, "get_db", lambda: FakeDB(sdca_row))
+    resp_sdca = asyncio.run(
+        tpl_router.api_execute_template(2, user={"is_admin": False, "bot_user_id": "u1"})
+    )
+    assert resp_sdca.status_code == 200
+    assert captured_calls[-1][0] == "dca"
+    assert captured_calls[-1][1]["side"] == "ask"
+    assert captured_calls[-1][1]["schedule"] == "매주금"
+    assert captured_calls[-1][1]["amount_type"] == "volume"
+    assert captured_calls[-1][1]["max_runs"] == 12
+

@@ -453,3 +453,97 @@ async def _internal_get_prices_handler(request: _web.Request) -> _web.Response:
         _log.warning("internal get_prices failed", exc_info=e, extra={"event": "get_prices_error"})
         _log.error("Webhook handler internal error: %s", e, exc_info=e)
         return _web.Response(status=500, text="Internal error")
+
+
+
+async def _internal_execute_dca_handler(request: _web.Request) -> _web.Response:
+    """웹 매니저 전략 템플릿에서 정기 매수/매도(DCA/SDCA) 전략을 등록한다."""
+    if not await _verify_webhook_request(request):
+        return _web.Response(status=401)
+    try:
+        from datetime import datetime
+        from core.parsers import KST, exchange_display_name, is_us_stock_ticker
+        from core.dca_manager import (
+            DEFAULT_DCA_EXEC_TIME,
+            parse_dca_schedule,
+            parse_dca_time,
+            format_dca_schedule,
+        )
+        import main
+
+        data = await request.json()
+        user_id = str(data["user_id"])
+        ex = str(data["exchange"]).lower()
+        tk = str(data["ticker"]).upper()
+        side = "ask" if str(data.get("side", "bid")).lower() in ("ask", "sell", "sdca") else "bid"
+        raw_schedule = str(data.get("schedule") or "매일").strip()
+        raw_time = str(data.get("exec_time") or DEFAULT_DCA_EXEC_TIME).strip()
+        amount_type = "volume" if str(data.get("amount_type", "budget")) == "volume" else "budget"
+        amount = float(data.get("amount") or 0)
+        raw_max_runs = data.get("max_runs")
+        max_runs = int(raw_max_runs) if raw_max_runs and int(raw_max_runs) > 0 else None
+
+        user = _user_manager.get_user(user_id)
+        if not user:
+            return _web.Response(status=404, text="User not found")
+
+        try:
+            sched_info = parse_dca_schedule(raw_schedule)
+            exec_time = parse_dca_time(raw_time)
+        except ValueError as ve:
+            return _web.Response(status=400, text=str(ve))
+
+        is_usd = is_us_stock_ticker(ex, tk)
+        if amount_type == "budget" and side == "bid":
+            ok, error_msg = validate_max_order(user, amount, is_usd=is_usd)
+            if not ok:
+                return _web.Response(status=400, text=error_msg)
+
+        dca_mgr = getattr(main, "dca_manager", None)
+        if dca_mgr is None:
+            return _web.Response(status=500, text="DCA manager not initialized")
+
+        group_no = dca_mgr.get_next_group_no(user_id, order_manager=_order_manager)
+        sched = dca_mgr.add_schedule(
+            user_id=user_id,
+            exchange=ex,
+            ticker=tk,
+            side=side,
+            frequency=sched_info["frequency"],
+            days_of_week=sched_info["days_of_week"],
+            day_of_month=sched_info["day_of_month"],
+            exec_time=exec_time,
+            amount_type=amount_type,
+            amount=amount,
+            max_runs=max_runs,
+            group_no=group_no,
+        )
+
+        app = request.app.get("bot_application")
+        if app and getattr(app, "bot", None):
+            action_label = "매수" if side == "bid" else "매도"
+            next_dt = datetime.fromtimestamp(sched["next_run_at"], tz=KST).strftime("%Y-%m-%d %H:%M")
+            runs_str = f"총 {max_runs}회" if max_runs else "무기한"
+            if amount_type == "volume":
+                amt_str = f"{int(amount):,}주" if ex in ("kis", "toss") else f"{amount:g}개"
+            else:
+                amt_str = f"${amount:,.2f}" if is_usd else f"{amount:,.0f}원"
+            try:
+                await app.bot.send_message(
+                    chat_id=user_id,
+                    text=(
+                        f"✅ [웹 템플릿] [{exchange_display_name(ex)}] {tk} 정기 {action_label} 등록 완료!\n"
+                        f"• 배치: #{sched['group_no']} (ID: {sched['id']})\n"
+                        f"• 주기: {format_dca_schedule(sched)}\n"
+                        f"• 1회 규모: {amt_str} ({runs_str})\n"
+                        f"• 첫 실행: {next_dt} (KST)"
+                    ),
+                )
+            except Exception as ne:
+                _log.warning("Failed to send DCA template notify: %s", ne)
+
+        _spawn_bg(trigger_realtime_sync())
+        return _web.Response(text="DCA schedule registered")
+    except Exception as e:
+        _log.warning("Internal DCA execution failed", exc_info=e)
+        return _web.Response(status=500, text="Internal error")
