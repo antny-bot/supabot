@@ -171,7 +171,6 @@ class OrderManager:
                 except Exception as ex:
                     _log.error("Failed to enqueue upsert task", exc_info=ex)
 
-        import asyncio
         try:
             loop = asyncio.get_running_loop()
             _track_task(loop.create_task(_run()))
@@ -199,7 +198,6 @@ class OrderManager:
                 except Exception as ex:
                     _log.error("Failed to enqueue delete task", exc_info=ex)
 
-        import asyncio
         try:
             loop = asyncio.get_running_loop()
             _track_task(loop.create_task(_run()))
@@ -281,10 +279,56 @@ class OrderManager:
                 return True
         return False
 
+    def _db_replace(self, order: dict, old_uuid: str):
+        if not is_db_available():
+            self._save_orders_to_file()
+            return
+
+        order_copy = dict(order)
+
+        async def _run_replace():
+            from core.db_sync import enqueue_task
+            try:
+                # 1. 신규 주문 upsert 먼저 수행 (구 주문 정보 보존)
+                await get_db().table("orders").upsert(order_copy).execute_async()
+            except Exception as e:
+                _log.error("Failed to upsert new order in replace (async)", exc_info=e,
+                           extra={"event": "db_order_replace_upsert_error", "uuid": order_copy.get("uuid"), "old_uuid": old_uuid})
+                self._save_orders_to_file()
+                try:
+                    # upsert 실패 시 delete는 수행하지 않고, 순차 큐에 upsert->delete 순으로 적재
+                    await enqueue_task("upsert", "orders", "uuid", order_copy.get("uuid"), order_copy)
+                    await enqueue_task("delete", "orders", "uuid", old_uuid)
+                except Exception as ex:
+                    _log.error("Failed to enqueue replace tasks", exc_info=ex)
+                return
+
+            try:
+                # 2. 신규 upsert 성공 후 구 uuid delete 수행
+                await get_db().table("orders").delete().eq("uuid", old_uuid).execute_async()
+            except Exception as e:
+                _log.error("Failed to delete old order in replace (async)", exc_info=e,
+                           extra={"event": "db_order_replace_delete_error", "old_uuid": old_uuid})
+                self._save_orders_to_file()
+                try:
+                    await enqueue_task("delete", "orders", "uuid", old_uuid)
+                except Exception as ex:
+                    _log.error("Failed to enqueue delete task in replace", exc_info=ex)
+
+        try:
+            loop = asyncio.get_running_loop()
+            _track_task(loop.create_task(_run_replace()))
+        except RuntimeError:
+            try:
+                get_db().table("orders").upsert(order_copy).execute()
+                get_db().table("orders").delete().eq("uuid", old_uuid).execute()
+            except Exception as e:
+                _log.error("Failed to replace order in fallback", exc_info=e)
+                self._save_orders_to_file()
+
     def replace_order_uuid(self, old_uuid, new_uuid):
         for o in self.orders:
             if o["uuid"] == old_uuid:
-                self._db_delete(old_uuid)
                 self._uuid_set.discard(old_uuid)
                 self._uuid_set.add(new_uuid)
                 o["reorder_of"] = old_uuid
@@ -292,7 +336,7 @@ class OrderManager:
                 o["status"] = "wait"
                 o["next_check_at"] = 0.0
                 o["created_at"] = time.time()
-                self._db_upsert(o)
+                self._db_replace(o, old_uuid)
                 return True
         return False
 

@@ -158,19 +158,25 @@ class SignalEngine:
                         check_rsi = self._calculate_rsi_for_next_close(close_series, est_price, period)
                         if abs(check_rsi - target_rsi) <= 1.0:
                             return est_price
-        except Exception:
-            pass
+        except Exception as e:
+            _log.debug("RSI algebraic inverse failed: %s", e)
 
-        # 2. 안전 폴백: 이분 탐색
+        # 2. 안전 폴백: 이분 탐색 (무한 루프 방지 및 경계 한도)
         if side == "bid":
             if target_rsi >= current_rsi:
                 return current_price
             high = current_price
             low = current_price * 0.98
+            low_limit = max(current_price * 1e-4, 1e-8)
             low_rsi = self._calculate_rsi_for_next_close(close_series, low, period)
-            while low > 1 and low_rsi > target_rsi:
+            iterations = 0
+            while low > low_limit and low_rsi > target_rsi and iterations < 200:
                 low *= 0.98
                 low_rsi = self._calculate_rsi_for_next_close(close_series, low, period)
+                iterations += 1
+            if low_rsi > target_rsi:
+                _log.debug("Target RSI %s unreachable for bid within bounds", target_rsi)
+                return None
             for _ in range(24):
                 mid = (low + high) / 2
                 mid_rsi = self._calculate_rsi_for_next_close(close_series, mid, period)
@@ -184,10 +190,16 @@ class SignalEngine:
             return current_price
         low = current_price
         high = current_price * 1.02
+        high_limit = current_price * 10.0
         high_rsi = self._calculate_rsi_for_next_close(close_series, high, period)
-        while high_rsi < target_rsi:
+        iterations = 0
+        while high < high_limit and high_rsi < target_rsi and iterations < 200:
             high *= 1.02
             high_rsi = self._calculate_rsi_for_next_close(close_series, high, period)
+            iterations += 1
+        if high_rsi < target_rsi:
+            _log.debug("Target RSI %s unreachable for ask within bounds", target_rsi)
+            return None
         for _ in range(24):
             mid = (low + high) / 2
             mid_rsi = self._calculate_rsi_for_next_close(close_series, mid, period)
@@ -219,6 +231,8 @@ class SignalEngine:
             side,
             period,
         )
+        if target_price is None:
+            return None
 
         buffer = 0.001
         if side == "bid":
