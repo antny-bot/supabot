@@ -1,4 +1,6 @@
 import asyncio
+import json
+import os
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -35,17 +37,50 @@ def _rename_candle_df(df: pd.DataFrame) -> pd.DataFrame:
 
 
 class SignalEngine:
-    def __init__(self, user_manager, exchange_adapter):
+    def __init__(self, user_manager, exchange_adapter, snooze_file_path="data/snooze.json"):
         self.user_manager = user_manager
         self.exchange_adapter = exchange_adapter
+        self.snooze_file_path = snooze_file_path
         self._alert_snooze: dict[tuple[str, str, str], float] = {}
+        self._load_snoozes()
+
+    def _load_snoozes(self):
+        """저장소로부터 만료되지 않은 스누즈 목록을 로드한다 (F1)."""
+        if not os.path.exists(self.snooze_file_path):
+            return
+        try:
+            with open(self.snooze_file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            now = time.time()
+            for key_str, exp in data.items():
+                if float(exp) > now:
+                    parts = key_str.split(":", 2)
+                    if len(parts) == 3:
+                        self._alert_snooze[(parts[0], parts[1], parts[2])] = float(exp)
+        except Exception as e:
+            _log.debug("Failed to load snooze data: %s", e)
+
+    def _save_snoozes(self):
+        """현재 유효한 스누즈 목록을 저장소에 기록한다 (F1)."""
+        try:
+            os.makedirs(os.path.dirname(self.snooze_file_path), exist_ok=True)
+            data = {
+                f"{k[0]}:{k[1]}:{k[2]}": exp
+                for k, exp in self._alert_snooze.items()
+            }
+            with open(self.snooze_file_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            _log.debug("Failed to save snooze data: %s", e)
 
     def clean_expired_snoozes(self):
         """만료된 스누즈 항목을 정리하여 메모리 누수를 방지한다."""
         now = time.time()
         expired = [k for k, exp in self._alert_snooze.items() if exp <= now]
-        for k in expired:
-            self._alert_snooze.pop(k, None)
+        if expired:
+            for k in expired:
+                self._alert_snooze.pop(k, None)
+            self._save_snoozes()
 
     def set_snooze(self, user_id: str, exchange: str, ticker: str, mode: str) -> float:
         """mode: '1h' | '2h' | 'day' — 스누즈 만료 unix timestamp 반환"""
@@ -57,6 +92,7 @@ class SignalEngine:
         else:
             expires = _next_midnight_kst()
         self._alert_snooze[(user_id, exchange, ticker)] = expires
+        self._save_snoozes()
         return expires
 
     async def get_rsi(self, exchange, ticker, interval="day", period=14, user_id=None):
@@ -313,11 +349,17 @@ class SignalEngine:
                 rsi_triggered = rsi <= threshold
                 bb_triggered = use_bb and current_price < bb.lower
 
+                combine_mode = user_data["preferences"].get("signal_combine_mode", "or").lower()
+                if combine_mode == "and":
+                    signal_fired = rsi_triggered and bb_triggered
+                else:
+                    signal_fired = rsi_triggered or bb_triggered
+
                 snooze_key = (user_id, exchange, ticker)
                 if self._alert_snooze.get(snooze_key, 0) > time.time():
                     return
 
-                if (rsi_triggered or bb_triggered) and not is_quiet_hours(user_data):
+                if signal_fired and not is_quiet_hours(user_data):
                     reasons = []
                     if rsi_triggered:
                         reasons.append(f"RSI {rsi:.2f} ≤ {threshold:g}")
@@ -343,7 +385,7 @@ class SignalEngine:
                         text=msg,
                         reply_markup=InlineKeyboardMarkup(keyboard),
                     )
-                    self._alert_snooze[snooze_key] = _next_midnight_kst()
+                    self.set_snooze(user_id, exchange, ticker, "day")
 
         for user_id, user_data in users.items():
             if not user_data.get("is_active") or not user_data["preferences"].get("signal_alerts"):

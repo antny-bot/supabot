@@ -89,11 +89,64 @@ def assert_can_trade():
     return True, None
 
 
-def check_can_place_order(user, open_orders, new_order_krw, is_usd=False):
-    """주문 발행 직전 통합 게이트: 글로벌 중지 + 총 노출 한도. (ok, message) 반환."""
+def assert_risk_limits(user, open_orders, new_order_krw, ticker=None, side="bid", strategy="manual", today_order_count=0, today_realized_loss_krw=0.0):
+    """글로벌 리스크 한도 검증 (F2).
+
+    - 보호성 매도(손절, stoploss)는 한도와 무관하게 항상 허용.
+    - 종목별 최대 노출액, 일일 최대 주문 건수, 일일 최대 손실액 검증.
+    (ok: bool, message: str | None) 반환.
+    """
+    # 보호성 매도(손절)는 항상 허용
+    if strategy == "stoploss":
+        return True, None
+
+    prefs = (user or {}).get("preferences", {})
+
+    # 1. 일일 최대 주문 건수 검증
+    daily_max_orders = prefs.get("daily_max_order_count")
+    if daily_max_orders is not None and today_order_count >= int(daily_max_orders):
+        return False, f"🛑 일일 최대 주문 건수({daily_max_orders}건)에 도달하여 신규 주문이 제한됩니다."
+
+    # 2. 일일 최대 손실액 검증
+    daily_max_loss = prefs.get("daily_max_loss_krw")
+    if daily_max_loss is not None and today_realized_loss_krw >= float(daily_max_loss):
+        return False, f"🛑 일일 최대 허용 손실액({float(daily_max_loss):,.0f}원)을 초과하여 신규 주문이 제한됩니다."
+
+    # 3. 종목별 최대 노출액 검증 (매수 주문에만 적용)
+    max_ticker_exposure = prefs.get("max_ticker_exposure_krw")
+    if max_ticker_exposure is not None and side == "bid" and ticker:
+        ticker_current_exposure = 0.0
+        for o in open_orders or []:
+            if o.get("ticker") == ticker and o.get("side") == "bid":
+                rem = max(float(o.get("volume", 0)) - float(o.get("filled_volume", 0)), 0)
+                ticker_current_exposure += rem * float(o.get("price", 0))
+
+        if ticker_current_exposure + float(new_order_krw) > float(max_ticker_exposure):
+            return False, f"🛑 [{ticker}] 종목별 최대 노출 한도({float(max_ticker_exposure):,.0f}원)를 초과합니다 (현재: {ticker_current_exposure:,.0f}원)."
+
+    return True, None
+
+
+def check_can_place_order(user, open_orders, new_order_krw, is_usd=False, ticker=None, side="bid", strategy="manual", today_order_count=0, today_realized_loss_krw=0.0):
+    """주문 발행 직전 통합 게이트: 글로벌 중지 + 총 노출 한도 + 리스크 한도(F2). (ok, message) 반환."""
+    # 손절은 글로벌 중지와 상관없이 허용
+    if strategy == "stoploss":
+        return True, None
+
     ok, msg = assert_can_trade()
     if not ok:
         return ok, msg
+
+    # 리스크 한도 검증
+    risk_ok, risk_msg = assert_risk_limits(
+        user, open_orders, new_order_krw,
+        ticker=ticker, side=side, strategy=strategy,
+        today_order_count=today_order_count,
+        today_realized_loss_krw=today_realized_loss_krw,
+    )
+    if not risk_ok:
+        return risk_ok, risk_msg
+
     from core.parsers import compute_open_exposure_krw, validate_total_exposure
     return validate_total_exposure(
         user, compute_open_exposure_krw(open_orders), new_order_krw, is_usd,

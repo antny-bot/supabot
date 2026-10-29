@@ -252,6 +252,21 @@ def parse_config_value(key, raw_value):
         if text in ["off", "false", "0", "no", "n", "끄기"]:
             return False
         raise ValueError("signal_alerts 값은 on 또는 off여야 합니다.")
+    if key == "signal_combine_mode":
+        val = str(raw_value).strip().lower()
+        if val in ["or", "and"]:
+            return val
+        raise ValueError("signal_combine_mode 값은 or 또는 and여야 합니다.")
+    if key in ["max_ticker_exposure_krw", "daily_max_loss_krw"]:
+        return parse_optional_krw(raw_value)
+    if key == "daily_max_order_count":
+        val = str(raw_value).strip().lower()
+        if val in ["none", "null", "off", "-", "무제한"]:
+            return None
+        count = int(val)
+        if count <= 0:
+            raise ValueError("일일 최대 주문 건수는 1 이상이어야 합니다.")
+        return count
     if key == "llm_enabled":
         text = str(raw_value).strip().lower()
         if text in ["on", "true", "1", "yes", "y", "켜기"]:
