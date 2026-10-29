@@ -121,6 +121,7 @@ def is_strategy_order(order):
         strategy.startswith("rsitrade")
         or strategy.startswith("grid")
         or strategy.startswith("sgrid")
+        or strategy.startswith("dca")
     )
 
 

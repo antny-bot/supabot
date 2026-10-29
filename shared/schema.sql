@@ -251,3 +251,32 @@ ALTER TABLE kr_stock_cache     ENABLE ROW LEVEL SECURITY;
 -- ── Grants (SQL로 생성 시 자동 부여되지 않으므로 명시 필요) ────────────────
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
+
+
+-- ── Batch Tracking on Trade Logs & DCA Schedules ───────────────────────────
+ALTER TABLE trade_logs ADD COLUMN IF NOT EXISTS group_no INTEGER;
+CREATE INDEX IF NOT EXISTS idx_trade_logs_group_no ON trade_logs(user_id, group_no);
+
+CREATE TABLE IF NOT EXISTS dca_schedules (
+  id            TEXT PRIMARY KEY,
+  user_id       TEXT NOT NULL,
+  exchange      TEXT NOT NULL,
+  ticker        TEXT NOT NULL,
+  side          TEXT NOT NULL DEFAULT 'bid',
+  frequency     TEXT NOT NULL DEFAULT 'daily',      -- daily|weekly|days|monthly
+  days_of_week  JSONB NOT NULL DEFAULT '[]'::jsonb, -- [0..6] (0=월..6=일)
+  day_of_month  INTEGER,                            -- 1..31
+  exec_time     TEXT NOT NULL DEFAULT '09:05',      -- HH:MM (KST)
+  amount_type   TEXT NOT NULL DEFAULT 'budget',     -- budget|volume
+  amount        DOUBLE PRECISION NOT NULL,
+  max_runs      INTEGER,
+  run_count     INTEGER NOT NULL DEFAULT 0,
+  status        TEXT NOT NULL DEFAULT 'active',     -- active|paused|completed
+  group_no      INTEGER,
+  next_run_at   DOUBLE PRECISION NOT NULL,
+  last_run_at   DOUBLE PRECISION,
+  created_at    DOUBLE PRECISION NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_dca_schedules_user ON dca_schedules(user_id);
+ALTER TABLE dca_schedules ENABLE ROW LEVEL SECURITY;
+GRANT ALL ON TABLE dca_schedules TO service_role;

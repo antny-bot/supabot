@@ -13,13 +13,15 @@ history/report/asset은 거래소 API/DB 조회 비용이 있어 명령어 실�
 각 kind의 `_build_*` 함수는 최초 명령어 실행과 버튼 클릭 양쪽에서 공유되어
 렌더링 로직이 중복되지 않는다.
 """
+from datetime import datetime
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import BadRequest
 
 import main
-from core.parsers import exchange_display_name, is_us_stock_ticker
+from core.parsers import KST, exchange_display_name, is_us_stock_ticker
 from core.stock_resolver import kr_stock_display
-from core.formatters import build_report_view_page
+from core.formatters import build_report_view_page, build_timeseries_report_view_page
+from core.dca_manager import format_dca_schedule, format_cash_health_section
 
 HISTORY_PAGE_SIZE = 5
 
@@ -117,8 +119,9 @@ _STATUS_NAMES = {
 }
 
 
-def build_status_message(orders, expanded: bool, token=None):
-    if not orders:
+def build_status_message(orders, expanded: bool, token=None, dca_schedules=None, cash_reports=None):
+    dca_schedules = dca_schedules or []
+    if not orders and not dca_schedules:
         return "📊 현재 가동 중인 트레이딩 전략이 없습니다.\n거래소 실제 미체결 주문은 /orders에서 확인하세요.", None
 
     msg = "📊 트레이딩 전략 통합 대시보드\n\n"
@@ -126,11 +129,36 @@ def build_status_message(orders, expanded: bool, token=None):
 
     for ex in ["upbit", "bithumb", "kis", "toss"]:
         ex_orders = [o for o in orders if o['exchange'] == ex]
-        if not ex_orders:
+        ex_dca = [s for s in dca_schedules if s.get("exchange") == ex and s.get("status") == "active"]
+        if not ex_orders and not ex_dca:
             continue
 
         msg += f"🏛️ <b>{ex.upper()}</b>\n"
 
+        # 1. 정기 매수/매도(DCA) 스케줄 표시
+        for s in ex_dca:
+            tk = s["ticker"]
+            side_str = "매수" if s.get("side") == "bid" else "매도"
+            sched_str = format_dca_schedule(s)
+            amt = float(s.get("amount") or 0)
+            is_usd = is_us_stock_ticker(ex, tk)
+            if s.get("amount_type") == "volume":
+                amt_str = f"{int(amt):,}주" if ex in ("kis", "toss") else f"{amt:g}개"
+            else:
+                amt_str = f"${amt:,.2f}" if is_usd else f"{amt:,.0f}원"
+            run_cnt = int(s.get("run_count") or 0)
+            max_runs = s.get("max_runs")
+            prog_str = f"{run_cnt}/{max_runs}회" if max_runs else f"누적 {run_cnt}회"
+            next_ts = float(s.get("next_run_at") or 0)
+            next_str = datetime.fromtimestamp(next_ts, tz=KST).strftime("%m-%d %H:%M") if next_ts > 0 else "-"
+            gno = s.get("group_no")
+            group_tag = f" [<b>#{gno}</b>]" if gno else ""
+            msg += (
+                f"• <b>{tk}</b> (정기 {side_str} · {sched_str}){group_tag}\n"
+                f"  └ 1회 {amt_str} | {prog_str} | 다음 실행: {next_str}\n"
+            )
+
+        # 2. 미체결/대기 전략 주문 표시
         tickers = sorted(list(set([o['ticker'] for o in ex_orders])))
         for tk in tickers:
             tk_orders = [o for o in ex_orders if o['ticker'] == tk]
@@ -144,8 +172,14 @@ def build_status_message(orders, expanded: bool, token=None):
 
             for group_label, g_orders in display_groups:
                 total = len(g_orders)
-                is_rsi = any(o['strategy'].startswith('rsitrade') for o in g_orders)
-                strategy_name = "RSI 순환 매매" if is_rsi else "거미줄 분할 매매"
+                is_rsi = any(str(o.get('strategy', '')).startswith('rsitrade') for o in g_orders)
+                is_dca = any(str(o.get('strategy', '')).startswith('dca') for o in g_orders)
+                if is_rsi:
+                    strategy_name = "RSI 순환 매매"
+                elif is_dca:
+                    strategy_name = "정기 매매(DCA)"
+                else:
+                    strategy_name = "거미줄 분할 매매"
 
                 if is_rsi:
                     filled = len([o for o in g_orders if o['strategy'] == 'rsitrade_sell'])
@@ -164,7 +198,7 @@ def build_status_message(orders, expanded: bool, token=None):
                 shown = g_orders if expanded else g_orders[:3]
                 for i, o in enumerate(shown):
                     side_str = "매수" if o['side'] == 'bid' else "매도"
-                    if o['target_rsi']:
+                    if o.get('target_rsi'):
                         target = f"RSI {o['target_rsi']}"
                     elif is_us_stock_ticker(o['exchange'], tk):
                         target = f"${o['price']:,.2f}"
@@ -178,8 +212,11 @@ def build_status_message(orders, expanded: bool, token=None):
                         msg += "  ▫️ ... 그 외 생략\n"
         msg += "\n"
 
+    if cash_reports:
+        msg += format_cash_health_section(cash_reports, html=True) + "\n\n"
+
     msg += "ℹ️ 체결 및 외부 취소 시 실시간 알림이 전송됩니다.\n"
-    msg += "📊 더 상세한 내역과 리포트는 [웹 대시보드]에서 확인하실 수 있습니다."
+    msg += "📊 배치 시계열 조회: <code>/report #[배치번호]</code> | 더 상세한 내역은 [웹 대시보드]에서 확인하세요."
 
     markup = None
     if any_truncatable and token:
@@ -195,7 +232,13 @@ async def _render_status(entry, token, action, extra):
         main.update_list_view_state(token, expanded=expanded)
     user_id = entry["user_id"]
     orders = main.order_manager.get_user_orders(user_id)
-    return build_status_message(orders, entry["state"].get("expanded", False), token)
+    dca_mgr = getattr(main, "dca_manager", None)
+    dca_schedules = dca_mgr.get_user_schedules(user_id, active_only=True) if dca_mgr else []
+    cash_reports = (entry.get("snapshot") or {}).get("cash_reports")
+    return build_status_message(
+        orders, entry["state"].get("expanded", False), token,
+        dca_schedules=dca_schedules, cash_reports=cash_reports,
+    )
 
 
 # ── /history ─────────────────────────────────────────────────────────────────
@@ -262,7 +305,24 @@ async def _render_report(entry, token, action, extra):
     elif action == "next":
         page += 1
     snapshot = entry["snapshot"]
-    text, page, total_pages = build_report_view_page(snapshot["trades"], snapshot["period"], page)
+    if snapshot.get("timeseries"):
+        text, page, total_pages = build_timeseries_report_view_page(
+            snapshot["trades"],
+            period=snapshot.get("period", "all"),
+            group_no=snapshot.get("group_no"),
+            ticker=snapshot.get("ticker"),
+            page=page,
+            dca_sched=snapshot.get("dca_sched"),
+            open_orders=snapshot.get("open_orders"),
+            cash_reports=snapshot.get("cash_reports"),
+        )
+    else:
+        text, page, total_pages = build_report_view_page(
+            snapshot["trades"],
+            snapshot.get("period", "all"),
+            page,
+            cash_reports=snapshot.get("cash_reports"),
+        )
     entry["state"]["page"] = page
     main.update_list_view_state(token, page=page)
 

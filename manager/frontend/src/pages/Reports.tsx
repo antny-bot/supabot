@@ -17,8 +17,9 @@ import PairsSection from './reports/PairsSection'
 import WinStatsSection from './reports/WinStatsSection'
 import DrawdownSection from './reports/DrawdownSection'
 import AllocationSection from './reports/AllocationSection'
+import BatchTimelineSection from './reports/BatchTimelineSection'
 
-// 전체 11개 탭 명세 및 카테고리 매핑
+// 전체 12개 탭 명세 및 카테고리 매핑
 export type ReportCategory = 'all' | 'portfolio' | 'performance' | 'strategy'
 
 interface ReportTabItem {
@@ -37,6 +38,7 @@ const ALL_REPORT_TABS: ReportTabItem[] = [
   { id: 'monthly', label: '월별 손익', category: 'performance' },
   { id: 'drawdown', label: 'MDD / 리스크', category: 'performance' },
   // 트레이딩 분석
+  { id: 'batches', label: '배치·시계열 추적', category: 'strategy' },
   { id: 'strategy', label: '전략별 분석', category: 'strategy' },
   { id: 'exchange', label: '거래소별 분석', category: 'strategy' },
   { id: 'ranking', label: '수익률 랭킹', category: 'strategy' },
@@ -47,6 +49,7 @@ const ALL_REPORT_TABS: ReportTabItem[] = [
 const PERIOD_SENSITIVE_TABS = new Set([
   'pnl',
   'daily',
+  'batches',
   'strategy',
   'exchange',
   'ranking',
@@ -138,6 +141,7 @@ export default function Reports() {
         {activeTab === 'drawdown' && <DrawdownSection dateRange={dateRange} />}
         {activeTab === 'pnl' && <PnlSection dateRange={dateRange} />}
         {activeTab === 'daily' && <DailySection dateRange={dateRange} />}
+        {activeTab === 'batches' && <BatchTimelineSection dateRange={dateRange} />}
         {activeTab === 'strategy' && <StrategySection dateRange={dateRange} />}
         {activeTab === 'exchange' && <ExchangeSection dateRange={dateRange} />}
         {activeTab === 'ranking' && <RoiRankingSection dateRange={dateRange} />}
