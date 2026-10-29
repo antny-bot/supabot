@@ -19,5 +19,5 @@ def log_command(user_id: str, command: str, source: str = "direct",
         row["ticker"] = ticker
     try:
         get_db().table("command_logs").insert(row).execute()
-    except Exception:
-        pass
+    except Exception as e:
+        _log.debug("Failed to log command usage: %s", e)

@@ -1,4 +1,3 @@
-import inspect
 """거미줄/RSI 전략 주문 실행 루프 (텔레그램 콜백 + HTTP 웹훅 공용).
 
 기존에 grid_confirm_callback / _internal_execute_grid_handler /
@@ -9,6 +8,7 @@ _internal_execute_rsitrade_handler / sgridrsi_confirm_callback 에
 사전 검증(잔고/세션/예산 재확인 등)과 확인 메시지 빌드는 호출부(콜백/HTTP 핸들러)
 책임으로 남기고, 이 모듈은 실제 주문 발행 루프만 담당한다.
 """
+import inspect
 import asyncio
 import uuid as _uuid
 
@@ -223,10 +223,20 @@ async def execute_rsitrade_orders(
     s_start, s_end = parse_rsi_range(sell_rsi_range) if has_sell else (0, 0)
     interval = get_user_rsi_interval(user)
 
+    target_rsis = [interpolate_range(b_start, b_end, i, count) for i in range(count)]
+    prices = None
+    if hasattr(signal_engine, "get_prices_by_rsi") and callable(signal_engine.get_prices_by_rsi):
+        maybe_coro = signal_engine.get_prices_by_rsi(
+            exchange, ticker, target_rsis,
+            side="bid", interval=interval, user_id=user_id,
+        )
+        if asyncio.iscoroutine(maybe_coro) or inspect.isawaitable(maybe_coro):
+            prices = await maybe_coro
+
     async def leg_fn(i):
-        target_rsi = interpolate_range(b_start, b_end, i, count)
+        target_rsi = target_rsis[i]
         sell_target_rsi = interpolate_range(s_start, s_end, i, count) if has_sell else None
-        price = await signal_engine.get_price_by_rsi(
+        price = prices[i] if (prices and i < len(prices) and prices[i] is not None) else await signal_engine.get_price_by_rsi(
             exchange, ticker, target_rsi,
             side="bid", interval=interval, user_id=user_id,
         )
@@ -294,9 +304,19 @@ async def execute_sgridrsi_orders(
     budget_per_order = budget / count
     interval = get_user_rsi_interval(user)
 
+    target_rsis = [interpolate_range(s_start, s_end, i, count) for i in range(count)]
+    prices = None
+    if hasattr(signal_engine, "get_prices_by_rsi") and callable(signal_engine.get_prices_by_rsi):
+        maybe_coro = signal_engine.get_prices_by_rsi(
+            exchange, ticker, target_rsis,
+            side="ask", interval=interval, user_id=user_id,
+        )
+        if asyncio.iscoroutine(maybe_coro) or inspect.isawaitable(maybe_coro):
+            prices = await maybe_coro
+
     async def leg_fn(i):
-        target_rsi = interpolate_range(s_start, s_end, i, count)
-        price = await signal_engine.get_price_by_rsi(
+        target_rsi = target_rsis[i]
+        price = prices[i] if (prices and i < len(prices) and prices[i] is not None) else await signal_engine.get_price_by_rsi(
             exchange, ticker, target_rsi,
             side="ask", interval=interval, user_id=user_id,
         )

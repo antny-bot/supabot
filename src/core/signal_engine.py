@@ -209,8 +209,8 @@ class SignalEngine:
                 low = mid
         return high
 
-    async def get_price_by_rsi(self, exchange, ticker, target_rsi, side="bid", interval="day", period=14, user_id=None):
-        """Estimate the next-close price that would place RSI near the target."""
+    async def get_prices_by_rsi(self, exchange, ticker, target_rsis: list[float], side="bid", interval="day", period=14, user_id=None) -> list[float | None]:
+        """Estimate prices for multiple RSI targets by fetching candles once (P1 batch)."""
         current_rsi, df = await self.get_rsi(
             exchange,
             ticker,
@@ -218,6 +218,48 @@ class SignalEngine:
             period=period,
             user_id=user_id,
         )
+        if current_rsi is None or df is None or len(df) < period:
+            return [None] * len(target_rsis)
+
+        close_series = df["close"].astype(float).reset_index(drop=True)
+        current_price = float(close_series.iloc[-1])
+        ex_obj = self.exchange_adapter.get_exchange(exchange)
+
+        prices = []
+        for target_rsi in target_rsis:
+            target_price = self._search_price_for_target_rsi(
+                close_series,
+                current_price,
+                float(current_rsi),
+                float(target_rsi),
+                side,
+                period,
+            )
+            if target_price is None:
+                prices.append(None)
+                continue
+
+            buffer = 0.001
+            if side == "bid":
+                target_price *= 1 - buffer
+            else:
+                target_price *= 1 + buffer
+
+            prices.append(ex_obj.adjust_price_to_tick(target_price, ticker))
+        return prices
+
+    async def get_price_by_rsi(self, exchange, ticker, target_rsi, side="bid", interval="day", period=14, user_id=None, _precomputed=None):
+        """Estimate the next-close price that would place RSI near the target."""
+        if _precomputed is not None:
+            current_rsi, df = _precomputed
+        else:
+            current_rsi, df = await self.get_rsi(
+                exchange,
+                ticker,
+                interval=interval,
+                period=period,
+                user_id=user_id,
+            )
         if current_rsi is None or df is None or len(df) < period:
             return None
 

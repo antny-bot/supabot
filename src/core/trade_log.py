@@ -36,8 +36,8 @@ def is_trade_logged(uuid, path=TRADE_LOG_PATH) -> bool:
                     continue
                 if rec.get("uuid") == uuid:
                     return True
-    except Exception:
-        pass
+    except Exception as e:
+        _log.debug("Failed in trade_log file operation: %s", e)
     return False
 
 
@@ -79,8 +79,8 @@ def append_trade(user_id, exchange, ticker, side, price, volume, strategy, uuid,
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
         os.chmod(path, 0o600)
         _trim_trade_log(path)
-    except Exception:
-        pass
+    except Exception as e:
+        _log.debug("Failed in trade_log file operation: %s", e)
 
 
 def _trim_trade_log(path):
@@ -92,8 +92,8 @@ def _trim_trade_log(path):
         if len(lines) > TRADE_LOG_MAX_LINES:
             with open(path, "w", encoding="utf-8") as f:
                 f.writelines(lines[-TRADE_LOG_MAX_LINES:])
-    except Exception:
-        pass
+    except Exception as e:
+        _log.debug("Failed in trade_log file operation: %s", e)
 
 
 def _period_cutoff_ts(period):
