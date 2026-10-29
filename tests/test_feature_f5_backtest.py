@@ -2,7 +2,7 @@
 import pandas as pd
 import numpy as np
 import pytest
-from src.core.backtest import BacktestResult, BacktestTrade, run_rsi_backtest
+from core.backtest import BacktestResult, BacktestTrade, run_rsi_backtest
 
 
 def _generate_synthetic_candles(count: int = 200, base_price: float = 1000.0, trend: str = "cycle") -> pd.DataFrame:
