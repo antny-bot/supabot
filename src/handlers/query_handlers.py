@@ -377,7 +377,7 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE, use
             target_desc = f"#{group_no} 배치" if group_no is not None else f"{ticker} 종목"
             await update.message.reply_text(
                 f"📊 {target_desc}에 해당하는 체결 기록이나 활성 전략이 없습니다.\n"
-                "팁: <code>/report</code>로 전체 배치 요약과 종목 내역을 확인하세요.",
+                "⚠️ 사용법: <code>/report [today|week|month|all]</code> 또는 <code>/report #[배치번호]</code> · <code>/report [종목]</code>",
                 parse_mode="HTML",
             )
             return
