@@ -41,7 +41,7 @@ async def _update_event(event_id: int, payload: dict) -> JSONResponse:
             return JSONResponse({"error": "Event not found"}, status_code=404)
         return JSONResponse(row)
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.get("/api/events")
@@ -71,7 +71,7 @@ async def api_list_events(
             "limit": limit
         })
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.patch("/api/events/bulk/read")
@@ -81,7 +81,7 @@ async def api_bulk_read_events(payload: BulkActionRequest, _=Depends(get_admin_u
         await get_db().table("operational_events").update({"read_at": now}).in_("id", payload.ids).execute()
         return JSONResponse({"success": True})
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.patch("/api/events/bulk/archive")
@@ -91,7 +91,7 @@ async def api_bulk_archive_events(payload: BulkActionRequest, _=Depends(get_admi
         await get_db().table("operational_events").update({"archived_at": now, "read_at": now}).in_("id", payload.ids).execute()
         return JSONResponse({"success": True})
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.post("/api/events/bulk/delete")
@@ -100,7 +100,7 @@ async def api_bulk_delete_events(payload: BulkActionRequest, _=Depends(get_admin
         await get_db().table("operational_events").delete().in_("id", payload.ids).execute()
         return JSONResponse({"success": True})
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.patch("/api/events/{event_id}/read")

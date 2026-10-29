@@ -42,7 +42,7 @@ async def api_get_sysconfig(_=Depends(get_admin_user)):
             
         return JSONResponse(config_list)
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.post("/api/sysconfig")
@@ -59,4 +59,4 @@ async def api_save_sysconfig(request: Request, _=Depends(get_admin_user)):
 
         return JSONResponse({"ok": True})
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)

@@ -60,7 +60,7 @@ async def api_list_templates(user: dict = Depends(get_current_user)):
         rows = (await q.execute()).data or []
         return JSONResponse(rows)
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.post("/api/templates")
@@ -91,7 +91,7 @@ async def api_create_template(payload: TemplateCreate, user: dict = Depends(get_
         res = await get_db().table("strategy_templates").insert(data).execute()
         return JSONResponse({"ok": True, "data": res.data})
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.delete("/api/templates/{template_id}")
@@ -109,7 +109,7 @@ async def api_delete_template(template_id: int, user: dict = Depends(get_current
         await q.execute()
         return JSONResponse({"ok": True})
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.get("/api/templates/{template_id}")
@@ -129,7 +129,7 @@ async def api_get_template(template_id: int, user: dict = Depends(get_current_us
             return JSONResponse({"error": "템플릿을 찾을 수 없습니다."}, status_code=404)
         return JSONResponse({"ok": True, "data": rows[0]})
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.put("/api/templates/{template_id}")
@@ -166,7 +166,7 @@ async def api_update_template(template_id: int, payload: TemplateUpdate, user: d
             return JSONResponse({"error": "템플릿을 찾을 수 없거나 권한이 없습니다."}, status_code=404)
         return JSONResponse({"ok": True, "data": res.data})
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.post("/api/templates/{template_id}/duplicate")
@@ -192,7 +192,7 @@ async def api_duplicate_template(template_id: int, user: dict = Depends(get_curr
         res = await get_db().table("strategy_templates").insert(new_data).execute()
         return JSONResponse({"ok": True, "data": res.data})
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.post("/api/templates/{template_id}/execute")
@@ -262,4 +262,4 @@ async def api_execute_template(template_id: int, user: dict = Depends(get_curren
             
         return JSONResponse({"ok": True, "message": msg})
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)

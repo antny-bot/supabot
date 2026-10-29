@@ -1,5 +1,10 @@
 import os
 import asyncio
+import hmac
+import logging
+import time
+from collections import defaultdict
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
@@ -14,13 +19,50 @@ from .auth import supabase_sign_in, generate_pkce_pair, build_oauth_url, exchang
 from .routers import dashboard, events, orders, reports, sysconfig, stock_cache, trades, users, templates, mfa, analytics
 from .routers._auth import get_current_user
 
+logger = logging.getLogger("manager")
+
+session_secret = os.environ.get("SESSION_SECRET", "").strip()
+if not session_secret or session_secret == "change-me-in-production":
+    raise RuntimeError("SESSION_SECRET must be set and cannot be the default insecure placeholder")
+
 app = FastAPI(title="supabot manager")
+
+https_only = os.environ.get("SESSION_HTTPS_ONLY", "true").lower() in ("1", "true", "yes")
 
 app.add_middleware(
     SessionMiddleware,
-    secret_key=os.environ.get("SESSION_SECRET", "change-me-in-production"),
+    secret_key=session_secret,
+    same_site="lax",
+    https_only=https_only,
     max_age=86400,
 )
+
+
+@app.middleware("http")
+async def csrf_origin_validation(request: Request, call_next):
+    # 상태 변경 요청(POST/PUT/PATCH/DELETE, /api/*)에 대해 Origin/Referer 검증
+    # 단, /api/realtime/trigger (API Key 인증)는 예외
+    if request.method in ("POST", "PUT", "PATCH", "DELETE") and request.url.path.startswith("/api/"):
+        if request.url.path != "/api/realtime/trigger":
+            origin = request.headers.get("origin")
+            referer = request.headers.get("referer")
+            source = origin or referer
+            if source:
+                parsed_source = urlparse(source)
+                source_origin = f"{parsed_source.scheme}://{parsed_source.netloc}".rstrip("/")
+
+                raw_allowed = os.environ.get("MANAGER_ALLOWED_ORIGINS", "").strip()
+                allowed_origins = [o.strip().rstrip("/") for o in raw_allowed.split(",") if o.strip()]
+                # 기본적으로 현재 호스트(자신)는 항상 허용
+                parsed_base = urlparse(str(request.base_url))
+                self_origin = f"{parsed_base.scheme}://{parsed_base.netloc}".rstrip("/")
+                if self_origin:
+                    allowed_origins.append(self_origin)
+
+                if source_origin not in allowed_origins:
+                    return JSONResponse({"error": "Forbidden: invalid origin"}, status_code=403)
+
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -54,18 +96,27 @@ class RealtimeBroadcastManager:
         self.active_connections = set()
 
     async def subscribe(self):
-        queue = asyncio.Queue()
+        queue = asyncio.Queue(maxsize=100)
         self.active_connections.add(queue)
         try:
             while True:
                 event = await queue.get()
                 yield f"data: {event}\n\n"
         except asyncio.CancelledError:
-            self.active_connections.remove(queue)
+            pass
+        finally:
+            self.active_connections.discard(queue)
 
     def trigger(self, event_data: str):
-        for queue in self.active_connections:
-            queue.put_nowait(event_data)
+        for queue in list(self.active_connections):
+            try:
+                queue.put_nowait(event_data)
+            except asyncio.QueueFull:
+                try:
+                    queue.get_nowait()
+                    queue.put_nowait(event_data)
+                except Exception:
+                    pass
 
 realtime_manager = RealtimeBroadcastManager()
 
@@ -78,7 +129,8 @@ async def realtime_stream(_=Depends(get_current_user)):
 @app.post("/api/realtime/trigger")
 async def realtime_trigger(request: Request):
     api_key = os.environ.get("MANAGER_API_KEY", "")
-    if not api_key or request.headers.get("X-API-Key") != api_key:
+    provided = request.headers.get("X-API-Key") or ""
+    if not api_key or not hmac.compare_digest(provided.encode("utf-8"), api_key.encode("utf-8")):
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
     try:
         body = await request.json()
@@ -123,7 +175,8 @@ async def api_update_profile(request: Request, user: dict = Depends(get_current_
         await get_db().table("users").update({"username": username}).eq("user_id", user_id).execute()
         return JSONResponse({"ok": True})
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        logger.error("Profile update error: %s", e, exc_info=True)
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 async def _create_session_for_email(request: Request, email: str, access_token: str) -> str:
@@ -175,6 +228,28 @@ async def _create_session_for_email(request: Request, email: str, access_token: 
     return "no_access"
 
 
+# 로그인 Rate Limit: IP + 이메일 기준 5분(300초) 내 10회 제한
+_login_attempts: dict[str, list[float]] = defaultdict(list)
+_RATE_LIMIT_WINDOW = 300
+_MAX_LOGIN_ATTEMPTS = 10
+
+
+def _is_rate_limited(client_ip: str, email: str) -> bool:
+    now = time.time()
+    key = f"{client_ip}:{email}"
+    attempts = [t for t in _login_attempts[key] if now - t < _RATE_LIMIT_WINDOW]
+    _login_attempts[key] = attempts
+    if len(attempts) >= _MAX_LOGIN_ATTEMPTS:
+        return True
+    _login_attempts[key].append(now)
+    return False
+
+
+def _reset_rate_limit(client_ip: str, email: str):
+    key = f"{client_ip}:{email}"
+    _login_attempts.pop(key, None)
+
+
 @app.post("/api/login")
 async def api_login(request: Request):
     try:
@@ -184,9 +259,18 @@ async def api_login(request: Request):
     except Exception:
         return JSONResponse({"error": "Invalid request"}, status_code=400)
 
+    client_ip = request.client.host if request.client else "unknown"
+    if _is_rate_limited(client_ip, email):
+        return JSONResponse(
+            {"error": "로그인 시도가 너무 많습니다. 5분 후에 다시 시도해 주세요."},
+            status_code=429,
+        )
+
     result = supabase_sign_in(email, password)
     if not result or not result.get("access_token"):
         return JSONResponse({"error": "이메일 또는 비밀번호가 올바르지 않습니다."}, status_code=401)
+
+    _reset_rate_limit(client_ip, email)
 
     outcome = await _create_session_for_email(request, email, result["access_token"])
     if outcome == "ok":
@@ -246,8 +330,6 @@ async def api_logout(request: Request):
 
 
 # SPA: serve React app for all non-/api paths.
-# /assets mount handles hashed JS/CSS files; catch-all route serves index.html
-# for any SPA route (e.g. /dashboard, /orders) so BrowserRouter works on direct load.
 _DIST = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "frontend", "dist"))
 
 if os.path.isdir(_DIST):
