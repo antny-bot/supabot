@@ -36,3 +36,16 @@
 - **총 노출 한도**:
   - 유저 preference `max_open_exposure_krw` 설정.
   - 미체결 원화 주문 잔여 노출 (`core.parsers.compute_open_exposure_krw`) + 신규 주문 합이 한도 초과 시 매수 거부 (`validate_total_exposure`). USD (Toss 해외주식) 주문은 대상 외.
+
+## 웹훅 및 매니저 보안
+
+- **웹훅 IP 화이트리스트 및 HMAC**:
+  - `src/internal_api._verify_webhook_request`: HMAC SHA-256 서명 필수 (`X-Timestamp`, `X-Signature`).
+  - IP 화이트리스트 CIDR 대역(`ALLOWED_WEBHOOK_IPS`) 및 루프백 제어(`WEBHOOK_ALLOW_LOOPBACK`).
+  - 리버스 프록시 환경에서는 외부 요청이 127.0.0.1로 유입될 수 있으므로 필요 시 `WEBHOOK_ALLOW_LOOPBACK=false` 설정 및 엄격한 CIDR 적용.
+- **매니저 세션 및 CSRF 보호**:
+  - `SESSION_SECRET` 미설정 또는 기본값 기동 차단 (`RuntimeError`).
+  - 세션 쿠키 보안 플래그: `same_site="lax"`, `https_only=True` (기본값).
+  - CSRF 방어: `/api/*` 상태 변경 요청에 대한 Origin/Referer 검증 미들웨어.
+  - 로그인 Rate Limit: IP + 이메일 기준 5분 내 10회 제한 (초과 시 429).
+  - 에러 메시지 마스킹: 500 에러 시 고정 "Internal error" 반환하여 내부 스택트레이스 및 시크릿 유출 원천 차단.

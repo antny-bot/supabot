@@ -4,6 +4,7 @@ main.py의 post_init에서 init()으로 의존 객체를 주입한 뒤 라우트
 """
 import asyncio
 import hashlib
+import ipaddress
 import hmac
 import json as _json
 import os
@@ -43,17 +44,50 @@ def init(exchange_adapter, order_manager, user_manager):
     _user_manager = user_manager
 
 
+_warned_no_ip_whitelist = False
+
+
+def _is_ip_allowed(client_ip: str, allowed_ips: list[str]) -> bool:
+    if not client_ip:
+        return False
+    try:
+        c_ip = ipaddress.ip_address(client_ip)
+    except ValueError:
+        return False
+
+    for item in allowed_ips:
+        try:
+            if "/" in item:
+                if c_ip in ipaddress.ip_network(item, strict=False):
+                    return True
+            else:
+                if c_ip == ipaddress.ip_address(item):
+                    return True
+        except ValueError:
+            continue
+    return False
+
+
 async def _verify_webhook_request(request: _web.Request) -> bool:
     """웹훅 요청의 HMAC 서명 및 IP 화이트리스트 검증"""
-    # 1. IP 화이트리스팅 검증
+    global _warned_no_ip_whitelist
+    client_ip = request.remote or ""
     allowed_ips_str = os.environ.get("ALLOWED_WEBHOOK_IPS", "").strip()
-    if allowed_ips_str:
+    allow_loopback = os.environ.get("WEBHOOK_ALLOW_LOOPBACK", "true").lower() in ("1", "true", "yes")
+
+    if not allowed_ips_str:
+        if not _warned_no_ip_whitelist:
+            _log.warning("ALLOWED_WEBHOOK_IPS is not set; webhook protected by HMAC signature only")
+            _warned_no_ip_whitelist = True
+        if not allow_loopback and client_ip in ("127.0.0.1", "::1"):
+            _log.warning(f"Webhook blocked: Loopback access disabled for {client_ip}")
+            return False
+    else:
         allowed_ips = [ip.strip() for ip in allowed_ips_str.split(",") if ip.strip()]
-        # X-Forwarded-For는 클라이언트가 임의로 위조할 수 있어(신뢰 가능한 프록시 홉을
-        # 구성하지 않는 한) 화이트리스트 우회 수단이 된다(L2). 실제 TCP 연결의 피어
-        # 주소(request.remote)만 신뢰한다.
-        client_ip = request.remote
-        if client_ip not in allowed_ips and client_ip != "127.0.0.1":
+        is_loopback = client_ip in ("127.0.0.1", "::1")
+        if is_loopback and allow_loopback:
+            pass
+        elif not _is_ip_allowed(client_ip, allowed_ips):
             _log.warning(f"Webhook blocked: IP {client_ip} is not in whitelist")
             return False
 
@@ -106,7 +140,8 @@ async def _internal_notify_handler(request: _web.Request) -> _web.Response:
         )
     except Exception as e:
         _log.warning("internal notify failed", exc_info=e, extra={"event": "notify_error"})
-        return _web.Response(status=500, text=str(e))
+        _log.error("Webhook handler internal error: %s", e, exc_info=e)
+        return _web.Response(status=500, text="Internal error")
     return _web.Response(text="ok")
 
 
@@ -164,7 +199,8 @@ async def _internal_execute_grid_handler(request: _web.Request) -> _web.Response
         return _web.Response(text="Grid execution started")
     except Exception as e:
         _log.warning("Internal grid execution failed", exc_info=e)
-        return _web.Response(status=500, text=str(e))
+        _log.error("Webhook handler internal error: %s", e, exc_info=e)
+        return _web.Response(status=500, text="Internal error")
 
 
 async def _internal_execute_rsitrade_handler(request: _web.Request) -> _web.Response:
@@ -216,7 +252,8 @@ async def _internal_execute_rsitrade_handler(request: _web.Request) -> _web.Resp
         return _web.Response(text="RSITrade execution started")
     except Exception as e:
         _log.warning("Internal rsitrade execution failed", exc_info=e)
-        return _web.Response(status=500, text=str(e))
+        _log.error("Webhook handler internal error: %s", e, exc_info=e)
+        return _web.Response(status=500, text="Internal error")
 
 
 async def _internal_execute_sgrid_handler(request: _web.Request) -> _web.Response:
@@ -256,7 +293,8 @@ async def _internal_execute_sgrid_handler(request: _web.Request) -> _web.Respons
         return _web.Response(text="sGrid execution started")
     except Exception as e:
         _log.warning("Internal sgrid execution failed", exc_info=e)
-        return _web.Response(status=500, text=str(e))
+        _log.error("Webhook handler internal error: %s", e, exc_info=e)
+        return _web.Response(status=500, text="Internal error")
 
 
 async def _internal_cancel_order_handler(request: _web.Request) -> _web.Response:
@@ -282,7 +320,8 @@ async def _internal_cancel_order_handler(request: _web.Request) -> _web.Response
         return _web.Response(text=_json.dumps({"ok": bool(ok)}), content_type="application/json")
     except Exception as e:
         _log.warning("internal cancel_order failed", exc_info=e, extra={"event": "cancel_order_error"})
-        return _web.Response(status=500, text=str(e))
+        _log.error("Webhook handler internal error: %s", e, exc_info=e)
+        return _web.Response(status=500, text="Internal error")
 
 
 async def _internal_sync_order_handler(request: _web.Request) -> _web.Response:
@@ -337,7 +376,8 @@ async def _internal_sync_order_handler(request: _web.Request) -> _web.Response:
             )
     except Exception as e:
         _log.warning("internal sync_order failed", exc_info=e, extra={"event": "sync_order_error"})
-        return _web.Response(status=500, text=str(e))
+        _log.error("Webhook handler internal error: %s", e, exc_info=e)
+        return _web.Response(status=500, text="Internal error")
 
 
 async def _internal_force_update_order_handler(request: _web.Request) -> _web.Response:
@@ -378,7 +418,8 @@ async def _internal_force_update_order_handler(request: _web.Request) -> _web.Re
         return _web.Response(text=_json.dumps({"ok": True}), content_type="application/json")
     except Exception as e:
         _log.warning("internal force_update_order failed", exc_info=e, extra={"event": "force_update_order_error"})
-        return _web.Response(status=500, text=str(e))
+        _log.error("Webhook handler internal error: %s", e, exc_info=e)
+        return _web.Response(status=500, text="Internal error")
 
 
 async def _internal_get_prices_handler(request: _web.Request) -> _web.Response:
@@ -406,4 +447,5 @@ async def _internal_get_prices_handler(request: _web.Request) -> _web.Response:
         return _web.Response(text=_json.dumps({"prices": results}), content_type="application/json")
     except Exception as e:
         _log.warning("internal get_prices failed", exc_info=e, extra={"event": "get_prices_error"})
-        return _web.Response(status=500, text=str(e))
+        _log.error("Webhook handler internal error: %s", e, exc_info=e)
+        return _web.Response(status=500, text="Internal error")

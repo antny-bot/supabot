@@ -165,7 +165,7 @@ async def api_dashboard(user: dict = Depends(get_current_user)):
         stats = await _build_user_stats(db, bot_user_id)
         return JSONResponse({"stats": stats, "recent_events": [], "mfa_enabled": mfa_enabled})
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.get("/admin/dashboard")

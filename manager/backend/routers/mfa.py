@@ -34,7 +34,7 @@ async def api_login_mfa(request: Request):
         db = get_db()
         rows = (await db.table("users").select("mfa_secret,mfa_enabled").eq("user_id", user_id).execute()).data
     except Exception as e:
-        return JSONResponse({"error": f"데이터베이스 연결 실패: {str(e)}"}, status_code=500)
+        return JSONResponse({"error": "데이터베이스 연결 실패"}, status_code=500)
 
     if not rows or not rows[0].get("mfa_secret") or not rows[0].get("mfa_enabled"):
         return JSONResponse({"error": "MFA 설정을 찾을 수 없습니다."}, status_code=400)
@@ -122,7 +122,7 @@ async def api_mfa_setup(request: Request, user: dict = Depends(get_current_user)
             "mfa_enabled": False
         }).eq("user_id", user_id).execute()
     except Exception as e:
-        return JSONResponse({"error": f"데이터베이스 업데이트 실패: {str(e)}"}, status_code=500)
+        return JSONResponse({"error": "데이터베이스 업데이트 실패"}, status_code=500)
 
     return JSONResponse({
         "secret": mfa_secret,
@@ -150,7 +150,7 @@ async def api_mfa_enable(request: Request, user: dict = Depends(get_current_user
         db = get_db()
         rows = (await db.table("users").select("mfa_secret").eq("user_id", user_id).execute()).data
     except Exception as e:
-        return JSONResponse({"error": f"데이터베이스 조회 실패: {str(e)}"}, status_code=500)
+        return JSONResponse({"error": "데이터베이스 조회 실패"}, status_code=500)
 
     if not rows or not rows[0].get("mfa_secret"):
         return JSONResponse({"error": "설정 중인 MFA 정보가 없습니다. 다시 시작해주세요."}, status_code=400)
@@ -169,7 +169,7 @@ async def api_mfa_enable(request: Request, user: dict = Depends(get_current_user
     try:
         await db.table("users").update({"mfa_enabled": True}).eq("user_id", user_id).execute()
     except Exception as e:
-        return JSONResponse({"error": f"데이터베이스 업데이트 실패: {str(e)}"}, status_code=500)
+        return JSONResponse({"error": "데이터베이스 업데이트 실패"}, status_code=500)
 
     return JSONResponse({"ok": True})
 
@@ -193,7 +193,7 @@ async def api_mfa_disable(request: Request, user: dict = Depends(get_current_use
         db = get_db()
         rows = (await db.table("users").select("mfa_secret").eq("user_id", user_id).execute()).data
     except Exception as e:
-        return JSONResponse({"error": f"데이터베이스 조회 실패: {str(e)}"}, status_code=500)
+        return JSONResponse({"error": "데이터베이스 조회 실패"}, status_code=500)
 
     if not rows or not rows[0].get("mfa_secret"):
         return JSONResponse({"error": "등록된 MFA 설정이 없습니다."}, status_code=400)
@@ -214,6 +214,6 @@ async def api_mfa_disable(request: Request, user: dict = Depends(get_current_use
             "mfa_secret": None
         }).eq("user_id", user_id).execute()
     except Exception as e:
-        return JSONResponse({"error": f"데이터베이스 업데이트 실패: {str(e)}"}, status_code=500)
+        return JSONResponse({"error": "데이터베이스 업데이트 실패"}, status_code=500)
 
     return JSONResponse({"ok": True})

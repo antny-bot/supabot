@@ -118,4 +118,4 @@ async def api_list_trades(
             "by_strategy": [{"name": k, **v} for k, v in sorted(st_agg.items())],
         })
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)

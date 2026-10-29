@@ -1,4 +1,6 @@
 import asyncio
+import json
+import os
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -35,17 +37,50 @@ def _rename_candle_df(df: pd.DataFrame) -> pd.DataFrame:
 
 
 class SignalEngine:
-    def __init__(self, user_manager, exchange_adapter):
+    def __init__(self, user_manager, exchange_adapter, snooze_file_path="data/snooze.json"):
         self.user_manager = user_manager
         self.exchange_adapter = exchange_adapter
+        self.snooze_file_path = snooze_file_path
         self._alert_snooze: dict[tuple[str, str, str], float] = {}
+        self._load_snoozes()
+
+    def _load_snoozes(self):
+        """저장소로부터 만료되지 않은 스누즈 목록을 로드한다 (F1)."""
+        if not os.path.exists(self.snooze_file_path):
+            return
+        try:
+            with open(self.snooze_file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            now = time.time()
+            for key_str, exp in data.items():
+                if float(exp) > now:
+                    parts = key_str.split(":", 2)
+                    if len(parts) == 3:
+                        self._alert_snooze[(parts[0], parts[1], parts[2])] = float(exp)
+        except Exception as e:
+            _log.debug("Failed to load snooze data: %s", e)
+
+    def _save_snoozes(self):
+        """현재 유효한 스누즈 목록을 저장소에 기록한다 (F1)."""
+        try:
+            os.makedirs(os.path.dirname(self.snooze_file_path), exist_ok=True)
+            data = {
+                f"{k[0]}:{k[1]}:{k[2]}": exp
+                for k, exp in self._alert_snooze.items()
+            }
+            with open(self.snooze_file_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            _log.debug("Failed to save snooze data: %s", e)
 
     def clean_expired_snoozes(self):
         """만료된 스누즈 항목을 정리하여 메모리 누수를 방지한다."""
         now = time.time()
         expired = [k for k, exp in self._alert_snooze.items() if exp <= now]
-        for k in expired:
-            self._alert_snooze.pop(k, None)
+        if expired:
+            for k in expired:
+                self._alert_snooze.pop(k, None)
+            self._save_snoozes()
 
     def set_snooze(self, user_id: str, exchange: str, ticker: str, mode: str) -> float:
         """mode: '1h' | '2h' | 'day' — 스누즈 만료 unix timestamp 반환"""
@@ -57,6 +92,7 @@ class SignalEngine:
         else:
             expires = _next_midnight_kst()
         self._alert_snooze[(user_id, exchange, ticker)] = expires
+        self._save_snoozes()
         return expires
 
     async def get_rsi(self, exchange, ticker, interval="day", period=14, user_id=None):
@@ -158,19 +194,25 @@ class SignalEngine:
                         check_rsi = self._calculate_rsi_for_next_close(close_series, est_price, period)
                         if abs(check_rsi - target_rsi) <= 1.0:
                             return est_price
-        except Exception:
-            pass
+        except Exception as e:
+            _log.debug("RSI algebraic inverse failed: %s", e)
 
-        # 2. 안전 폴백: 이분 탐색
+        # 2. 안전 폴백: 이분 탐색 (무한 루프 방지 및 경계 한도)
         if side == "bid":
             if target_rsi >= current_rsi:
                 return current_price
             high = current_price
             low = current_price * 0.98
+            low_limit = max(current_price * 1e-4, 1e-8)
             low_rsi = self._calculate_rsi_for_next_close(close_series, low, period)
-            while low > 1 and low_rsi > target_rsi:
+            iterations = 0
+            while low > low_limit and low_rsi > target_rsi and iterations < 200:
                 low *= 0.98
                 low_rsi = self._calculate_rsi_for_next_close(close_series, low, period)
+                iterations += 1
+            if low_rsi > target_rsi:
+                _log.debug("Target RSI %s unreachable for bid within bounds", target_rsi)
+                return None
             for _ in range(24):
                 mid = (low + high) / 2
                 mid_rsi = self._calculate_rsi_for_next_close(close_series, mid, period)
@@ -184,10 +226,16 @@ class SignalEngine:
             return current_price
         low = current_price
         high = current_price * 1.02
+        high_limit = current_price * 10.0
         high_rsi = self._calculate_rsi_for_next_close(close_series, high, period)
-        while high_rsi < target_rsi:
+        iterations = 0
+        while high < high_limit and high_rsi < target_rsi and iterations < 200:
             high *= 1.02
             high_rsi = self._calculate_rsi_for_next_close(close_series, high, period)
+            iterations += 1
+        if high_rsi < target_rsi:
+            _log.debug("Target RSI %s unreachable for ask within bounds", target_rsi)
+            return None
         for _ in range(24):
             mid = (low + high) / 2
             mid_rsi = self._calculate_rsi_for_next_close(close_series, mid, period)
@@ -197,8 +245,8 @@ class SignalEngine:
                 low = mid
         return high
 
-    async def get_price_by_rsi(self, exchange, ticker, target_rsi, side="bid", interval="day", period=14, user_id=None):
-        """Estimate the next-close price that would place RSI near the target."""
+    async def get_prices_by_rsi(self, exchange, ticker, target_rsis: list[float], side="bid", interval="day", period=14, user_id=None) -> list[float | None]:
+        """Estimate prices for multiple RSI targets by fetching candles once (P1 batch)."""
         current_rsi, df = await self.get_rsi(
             exchange,
             ticker,
@@ -206,6 +254,48 @@ class SignalEngine:
             period=period,
             user_id=user_id,
         )
+        if current_rsi is None or df is None or len(df) < period:
+            return [None] * len(target_rsis)
+
+        close_series = df["close"].astype(float).reset_index(drop=True)
+        current_price = float(close_series.iloc[-1])
+        ex_obj = self.exchange_adapter.get_exchange(exchange)
+
+        prices = []
+        for target_rsi in target_rsis:
+            target_price = self._search_price_for_target_rsi(
+                close_series,
+                current_price,
+                float(current_rsi),
+                float(target_rsi),
+                side,
+                period,
+            )
+            if target_price is None:
+                prices.append(None)
+                continue
+
+            buffer = 0.001
+            if side == "bid":
+                target_price *= 1 - buffer
+            else:
+                target_price *= 1 + buffer
+
+            prices.append(ex_obj.adjust_price_to_tick(target_price, ticker))
+        return prices
+
+    async def get_price_by_rsi(self, exchange, ticker, target_rsi, side="bid", interval="day", period=14, user_id=None, _precomputed=None):
+        """Estimate the next-close price that would place RSI near the target."""
+        if _precomputed is not None:
+            current_rsi, df = _precomputed
+        else:
+            current_rsi, df = await self.get_rsi(
+                exchange,
+                ticker,
+                interval=interval,
+                period=period,
+                user_id=user_id,
+            )
         if current_rsi is None or df is None or len(df) < period:
             return None
 
@@ -219,6 +309,8 @@ class SignalEngine:
             side,
             period,
         )
+        if target_price is None:
+            return None
 
         buffer = 0.001
         if side == "bid":
@@ -257,11 +349,17 @@ class SignalEngine:
                 rsi_triggered = rsi <= threshold
                 bb_triggered = use_bb and current_price < bb.lower
 
+                combine_mode = user_data["preferences"].get("signal_combine_mode", "or").lower()
+                if combine_mode == "and":
+                    signal_fired = rsi_triggered and bb_triggered
+                else:
+                    signal_fired = rsi_triggered or bb_triggered
+
                 snooze_key = (user_id, exchange, ticker)
                 if self._alert_snooze.get(snooze_key, 0) > time.time():
                     return
 
-                if (rsi_triggered or bb_triggered) and not is_quiet_hours(user_data):
+                if signal_fired and not is_quiet_hours(user_data):
                     reasons = []
                     if rsi_triggered:
                         reasons.append(f"RSI {rsi:.2f} ≤ {threshold:g}")
@@ -287,7 +385,7 @@ class SignalEngine:
                         text=msg,
                         reply_markup=InlineKeyboardMarkup(keyboard),
                     )
-                    self._alert_snooze[snooze_key] = _next_midnight_kst()
+                    self.set_snooze(user_id, exchange, ticker, "day")
 
         for user_id, user_data in users.items():
             if not user_data.get("is_active") or not user_data["preferences"].get("signal_alerts"):

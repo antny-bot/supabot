@@ -58,7 +58,7 @@ async def api_list_users(status: str | None = None, _=Depends(get_admin_user)):
     try:
         return JSONResponse(await _get_users(status))
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.post("/api/users/{user_id}/approve")
@@ -69,7 +69,7 @@ async def api_approve_user(user_id: str, _=Depends(get_admin_user)):
             await _safe_notify(user_id, _NOTIFY_MESSAGES["active"])
         return JSONResponse(user)
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.post("/api/users/{user_id}/deactivate")
@@ -80,7 +80,7 @@ async def api_deactivate_user(user_id: str, _=Depends(get_admin_user)):
             await _safe_notify(user_id, _NOTIFY_MESSAGES["inactive"])
         return JSONResponse(user)
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.post("/api/users/{user_id}/activate")
@@ -91,7 +91,7 @@ async def api_activate_user(user_id: str, _=Depends(get_admin_user)):
             await _safe_notify(user_id, _NOTIFY_MESSAGES["active"])
         return JSONResponse(user)
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.post("/api/users/{user_id}/block")
@@ -102,7 +102,7 @@ async def api_block_user(user_id: str, _=Depends(get_admin_user)):
             await _safe_notify(user_id, _NOTIFY_MESSAGES["blocked"])
         return JSONResponse(user)
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.delete("/api/users/{user_id}")
@@ -113,7 +113,7 @@ async def api_delete_user(user_id: str, _=Depends(get_admin_user)):
             await _safe_notify(user_id, _NOTIFY_MESSAGES["deleted"])
         return JSONResponse(user)
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.post("/api/users/{user_id}/invite-auth-account")
@@ -137,7 +137,7 @@ async def api_invite_auth_account(user_id: str, _=Depends(get_admin_user)):
         
         return JSONResponse({"ok": True, "invited_at": now_iso})
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.post("/api/users/{user_id}/reset-auth-password")
@@ -157,7 +157,7 @@ async def api_reset_auth_password(user_id: str, _=Depends(get_admin_user)):
             
         return JSONResponse({"ok": True})
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.post("/api/users/{user_id}/reset-mfa")
@@ -170,4 +170,4 @@ async def api_reset_mfa(user_id: str, _=Depends(get_admin_user)):
         }).eq("user_id", user_id).execute()
         return JSONResponse({"ok": True})
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)

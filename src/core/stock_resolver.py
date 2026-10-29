@@ -236,8 +236,8 @@ def _db_save(name: str, code: str) -> None:
         if not is_db_available():
             return
         get_db().table("kr_stock_cache").upsert({"name": name, "code": code}).execute()
-    except Exception:
-        pass
+    except Exception as e:
+        _log.debug("Failed during stock resolver cache operation: %s", e)
 
 
 async def _fetch_kis_candidates(adapter, user_id: str, name: str) -> list[dict]:
@@ -335,8 +335,8 @@ async def find_kr_stock_candidates(
             )
             for row in rows or []:
                 _add(row.get("name", ""), row.get("code", ""))
-    except Exception:
-        pass
+    except Exception as e:
+        _log.debug("Failed during stock resolver cache operation: %s", e)
 
     # 3. KIS 검색 API (exchange=kis이거나 user에 KIS 키 존재 시)
     try:
@@ -350,7 +350,7 @@ async def find_kr_stock_candidates(
                 item_name = item.get("prdt_abrv_name") or item.get("PRDT_ABRV_NAME") or ""
                 if code and item_name:
                     _add(item_name, code)
-    except Exception:
-        pass
+    except Exception as e:
+        _log.debug("Failed during stock resolver cache operation: %s", e)
 
     return results[:limit]

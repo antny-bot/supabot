@@ -113,7 +113,7 @@ async def api_list_orders(
             "page_size": page_size,
         })
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.post("/api/orders/cancel-all")
@@ -168,7 +168,7 @@ async def api_cancel_all_orders(
     except HTTPException:
         raise
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.post("/api/orders/{uuid}/cancel")
@@ -206,7 +206,7 @@ async def api_cancel_order(uuid: str, user: dict = Depends(get_current_user)):
     except HTTPException:
         raise
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.post("/api/orders/{uuid}/sync")
@@ -241,7 +241,7 @@ async def api_sync_order(uuid: str, user: dict = Depends(get_current_user)):
     except HTTPException:
         raise
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.post("/api/orders/{uuid}/force-update")
@@ -285,4 +285,4 @@ async def api_force_update_order(
     except HTTPException:
         raise
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Internal error"}, status_code=500)
