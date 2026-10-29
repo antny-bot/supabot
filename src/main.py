@@ -1181,6 +1181,7 @@ async def post_init(application):
         notify_app.router.add_post("/internal/execute_grid", internal_api._internal_execute_grid_handler)
         notify_app.router.add_post("/internal/execute_sgrid", internal_api._internal_execute_sgrid_handler)
         notify_app.router.add_post("/internal/execute_rsitrade", internal_api._internal_execute_rsitrade_handler)
+        notify_app.router.add_post("/internal/execute_dca", internal_api._internal_execute_dca_handler)
         notify_app.router.add_post("/internal/cancel_order", internal_api._internal_cancel_order_handler)
         notify_app.router.add_post("/internal/sync_order", internal_api._internal_sync_order_handler)
         notify_app.router.add_post("/internal/force_update_order", internal_api._internal_force_update_order_handler)

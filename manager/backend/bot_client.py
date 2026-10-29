@@ -194,3 +194,37 @@ async def execute_rsitrade(user_id: str, exchange: str, ticker: str, buy_rsi_ran
         return False, resp.text or f"HTTP 에러 {resp.status_code}"
     except Exception as e:
         return False, str(e)
+
+
+async def execute_dca(
+    user_id: str,
+    exchange: str,
+    ticker: str,
+    side: str,
+    schedule: str,
+    amount_type: str,
+    amount: float,
+    exec_time: str = "09:05",
+    max_runs: int | None = None,
+) -> tuple[bool, str]:
+    """Send DCA/SDCA periodic strategy registration request via /internal/execute_dca."""
+    try:
+        resp = await _send_signed_request_async(
+            "/internal/execute_dca",
+            {
+                "user_id": user_id,
+                "exchange": exchange,
+                "ticker": ticker,
+                "side": side,
+                "schedule": schedule,
+                "amount_type": amount_type,
+                "amount": amount,
+                "exec_time": exec_time,
+                "max_runs": max_runs,
+            },
+        )
+        if resp.is_success:
+            return True, "ok"
+        return False, resp.text or f"HTTP 에러 {resp.status_code}"
+    except Exception as e:
+        return False, str(e)

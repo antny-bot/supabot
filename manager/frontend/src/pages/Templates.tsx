@@ -18,6 +18,7 @@ import {
   executeTemplate,
   fetchTemplates,
   type Template,
+  type TemplateParams,
   updateTemplate,
 } from '../api/templates'
 import Badge from '../components/ui/Badge'
@@ -39,6 +40,9 @@ interface TemplateFormState {
   buyRsiRange: string
   sellRsiRange: string
   weighted: boolean
+  dcaSchedule: string
+  dcaExecTime: string
+  dcaAmountType: 'budget' | 'volume'
 }
 
 const DEFAULT_FORM: TemplateFormState = {
@@ -53,33 +57,67 @@ const DEFAULT_FORM: TemplateFormState = {
   buyRsiRange: '25-30',
   sellRsiRange: '65-75',
   weighted: false,
+  dcaSchedule: '매일',
+  dcaExecTime: '09:05',
+  dcaAmountType: 'budget',
+}
+
+const STRATEGY_TYPE_LABELS: Record<string, string> = {
+  grid: '거미줄 분할 매수 (/grid)',
+  sgrid: '거미줄 분할 매도 (/sgrid)',
+  rsitrade: 'RSI 순환 매매 (/rsitrade)',
+  rsi: 'RSI 순환 매매 (/rsitrade)',
+  dca: '정기 적립식 매수 (/dca)',
+  sdca: '정기 분할 매도 (/sdca)',
+}
+
+const STRATEGY_BADGE_LABELS: Record<string, string> = {
+  grid: '거미줄 매수 (GRID)',
+  sgrid: '거미줄 매도 (SGRID)',
+  rsitrade: 'RSI 순환매매',
+  rsi: 'RSI 순환매매',
+  dca: '정기 매수 (DCA)',
+  sdca: '정기 매도 (SDCA)',
+}
+
+function normalizeStrategyType(raw?: string): string {
+  if (!raw) return 'grid'
+  if (raw === 'rsi') return 'rsitrade'
+  return raw
 }
 
 function buildPayload(form: TemplateFormState) {
+  const stype = normalizeStrategyType(form.strategyType)
+  const parsedCount = parseInt(form.count, 10)
   const payload = {
     name: form.name.trim(),
     exchange: form.exchange,
     ticker: form.ticker.trim().toUpperCase(),
     start_price: 0,
     end_price: 0,
-    count: parseInt(form.count, 10),
+    count: Number.isNaN(parsedCount) ? 0 : parsedCount,
     budget: parseFloat(form.budget),
-    strategy_type: form.strategyType,
-    params: {} as {
-      buy_rsi_range?: string
-      sell_rsi_range?: string
-      weighted?: boolean
-    },
+    strategy_type: stype,
+    params: {} as TemplateParams,
   }
 
-  if (form.strategyType === 'grid' || form.strategyType === 'sgrid') {
+  if (stype === 'grid' || stype === 'sgrid') {
     payload.start_price = parseFloat(form.startPrice)
     payload.end_price = parseFloat(form.endPrice)
-  } else {
+  } else if (stype === 'rsitrade') {
     payload.params = {
       buy_rsi_range: form.buyRsiRange.trim(),
       sell_rsi_range: form.sellRsiRange.trim(),
       weighted: form.weighted,
+    }
+  } else if (stype === 'dca' || stype === 'sdca') {
+    const maxRuns = payload.count > 0 ? payload.count : null
+    payload.params = {
+      schedule: form.dcaSchedule.trim() || '매일',
+      exec_time: form.dcaExecTime.trim() || '09:05',
+      amount_type: form.dcaAmountType,
+      max_runs: maxRuns,
+      side: stype === 'sdca' ? 'ask' : 'bid',
     }
   }
 
@@ -87,7 +125,7 @@ function buildPayload(form: TemplateFormState) {
 }
 
 function templateToForm(template: Template): TemplateFormState {
-  const strategyType = template.strategy_type || 'grid'
+  const strategyType = normalizeStrategyType(template.strategy_type)
   return {
     name: template.name,
     exchange: template.exchange,
@@ -95,11 +133,14 @@ function templateToForm(template: Template): TemplateFormState {
     strategyType,
     startPrice: template.start_price ? String(template.start_price) : '',
     endPrice: template.end_price ? String(template.end_price) : '',
-    count: String(template.count),
+    count: String(template.count ?? 0),
     budget: String(template.budget),
     buyRsiRange: template.params?.buy_rsi_range || '25-30',
     sellRsiRange: template.params?.sell_rsi_range || '65-75',
     weighted: Boolean(template.params?.weighted),
+    dcaSchedule: template.params?.schedule || '매일',
+    dcaExecTime: template.params?.exec_time || '09:05',
+    dcaAmountType: template.params?.amount_type || (strategyType === 'sdca' ? 'volume' : 'budget'),
   }
 }
 
@@ -217,6 +258,9 @@ export default function Templates() {
     }
   }
 
+  const isDcaForm = form.strategyType === 'dca' || form.strategyType === 'sdca'
+  const isSellGridForm = form.strategyType === 'sgrid'
+
   return (
     <div className="space-y-4 pb-8">
       <PageHeader
@@ -264,99 +308,118 @@ export default function Templates() {
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {templates.map((tpl) => (
-            <div
-              key={tpl.id}
-              className="flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-all hover:border-indigo-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-indigo-800"
-            >
-              <div>
-                {/* 상단: 거래소, 종목, 전략 유형 */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <Badge value={tpl.exchange} label={tpl.exchange.toUpperCase()} />
-                    <span className="text-sm font-bold text-slate-900 dark:text-white">
-                      {tpl.ticker}
+          {templates.map((tpl) => {
+            const stype = normalizeStrategyType(tpl.strategy_type)
+            const isDca = stype === 'dca' || stype === 'sdca'
+            const isVolumeBased = stype === 'sgrid' || (isDca && tpl.params?.amount_type === 'volume')
+
+            return (
+              <div
+                key={tpl.id}
+                className="flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-all hover:border-indigo-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-indigo-800"
+              >
+                <div>
+                  {/* 상단: 거래소, 종목, 전략 유형 */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <Badge value={tpl.exchange} label={tpl.exchange.toUpperCase()} />
+                      <span className="text-sm font-bold text-slate-900 dark:text-white">
+                        {tpl.ticker}
+                      </span>
+                    </div>
+                    <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                      {STRATEGY_BADGE_LABELS[stype] || stype.toUpperCase()}
                     </span>
                   </div>
-                  <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                    {tpl.strategy_type || 'GRID'}
-                  </span>
-                </div>
 
-                {/* 템플릿 명칭 */}
-                <h4 className="mt-2.5 text-base font-bold text-slate-800 dark:text-slate-100 truncate">
-                  {tpl.name}
-                </h4>
+                  {/* 템플릿 명칭 */}
+                  <h4 className="mt-2.5 text-base font-bold text-slate-800 dark:text-slate-100 truncate">
+                    {tpl.name}
+                  </h4>
 
-                {/* 파라미터 요약 그리드 */}
-                <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-slate-50 p-3 text-xs dark:bg-slate-800/50">
-                  <div>
-                    <span className="text-[11px] text-slate-400">설정 예산</span>
-                    <p className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                      {krwFmt(tpl.budget)}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-[11px] text-slate-400">분할 주문 수</span>
-                    <p className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                      {tpl.count}분할
-                    </p>
-                  </div>
-                  {tpl.start_price > 0 && (
-                    <div className="col-span-2 border-t border-slate-200/60 pt-1.5 dark:border-slate-700/60">
-                      <span className="text-[11px] text-slate-400">가격 범위</span>
-                      <p className="font-mono font-medium text-slate-700 dark:text-slate-300">
-                        {tpl.start_price.toLocaleString()} ~ {tpl.end_price.toLocaleString()}원
+                  {/* 파라미터 요약 그리드 */}
+                  <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-slate-50 p-3 text-xs dark:bg-slate-800/50">
+                    <div>
+                      <span className="text-[11px] text-slate-400">
+                        {stype === 'sgrid' ? '총 매도 수량' : isDca ? '1회 주문 규모' : '설정 예산'}
+                      </span>
+                      <p className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                        {isVolumeBased ? `${tpl.budget} (수량)` : krwFmt(tpl.budget)}
                       </p>
                     </div>
-                  )}
-                  {tpl.params?.buy_rsi_range && (
-                    <div className="col-span-2 border-t border-slate-200/60 pt-1.5 dark:border-slate-700/60">
-                      <span className="text-[11px] text-slate-400">RSI 조건</span>
-                      <p className="font-mono font-medium text-slate-700 dark:text-slate-300">
-                        매수: {tpl.params.buy_rsi_range} / 매도: {tpl.params.sell_rsi_range || '—'}
+                    <div>
+                      <span className="text-[11px] text-slate-400">
+                        {isDca ? '반복 횟수' : '분할 주문 수'}
+                      </span>
+                      <p className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                        {isDca ? (tpl.count > 0 ? `총 ${tpl.count}회` : '무기한 반복') : `${tpl.count}분할`}
                       </p>
                     </div>
-                  )}
-                </div>
-              </div>
-
-              {/* 하단 액션 버튼 그룹 */}
-              <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 dark:border-slate-800">
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => handleOpenEdit(tpl)}
-                    className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-                    title="수정"
-                  >
-                    <Pencil size={14} />
-                  </button>
-                  <button
-                    onClick={() => handleDuplicate(tpl)}
-                    className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-                    title="복제"
-                  >
-                    <Copy size={14} />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(tpl)}
-                    className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40 dark:hover:text-rose-400"
-                    title="삭제"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                    {tpl.start_price > 0 && (
+                      <div className="col-span-2 border-t border-slate-200/60 pt-1.5 dark:border-slate-700/60">
+                        <span className="text-[11px] text-slate-400">가격 범위</span>
+                        <p className="font-mono font-medium text-slate-700 dark:text-slate-300">
+                          {tpl.start_price.toLocaleString()} ~ {tpl.end_price.toLocaleString()}원
+                        </p>
+                      </div>
+                    )}
+                    {tpl.params?.buy_rsi_range && (
+                      <div className="col-span-2 border-t border-slate-200/60 pt-1.5 dark:border-slate-700/60">
+                        <span className="text-[11px] text-slate-400">RSI 조건</span>
+                        <p className="font-mono font-medium text-slate-700 dark:text-slate-300">
+                          매수: {tpl.params.buy_rsi_range} / 매도: {tpl.params.sell_rsi_range || '—'}
+                          {tpl.params.weighted ? ' (DCA 가중)' : ''}
+                        </p>
+                      </div>
+                    )}
+                    {isDca && (
+                      <div className="col-span-2 border-t border-slate-200/60 pt-1.5 dark:border-slate-700/60">
+                        <span className="text-[11px] text-slate-400">정기 실행 주기</span>
+                        <p className="font-mono font-medium text-slate-700 dark:text-slate-300">
+                          {tpl.params?.schedule || '매일'} · {tpl.params?.exec_time || '09:05'} (KST)
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                <button
-                  onClick={() => setExecutingTemplate(tpl)}
-                  className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700 transition-colors"
-                >
-                  <Play size={13} />
-                  <span>즉시 실행</span>
-                </button>
+                {/* 하단 액션 버튼 그룹 */}
+                <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 dark:border-slate-800">
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => handleOpenEdit(tpl)}
+                      className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                      title="수정"
+                    >
+                      <Pencil size={14} />
+                    </button>
+                    <button
+                      onClick={() => handleDuplicate(tpl)}
+                      className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                      title="복제"
+                    >
+                      <Copy size={14} />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(tpl)}
+                      className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40 dark:hover:text-rose-400"
+                      title="삭제"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+
+                  <button
+                    onClick={() => setExecutingTemplate(tpl)}
+                    className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700 transition-colors"
+                  >
+                    <Play size={13} />
+                    <span>즉시 실행</span>
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
@@ -388,7 +451,7 @@ export default function Templates() {
                 <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">템플릿 이름</label>
                 <input
                   type="text"
-                  placeholder="예: 비트코인 10분할 거미줄 매수"
+                  placeholder="예: 비트코인 매일 5만원 정기매수 / 10분할 거미줄 매수"
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white focus:border-indigo-500"
@@ -427,47 +490,127 @@ export default function Templates() {
                 <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">전략 유형</label>
                 <select
                   value={form.strategyType}
-                  onChange={(e) => setForm({ ...form, strategyType: e.target.value })}
+                  onChange={(e) => {
+                    const nextType = e.target.value
+                    setForm({
+                      ...form,
+                      strategyType: nextType,
+                      count: (nextType === 'dca' || nextType === 'sdca') ? '0' : (form.count === '0' ? '10' : form.count),
+                      dcaAmountType: nextType === 'sdca' ? 'volume' : form.dcaAmountType,
+                    })
+                  }}
                   className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                 >
-                  <option value="grid">그리드 (Grid)</option>
-                  <option value="sgrid">스마트 그리드 (Smart Grid)</option>
-                  <option value="rsi">RSI 조건 분할 매매</option>
+                  <option value="grid">거미줄 분할 매수 (/grid — 가격 범위 분할 매수)</option>
+                  <option value="sgrid">거미줄 분할 매도 (/sgrid — 가격 범위 보유수량 분할 매도)</option>
+                  <option value="rsitrade">RSI 조건 순환 매매 (/rsitrade — RSI 분할 매수 + 자동 익절 예약)</option>
+                  <option value="dca">정기 적립식 매수 (/dca — 매일·특정요일·매주·매월 정기 매수)</option>
+                  <option value="sdca">정기 분할 매도 (/sdca — 매일·특정요일·매주·매월 정기 매도)</option>
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">투자 예산 (KRW)</label>
-                  <input
-                    type="number"
-                    value={form.budget}
-                    onChange={(e) => setForm({ ...form, budget: e.target.value })}
-                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                    required
-                  />
+              {isDcaForm ? (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">실행 주기</label>
+                      <input
+                        type="text"
+                        placeholder="예: 매일, 매주월, 월수금, 평일, 매월15일"
+                        value={form.dcaSchedule}
+                        onChange={(e) => setForm({ ...form, dcaSchedule: e.target.value })}
+                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">실행 시각 (KST)</label>
+                      <input
+                        type="text"
+                        placeholder="09:05"
+                        value={form.dcaExecTime}
+                        onChange={(e) => setForm({ ...form, dcaExecTime: e.target.value })}
+                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">1회 주문 기준</label>
+                      <select
+                        value={form.dcaAmountType}
+                        onChange={(e) => setForm({ ...form, dcaAmountType: e.target.value as 'budget' | 'volume' })}
+                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                      >
+                        <option value="budget">예산 (금액)</option>
+                        <option value="volume">수량 (개/주)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        {form.dcaAmountType === 'volume' ? '1회 주문 수량' : '1회 주문 예산'}
+                      </label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={form.budget}
+                        onChange={(e) => setForm({ ...form, budget: e.target.value })}
+                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">총 횟수 (0=무기한)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={form.count}
+                        onChange={(e) => setForm({ ...form, count: e.target.value })}
+                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                        required
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      {isSellGridForm ? '총 매도 수량 (개/주)' : '투자 예산 (KRW)'}
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={form.budget}
+                      onChange={(e) => setForm({ ...form, budget: e.target.value })}
+                      className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">분할 주문 수</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="50"
+                      value={form.count}
+                      onChange={(e) => setForm({ ...form, count: e.target.value })}
+                      className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                      required
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">분할 주문 수</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="50"
-                    value={form.count}
-                    onChange={(e) => setForm({ ...form, count: e.target.value })}
-                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                    required
-                  />
-                </div>
-              </div>
+              )}
 
-              {form.strategyType === 'grid' || form.strategyType === 'sgrid' ? (
+              {(form.strategyType === 'grid' || form.strategyType === 'sgrid') && (
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">시작 가격</label>
                     <input
                       type="number"
-                      placeholder="최저 매수가"
+                      step="any"
+                      placeholder={isSellGridForm ? '최저 매도가' : '최저 매수가'}
                       value={form.startPrice}
                       onChange={(e) => setForm({ ...form, startPrice: e.target.value })}
                       className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
@@ -478,7 +621,8 @@ export default function Templates() {
                     <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">종료 가격</label>
                     <input
                       type="number"
-                      placeholder="최고 매도가"
+                      step="any"
+                      placeholder={isSellGridForm ? '최고 매도가' : '최고 매수가'}
                       value={form.endPrice}
                       onChange={(e) => setForm({ ...form, endPrice: e.target.value })}
                       className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
@@ -486,28 +630,41 @@ export default function Templates() {
                     />
                   </div>
                 </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">매수 RSI 범위</label>
-                    <input
-                      type="text"
-                      placeholder="25-30"
-                      value={form.buyRsiRange}
-                      onChange={(e) => setForm({ ...form, buyRsiRange: e.target.value })}
-                      className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                    />
+              )}
+
+              {(form.strategyType === 'rsitrade' || form.strategyType === 'rsi') && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">매수 RSI 범위</label>
+                      <input
+                        type="text"
+                        placeholder="25-30"
+                        value={form.buyRsiRange}
+                        onChange={(e) => setForm({ ...form, buyRsiRange: e.target.value })}
+                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">매도 RSI 범위 (매수만 할 경우 -)</label>
+                      <input
+                        type="text"
+                        placeholder="65-75"
+                        value={form.sellRsiRange}
+                        onChange={(e) => setForm({ ...form, sellRsiRange: e.target.value })}
+                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">매도 RSI 범위</label>
+                  <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300 cursor-pointer">
                     <input
-                      type="text"
-                      placeholder="65-75"
-                      value={form.sellRsiRange}
-                      onChange={(e) => setForm({ ...form, sellRsiRange: e.target.value })}
-                      className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                      type="checkbox"
+                      checked={form.weighted}
+                      onChange={(e) => setForm({ ...form, weighted: e.target.checked })}
+                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                     />
-                  </div>
+                    <span>DCA 가중 매수 적용 (낮은 RSI 구간에 더 많은 예산 배정)</span>
+                  </label>
                 </div>
               )}
 
@@ -546,11 +703,16 @@ export default function Templates() {
               전략 템플릿 즉시 실행
             </h3>
             <p className="mt-2 text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-              <strong>'{executingTemplate.name}'</strong> 설정으로 거래소에 즉시 분할 주문을 발주합니다.
+              <strong>'{executingTemplate.name}'</strong> 설정으로 거래소에 전략을 즉시 가동합니다.
             </p>
-            <div className="mt-3 rounded-xl bg-slate-50 p-3 text-xs font-mono dark:bg-slate-800/60">
+            <div className="mt-3 rounded-xl bg-slate-50 p-3 text-xs font-mono space-y-1 dark:bg-slate-800/60">
+              <p>유형: {STRATEGY_TYPE_LABELS[executingTemplate.strategy_type || 'grid'] || executingTemplate.strategy_type}</p>
               <p>종목: {executingTemplate.ticker} ({executingTemplate.exchange.toUpperCase()})</p>
-              <p>예산: {krwFmt(executingTemplate.budget)} ({executingTemplate.count}분할)</p>
+              <p>
+                규모: {executingTemplate.strategy_type === 'sgrid' || executingTemplate.params?.amount_type === 'volume'
+                  ? `${executingTemplate.budget} (수량)`
+                  : krwFmt(executingTemplate.budget)}
+              </p>
             </div>
             <div className="mt-5 flex justify-end gap-2">
               <button
@@ -568,7 +730,7 @@ export default function Templates() {
                 className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
               >
                 {executing && <Loader2 size={13} className="animate-spin" />}
-                <span>{executing ? '주문 발주 중...' : '확인, 즉시 발주'}</span>
+                <span>{executing ? '실행 중...' : '확인, 즉시 실행'}</span>
               </button>
             </div>
           </div>
