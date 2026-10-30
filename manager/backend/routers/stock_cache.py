@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from ..db import get_db
-from ._auth import get_admin_user
+from ._auth import get_admin_user, get_current_user
 
 router = APIRouter()
 
@@ -23,7 +23,7 @@ class StockEntry(BaseModel):
 @router.get("/api/stock-cache")
 async def list_stock_cache(
     search: str = Query("", alias="search"),
-    _=Depends(get_admin_user),
+    _=Depends(get_current_user),
 ):
     db = get_db()
     if search:

@@ -1,5 +1,6 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import {
+  ChevronDown,
   Copy,
   Loader2,
   Pencil,
@@ -11,6 +12,7 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import { ApiError } from '../api/client'
+import { fetchStockCache, type StockCacheRow } from '../api/stockCache'
 import {
   createTemplate,
   deleteTemplate,
@@ -157,9 +159,19 @@ export default function Templates() {
   const [formError, setFormError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
+  // 종목 캐시 & 다운콤보 상태 (한국투자증권 / 토스증권)
+  const [stockList, setStockList] = useState<StockCacheRow[]>([])
+  const [stockLoading, setStockLoading] = useState(false)
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [highlightedIndex, setHighlightedIndex] = useState(-1)
+  const comboboxRef = useRef<HTMLDivElement>(null)
+  const justSelectedRef = useRef<string | null>(null)
+
   // 실행 확인 모달
   const [executingTemplate, setExecutingTemplate] = useState<Template | null>(null)
   const [executing, setExecuting] = useState(false)
+
+  const isStockExchange = form.exchange === 'kis' || form.exchange === 'toss'
 
   const loadTemplates = async () => {
     try {
@@ -174,14 +186,86 @@ export default function Templates() {
     }
   }
 
+  const loadStockList = async () => {
+    if (stockList.length > 0 || stockLoading) return
+    try {
+      setStockLoading(true)
+      const rows = await fetchStockCache('')
+      if (Array.isArray(rows)) {
+        setStockList(rows)
+      }
+    } catch {
+      // 종목 캐시 조회 실패 시 직접 코드 입력으로 폴백
+    } finally {
+      setStockLoading(false)
+    }
+  }
+
   useEffect(() => {
     loadTemplates()
+    loadStockList()
   }, [])
+
+  useEffect(() => {
+    if (formOpen && isStockExchange && stockList.length === 0) {
+      loadStockList()
+    }
+  }, [formOpen, isStockExchange])
+
+  useEffect(() => {
+    if (!dropdownOpen) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (comboboxRef.current && !comboboxRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false)
+        setHighlightedIndex(-1)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [dropdownOpen])
+
+  const stockNameByCode = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const item of stockList) {
+      map[item.code.toUpperCase()] = item.name
+    }
+    return map
+  }, [stockList])
+
+  const selectedStock = useMemo(() => {
+    if (!isStockExchange) return undefined
+    const q = form.ticker.trim().toLowerCase()
+    if (!q) return undefined
+    return stockList.find((item) => item.code.toLowerCase() === q)
+  }, [isStockExchange, form.ticker, stockList])
+
+  const filteredStocks = useMemo(() => {
+    if (!isStockExchange) return []
+    const q = form.ticker.trim().toLowerCase()
+    if (!q) return stockList.slice(0, 50)
+    return stockList.filter(
+      (item) =>
+        item.name.toLowerCase().includes(q) ||
+        item.code.toLowerCase().includes(q),
+    )
+  }, [isStockExchange, form.ticker, stockList])
+
+  const selectStock = (stock: StockCacheRow) => {
+    justSelectedRef.current = stock.code
+    setTimeout(() => {
+      justSelectedRef.current = null
+    }, 50)
+    setForm((prev) => ({ ...prev, ticker: stock.code }))
+    setDropdownOpen(false)
+    setHighlightedIndex(-1)
+  }
 
   const handleOpenCreate = () => {
     setEditingId(null)
     setForm(DEFAULT_FORM)
     setFormError(null)
+    setDropdownOpen(false)
+    setHighlightedIndex(-1)
     setFormOpen(true)
   }
 
@@ -189,6 +273,8 @@ export default function Templates() {
     setEditingId(template.id)
     setForm(templateToForm(template))
     setFormError(null)
+    setDropdownOpen(false)
+    setHighlightedIndex(-1)
     setFormOpen(true)
   }
 
@@ -224,10 +310,24 @@ export default function Templates() {
       return
     }
 
+    let submitForm = form
+    if (isStockExchange) {
+      const q = form.ticker.trim().toLowerCase()
+      const exactCode = stockList.find((s) => s.code.toLowerCase() === q)
+      if (!exactCode) {
+        const exactName = stockList.find((s) => s.name.toLowerCase() === q)
+        if (exactName) {
+          submitForm = { ...form, ticker: exactName.code }
+        } else if (filteredStocks.length === 1) {
+          submitForm = { ...form, ticker: filteredStocks[0].code }
+        }
+      }
+    }
+
     setSaving(true)
     setFormError(null)
     try {
-      const payload = buildPayload(form)
+      const payload = buildPayload(submitForm)
       if (editingId) {
         await updateTemplate(editingId, payload)
         toast.success('템플릿이 수정되었습니다.')
@@ -312,6 +412,10 @@ export default function Templates() {
             const stype = normalizeStrategyType(tpl.strategy_type)
             const isDca = stype === 'dca' || stype === 'sdca'
             const isVolumeBased = stype === 'sgrid' || (isDca && tpl.params?.amount_type === 'volume')
+            const stockName =
+              tpl.exchange === 'kis' || tpl.exchange === 'toss'
+                ? stockNameByCode[tpl.ticker.toUpperCase()]
+                : undefined
 
             return (
               <div
@@ -326,6 +430,11 @@ export default function Templates() {
                       <span className="text-sm font-bold text-slate-900 dark:text-white">
                         {tpl.ticker}
                       </span>
+                      {stockName && (
+                        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                          ({stockName})
+                        </span>
+                      )}
                     </div>
                     <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                       {STRATEGY_BADGE_LABELS[stype] || stype.toUpperCase()}
@@ -463,8 +572,22 @@ export default function Templates() {
                 <div>
                   <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">거래소</label>
                   <select
+                    aria-label="거래소"
                     value={form.exchange}
-                    onChange={(e) => setForm({ ...form, exchange: e.target.value })}
+                    onChange={(e) => {
+                      const nextExchange = e.target.value
+                      const nextIsStock = nextExchange === 'kis' || nextExchange === 'toss'
+                      const prevIsStock = form.exchange === 'kis' || form.exchange === 'toss'
+                      let nextTicker = form.ticker
+                      if (nextIsStock && !prevIsStock && form.ticker === 'BTC') {
+                        nextTicker = ''
+                      } else if (!nextIsStock && prevIsStock && !form.ticker.trim()) {
+                        nextTicker = 'BTC'
+                      }
+                      setForm({ ...form, exchange: nextExchange, ticker: nextTicker })
+                      setDropdownOpen(false)
+                      setHighlightedIndex(-1)
+                    }}
                     className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                   >
                     <option value="upbit">Upbit</option>
@@ -473,16 +596,152 @@ export default function Templates() {
                     <option value="toss">토스증권</option>
                   </select>
                 </div>
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">종목 코드 (티커)</label>
-                  <input
-                    type="text"
-                    placeholder="BTC / 005930"
-                    value={form.ticker}
-                    onChange={(e) => setForm({ ...form, ticker: e.target.value })}
-                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs uppercase font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                    required
-                  />
+                <div ref={comboboxRef} className="relative">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    종목 코드 (티커)
+                  </label>
+                  <div className="relative mt-1">
+                    <input
+                      type="text"
+                      aria-label="종목 코드 (티커)"
+                      autoComplete="off"
+                      placeholder={isStockExchange ? '종목명 또는 코드 검색 (예: 고려)' : 'BTC / 005930'}
+                      value={form.ticker}
+                      onFocus={() => {
+                        if (isStockExchange && form.ticker.trim() && !selectedStock) {
+                          setDropdownOpen(true)
+                        }
+                      }}
+                      onChange={(e) => {
+                        if (justSelectedRef.current !== null) return
+                        const val = e.target.value
+                        setForm((prev) => ({ ...prev, ticker: val }))
+                        if (isStockExchange) {
+                          setDropdownOpen(true)
+                          setHighlightedIndex(-1)
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (!isStockExchange) return
+                        if (e.key === 'ArrowDown') {
+                          e.preventDefault()
+                          if (!dropdownOpen) {
+                            setDropdownOpen(true)
+                            setHighlightedIndex(filteredStocks.length > 0 ? 0 : -1)
+                          } else if (filteredStocks.length > 0) {
+                            setHighlightedIndex((prev) => (prev + 1) % filteredStocks.length)
+                          }
+                        } else if (e.key === 'ArrowUp') {
+                          e.preventDefault()
+                          if (!dropdownOpen) {
+                            setDropdownOpen(true)
+                            setHighlightedIndex(filteredStocks.length > 0 ? filteredStocks.length - 1 : -1)
+                          } else if (filteredStocks.length > 0) {
+                            setHighlightedIndex((prev) => (prev <= 0 ? filteredStocks.length - 1 : prev - 1))
+                          }
+                        } else if (e.key === 'Enter') {
+                          if (filteredStocks.length === 1) {
+                            e.preventDefault()
+                            selectStock(filteredStocks[0])
+                          } else if (
+                            dropdownOpen &&
+                            highlightedIndex >= 0 &&
+                            highlightedIndex < filteredStocks.length
+                          ) {
+                            e.preventDefault()
+                            selectStock(filteredStocks[highlightedIndex])
+                          } else if (dropdownOpen && filteredStocks.length > 1) {
+                            const q = form.ticker.trim().toLowerCase()
+                            const exact = filteredStocks.find(
+                              (s) => s.name.toLowerCase() === q || s.code.toLowerCase() === q,
+                            )
+                            e.preventDefault()
+                            if (exact) {
+                              selectStock(exact)
+                            }
+                          }
+                        } else if (e.key === 'Escape') {
+                          if (dropdownOpen) {
+                            e.preventDefault()
+                            setDropdownOpen(false)
+                            setHighlightedIndex(-1)
+                          }
+                        }
+                      }}
+                      className={`w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono outline-none focus:border-indigo-500 dark:border-slate-700 dark:bg-slate-800 dark:text-white ${
+                        isStockExchange ? 'pr-24' : 'uppercase'
+                      }`}
+                      required
+                    />
+                    {isStockExchange && (
+                      <div className="absolute inset-y-0 right-2 flex items-center gap-1">
+                        {selectedStock && (
+                          <span className="max-w-[90px] truncate rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-950/70 dark:text-indigo-300">
+                            {selectedStock.name}
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          aria-label="종목 목록 열기"
+                          onClick={() => setDropdownOpen((prev) => !prev)}
+                          className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                        >
+                          <ChevronDown size={14} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {isStockExchange && dropdownOpen && (
+                    <ul
+                      role="listbox"
+                      aria-label="종목 검색 결과"
+                      className="absolute left-0 right-0 z-30 mt-1 max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-xl dark:border-slate-700 dark:bg-slate-800"
+                    >
+                      {stockLoading ? (
+                        <li className="px-3 py-2 text-xs text-slate-400">종목 캐시 불러오는 중...</li>
+                      ) : filteredStocks.length === 0 ? (
+                        <li className="px-3 py-2 text-xs text-slate-400">
+                          일치하는 종목이 없습니다 (직접 코드 입력 가능)
+                        </li>
+                      ) : (
+                        filteredStocks.map((item, idx) => {
+                          const isSingleMatch = filteredStocks.length === 1
+                          const isHighlighted = idx === highlightedIndex || isSingleMatch
+                          return (
+                            <li
+                              key={`${item.code}-${item.name}`}
+                              role="option"
+                              aria-selected={isHighlighted}
+                              onMouseDown={(e) => {
+                                e.preventDefault()
+                                selectStock(item)
+                              }}
+                              onMouseEnter={() => setHighlightedIndex(idx)}
+                              className={`flex cursor-pointer items-center justify-between px-3 py-2 text-xs transition-colors ${
+                                isHighlighted
+                                  ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300'
+                                  : 'text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700/50'
+                              }`}
+                            >
+                              <span className="font-medium truncate">{item.name}</span>
+                              <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                                <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                                  {item.code}
+                                </span>
+                                {isSingleMatch && (
+                                  <span className="rounded bg-indigo-100 px-1 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-900/70 dark:text-indigo-200">
+                                    Enter ↵
+                                  </span>
+                                )}
+                              </div>
+                            </li>
+                          )
+                        })
+                      )}
+                    </ul>
+                  )}
                 </div>
               </div>
 
