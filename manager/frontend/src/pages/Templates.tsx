@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { createPortal } from 'react-dom'
 import {
   ChevronDown,
   Copy,
@@ -707,53 +708,54 @@ export default function Templates() {
       )}
 
       {/* 템플릿 생성/수정 모달 */}
-      {formOpen && (
-        <div className="fixed inset-0 z-50 overflow-y-auto p-4 sm:p-6 md:p-8 flex items-center justify-center">
-          <div
-            className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm transition-opacity"
-            onClick={() => !saving && setFormOpen(false)}
-          />
-          <div
-            className={`relative z-10 my-auto flex flex-col w-full ${
-              isTopDcaForm ? 'max-w-2xl' : 'max-w-lg'
-            } max-h-[85vh] rounded-2xl bg-white shadow-2xl dark:bg-slate-900 border border-slate-200 dark:border-slate-800 transition-all text-left overflow-hidden`}
-          >
-            {/* 고정 모달 헤더 */}
-            <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-6 py-4 dark:border-slate-800">
-              <div className="flex items-center gap-2.5">
-                {isTopDcaForm ? (
-                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-violet-100 text-violet-600 dark:bg-violet-950/60 dark:text-violet-400">
-                    <Layers size={16} />
-                  </span>
-                ) : (
-                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-100 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400">
-                    <Plus size={16} />
-                  </span>
-                )}
-                <div>
-                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                    {editingId
-                      ? isTopDcaForm
-                        ? '복수 종목 전략 템플릿 수정'
-                        : '단일 종목 전략 템플릿 수정'
-                      : isTopDcaForm
-                        ? '복수 종목 전략 템플릿 만들기 (시총 TOP N)'
-                        : '단일 종목 전략 템플릿 만들기'}
-                  </h3>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    {isTopDcaForm
-                      ? '시가총액 상위 유니버스 기반 순환 모으기 및 분할매도 자동화'
-                      : '단일 종목 대상 거미줄(GRID), RSI 조건, 정기 적립식(DCA) 매매'}
-                  </p>
+      {formOpen &&
+        createPortal(
+          <div className="fixed inset-0 z-50 overflow-y-auto p-4 sm:p-6 md:p-8 flex items-center justify-center">
+            <div
+              className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm transition-opacity"
+              onClick={() => !saving && setFormOpen(false)}
+            />
+            <div
+              className={`relative z-10 my-auto flex flex-col w-full ${
+                isTopDcaForm ? 'max-w-2xl' : 'max-w-lg'
+              } max-h-[85vh] rounded-2xl bg-white shadow-2xl dark:bg-slate-900 border border-slate-200 dark:border-slate-800 transition-all text-left overflow-hidden`}
+            >
+              {/* 고정 모달 헤더 */}
+              <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-6 py-4 dark:border-slate-800">
+                <div className="flex items-center gap-2.5">
+                  {isTopDcaForm ? (
+                    <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-violet-100 text-violet-600 dark:bg-violet-950/60 dark:text-violet-400">
+                      <Layers size={16} />
+                    </span>
+                  ) : (
+                    <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-100 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400">
+                      <Plus size={16} />
+                    </span>
+                  )}
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                      {editingId
+                        ? isTopDcaForm
+                          ? '복수 종목 전략 템플릿 수정'
+                          : '단일 종목 전략 템플릿 수정'
+                        : isTopDcaForm
+                          ? '복수 종목 전략 템플릿 만들기 (시총 TOP N)'
+                          : '단일 종목 전략 템플릿 만들기'}
+                    </h3>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      {isTopDcaForm
+                        ? '시가총액 상위 유니버스 기반 순환 모으기 및 분할매도 자동화'
+                        : '단일 종목 대상 거미줄(GRID), RSI 조건, 정기 적립식(DCA) 매매'}
+                    </p>
+                  </div>
                 </div>
+                <button
+                  onClick={() => setFormOpen(false)}
+                  className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                >
+                  <X size={16} />
+                </button>
               </div>
-              <button
-                onClick={() => setFormOpen(false)}
-                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-              >
-                <X size={16} />
-              </button>
-            </div>
 
             {formError && (
               <div className="mx-6 mt-3 shrink-0 rounded-lg bg-rose-50 p-3 text-xs text-rose-600 dark:bg-rose-950/40 dark:text-rose-300">
@@ -1565,54 +1567,57 @@ export default function Templates() {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {/* 즉시 실행 확인 모달 */}
-      {executingTemplate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm"
-            onClick={() => !executing && setExecutingTemplate(null)}
-          />
-          <div className="relative z-10 w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-            <h3 className="text-base font-bold text-slate-900 dark:text-white">
-              전략 템플릿 즉시 실행
-            </h3>
-            <p className="mt-2 text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-              <strong>'{executingTemplate.name}'</strong> 설정으로 거래소에 전략을 즉시 가동합니다.
-            </p>
-            <div className="mt-3 rounded-xl bg-slate-50 p-3 text-xs font-mono space-y-1 dark:bg-slate-800/60">
-              <p>유형: {STRATEGY_TYPE_LABELS[executingTemplate.strategy_type || 'grid'] || executingTemplate.strategy_type}</p>
-              <p>종목: {executingTemplate.ticker} ({executingTemplate.exchange.toUpperCase()})</p>
-              <p>
-                규모: {executingTemplate.strategy_type === 'sgrid' || executingTemplate.params?.amount_type === 'volume'
-                  ? `${executingTemplate.budget} (수량)`
-                  : krwFmt(executingTemplate.budget)}
+      {executingTemplate &&
+        createPortal(
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div
+              className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm"
+              onClick={() => !executing && setExecutingTemplate(null)}
+            />
+            <div className="relative z-10 w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                전략 템플릿 즉시 실행
+              </h3>
+              <p className="mt-2 text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                <strong>'{executingTemplate.name}'</strong> 설정으로 거래소에 전략을 즉시 가동합니다.
               </p>
+              <div className="mt-3 rounded-xl bg-slate-50 p-3 text-xs font-mono space-y-1 dark:bg-slate-800/60">
+                <p>유형: {STRATEGY_TYPE_LABELS[executingTemplate.strategy_type || 'grid'] || executingTemplate.strategy_type}</p>
+                <p>종목: {executingTemplate.ticker} ({executingTemplate.exchange.toUpperCase()})</p>
+                <p>
+                  규모: {executingTemplate.strategy_type === 'sgrid' || executingTemplate.params?.amount_type === 'volume'
+                    ? `${executingTemplate.budget} (수량)`
+                    : krwFmt(executingTemplate.budget)}
+                </p>
+              </div>
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={executing}
+                  onClick={() => setExecutingTemplate(null)}
+                  className="rounded-xl border border-slate-200 px-3.5 py-1.5 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  disabled={executing}
+                  onClick={handleConfirmExecute}
+                  className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {executing && <Loader2 size={13} className="animate-spin" />}
+                  <span>{executing ? '실행 중...' : '확인, 즉시 실행'}</span>
+                </button>
+              </div>
             </div>
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="button"
-                disabled={executing}
-                onClick={() => setExecutingTemplate(null)}
-                className="rounded-xl border border-slate-200 px-3.5 py-1.5 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300"
-              >
-                취소
-              </button>
-              <button
-                type="button"
-                disabled={executing}
-                onClick={handleConfirmExecute}
-                className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-              >
-                {executing && <Loader2 size={13} className="animate-spin" />}
-                <span>{executing ? '실행 중...' : '확인, 즉시 실행'}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }
