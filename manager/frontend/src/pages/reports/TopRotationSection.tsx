@@ -103,7 +103,7 @@ export default function TopRotationSection() {
 
       {/* 핵심 상태 KPI 카드 */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className={CARD}>
+        <div className={`${CARD} p-4`}>
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs">
             <span>이월 잔여 가용 예산</span>
             <DollarSign size={15} className="text-emerald-500" />
@@ -116,7 +116,7 @@ export default function TopRotationSection() {
           </div>
         </div>
 
-        <div className={CARD}>
+        <div className={`${CARD} p-4`}>
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs">
             <span>현재 회전 사이클</span>
             <RotateCw size={15} className="text-indigo-500" />
@@ -129,7 +129,7 @@ export default function TopRotationSection() {
           </div>
         </div>
 
-        <div className={CARD}>
+        <div className={`${CARD} p-4`}>
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs">
             <span>다음 매수 차례 (Head-of-Line)</span>
             <Clock size={15} className="text-amber-500" />
@@ -142,7 +142,7 @@ export default function TopRotationSection() {
           </div>
         </div>
 
-        <div className={CARD}>
+        <div className={`${CARD} p-4`}>
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs">
             <span>전략 운용 상태</span>
             <CheckCircle2 size={15} className="text-blue-500" />
@@ -157,8 +157,8 @@ export default function TopRotationSection() {
       </div>
 
       {/* 보유 및 이탈 관리 종목 테이블 */}
-      <div className={CARD}>
-        <div className="flex items-center justify-between mb-3">
+      <div className={`${CARD} overflow-hidden`}>
+        <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <TrendingUp size={16} className="text-indigo-600 dark:text-indigo-400" />
             <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">
@@ -231,8 +231,8 @@ export default function TopRotationSection() {
       </div>
 
       {/* 최근 배치별 예산 흐름 타임라인 */}
-      <div className={CARD}>
-        <div className="flex items-center gap-2 mb-3">
+      <div className={`${CARD} overflow-hidden`}>
+        <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2">
           <Clock size={16} className="text-indigo-600 dark:text-indigo-400" />
           <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">
             배치별 예산 소진 및 실행 타임라인

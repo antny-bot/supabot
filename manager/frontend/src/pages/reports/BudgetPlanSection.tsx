@@ -240,7 +240,7 @@ export default function BudgetPlanSection() {
 
       {/* 3. Budget Plan 세부 현황 KPI 카드 */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className={CARD}>
+        <div className={`${CARD} p-4`}>
           <span className="text-xs text-slate-500">현재 가용 예산 (Carryover)</span>
           <div className="mt-1 text-2xl font-bold text-slate-800 dark:text-slate-100 font-mono">
             {krwFmt(ledgerData?.carryover_budget || 0)}
@@ -250,7 +250,7 @@ export default function BudgetPlanSection() {
           </span>
         </div>
 
-        <div className={CARD}>
+        <div className={`${CARD} p-4`}>
           <span className="text-xs text-slate-500">당월 누적 소진액 (Monthly Spent)</span>
           <div className="mt-1 text-2xl font-bold text-slate-800 dark:text-slate-100 font-mono">
             {krwFmt(ledgerData?.monthly_spent || 0)}
@@ -260,7 +260,7 @@ export default function BudgetPlanSection() {
           </span>
         </div>
 
-        <div className={CARD}>
+        <div className={`${CARD} p-4`}>
           <span className="text-xs text-slate-500">적용 플랜 버전 / 세대 (Epoch)</span>
           <div className="mt-1 text-2xl font-bold text-indigo-600 dark:text-indigo-400">
             v{currentParams.plan_revision_no || 1} <span className="text-sm font-normal text-slate-400">/ Epoch #{ledgerData?.current_epoch || 1}</span>
@@ -270,7 +270,7 @@ export default function BudgetPlanSection() {
           </span>
         </div>
 
-        <div className={CARD}>
+        <div className={`${CARD} p-4`}>
           <span className="text-xs text-slate-500">예산 원장 총 기록수</span>
           <div className="mt-1 text-2xl font-bold text-slate-800 dark:text-slate-100 font-mono">
             {(ledgerData?.ledger || []).length}건
@@ -282,8 +282,8 @@ export default function BudgetPlanSection() {
       </div>
 
       {/* 4. 통장 거래내역 방식의 +/- 감사 원장 테이블 (budget_ledger) */}
-      <div className={CARD}>
-        <div className="flex items-center justify-between mb-3">
+      <div className={`${CARD} overflow-hidden`}>
+        <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <DollarSign size={16} className="text-indigo-600 dark:text-indigo-400" />
             <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">
