@@ -147,7 +147,9 @@ async def api_dashboard(user: dict = Depends(get_current_user)):
             mfa_enabled = bool(rows and rows[0].get("mfa_enabled", False))
 
         if is_admin:
+
             stats = await _build_stats(db)
+
             events = (
                 await db.table("operational_events")
                 .select("id,level,source,message,details,created_at,read_at,archived_at")
@@ -157,7 +159,10 @@ async def api_dashboard(user: dict = Depends(get_current_user)):
                 .limit(10)
                 .execute()
             ).data
-            db_health = await get_supabase_health_stats()
+            try:
+                db_health = await get_supabase_health_stats(db)
+            except Exception:
+                db_health = None
             return JSONResponse({
                 "stats": stats,
                 "recent_events": events,

@@ -150,18 +150,24 @@ async def get_stock_name_map() -> dict[str, str]:
         pass
     return {row["code"]: row["name"] for row in rows if "code" in row and "name" in row}
 
-async def get_supabase_health_stats() -> dict:
+async def get_supabase_health_stats(db=None) -> dict | None:
     """Supabase 데이터베이스 용량 및 무료 티어(500MB) 상태 계산"""
-    db = get_db()
+    try:
+        if db is None:
+            db = get_db()
+    except Exception:
+        return None
+
     limit_mb = 500.0  # Supabase 무료 티어 한도: 500MB
 
     db_size_bytes = None
     source = "estimated"
     try:
-        rpc_res = await db.rpc("get_db_size_bytes")
-        if isinstance(rpc_res.data, (int, float)):
-            db_size_bytes = int(rpc_res.data)
-            source = "database_actual"
+        if hasattr(db, "rpc"):
+            rpc_res = await db.rpc("get_db_size_bytes")
+            if isinstance(rpc_res.data, (int, float)):
+                db_size_bytes = int(rpc_res.data)
+                source = "database_actual"
     except Exception:
         pass
 
