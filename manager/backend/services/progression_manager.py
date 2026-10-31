@@ -11,6 +11,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from ..db import get_db
+from .. import bot_client
 from ..bot_client import notify
 from . import universe_resolver
 from . import budget_manager
@@ -110,8 +111,8 @@ def step_single_day(
         master_items = target_list
 
     master_rank_map = {item["code"]: item["rank"] for item in master_items}
-    for item in target_list:
-        if item["code"] not in price_map:
+    for item in list(master_items) + list(target_list):
+        if item["code"] not in price_map and item.get("price") is not None:
             price_map[item["code"]] = float(item["price"])
 
     # 설정값 추출
@@ -383,6 +384,7 @@ async def run_strategy_progression(
                     await budget_manager.refund_cancelled_orders(template, cancelled)
 
         # 5. 일일 예산 충전 (1일 1회 불변식 2 보장)
+        carryover_before_credit = float(params.get("carryover_budget", 0.0))
         rem_days = budget_manager.calculate_remaining_trading_days(today_str)
         group_no = int(params.get("last_group_no", 0)) + 1
         daily_allowance, params = await budget_manager.credit_daily_allowance(
@@ -393,7 +395,10 @@ async def run_strategy_progression(
         )
 
         # 6. 순수 상태 전이 함수 실행 (step_single_day)
-        prev_carryover = float(params.get("carryover_budget", 0.0))
+        prev_carryover = carryover_before_credit
+        # step_single_day는 params(state)를 in-place로 갱신하므로 차감 직전 잔액을 미리 보관
+        run_carry = float(params.get("carryover_budget", 0.0))
+        run_spent = float(params.get("monthly_spent", 0.0))
         new_params, buy_orders, sell_orders = step_single_day(
             state=params,
             date_str=today_str,
@@ -450,7 +455,7 @@ async def run_strategy_progression(
             }
             if not is_dry_run and not params.get("is_dry_run", False):
                 await db.table("orders").upsert(db_ord).execute()
-                await budget_manager.spend_for_buy(
+                bal = await budget_manager.spend_for_buy(
                     template=template,
                     cost_krw=b_ord["cost"],
                     ticker=b_ord["code"],
@@ -459,7 +464,12 @@ async def run_strategy_progression(
                     cycle_no=b_ord["cycle_no"],
                     order_uuid=b_ord["uuid"],
                     rank=b_ord.get("rank"),
+                    carryover_before=run_carry,
+                    monthly_spent_before=run_spent,
+                    mutate_params=False,  # step_single_day에서 이미 차감됨 (이중 차감 방지)
                 )
+                run_carry = bal["carryover_budget"]
+                run_spent = bal["monthly_spent"]
             created_orders.append(db_ord)
 
         # 8. 런타임 상태 히스토리 스냅샷 추가 (최근 90회)
@@ -533,6 +543,57 @@ async def set_strategy_holding(template_id: int, is_holding: bool) -> dict:
     return {"template_id": template_id, "strategy_status": new_status, "schedule_enabled": new_sched}
 
 
+_OPEN_ORDER_STATUSES = ["wait", "reserved", "partial", "pending_reorder", "market_closed"]
+
+
+async def _cancel_open_orders(template_id: int) -> dict:
+    """전략의 미체결 주문을 봇(거래소) 경유로 실제 취소한다.
+
+    DB 상태만 'cancel'로 바꾸면 거래소에 주문이 살아남으므로, 봇의 취소 엔드포인트가 성공한
+    주문만 취소로 간주한다. 거래소에 제출된 적 없는 'reserved' 주문은 취소 실패 시 DB 상태만 갱신한다.
+    반환: {"cancelled": n, "failed": [{"uuid", "ticker", "error"}]}
+    """
+    db = get_db()
+    res = (
+        await db.table("orders")
+        .select("uuid,user_id,exchange,ticker,status")
+        .eq("template_id", template_id)
+        .in_("status", _OPEN_ORDER_STATUSES)
+        .execute()
+    )
+    cancelled = 0
+    failed = []
+    for o in res.data or []:
+        try:
+            ok, err = await bot_client.cancel_order(o["user_id"], o["exchange"], o["uuid"], o["ticker"])
+        except Exception as e:
+            ok, err = False, str(e)
+        if not ok and o.get("status") in ("reserved", "pending_reorder", "market_closed"):
+            # 거래소 미제출 주문: 거래소 취소 대상이 없으므로 DB 상태만 갱신
+            try:
+                await db.table("orders").update({"status": "cancel"}).eq("uuid", o["uuid"]).execute()
+                ok = True
+            except Exception as e:
+                err = f"{err}; DB 갱신 실패: {e}"
+        if ok:
+            cancelled += 1
+        else:
+            failed.append({"uuid": o["uuid"], "ticker": o["ticker"], "error": err})
+    if failed:
+        logger.warning(f"Template #{template_id}: {len(failed)} order(s) failed to cancel: {failed[:5]}")
+    return {"cancelled": cancelled, "failed": failed}
+
+
+async def _fetch_current_prices(template: dict, tickers: list[str]) -> dict[str, float]:
+    """봇 경유 실시간 현재가 조회. 조회 실패(0원) 종목은 결과에서 제외한다."""
+    exchange = str(template.get("exchange", "toss")).lower()
+    user_id = str(template["user_id"])
+    rows = await bot_client.get_prices_async(
+        [{"user_id": user_id, "exchange": exchange, "ticker": t} for t in tickers]
+    )
+    return {r["ticker"]: float(r["price"]) for r in rows if float(r.get("price") or 0) > 0}
+
+
 async def stop_strategy(template_id: int, mode: str) -> dict:
     """전략 중지 3단계 제어 (pause | stop_and_cancel | terminate_and_liquidate)."""
     db = get_db()
@@ -550,37 +611,30 @@ async def stop_strategy(template_id: int, mode: str) -> dict:
     elif mode == "stop_and_cancel":
         params["strategy_status"] = "stopped"
         params["exit_progress"] = {}
-        # 미체결 주문 취소
-        await (
-            db.table("orders")
-            .update({"status": "cancel"})
-            .eq("template_id", template_id)
-            .in_("status", ["wait", "reserved", "partial"])
-            .execute()
-        )
+        # 미체결 주문 취소 (거래소 실제 취소 포함)
+        cancel_result = await _cancel_open_orders(template_id)
     elif mode == "terminate_and_liquidate":
         params["strategy_status"] = "liquidating"
         params["exit_progress"] = {}
-        # 1. 미체결 매수/매도 전량 취소
-        await (
-            db.table("orders")
-            .update({"status": "cancel"})
-            .eq("template_id", template_id)
-            .in_("status", ["wait", "reserved", "partial"])
-            .execute()
-        )
-        # 2. 기보유 물량 즉시 청산 매도 주문 발주
+        # 1. 미체결 매수/매도 전량 취소 (거래소 실제 취소 포함)
+        cancel_result = await _cancel_open_orders(template_id)
+        # 2. 기보유 물량 즉시 청산 매도 주문 발주 (현재가 기준, 평단가 사용 금지)
         holdings = await get_template_holdings(template["user_id"], template_id)
         now_ts = time.time()
+        live_prices = await _fetch_current_prices(template, [t for t, h in holdings.items() if h.get("qty", 0.0) > 0])
+        no_price = []
         for ticker, h in holdings.items():
             qty = h.get("qty", 0.0)
             if qty > 0:
+                if ticker not in live_prices:
+                    no_price.append(ticker)
+                    continue
                 liq_ord = {
                     "uuid": str(uuid.uuid4()),
                     "user_id": str(template["user_id"]),
                     "exchange": str(template.get("exchange", "toss")).lower(),
                     "ticker": ticker,
-                    "price": float(h.get("avg_price", 1000.0)),
+                    "price": live_prices[ticker],
                     "volume": float(qty),
                     "filled_volume": 0.0,
                     "side": "ask",
@@ -590,6 +644,15 @@ async def stop_strategy(template_id: int, mode: str) -> dict:
                     "created_at": now_ts,
                 }
                 await db.table("orders").upsert(liq_ord).execute()
+        if no_price:
+            # 현재가 조회 실패 종목은 청산 주문을 내지 않고 알린다 (재시도 필요)
+            logger.warning(f"Template #{template_id}: 현재가 조회 실패로 청산 보류: {no_price}")
 
     await db.table("strategy_templates").update({"params": params}).eq("id", template_id).execute()
-    return {"template_id": template_id, "strategy_status": params["strategy_status"], "mode": mode}
+    result = {"template_id": template_id, "strategy_status": params["strategy_status"], "mode": mode}
+    if mode in ("stop_and_cancel", "terminate_and_liquidate"):
+        result["cancelled_orders"] = cancel_result["cancelled"]
+        result["cancel_failed"] = cancel_result["failed"]
+    if mode == "terminate_and_liquidate":
+        result["liquidation_skipped_no_price"] = no_price
+    return result

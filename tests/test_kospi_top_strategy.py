@@ -390,3 +390,123 @@ def test_run_multi_scenario_backtest():
         assert "mdd" in res["leaderboard"][0]
 
     _sync_run(_run())
+
+
+def test_exit_sell_uses_master_price_not_avg_price():
+    """이탈 종목 매도가는 평단이 아닌 master_items의 현재가를 사용해야 한다."""
+    state = {
+        "rank_start": 1, "rank_end": 1, "exit_rank_buffer": 0, "exit_confirm_days": 1,
+        "sell_split_days": 1, "carryover_budget": 0.0,
+        "holdings": {"B": {"qty": 3.0, "avg_price": 1000.0, "total_cost": 3000.0}},
+    }
+    targets = [{"code": "A", "rank": 1, "price": 5000.0}]
+    master = targets + [{"code": "B", "rank": 5, "price": 2500.0}]
+    _, _, sells = step_single_day(state, "2026-01-05", targets, master)
+    assert sells and sells[0]["price"] == 2500.0
+
+
+def test_spend_for_buy_no_double_deduction_when_not_mutating():
+    # 이벤트 루프 없이 코루틴 구동 (AsyncMock만 사용하므로 중단 지점 없음)
+    try:
+        _check_spend_no_double().send(None)
+    except StopIteration:
+        pass
+
+
+async def _check_spend_no_double():
+    from manager.backend.services import budget_manager as bm
+    template = {"id": 1, "user_id": "u", "params": {"carryover_budget": 70.0, "monthly_spent": 30.0, "monthly_budget": 100.0}}
+    with patch.object(bm, "record_ledger_entry", new=AsyncMock()):
+        bal = await bm.spend_for_buy(
+            template, 30.0, "A", 1, 1, 1, "x",
+            carryover_before=100.0, monthly_spent_before=0.0, mutate_params=False,
+        )
+    assert bal == {"carryover_budget": 70.0, "monthly_spent": 30.0}
+    assert template["params"]["carryover_budget"] == 70.0
+    assert template["params"]["monthly_spent"] == 30.0
+
+
+class _FakeQuery:
+    def __init__(self, db, table):
+        self.db, self.table, self.op, self.payload = db, table, "select", None
+
+    def select(self, *_a):
+        return self
+
+    def update(self, payload):
+        self.op, self.payload = "update", payload
+        return self
+
+    def upsert(self, payload):
+        self.op, self.payload = "upsert", payload
+        return self
+
+    def eq(self, *_a):
+        return self
+
+    def in_(self, *_a):
+        return self
+
+    async def execute(self):
+        self.db.calls.append((self.table, self.op, self.payload))
+        return MagicMock(data=self.db.data.get((self.table, self.op), []))
+
+
+class _FakeDB:
+    def __init__(self, data):
+        self.data, self.calls = data, []
+
+    def table(self, name):
+        return _FakeQuery(self, name)
+
+
+def _drive(coro):
+    """이벤트 루프 없이 중단점 없는 코루틴을 끝까지 구동."""
+    try:
+        coro.send(None)
+    except StopIteration as e:
+        return e.value
+
+
+def test_stop_and_cancel_calls_exchange_cancel_and_keeps_failed():
+    from manager.backend.services import progression_manager as pm
+    orders = [
+        {"uuid": "ok1", "user_id": "u", "exchange": "toss", "ticker": "A", "status": "wait"},
+        {"uuid": "bad", "user_id": "u", "exchange": "toss", "ticker": "B", "status": "wait"},
+        {"uuid": "rsv", "user_id": "u", "exchange": "toss", "ticker": "C", "status": "reserved"},
+    ]
+    db = _FakeDB({("orders", "select"): orders,
+                  ("strategy_templates", "select"): [{"id": 1, "user_id": "u", "params": {}}]})
+
+    async def fake_cancel(user_id, exchange, uuid, ticker):
+        return (uuid == "ok1"), "거래소 오류"
+
+    with patch.object(pm, "get_db", return_value=db), \
+         patch.object(pm.bot_client, "cancel_order", new=fake_cancel):
+        res = _drive(pm.stop_strategy(1, "stop_and_cancel"))
+    assert res["cancelled_orders"] == 2  # ok1 + 미제출 reserved(DB 갱신)
+    assert [f["uuid"] for f in res["cancel_failed"]] == ["bad"]
+    # 실패한 wait 주문은 DB에서 cancel로 바꾸지 않고, 미제출 reserved만 DB 갱신
+    cancel_updates = [c for c in db.calls if c[0] == "orders" and c[1] == "update"]
+    assert len(cancel_updates) == 1
+
+
+def test_liquidation_uses_live_price_and_skips_when_unavailable():
+    from manager.backend.services import progression_manager as pm
+    db = _FakeDB({("orders", "select"): [],
+                  ("strategy_templates", "select"): [{"id": 1, "user_id": "u", "exchange": "toss", "params": {}}]})
+    holdings = {"A": {"qty": 2.0, "avg_price": 100.0}, "B": {"qty": 1.0, "avg_price": 100.0}}
+
+    async def fake_holdings(*_a):
+        return holdings
+
+    async def fake_prices(reqs):
+        return [{"ticker": "A", "price": 250.0}, {"ticker": "B", "price": 0.0}]
+
+    with patch.object(pm, "get_db", return_value=db), \
+         patch.object(pm, "get_template_holdings", new=fake_holdings), \
+         patch.object(pm.bot_client, "get_prices_async", new=fake_prices):
+        res = _drive(pm.stop_strategy(1, "terminate_and_liquidate"))
+    upserts = [c[2] for c in db.calls if c[1] == "upsert"]
+    assert len(upserts) == 1 and upserts[0]["ticker"] == "A" and upserts[0]["price"] == 250.0
+    assert res["liquidation_skipped_no_price"] == ["B"]
