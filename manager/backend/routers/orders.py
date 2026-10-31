@@ -44,6 +44,8 @@ async def api_list_orders(
     status: str | None = None,
     exchange: str | None = None,
     side: str | None = None,
+    strategy: str | None = None,
+    template_id: int | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     group_no: int | None = None,
@@ -83,6 +85,10 @@ async def api_list_orders(
             q._params["and"] = f"({','.join(date_conds)})"
         if group_no is not None:
             q._params["group_no"] = f"eq.{group_no}"
+        if template_id is not None:
+            q._params["template_id"] = f"eq.{template_id}"
+        if strategy:
+            q._params["strategy"] = f"eq.{strategy}"
         if not is_admin:
             q._params["user_id"] = f"eq.{bot_user_id}"
 
@@ -105,6 +111,10 @@ async def api_list_orders(
             filled = float(o.get("filled_volume") or 0)
             o["order_value"] = price * vol
             o["fill_pct"] = round(filled / vol * 100) if vol else 0
+            if o.get("strategy") == "kospi_top_dca":
+                o["order_kind"] = "모으기 매수" if o.get("side") == "bid" else "이탈 분할매도"
+            else:
+                o["order_kind"] = "일반"
 
         return JSONResponse({
             "orders": orders,

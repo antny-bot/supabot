@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from .. import bot_client
 from ..db import get_db, get_stock_name_map
 from ._auth import _require_login, get_session_user
+from ..services import backtest_engine, progression_manager, universe_resolver
 
 router = APIRouter()
 
@@ -1284,3 +1285,143 @@ async def api_reports_batches(
         })
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+# ── TOP N 회전 전략 전용 리포트 & 다중 시나리오 백테스트 비교 ─────────────────
+
+@router.get("/api/reports/top-rotation")
+async def api_reports_top_rotation(
+    request: Request,
+    template_id: int,
+    group_no: int | None = None,
+):
+    """TOP N 회전/추적 전략 상세 리포트: 예산 현황, 보유/이탈 현황, 순위 히트맵, 주문/체결 목록."""
+    ctx, err = _auth_guard(request)
+    if err:
+        return err
+    is_admin, bot_user_id = ctx
+
+    try:
+        db = get_db()
+        t_q = db.table("strategy_templates").select("*").eq("id", template_id)
+        if not is_admin and bot_user_id:
+            t_q._params["user_id"] = f"eq.{bot_user_id}"
+        t_rows = (await t_q.execute()).data
+        if not t_rows:
+            return JSONResponse({"error": "전략 템플릿을 찾을 수 없습니다."}, status_code=404)
+
+        template = t_rows[0]
+        params = template.get("params") or {}
+        stock_map = await get_stock_name_map()
+
+        # 1. 보유 종목 및 이탈 진행 상태 구성
+        holdings = await progression_manager.get_template_holdings(template["user_id"], template_id)
+        exit_prog = params.get("exit_progress", {})
+        
+        market = params.get("market", "KOSPI")
+        master_top = await universe_resolver.freeze_or_get_master_top(market, max_n=50)
+        master_rank_map = {it["code"]: it["rank"] for it in master_top}
+        price_map = {it["code"]: float(it["price"]) for it in master_top}
+
+        rank_start = int(params.get("rank_start", 1))
+        rank_end = int(params.get("rank_end", params.get("top_n", 10)))
+
+        holdings_status = []
+        for ticker, h in holdings.items():
+            cur_rank = master_rank_map.get(ticker, 9999)
+            cur_price = price_map.get(ticker, h.get("avg_price", 0.0))
+            val = h["qty"] * cur_price
+            pnl = val - h["total_cost"]
+            pnl_pct = (pnl / h["total_cost"] * 100.0) if h["total_cost"] > 0 else 0.0
+
+            if ticker in exit_prog:
+                prog = exit_prog[ticker]
+                st_badge = f"🟠 이탈 분할매도 (D-{prog.get('remaining_days', 0)})"
+                st_code = "exiting"
+            elif rank_start <= cur_rank <= rank_end:
+                st_badge = f"🟢 TOP {cur_rank}위 유지"
+                st_code = "holding_top"
+            else:
+                st_badge = f"🟡 유예 보유 ({cur_rank}위)"
+                st_code = "buffered"
+
+            holdings_status.append({
+                "ticker": ticker,
+                "name": stock_map.get(ticker, ticker),
+                "rank": cur_rank if cur_rank < 9999 else "—",
+                "qty": h["qty"],
+                "avg_price": round(h["avg_price"]),
+                "current_price": round(cur_price),
+                "eval_value": round(val),
+                "pnl": round(pnl),
+                "pnl_pct": round(pnl_pct, 2),
+                "status_badge": st_badge,
+                "status_code": st_code,
+            })
+
+        holdings_status.sort(key=lambda x: (x["status_code"] != "holding_top", x["rank"] if isinstance(x["rank"], int) else 9999))
+
+        # 2. 주문 및 체결 내역
+        ord_q = db.table("orders").select("*").eq("template_id", template_id).order("created_at", desc=True)
+        tr_q = db.table("trade_logs").select("*").eq("template_id", template_id).order("executed_at", desc=True)
+        if group_no is not None:
+            ord_q._params["group_no"] = f"eq.{group_no}"
+            tr_q._params["group_no"] = f"eq.{group_no}"
+
+        orders_data = (await ord_q.execute()).data or []
+        trades_data = (await tr_q.execute()).data or []
+
+        for o in orders_data:
+            tk = o.get("ticker", "")
+            o["name"] = stock_map.get(tk, tk)
+            o["order_kind"] = "모으기 매수" if o.get("side") == "bid" else "이탈 분할매도"
+            o["created_fmt"] = _fmt_ts(o.get("created_at"))
+
+        for tr in trades_data:
+            tk = tr.get("ticker", "")
+            tr["name"] = stock_map.get(tk, tk)
+            tr["order_kind"] = "모으기 매수" if tr.get("side") == "bid" else "이탈 분할매도"
+            tr["executed_fmt"] = _fmt_ts(tr.get("executed_at"))
+
+        # 3. 타임라인 매트릭스 및 배치별 예산 흐름
+        history = params.get("history", [])
+
+        return JSONResponse({
+            "template": template,
+            "holdings_status": holdings_status,
+            "batch_budget_logs": history,
+            "orders": orders_data,
+            "trades": trades_data,
+            "master_top": master_top[:15],
+        })
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@router.post("/api/reports/top-rotation/backtest-compare")
+async def api_reports_backtest_compare(request: Request):
+    """다중 시나리오 역테스트 & 수익률 비교 아레나."""
+    ctx, err = _auth_guard(request)
+    if err:
+        return err
+
+    try:
+        body = await request.json()
+        start_date = body.get("start_date")
+        end_date = body.get("end_date")
+        scenarios = body.get("scenarios", [])
+        include_benchmark = body.get("include_benchmark", True)
+
+        if not start_date or not end_date or not scenarios:
+            return JSONResponse({"error": "start_date, end_date, scenarios 필드는 필수입니다."}, status_code=400)
+
+        result = await backtest_engine.run_multi_scenario_backtest(
+            start_date=start_date,
+            end_date=end_date,
+            scenarios=scenarios,
+            include_benchmark=include_benchmark,
+        )
+        return JSONResponse({"ok": True, "data": result})
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+

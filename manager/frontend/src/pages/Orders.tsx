@@ -477,7 +477,19 @@ export default function Orders() {
                         <td className="px-4 py-2.5 font-sans">
                           <Badge value={order.side} />
                         </td>
-                        <td className="px-4 py-2.5 text-slate-500 font-sans">{order.strategy}</td>
+                        <td className="px-4 py-2.5 text-slate-500 font-sans">
+                          {(order as any).order_kind && (order as any).order_kind !== '일반' ? (
+                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                              (order as any).order_kind === '모으기 매수'
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                            }`}>
+                              {(order as any).order_kind}
+                            </span>
+                          ) : (
+                            order.strategy
+                          )}
+                        </td>
                         <td className="px-4 py-2.5 text-right text-slate-700 dark:text-slate-300">
                           {order.price?.toLocaleString()}원
                         </td>

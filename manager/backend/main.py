@@ -19,13 +19,66 @@ from .auth import supabase_sign_in, generate_pkce_pair, build_oauth_url, exchang
 from .routers import dashboard, events, orders, reports, sysconfig, stock_cache, trades, users, templates, mfa, analytics
 from .routers._auth import get_current_user
 
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
+
 logger = logging.getLogger("manager")
+KST = timezone(timedelta(hours=9))
+
+
+async def _top_strategy_scheduler_loop():
+    logger.info("Started TOP N strategy background scheduler loop")
+    while True:
+        try:
+            await asyncio.sleep(60)
+            now_kst = datetime.now(KST)
+            cur_time_str = now_kst.strftime("%H:%M")
+            today_str = now_kst.strftime("%Y-%m-%d")
+
+            if now_kst.weekday() >= 5:
+                continue
+
+            from .db import get_db
+            from .services import progression_manager
+            db = get_db()
+            res = await db.table("strategy_templates").select("id,name,strategy_type,params").eq("strategy_type", "kospi_top_dca").execute()
+            templates = res.data or []
+
+            for tpl in templates:
+                params = tpl.get("params") or {}
+                if params.get("strategy_status") != "active" or not params.get("schedule_enabled", True):
+                    continue
+
+                sched_time = params.get("schedule_time", "09:10")
+                last_run = params.get("last_run_date")
+
+                if cur_time_str == sched_time and last_run != today_str:
+                    logger.info(f"Triggering scheduled TOP N strategy #{tpl['id']} ({tpl.get('name')}) at {cur_time_str}")
+                    asyncio.create_task(progression_manager.run_strategy_progression(tpl["id"]))
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.debug(f"Error in TOP N scheduler loop: {e}")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    scheduler_task = asyncio.create_task(_top_strategy_scheduler_loop())
+    try:
+        yield
+    finally:
+        scheduler_task.cancel()
+        try:
+            await scheduler_task
+        except asyncio.CancelledError:
+            pass
+
 
 session_secret = os.environ.get("SESSION_SECRET", "").strip()
 if not session_secret or session_secret == "change-me-in-production":
     raise RuntimeError("SESSION_SECRET must be set and cannot be the default insecure placeholder")
 
-app = FastAPI(title="supabot manager")
+app = FastAPI(title="supabot manager", lifespan=lifespan)
 
 https_only = os.environ.get("SESSION_HTTPS_ONLY", "true").lower() in ("1", "true", "yes")
 
@@ -58,6 +111,12 @@ async def csrf_origin_validation(request: Request, call_next):
                 self_origin = f"{parsed_base.scheme}://{parsed_base.netloc}".rstrip("/")
                 if self_origin:
                     allowed_origins.append(self_origin)
+                # 리버스 프록시(TLS 종단) 뒤에서는 scheme이 http로 보일 수 있으므로 전달된 호스트/프로토콜도 허용
+                fwd_host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(",")[0].strip()
+                fwd_proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip()
+                if fwd_host:
+                    for scheme in ([fwd_proto] if fwd_proto else ["https", "http"]):
+                        allowed_origins.append(f"{scheme}://{fwd_host}")
 
                 if source_origin not in allowed_origins:
                     return JSONResponse({"error": "Forbidden: invalid origin"}, status_code=403)
