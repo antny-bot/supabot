@@ -100,10 +100,26 @@ describe('Templates stock cache combobox', () => {
     await user.type(rankEndInput, '10')
     expect(screen.getByText(/KOSPI_TOP5_10/)).toBeInTheDocument()
 
-    // 템플릿 이름 입력 후 저장
+    // 템플릿 이름 입력
     const nameInput = screen.getByPlaceholderText(/코스피 시총 TOP 10/i)
     await user.type(nameInput, '코스피 5~10위 회전 전략')
 
+    // 1단계 -> 2단계 이동 (순위 이탈 판정)
+    const nextBtn1 = screen.getByRole('button', { name: /다음 단계/i })
+    await user.click(nextBtn1)
+    expect(screen.getByText(/순위 이탈 안전장치/i)).toBeInTheDocument()
+
+    // 2단계 -> 3단계 이동 (예산 플랜)
+    const nextBtn2 = screen.getByRole('button', { name: /다음 단계/i })
+    await user.click(nextBtn2)
+    expect(screen.getByText(/예산 운용 방식 선택/i)).toBeInTheDocument()
+
+    // 3단계 -> 4단계 이동 (주문 집행 & 최종 요약)
+    const nextBtn3 = screen.getByRole('button', { name: /다음 단계/i })
+    await user.click(nextBtn3)
+    expect(screen.getByText(/전략 템플릿 최종 설정 요약/i)).toBeInTheDocument()
+
+    // 4단계에서 최종 검토 후 저장
     const saveBtn = screen.getByRole('button', { name: /저장하기/i })
     await user.click(saveBtn)
 
@@ -136,5 +152,39 @@ describe('Templates stock cache combobox', () => {
         }),
       }),
     )
+  })
+
+  it('supports rank preset chips and previous/next step wizard navigation in TOP N modal', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <ToastProvider>
+        <Templates />
+      </ToastProvider>,
+    )
+
+    const createBtn = await screen.findByRole('button', { name: /복수 종목/i })
+    await user.click(createBtn)
+
+    // 이름 미입력 상태에서 '다음 단계' 클릭 시 에러 발생 및 스텝 유지
+    const nextBtn1 = screen.getByRole('button', { name: /다음 단계/i })
+    await user.click(nextBtn1)
+    expect(screen.getByText('템플릿 이름을 입력하세요.')).toBeInTheDocument()
+
+    // 프리셋 칩 'TOP 20 (1~20위)' 클릭 시 시작/종료 순위 및 티커 변경
+    const presetTop20 = screen.getByRole('button', { name: 'TOP 20 (1~20위)' })
+    await user.click(presetTop20)
+    expect(screen.getByText(/KOSPI_TOP20/)).toBeInTheDocument()
+
+    // 이름 입력 후 다음 단계 이동
+    const nameInput = screen.getByPlaceholderText(/코스피 시총 TOP 10/i)
+    await user.type(nameInput, '테스트 TOP 20')
+    await user.click(nextBtn1)
+
+    // Step 2 도달 확인 및 '이전 단계' 클릭으로 Step 1 복귀
+    expect(screen.getByText(/순위 이탈 안전장치/i)).toBeInTheDocument()
+    const prevBtn = screen.getByRole('button', { name: /이전 단계/i })
+    await user.click(prevBtn)
+    expect(screen.getByText(/타겟 순위 구간 선택/i)).toBeInTheDocument()
   })
 })
