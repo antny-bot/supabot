@@ -173,12 +173,29 @@ Gemini API 키는 `.env`에 넣지 않고 거래소 키처럼 텔레그램 `/con
 
 이 저장소는 모노레포이며, 컴포넌트별로 분리된 워크플로가 **GitHub Container Registry(GHCR)**로 이미지를 빌드·푸시합니다. (Docker Hub를 더 이상 사용하지 않습니다.)
 
+> **Note**: 불필요한 Actions 러너 시간 소모와 GHCR 이미지 낭비를 방지하기 위해 `main` 머지 시 자동 빌드되지 않으며, **GitHub Release 발행 시 태그 접두사(Prefix)**에 따라 대상 패키지가 자동으로 분기 빌드됩니다.
+
 | 워크플로 | 트리거 | 동작 |
 |----------|--------|------|
-| `.github/workflows/build-bot.yml` | `src/**`·`scripts/**`·`requirements.txt`·`Dockerfile`·`docker-compose.yml` 변경이 `main`에 push, 또는 `bot-*` 태그 Release | `ghcr.io/antny-bot/supabot` 빌드·푸시. `bot-*` Release 시 Oracle VM에 SSH 자동 배포 |
-| `.github/workflows/build-manager.yml` | `manager/**` 변경이 `main`에 push, 또는 `manager-*` 태그 Release | `ghcr.io/antny-bot/supabot-manager` 빌드·푸시 (Synology는 수동 pull) |
-| `.github/workflows/ci-test.yml` | `main`·`claude/**` push, `main` 대상 PR | `pytest tests/ -v` 테스트 게이트 |
+| `.github/workflows/build-bot.yml` | `bot-*` 태그 Release, 또는 수동 실행(`workflow_dispatch`) | `ghcr.io/antny-bot/supabot` 빌드·푸시. `bot-*` Release 시 Oracle VM에 SSH 자동 배포 |
+| `.github/workflows/build-manager.yml` | `manager-*` 태그 Release, 또는 수동 실행(`workflow_dispatch`) | `ghcr.io/antny-bot/supabot-manager` 빌드·푸시 (Synology는 수동 pull) |
+| `.github/workflows/ci-test.yml` | `main`·`claude/**` push, `main` 대상 PR | `pytest tests/` 테스트 게이트 |
 | `.github/workflows/cleanup-registry-and-cache.yml` | 매주 1회 스케줄 실행, 또는 수동 실행 | GHCR `supabot`·`supabot-manager` 패키지에서 최신 10개 버전 유지, Actions cache 삭제는 수동 opt-in |
+
+#### 🏷️ 릴리즈 발행 및 배포 시 태그 규칙 (필수 준수)
+
+GitHub에서 새 Release를 생성할 때, 대상 패키지에 맞는 **태그 접두사(Prefix)**를 반드시 지정해야 워크플로가 알맞게 실행됩니다:
+
+- 🤖 **트레이딩 봇 배포**: **`bot-`** 접두사 사용 (예: `bot-v2.1.0`)
+  - `Build Bot` 워크플로가 실행되어 `ghcr.io/antny-bot/supabot:latest` 및 버전 태그 이미지를 푸시합니다.
+  - 이어서 Oracle VM에 SSH로 자동 접속하여 `docker compose pull && docker compose up -d`를 수행하여 무중단 자동 배포됩니다.
+- 🖥️ **매니저(대시보드) 배포**: **`manager-`** 접두사 사용 (예: `manager-v1.0.0`)
+  - `Build Manager` 워크플로가 실행되어 `ghcr.io/antny-bot/supabot-manager:latest` 및 버전 태그 이미지를 GHCR에 푸시합니다.
+  - 별도 자동 배포는 없으므로 관리 호스트(Synology NAS 등)에서 최신 이미지를 pull하여 컨테이너를 갱신합니다.
+- ⚠️ **유의사항**:
+  - `main` 브랜치에 코드가 머지되어도 빌드 러너가 돌지 않습니다. 릴리즈를 배포할 때만 빌드가 시작됩니다.
+  - 태그 접두사(`bot-` 또는 `manager-`)가 누락된 태그(예: `v1.0.0`)로 Release를 생성하면 어떤 빌드도 트리거되지 않으므로 주의하세요.
+  - Release를 만들지 않고 긴급 빌드하거나 테스트하고 싶다면, GitHub Actions 탭에서 해당 워크플로의 **`Run workflow`**를 눌러 수동 실행할 수 있습니다.
 
 GHCR는 `GITHUB_TOKEN`으로 인증하므로 별도의 레지스트리 secret이 필요 없습니다. Oracle VM 자동 배포(`build-bot.yml`)는 다음 secrets를 사용합니다: `OCI_HOST`, `OCI_USER`, `OCI_SSH_PRIVATE_KEY`, `OCI_SSH_PORT`, `OCI_DEPLOY_PATH`. 등록 위치는 저장소 `Settings` > `Secrets and variables` > `Actions`입니다.
 
@@ -190,12 +207,8 @@ GHCR는 `GITHUB_TOKEN`으로 인증하므로 별도의 레지스트리 secret이
 
 수동 실행이 필요하면 `Actions` 탭에서 `Cleanup Registry and Cache` 워크플로를 열고 `Run workflow`를 누르면 됩니다. `keep_versions`로 남길 GHCR 버전 개수를 조정할 수 있고, `cleanup_caches`를 켜서 cache 삭제를 명시적으로 실행할 수 있습니다. 캐시를 비우면 다음 Docker Buildx 빌드는 캐시 재생성 때문에 평소보다 오래 걸릴 수 있습니다.
 
-상세한 워크플로 설명과 운영 규칙은 [docs/github-actions-workflows.md](/E:/apps/supabot/docs/github-actions-workflows.md) 를 기준으로 관리합니다.
+상세한 워크플로 설명과 운영 규칙은 [docs/403_github_actions_workflows.md](docs/403_github_actions_workflows.md) 를 기준으로 관리합니다.
 
-봇 배포 순서:
-1. 변경 사항을 `main`에 push하면 `latest` 이미지가 갱신됩니다.
-2. 버전 고정 배포가 필요하면 `bot-vX.Y.Z` 형식의 태그로 Release를 발행합니다.
-3. `bot-*` Release는 `latest`와 버전 태그 이미지를 함께 푸시하고, 이어서 Oracle VM에 SSH로 `docker compose pull && up -d`를 실행합니다.
 
 ### 5. 도커 실행 (Oracle Cloud VM)
 Oracle Cloud VM에서 Docker Compose로 컨테이너를 실행합니다. 거래소 API 직결을 위해 `network_mode: host`를 사용합니다.

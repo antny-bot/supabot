@@ -11,9 +11,9 @@
 
 | Workflow | 파일 | 역할 |
 | --- | --- | --- |
-| Build Bot | `.github/workflows/build-bot.yml` | bot Docker 이미지 빌드 및 GHCR 푸시, release 시 Oracle VM 배포 |
-| Build Manager | `.github/workflows/build-manager.yml` | manager Docker 이미지 빌드 및 GHCR 푸시 |
-| Test | `.github/workflows/ci-test.yml` | Python 테스트 실행 |
+| Build Bot | `.github/workflows/build-bot.yml` | bot Docker 이미지 빌드 및 GHCR 푸시, `bot-*` release 시 Oracle VM 자동 배포 (또는 수동 실행) |
+| Build Manager | `.github/workflows/build-manager.yml` | manager Docker 이미지 빌드 및 GHCR 푸시 (`manager-*` release 또는 수동 실행) |
+| Test | `.github/workflows/ci-test.yml` | Python 테스트 실행 (main/claude push, main PR) |
 | Cleanup Registry and Cache | `.github/workflows/cleanup-registry-and-cache.yml` | GHCR 오래된 이미지 정리, 필요 시 수동 cache 삭제 |
 
 ## Build Bot
@@ -22,15 +22,11 @@
 
 트리거:
 
-- `main` 브랜치 push
-- 단, 다음 경로 변경 시만 실행:
-- `src/**`
-- `scripts/**`
-- `requirements.txt`
-- `Dockerfile`
-- `docker-compose.yml`
 - GitHub Release `published`
-- release tag가 `bot-` 시작 시만 job 실행
+  - release tag가 `bot-`으로 시작 시 실행 (예: `bot-v2.1.0`)
+- 수동 실행 `workflow_dispatch`
+
+> **참고**: Actions 러너 시간 절약과 안정적인 배포 관리를 위해 `main` 브랜치 push 트리거는 제외되었으며, Release 발행 시에만 빌드 및 배포가 실행됩니다.
 
 동작:
 
@@ -57,7 +53,6 @@ docker image prune -f
 
 주의:
 
-- `main` push 시 Oracle VM 배포 안 함.
 - `bot-*` release publish 시 Oracle VM 자동 배포.
 - 사용 secret: `OCI_HOST`, `OCI_USER`, `OCI_SSH_PRIVATE_KEY`, `OCI_SSH_PORT`, `OCI_DEPLOY_PATH`
 
@@ -67,10 +62,11 @@ docker image prune -f
 
 트리거:
 
-- `main` 브랜치 push
-- 단, `manager/**` 변경 시만 실행
 - GitHub Release `published`
-- release tag가 `manager-` 시작 시만 job 실행
+  - release tag가 `manager-`로 시작 시 실행 (예: `manager-v1.0.0`)
+- 수동 실행 `workflow_dispatch`
+
+> **참고**: Actions 러너 시간 절약과 이미지 누적 방지를 위해 `main` 브랜치 push 트리거는 제외되었으며, Release 발행 시에만 빌드 및 푸시가 실행됩니다.
 
 동작:
 
@@ -87,7 +83,7 @@ docker image prune -f
 
 주의:
 
-- manager 워크플로 별도 자동 배포 job 없음.
+- manager 워크플로는 이미지 빌드 및 GHCR 푸시만 담당하며, 별도 자동 배포 job 없음 (Synology NAS 등에서 수동 pull 사용).
 
 ## Test
 
