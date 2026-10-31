@@ -187,4 +187,75 @@ describe('Templates stock cache combobox', () => {
     await user.click(prevBtn)
     expect(screen.getByText(/타겟 순위 구간 선택/i)).toBeInTheDocument()
   })
+
+  it('does not auto-submit or close modal when entering step 4 during multi-ticker template edit', async () => {
+    const { fetchTemplates, updateTemplate } = await import('../api/templates')
+    vi.mocked(fetchTemplates).mockResolvedValueOnce([
+      {
+        id: 'tpl-top-1',
+        name: '기존 시총 TOP 10 전략',
+        exchange: 'toss',
+        ticker: 'KOSPI_TOP10',
+        budget: 3000000,
+        count: 10,
+        start_price: 0,
+        end_price: 0,
+        strategy_type: 'kospi_top_dca',
+        params: {
+          market: 'KOSPI',
+          rank_start: 1,
+          rank_end: 10,
+          top_n: 10,
+          exclude_preferred: true,
+          upper_exit_mode: 'sell_on_any_exit',
+          exit_rank_buffer: 2,
+          exit_confirm_days: 2,
+          sell_split_days: 5,
+          budget_mode: 'monthly',
+          monthly_budget: 3000000,
+          trading_days_per_month: 20,
+          cycle_alloc_mode: 'one_share',
+          sell_proceeds_mode: 'keep_cash',
+          order_price_mode: 'limit_current',
+          schedule_enabled: true,
+          is_dry_run: false,
+          schedule_time: '09:10',
+        },
+      } as any,
+    ])
+
+    const user = userEvent.setup()
+
+    render(
+      <ToastProvider>
+        <Templates />
+      </ToastProvider>,
+    )
+
+    // 수정 버튼 클릭하여 모달 오픈
+    const editBtn = await screen.findByTitle('수정')
+    await user.click(editBtn)
+    expect(screen.getByText('복수 종목 전략 템플릿 수정')).toBeInTheDocument()
+
+    // 1 -> 2 -> 3 -> 4단계로 이동
+    await user.click(screen.getByRole('button', { name: /다음 단계/i }))
+    await user.click(screen.getByRole('button', { name: /다음 단계/i }))
+    await user.click(screen.getByRole('button', { name: /다음 단계/i }))
+
+    // 4단계 도달 시 자동 확정(updateTemplate)이 일어나지 않고 모달이 열린 상태여야 함
+    expect(screen.getByText(/전략 템플릿 최종 설정 요약/i)).toBeInTheDocument()
+    expect(updateTemplate).not.toHaveBeenCalled()
+
+    // 4단계 입력창에서 Enter를 눌러도 자동 확정되지 않아야 함
+    const timeInput = screen.getByLabelText('매일 실행 시각')
+    await user.clear(timeInput)
+    await user.type(timeInput, '09:15{Enter}')
+    expect(updateTemplate).not.toHaveBeenCalled()
+    expect(screen.getByText('복수 종목 전략 템플릿 수정')).toBeInTheDocument()
+
+    // 명시적으로 저장 버튼 클릭 시에만 확정 및 저장 호출
+    const saveBtn = screen.getByRole('button', { name: /수정 저장하기/i })
+    await user.click(saveBtn)
+    expect(updateTemplate).toHaveBeenCalledTimes(1)
+  })
 })
