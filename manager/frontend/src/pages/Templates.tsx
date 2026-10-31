@@ -64,7 +64,7 @@ interface TemplateFormState {
   isDryRun: boolean
 }
 
-const DEFAULT_FORM: TemplateFormState = {
+const DEFAULT_SINGLE_FORM: TemplateFormState = {
   name: '',
   exchange: 'upbit',
   ticker: 'BTC',
@@ -97,6 +97,22 @@ const DEFAULT_FORM: TemplateFormState = {
   scheduleEnabled: true,
   isDryRun: false,
 }
+
+const DEFAULT_MULTI_FORM: TemplateFormState = {
+  ...DEFAULT_SINGLE_FORM,
+  name: '',
+  exchange: 'toss',
+  ticker: 'KOSPI_TOP10',
+  strategyType: 'kospi_top_dca',
+  budget: '3000000',
+  dcaExecTime: '09:10',
+  topMarket: 'KOSPI',
+  rankStart: '1',
+  rankEnd: '10',
+  count: '10',
+}
+
+const DEFAULT_FORM: TemplateFormState = DEFAULT_SINGLE_FORM
 
 const STRATEGY_TYPE_LABELS: Record<string, string> = {
   kospi_top_dca: 'KOSPI/KOSDAQ 시총 상위 TOP N 모으기 & 분할매도',
@@ -350,9 +366,18 @@ export default function Templates() {
     setHighlightedIndex(-1)
   }
 
-  const handleOpenCreate = () => {
+  const handleOpenSingleCreate = () => {
     setEditingId(null)
-    setForm(DEFAULT_FORM)
+    setForm(DEFAULT_SINGLE_FORM)
+    setFormError(null)
+    setDropdownOpen(false)
+    setHighlightedIndex(-1)
+    setFormOpen(true)
+  }
+
+  const handleOpenMultiCreate = () => {
+    setEditingId(null)
+    setForm(DEFAULT_MULTI_FORM)
     setFormError(null)
     setDropdownOpen(false)
     setHighlightedIndex(-1)
@@ -466,13 +491,22 @@ export default function Templates() {
       <PageHeader
         {...PAGE_META.templates}
         actions={
-          <button
-            onClick={handleOpenCreate}
-            className="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700 transition-colors"
-          >
-            <Plus size={15} />
-            <span>신규 전략 템플릿</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleOpenSingleCreate}
+              className="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700 transition-colors"
+            >
+              <Plus size={15} />
+              <span>단일 종목 템플릿</span>
+            </button>
+            <button
+              onClick={handleOpenMultiCreate}
+              className="flex items-center gap-1.5 rounded-xl bg-violet-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-violet-700 transition-colors"
+            >
+              <Layers size={15} />
+              <span>복수 종목 (TOP N) 템플릿</span>
+            </button>
+          </div>
         }
       />
 
@@ -499,12 +533,20 @@ export default function Templates() {
             등록된 전략 템플릿이 없습니다
           </h3>
           <p className="mt-1 text-xs text-slate-500">자주 사용하는 매매 전략 설정을 템플릿으로 저장해 원클릭으로 실행하세요.</p>
-          <button
-            onClick={handleOpenCreate}
-            className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700"
-          >
-            <Plus size={14} /> 템플릿 만들기
-          </button>
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2.5">
+            <button
+              onClick={handleOpenSingleCreate}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700 transition-colors"
+            >
+              <Plus size={14} /> 단일 종목 템플릿
+            </button>
+            <button
+              onClick={handleOpenMultiCreate}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-violet-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-violet-700 transition-colors"
+            >
+              <Layers size={14} /> 복수 종목 (TOP N) 템플릿
+            </button>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -666,43 +708,76 @@ export default function Templates() {
 
       {/* 템플릿 생성/수정 모달 */}
       {formOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm" onClick={() => !saving && setFormOpen(false)} />
-          <div className={`relative z-10 w-full ${isTopDcaForm ? 'max-w-2xl' : 'max-w-lg'} rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900 border border-slate-200 dark:border-slate-800 max-h-[90vh] overflow-y-auto transition-all`}>
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
-              <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                {editingId ? '전략 템플릿 수정' : '신규 전략 템플릿 만들기'}
-              </h3>
+        <div className="fixed inset-0 z-50 overflow-y-auto p-4 sm:p-6 md:p-8 flex items-center justify-center">
+          <div
+            className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm transition-opacity"
+            onClick={() => !saving && setFormOpen(false)}
+          />
+          <div
+            className={`relative z-10 my-auto flex flex-col w-full ${
+              isTopDcaForm ? 'max-w-2xl' : 'max-w-lg'
+            } max-h-[85vh] rounded-2xl bg-white shadow-2xl dark:bg-slate-900 border border-slate-200 dark:border-slate-800 transition-all text-left overflow-hidden`}
+          >
+            {/* 고정 모달 헤더 */}
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-6 py-4 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                {isTopDcaForm ? (
+                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-violet-100 text-violet-600 dark:bg-violet-950/60 dark:text-violet-400">
+                    <Layers size={16} />
+                  </span>
+                ) : (
+                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-100 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400">
+                    <Plus size={16} />
+                  </span>
+                )}
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    {editingId
+                      ? isTopDcaForm
+                        ? '복수 종목 전략 템플릿 수정'
+                        : '단일 종목 전략 템플릿 수정'
+                      : isTopDcaForm
+                        ? '복수 종목 전략 템플릿 만들기 (시총 TOP N)'
+                        : '단일 종목 전략 템플릿 만들기'}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    {isTopDcaForm
+                      ? '시가총액 상위 유니버스 기반 순환 모으기 및 분할매도 자동화'
+                      : '단일 종목 대상 거미줄(GRID), RSI 조건, 정기 적립식(DCA) 매매'}
+                  </p>
+                </div>
+              </div>
               <button
                 onClick={() => setFormOpen(false)}
-                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
               >
                 <X size={16} />
               </button>
             </div>
 
             {formError && (
-              <div className="mt-3 rounded-lg bg-rose-50 p-3 text-xs text-rose-600 dark:bg-rose-950/40 dark:text-rose-300">
+              <div className="mx-6 mt-3 shrink-0 rounded-lg bg-rose-50 p-3 text-xs text-rose-600 dark:bg-rose-950/40 dark:text-rose-300">
                 {formError}
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="mt-4 space-y-4">
-              <div>
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">템플릿 이름</label>
-                <input
-                  type="text"
-                  placeholder={
-                    isTopDcaForm
-                      ? '예: 코스피 시총 TOP 10 순환 모으기 & 5일 분할매도'
-                      : '예: 비트코인 매일 5만원 정기매수 / 10분할 거미줄 매수'
-                  }
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white focus:border-indigo-500"
-                  required
-                />
-              </div>
+            <form onSubmit={handleSubmit} className="flex flex-1 flex-col overflow-hidden">
+              <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">템플릿 이름</label>
+                  <input
+                    type="text"
+                    placeholder={
+                      isTopDcaForm
+                        ? '예: 코스피 시총 TOP 10 순환 모으기 & 5일 분할매도'
+                        : '예: 비트코인 매일 5만원 정기매수 / 10분할 거미줄 매수'
+                    }
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white focus:border-indigo-500"
+                    required
+                  />
+                </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -908,42 +983,48 @@ export default function Templates() {
                 )}
               </div>
 
-              <div>
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">전략 유형</label>
-                <select
-                  aria-label="전략 유형"
-                  value={form.strategyType}
-                  onChange={(e) => {
-                    const nextType = e.target.value
-                    const isTop = nextType === 'kospi_top_dca'
-                    const nextExchange =
-                      isTop && (form.exchange === 'upbit' || form.exchange === 'bithumb') && !editingId
-                        ? 'toss'
-                        : form.exchange
-                    const nextBudget =
-                      isTop && (form.budget === '100000' || !form.budget) ? '3000000' : form.budget
-                    const nextExecTime =
-                      isTop && form.dcaExecTime === '09:05' ? '09:10' : form.dcaExecTime
-                    setForm({
-                      ...form,
-                      strategyType: nextType,
-                      exchange: nextExchange,
-                      budget: nextBudget,
-                      dcaExecTime: nextExecTime,
-                      count: (nextType === 'dca' || nextType === 'sdca') ? '0' : (form.count === '0' ? '10' : form.count),
-                      dcaAmountType: nextType === 'sdca' ? 'volume' : form.dcaAmountType,
-                    })
-                  }}
-                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                >
-                  <option value="kospi_top_dca">KOSPI/KOSDAQ 시총 상위 TOP N 모으기 & 분할매도 (TOP N 회전)</option>
-                  <option value="grid">거미줄 분할 매수 (/grid — 가격 범위 분할 매수)</option>
-                  <option value="sgrid">거미줄 분할 매도 (/sgrid — 가격 범위 보유수량 분할 매도)</option>
-                  <option value="rsitrade">RSI 조건 순환 매매 (/rsitrade — RSI 분할 매수 + 자동 익절 예약)</option>
-                  <option value="dca">정기 적립식 매수 (/dca — 매일·특정요일·매주·매월 정기 매수)</option>
-                  <option value="sdca">정기 분할 매도 (/sdca — 매일·특정요일·매주·매월 정기 매도)</option>
-                </select>
-              </div>
+              {isTopDcaForm ? (
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">전략 유형</label>
+                  <div className="mt-1 flex items-center justify-between rounded-xl border border-violet-200 bg-violet-50/60 p-2.5 dark:border-violet-900/50 dark:bg-violet-950/30">
+                    <div className="flex items-center gap-2">
+                      <span className="flex h-5 w-5 items-center justify-center rounded-md bg-violet-600 text-[10px] font-bold text-white">
+                        TOP
+                      </span>
+                      <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                        KOSPI/KOSDAQ 시총 상위 TOP N 모으기 & 분할매도 (TOP N 회전)
+                      </span>
+                    </div>
+                    <span className="rounded bg-violet-200/70 px-2 py-0.5 text-[10px] font-medium text-violet-800 dark:bg-violet-900/60 dark:text-violet-300">
+                      복수 종목 유니버스
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">전략 유형</label>
+                  <select
+                    aria-label="전략 유형"
+                    value={form.strategyType}
+                    onChange={(e) => {
+                      const nextType = e.target.value
+                      setForm({
+                        ...form,
+                        strategyType: nextType,
+                        count: (nextType === 'dca' || nextType === 'sdca') ? '0' : (form.count === '0' ? '10' : form.count),
+                        dcaAmountType: nextType === 'sdca' ? 'volume' : form.dcaAmountType,
+                      })
+                    }}
+                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                  >
+                    <option value="grid">거미줄 분할 매수 (/grid — 가격 범위 분할 매수)</option>
+                    <option value="sgrid">거미줄 분할 매도 (/sgrid — 가격 범위 보유수량 분할 매도)</option>
+                    <option value="rsitrade">RSI 조건 순환 매매 (/rsitrade — RSI 분할 매수 + 자동 익절 예약)</option>
+                    <option value="dca">정기 적립식 매수 (/dca — 매일·특정요일·매주·매월 정기 매수)</option>
+                    <option value="sdca">정기 분할 매도 (/sdca — 매일·특정요일·매주·매월 정기 매도)</option>
+                  </select>
+                </div>
+              )}
 
               {isTopDcaForm ? (
                 <div className="space-y-4">
@@ -1457,19 +1538,26 @@ export default function Templates() {
                 </div>
               )}
 
-              <div className="mt-6 flex justify-end gap-2.5 border-t border-slate-100 pt-4 dark:border-slate-800">
+              </div>
+
+              {/* 고정 모달 푸터 */}
+              <div className="shrink-0 flex items-center justify-end gap-2.5 border-t border-slate-100 bg-slate-50/50 px-6 py-3.5 dark:border-slate-800 dark:bg-slate-900/50">
                 <button
                   type="button"
                   disabled={saving}
                   onClick={() => setFormOpen(false)}
-                  className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:text-slate-300"
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
                 >
                   취소
                 </button>
                 <button
                   type="submit"
                   disabled={saving}
-                  className="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50"
+                  className={`flex items-center gap-1.5 rounded-xl ${
+                    isTopDcaForm
+                      ? 'bg-violet-600 hover:bg-violet-700'
+                      : 'bg-indigo-600 hover:bg-indigo-700'
+                  } px-4 py-2 text-xs font-semibold text-white shadow-sm disabled:opacity-50 transition-colors`}
                 >
                   {saving && <Loader2 size={14} className="animate-spin" />}
                   <span>{saving ? '저장 중...' : '저장하기'}</span>

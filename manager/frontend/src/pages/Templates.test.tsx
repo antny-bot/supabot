@@ -39,7 +39,7 @@ describe('Templates stock cache combobox', () => {
       </ToastProvider>,
     )
 
-    const createBtn = await screen.findByRole('button', { name: /신규 전략 템플릿/i })
+    const createBtn = await screen.findByRole('button', { name: /단일 종목 템플릿/i })
     await user.click(createBtn)
 
     const exchangeSelect = screen.getByLabelText('거래소')
@@ -73,7 +73,7 @@ describe('Templates stock cache combobox', () => {
     expect(screen.getByText('고려제강')).toBeInTheDocument()
   })
 
-  it('switches modal layout when kospi_top_dca is selected and submits full TOP N payload', async () => {
+  it('opens multi-ticker TOP N modal directly and submits full TOP N payload', async () => {
     const { createTemplate } = await import('../api/templates')
     const user = userEvent.setup()
 
@@ -83,11 +83,8 @@ describe('Templates stock cache combobox', () => {
       </ToastProvider>,
     )
 
-    const createBtn = await screen.findByRole('button', { name: /신규 전략 템플릿/i })
+    const createBtn = await screen.findByRole('button', { name: /복수 종목/i })
     await user.click(createBtn)
-
-    const strategySelect = screen.getByLabelText('전략 유형')
-    await user.selectOptions(strategySelect, 'kospi_top_dca')
 
     // 종목 코드 입력창 대신 대상 시장 드롭다운과 TOP N 전용 섹션이 표시되어야 함
     expect(screen.queryByLabelText('종목 코드 (티커)')).not.toBeInTheDocument()
