@@ -619,19 +619,20 @@ def check_exchange_budget_health(
             "carryover_budget": c_budget,
         })
 
-    daily_shortfall = max(0.0, daily_req_total - actual_cash_krw)
-    monthly_shortfall = max(0.0, monthly_rem_req_total - actual_cash_krw)
+    # 부동소수점 미세 오차(1원 미만)로 인한 잘못된 SHORTAGE 판정 방지 (정수 단위 비교)
+    daily_shortfall = max(0.0, round(daily_req_total) - round(actual_cash_krw))
+    monthly_shortfall = max(0.0, round(monthly_rem_req_total) - round(actual_cash_krw))
 
-    if daily_shortfall > 0:
+    if daily_shortfall >= 1.0:
         health_grade = "SHORTAGE"
-        health_message = f"🚨 당일 실행 위해 최소 +{daily_shortfall:,.0f}원 즉시 입금 필요"
-    elif monthly_shortfall > 0:
+        health_message = f"🚨 당일 실행 위해 최소 +{int(daily_shortfall):,}원 즉시 입금 필요"
+    elif monthly_shortfall >= 1.0:
         health_grade = "WARNING"
-        health_message = f"당일 가능 · 월말 완주 위해 +{monthly_shortfall:,.0f}원 추가 입금 필요"
+        health_message = f"당일 가능 · 월말 완주 위해 +{int(monthly_shortfall):,}원 추가 입금 필요"
     else:
         health_grade = "HEALTHY"
-        surplus = actual_cash_krw - monthly_rem_req_total
-        health_message = f"충분 (여유 +{surplus:,.0f}원)"
+        surplus = max(0.0, round(actual_cash_krw) - round(monthly_rem_req_total))
+        health_message = f"충분 (여유 +{int(surplus):,}원)"
 
     return {
         "exchange": ex_upper,

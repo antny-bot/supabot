@@ -1016,13 +1016,20 @@ async def api_reports_allocation(request: Request):
         for r in rows:
             val = r["value_krw"]
             exch = (r["exchange"] or "").lower()
+            ticker = str(r.get("ticker", "")).strip()
             by_exchange[exch] += val
             if exch in ("upbit", "bithumb"):
                 by_category["crypto"] += val
             elif exch == "kis":
                 by_category["kr_stock"] += val
             elif exch == "toss":
-                by_category["us_stock"] += val
+                clean_tk = ticker.replace("KRW-", "").strip()
+                # 토스증권: 미국 티커(AAPL, TSLA 등 영문)는 해외주식, KRX 숫자/비상장/한글 종목명은 국내주식
+                is_us = clean_tk.isascii() and clean_tk.isalpha()
+                if is_us:
+                    by_category["us_stock"] += val
+                else:
+                    by_category["kr_stock"] += val
             else:
                 by_category["crypto"] += val
 

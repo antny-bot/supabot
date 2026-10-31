@@ -1190,6 +1190,7 @@ async def post_init(application):
         notify_app.router.add_post("/internal/sync_order", internal_api._internal_sync_order_handler)
         notify_app.router.add_post("/internal/force_update_order", internal_api._internal_force_update_order_handler)
         notify_app.router.add_post("/internal/get_prices", internal_api._internal_get_prices_handler)
+        notify_app.router.add_post("/internal/get_balances", internal_api._internal_get_balances_handler)
         _notify_runner = _web.AppRunner(notify_app)
         await _notify_runner.setup()
         port = int(os.environ.get("INTERNAL_PORT", 8765))

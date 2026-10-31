@@ -228,3 +228,22 @@ async def execute_dca(
         return False, resp.text or f"HTTP 에러 {resp.status_code}"
     except Exception as e:
         return False, str(e)
+
+
+async def get_exchange_balances(user_id: str, exchange: str) -> dict | None:
+    """Send get_balances request via /internal/get_balances to retrieve real cash/holdings."""
+    try:
+        resp = await _send_signed_request_async(
+            "/internal/get_balances",
+            {"user_id": user_id, "exchange": exchange},
+        )
+        if resp.is_success:
+            return resp.json()
+        return None
+    except Exception:
+        return None
+
+
+async def get_bot_status() -> dict | None:
+    """호환성 유지를 위한 helper."""
+    return None

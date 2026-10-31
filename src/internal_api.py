@@ -555,3 +555,35 @@ async def _internal_execute_dca_handler(request: _web.Request) -> _web.Response:
     except Exception as e:
         _log.warning("Internal DCA execution failed", exc_info=e)
         return _web.Response(status=500, text="Internal error")
+
+
+
+async def _internal_get_balances_handler(request: _web.Request) -> _web.Response:
+    """매니저 예수금/잔고 조회용 (거래소별 자격증명은 봇 프로세스에 보관되므로 내부 webhook으로 제공)."""
+    if not await _verify_webhook_request(request):
+        return _web.Response(status=401)
+    try:
+        data = await request.json()
+        user_id = str(data.get("user_id", ""))
+        exchange = str(data.get("exchange", "")).lower()
+        if not user_id or not exchange:
+            return _web.Response(status=400, text="user_id and exchange required")
+
+        balances = await _exchange_adapter.get_balances(user_id, exchange)
+        cash_krw = 0.0
+        if balances:
+            if exchange in ("kis", "toss"):
+                if isinstance(balances, dict):
+                    cash_krw = float(balances.get("cash", 0.0) or 0.0)
+            elif isinstance(balances, list):
+                for item in balances:
+                    if item.get("currency") == "KRW":
+                        cash_krw = float(item.get("balance", 0.0) or 0.0)
+                        break
+        return _web.Response(
+            text=_json.dumps({"ok": True, "exchange": exchange, "cash": cash_krw, "balances": balances}),
+            content_type="application/json",
+        )
+    except Exception as e:
+        _log.warning("internal get_balances failed", exc_info=e)
+        return _web.Response(status=500, text=str(e))

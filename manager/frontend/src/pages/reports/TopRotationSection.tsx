@@ -13,6 +13,8 @@ export default function TopRotationSection() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedGroupNo, setSelectedGroupNo] = useState<number | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [exchangeFilter, setExchangeFilter] = useState<string>('all')
 
   useEffect(() => {
     fetchTemplates()
@@ -42,6 +44,20 @@ export default function TopRotationSection() {
   if (loading && !report) return <Spinner />
   if (error) return <ErrorBanner message={error} />
 
+  const filteredTemplates = templates.filter((t) => {
+    if (exchangeFilter !== 'all' && t.exchange.toLowerCase() !== exchangeFilter.toLowerCase()) {
+      return false
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase()
+      const matchName = t.name.toLowerCase().includes(q)
+      const matchId = String(t.id).includes(q)
+      const matchEx = t.exchange.toLowerCase().includes(q)
+      return matchName || matchId || matchEx
+    }
+    return true
+  })
+
   const params = report?.template?.params || {}
   const nextTarget = params.next_target_ticker
   const cycleNo = params.cycle_no || 1
@@ -52,52 +68,103 @@ export default function TopRotationSection() {
 
   return (
     <div className="space-y-4">
-      {/* 템플릿 선택 및 상단 컨트롤 바 */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
-        <div className="flex items-center gap-2">
-          <Layers size={18} className="text-indigo-600 dark:text-indigo-400" />
-          <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">대상 전략 템플릿:</span>
-          <select
-            value={selectedTemplateId || ''}
-            onChange={(e) => setSelectedTemplateId(Number(e.target.value))}
-            className="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-1.5 text-sm font-medium text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          >
-            {templates.map((t) => (
-              <option key={t.id} value={t.id}>
-                #{t.id} {t.name} ({t.exchange.toUpperCase()})
-              </option>
-            ))}
-          </select>
-        </div>
+      {/* 템플릿 선택 및 상단 컨트롤 바 (검색 / 거래소 필터 탑재) */}
+      <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-3">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          {/* 전략 선택, 거래소 필터, 검색 인풋 */}
+          <div className="flex flex-1 flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5 font-semibold text-sm text-slate-700 dark:text-slate-200">
+              <Layers size={18} className="text-indigo-600 dark:text-indigo-400" />
+              <span>전략:</span>
+            </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-500 dark:text-slate-400">배치(#Group) 필터:</span>
-          <select
-            value={selectedGroupNo === null ? '' : selectedGroupNo}
-            onChange={(e) => setSelectedGroupNo(e.target.value === '' ? null : Number(e.target.value))}
-            className="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-2 py-1 text-xs text-slate-700 dark:text-slate-200"
-          >
-            <option value="">전체 배치</option>
-            {(params.history || []).map((h: any) => (
-              <option key={h.group_no} value={h.group_no}>
-                Batch #{h.group_no} ({h.date})
-              </option>
-            ))}
-          </select>
-          <button
-            onClick={() => {
-              if (selectedTemplateId) {
-                setLoading(true)
-                fetchTopRotationReport(selectedTemplateId, selectedGroupNo)
-                  .then(setReport)
-                  .finally(() => setLoading(false))
-              }
-            }}
-            className="flex items-center gap-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200"
-          >
-            <RotateCw size={13} />
-            새로고침
-          </button>
+            {/* 거래소 필터 칩 */}
+            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-700/60 p-0.5 rounded-lg text-xs">
+              {['all', 'toss', 'kis', 'upbit', 'bithumb'].map((ex) => (
+                <button
+                  key={ex}
+                  onClick={() => setExchangeFilter(ex)}
+                  className={`px-2 py-0.5 rounded-md font-medium transition-colors ${
+                    exchangeFilter === ex
+                      ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                  }`}
+                >
+                  {ex === 'all' ? '전체' : ex.toUpperCase()}
+                </button>
+              ))}
+            </div>
+
+            {/* 빠른 검색 인풋 */}
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="전략명/#ID 검색..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-32 sm:w-40 pl-2.5 pr-6 py-1 text-xs rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {/* 템플릿 드롭다운 */}
+            <select
+              value={selectedTemplateId || ''}
+              onChange={(e) => setSelectedTemplateId(Number(e.target.value))}
+              className="max-w-[220px] sm:max-w-[300px] truncate rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-1 text-xs sm:text-sm font-medium text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              {filteredTemplates.length === 0 ? (
+                <option value="" disabled>검색 결과 없음</option>
+              ) : (
+                filteredTemplates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    #{t.id} {t.name} [{t.exchange.toUpperCase()}]
+                  </option>
+                ))
+              )}
+            </select>
+            <span className="text-[11px] text-slate-400">
+              ({filteredTemplates.length}/{templates.length}개)
+            </span>
+          </div>
+
+          {/* 우측 배치 필터 및 새로고침 */}
+          <div className="flex items-center gap-2 self-end lg:self-auto">
+            <span className="text-xs text-slate-500 dark:text-slate-400">배치 필터:</span>
+            <select
+              value={selectedGroupNo === null ? '' : selectedGroupNo}
+              onChange={(e) => setSelectedGroupNo(e.target.value === '' ? null : Number(e.target.value))}
+              className="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-2 py-1 text-xs text-slate-700 dark:text-slate-200"
+            >
+              <option value="">전체 배치</option>
+              {(params.history || []).map((h: any) => (
+                <option key={h.group_no} value={h.group_no}>
+                  Batch #{h.group_no} ({h.date})
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={() => {
+                if (selectedTemplateId) {
+                  setLoading(true)
+                  fetchTopRotationReport(selectedTemplateId, selectedGroupNo)
+                    .then(setReport)
+                    .finally(() => setLoading(false))
+                }
+              }}
+              className="flex items-center gap-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200"
+            >
+              <RotateCw size={13} />
+              새로고침
+            </button>
+          </div>
         </div>
       </div>
 

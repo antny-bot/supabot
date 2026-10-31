@@ -82,18 +82,22 @@ async def api_get_budget_health(
             q._params["user_id"] = f"eq.{bot_user_id}"
         templates = (await q.execute()).data or []
 
-        # 실계좌 순수 현금 예수금 조회 (미수 제외 100% 현금)
-        # 봇 또는 거래소 API와 연동하거나 기본값 활용
-        actual_cash_krw = 5000000.0
+        # 실계좌 예수금 조회 (미수 제외 순수 현금)
+        # 봇의 /internal/get_balances 웹훅을 통해 실계좌 잔고 조회
+        actual_cash_krw = 0.0
         try:
-            from ..bot_client import get_bot_status
-            bot_st = await get_bot_status()
-            if bot_st and isinstance(bot_st, dict):
-                balances = bot_st.get("balances", {}).get(exchange.lower(), {})
-                if "cash" in balances:
-                    actual_cash_krw = float(balances["cash"])
-                elif "krw" in balances:
-                    actual_cash_krw = float(balances["krw"])
+            from ..bot_client import get_exchange_balances
+            target_uid = bot_user_id
+            if not target_uid and templates:
+                target_uid = templates[0].get("user_id")
+            if not target_uid:
+                u_res = (await db.table("users").select("id").eq("status", "active").limit(1).execute()).data
+                if u_res:
+                    target_uid = str(u_res[0]["id"])
+            if target_uid:
+                res = await get_exchange_balances(str(target_uid), exchange.lower())
+                if res and res.get("ok"):
+                    actual_cash_krw = float(res.get("cash", 0.0) or 0.0)
         except Exception:
             pass
 

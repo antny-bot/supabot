@@ -162,8 +162,10 @@ export default function BudgetPlanSection() {
 
           <div className="flex items-center gap-4 text-xs font-mono">
             <div>
-              <span className="text-slate-500 block text-[11px]">실계좌 순수 현금</span>
-              <span className="font-bold text-slate-800 dark:text-slate-100">{krwFmt(healthData?.actual_cash_krw || 0)}</span>
+              <span className="text-slate-500 block text-[11px]">예수금</span>
+              <span className="font-bold text-slate-800 dark:text-slate-100" title={`${Number(healthData?.actual_cash_krw || 0).toLocaleString()}원`}>
+                {krwFmt(healthData?.actual_cash_krw || 0)}
+              </span>
             </div>
             <div>
               <span className="text-slate-500 block text-[11px]">일 필요액 합계</span>
