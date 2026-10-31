@@ -349,7 +349,11 @@ async def _internal_sync_order_handler(request: _web.Request) -> _web.Response:
                                 break
                         if ord_obj:
                             fee_amount = float(status_info.get("fee_amount") or 0.0)
-                            extra_kw = {"group_no": ord_obj["group_no"]} if ord_obj.get("group_no") is not None else {}
+                            extra_kw = {}
+                            if ord_obj.get("group_no") is not None:
+                                extra_kw["group_no"] = ord_obj["group_no"]
+                            if ord_obj.get("template_id") is not None:
+                                extra_kw["template_id"] = ord_obj["template_id"]
                             append_trade(
                                 user_id=user_id,
                                 exchange=exchange,
@@ -401,7 +405,11 @@ async def _internal_force_update_order_handler(request: _web.Request) -> _web.Re
             if state == "done" and ord_obj:
                 from core.trade_log import is_trade_logged
                 if not is_trade_logged(uuid):
-                    extra_kw = {"group_no": ord_obj["group_no"]} if ord_obj.get("group_no") is not None else {}
+                    extra_kw = {}
+                    if ord_obj.get("group_no") is not None:
+                        extra_kw["group_no"] = ord_obj["group_no"]
+                    if ord_obj.get("template_id") is not None:
+                        extra_kw["template_id"] = ord_obj["template_id"]
                     append_trade(
                         user_id=ord_obj["user_id"],
                         exchange=ord_obj["exchange"],

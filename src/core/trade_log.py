@@ -55,10 +55,12 @@ def append_trade(
     uuid,
     fee_amount=0.0,
     group_no=None,
+    template_id=None,
     path=TRADE_LOG_PATH,
 ):
     ts = time.time()
     normalized_group_no = int(group_no) if group_no is not None else None
+    normalized_template_id = int(template_id) if template_id is not None else None
     record = {
         "ts": ts,
         "user_id": str(user_id),
@@ -71,6 +73,7 @@ def append_trade(
         "uuid": uuid,
         "fee_amount": float(fee_amount),
         "group_no": normalized_group_no,
+        "template_id": normalized_template_id,
     }
     if is_db_available():
         db_row = {
@@ -87,11 +90,19 @@ def append_trade(
         }
         if normalized_group_no is not None:
             db_row["group_no"] = normalized_group_no
+        if normalized_template_id is not None:
+            db_row["template_id"] = normalized_template_id
         try:
             get_db().table("trade_logs").insert(db_row).execute()
         except Exception:
+            popped = False
+            if "template_id" in db_row:
+                db_row.pop("template_id", None)
+                popped = True
             if "group_no" in db_row:
                 db_row.pop("group_no", None)
+                popped = True
+            if popped:
                 try:
                     get_db().table("trade_logs").insert(db_row).execute()
                 except Exception:

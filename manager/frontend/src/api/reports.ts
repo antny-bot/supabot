@@ -121,3 +121,27 @@ export const fetchReportBatches = (
   }
   return api.get<BatchesReport>(`/api/reports/batches?${params.toString()}`)
 }
+
+export interface TopRotationReport {
+  template: any
+  holdings_status: any[]
+  batch_budget_logs: any[]
+  orders: any[]
+  trades: any[]
+  master_top: any[]
+}
+
+export const fetchTopRotationReport = (templateId: number, groupNo?: number | null) => {
+  const p = new URLSearchParams({ template_id: String(templateId) })
+  if (groupNo !== undefined && groupNo !== null) {
+    p.set('group_no', String(groupNo))
+  }
+  return api.get<TopRotationReport>(`/api/reports/top-rotation?${p.toString()}`)
+}
+
+export const compareBacktestScenarios = (payload: {
+  start_date: string
+  end_date: string
+  scenarios: any[]
+  include_benchmark?: boolean
+}) => api.post<any>('/api/reports/top-rotation/backtest-compare', payload)

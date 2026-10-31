@@ -837,7 +837,11 @@ async def _process_order_fill(application, ord: dict, res: dict, ex_obj) -> None
                      f"• 주문이 거래소에서 취소되었습니다. 추적을 중단합니다.",
             )
         if state == "done":
-            extra_kw = {"group_no": ord["group_no"]} if ord.get("group_no") is not None else {}
+            extra_kw = {}
+            if ord.get("group_no") is not None:
+                extra_kw["group_no"] = ord["group_no"]
+            if ord.get("template_id") is not None:
+                extra_kw["template_id"] = ord["template_id"]
             append_trade(
                 user_id=user_id,
                 exchange=exchange,

@@ -18,8 +18,11 @@ import WinStatsSection from './reports/WinStatsSection'
 import DrawdownSection from './reports/DrawdownSection'
 import AllocationSection from './reports/AllocationSection'
 import BatchTimelineSection from './reports/BatchTimelineSection'
+import TopRotationSection from './reports/TopRotationSection'
+import BudgetPlanSection from './reports/BudgetPlanSection'
+import BacktestSimulatorSection from './reports/BacktestSimulatorSection'
 
-// 전체 12개 탭 명세 및 카테고리 매핑
+// 전체 15개 탭 명세 및 카테고리 매핑
 export type ReportCategory = 'all' | 'portfolio' | 'performance' | 'strategy'
 
 interface ReportTabItem {
@@ -38,6 +41,9 @@ const ALL_REPORT_TABS: ReportTabItem[] = [
   { id: 'monthly', label: '월별 손익', category: 'performance' },
   { id: 'drawdown', label: 'MDD / 리스크', category: 'performance' },
   // 트레이딩 분석
+  { id: 'top_rotation', label: 'TOP 10 포지션·순위', category: 'strategy' },
+  { id: 'budget_plan', label: 'Budget Plan & 감사 원장', category: 'strategy' },
+  { id: 'backtest_compare', label: '다중 시나리오 백테스트', category: 'strategy' },
   { id: 'batches', label: '배치·시계열 추적', category: 'strategy' },
   { id: 'strategy', label: '전략별 분석', category: 'strategy' },
   { id: 'exchange', label: '거래소별 분석', category: 'strategy' },
@@ -141,6 +147,9 @@ export default function Reports() {
         {activeTab === 'drawdown' && <DrawdownSection dateRange={dateRange} />}
         {activeTab === 'pnl' && <PnlSection dateRange={dateRange} />}
         {activeTab === 'daily' && <DailySection dateRange={dateRange} />}
+        {activeTab === 'top_rotation' && <TopRotationSection />}
+        {activeTab === 'budget_plan' && <BudgetPlanSection />}
+        {activeTab === 'backtest_compare' && <BacktestSimulatorSection />}
         {activeTab === 'batches' && <BatchTimelineSection dateRange={dateRange} />}
         {activeTab === 'strategy' && <StrategySection dateRange={dateRange} />}
         {activeTab === 'exchange' && <ExchangeSection dateRange={dateRange} />}

@@ -45,6 +45,12 @@ interface TemplateFormState {
   dcaSchedule: string
   dcaExecTime: string
   dcaAmountType: 'budget' | 'volume'
+  topMarket: string
+  rankStart: string
+  rankEnd: string
+  sellSplitDays: string
+  budgetMode: 'monthly' | 'daily'
+  dailyFixedBudget: string
 }
 
 const DEFAULT_FORM: TemplateFormState = {
@@ -62,9 +68,16 @@ const DEFAULT_FORM: TemplateFormState = {
   dcaSchedule: '매일',
   dcaExecTime: '09:05',
   dcaAmountType: 'budget',
+  topMarket: 'KOSPI',
+  rankStart: '1',
+  rankEnd: '10',
+  sellSplitDays: '5',
+  budgetMode: 'monthly',
+  dailyFixedBudget: '150000',
 }
 
 const STRATEGY_TYPE_LABELS: Record<string, string> = {
+  kospi_top_dca: 'KOSPI/KOSDAQ 시총 상위 TOP N 모으기 & 분할매도',
   grid: '거미줄 분할 매수 (/grid)',
   sgrid: '거미줄 분할 매도 (/sgrid)',
   rsitrade: 'RSI 순환 매매 (/rsitrade)',
@@ -74,6 +87,7 @@ const STRATEGY_TYPE_LABELS: Record<string, string> = {
 }
 
 const STRATEGY_BADGE_LABELS: Record<string, string> = {
+  kospi_top_dca: 'TOP N DCA',
   grid: '거미줄 매수 (GRID)',
   sgrid: '거미줄 매도 (SGRID)',
   rsitrade: 'RSI 순환매매',
@@ -121,6 +135,21 @@ function buildPayload(form: TemplateFormState) {
       max_runs: maxRuns,
       side: stype === 'sdca' ? 'ask' : 'bid',
     }
+  } else if (stype === 'kospi_top_dca') {
+    payload.ticker = form.topMarket === 'KOSPI' ? 'KOSPI_TOP10' : 'KOSDAQ_TOP10'
+    payload.params = {
+      market: form.topMarket,
+      rank_start: parseInt(form.rankStart, 10) || 1,
+      rank_end: parseInt(form.rankEnd, 10) || 10,
+      top_n: parseInt(form.rankEnd, 10) || 10,
+      sell_split_days: parseInt(form.sellSplitDays, 10) || 5,
+      budget_mode: form.budgetMode,
+      monthly_budget: parseFloat(form.budget),
+      daily_fixed_budget: parseFloat(form.dailyFixedBudget) || 150000,
+      schedule_enabled: true,
+      strategy_status: 'active',
+      schedule_time: form.dcaExecTime.trim() || '09:10',
+    } as any
   }
 
   return payload
@@ -143,6 +172,12 @@ function templateToForm(template: Template): TemplateFormState {
     dcaSchedule: template.params?.schedule || '매일',
     dcaExecTime: template.params?.exec_time || '09:05',
     dcaAmountType: template.params?.amount_type || (strategyType === 'sdca' ? 'volume' : 'budget'),
+    topMarket: (template.params as any)?.market || 'KOSPI',
+    rankStart: String((template.params as any)?.rank_start ?? '1'),
+    rankEnd: String((template.params as any)?.rank_end ?? template.count ?? '10'),
+    sellSplitDays: String((template.params as any)?.sell_split_days ?? '5'),
+    budgetMode: (template.params as any)?.budget_mode || 'monthly',
+    dailyFixedBudget: String((template.params as any)?.daily_fixed_budget ?? '150000'),
   }
 }
 

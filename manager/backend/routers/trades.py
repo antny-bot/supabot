@@ -34,6 +34,9 @@ async def api_list_trades(
     period: str = "7d",
     date_from: str | None = None,
     date_to: str | None = None,
+    group_no: int | None = None,
+    template_id: int | None = None,
+    strategy: str | None = None,
     page: int = 1,
     page_size: int = 50,
     user: dict = Depends(get_current_user)
@@ -67,6 +70,12 @@ async def api_list_trades(
             window = _PERIODS[period]
             if window:
                 q._params["executed_at"] = f"gte.{time.time() - window}"
+        if group_no is not None:
+            q._params["group_no"] = f"eq.{group_no}"
+        if template_id is not None:
+            q._params["template_id"] = f"eq.{template_id}"
+        if strategy:
+            q._params["strategy"] = f"eq.{strategy}"
         if not is_admin:
             q._params["user_id"] = f"eq.{bot_user_id}"
             

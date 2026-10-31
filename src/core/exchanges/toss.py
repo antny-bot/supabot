@@ -281,8 +281,10 @@ class TossExchange(RegularSessionExchange):
         if self.is_us_stock(ticker):
             return super().is_market_open(ticker)
         windows = self._kr_calendar_today_windows(getattr(self.adapter, "_toss_kr_calendar", None))
-        if not windows:  # None 또는 빈 리스트(휴장일) 모두 False 반환
-            return super().is_market_open(ticker)  # 캐시 없음/휴장일 → KIS 정규장 고정 휴리스틱 폴백
+        if windows is None:
+            return super().is_market_open(ticker)
+        if not windows:
+            return False
         now = datetime.now(KST)
         return any(start <= now <= end for start, end in windows)
 
