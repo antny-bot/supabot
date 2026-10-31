@@ -1,0 +1,70 @@
+name: Delete Release and Tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: '삭제할 Release / Tag 이름 (예: bot-v1.0.0, manager-v1.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  delete-release-and-tag:
+    name: Delete Release & Tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete GitHub Release and Git Tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_INPUT: ${{ github.event.inputs.tag_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # 앞뒤 공백 제거
+          TAG=$(echo "${TAG_INPUT}" | xargs)
+          if [ -z "$TAG" ]; then
+            echo "❌ 태그 이름이 비어 있습니다."
+            exit 1
+          fi
+
+          echo "🎯 대상 태그/릴리즈: $TAG"
+          RELEASE_DELETED=false
+          TAG_DELETED=false
+
+          # 1. GitHub Release 확인 및 삭제
+          echo "📦 1. GitHub Release 확인 및 삭제 시도..."
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo "GitHub Release 발견! 릴리즈 및 연관 태그 삭제를 진행합니다..."
+            gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag
+            RELEASE_DELETED=true
+            TAG_DELETED=true
+            echo "✅ GitHub Release 및 연결된 태그 삭제 완료"
+          else
+            echo "ℹ️ 태그 '$TAG'에 해당하는 GitHub Release가 없습니다."
+          fi
+
+          # 2. 원격 Git Tag가 여전히 남아있는 경우 직접 삭제
+          echo "🏷️ 2. 원격 Git Tag 확인 및 삭제..."
+          if gh api "repos/${REPO}/git/refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "원격 Git Tag '$TAG'가 존재합니다. Tag ref를 삭제합니다..."
+            gh api --method DELETE "repos/${REPO}/git/refs/tags/${TAG}"
+            TAG_DELETED=true
+            echo "✅ 원격 Git Tag 삭제 완료"
+          else
+            if [ "$TAG_DELETED" = false ]; then
+              echo "ℹ️ 원격 Git Tag '$TAG'가 존재하지 않습니다."
+            fi
+          fi
+
+          # 3. Step Summary 리포트 생성
+          echo "### 🗑️ Release & Tag 삭제 결과" >> $GITHUB_STEP_SUMMARY
+          echo "- **대상**: \`$TAG\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **GitHub Release 삭제**: $([ "$RELEASE_DELETED" = true ] && echo '✅ 완료' || echo '➖ 없음 / 건너뜀')" >> $GITHUB_STEP_SUMMARY
+          echo "- **Git Tag 삭제**: $([ "$TAG_DELETED" = true ] && echo '✅ 완료' || echo '➖ 없음 / 건너뜀')" >> $GITHUB_STEP_SUMMARY

@@ -15,6 +15,7 @@
 | Build Manager | `.github/workflows/build-manager.yml` | manager Docker 이미지 빌드 및 GHCR 푸시 (`manager-*` release 또는 수동 실행) |
 | Test | `.github/workflows/ci-test.yml` | Python 테스트 실행 (main/claude push, main PR) |
 | Cleanup Registry and Cache | `.github/workflows/cleanup-registry-and-cache.yml` | GHCR 오래된 이미지 정리, 필요 시 수동 cache 삭제 |
+| Delete Release and Tag | `.github/workflows/delete-release.yml` | 릴리즈 태그명 입력 시 GitHub Release 취소/삭제 및 원격 Git Tag 삭제 |
 
 ## Build Bot
 
@@ -138,6 +139,27 @@ docker image prune -f
 - push마다 cleanup 실행 안 함.
 - build 및 cleanup 워크플로 분리 유지.
 - cleanup 주기 실행으로 GHCR 정리, cache 삭제는 필요시 수동 켬.
+
+## Delete Release and Tag
+
+파일: [delete-release.yml](/E:/apps/supabot/.github/workflows/delete-release.yml)
+
+트리거:
+
+- 수동 실행 `workflow_dispatch`
+  - 입력값: `tag_name` (필수, 예: `bot-v2.1.0`, `manager-v1.0.0`)
+
+동작:
+
+1. 입력받은 태그명 공백 제거 및 유효성 검사
+2. GitHub CLI (`gh release delete --yes --cleanup-tag`)를 통해 해당 릴리즈 및 연관 태그 삭제
+3. 태그가 여전히 남아있거나 릴리즈 없이 태그만 있는 경우, GitHub REST API (`DELETE /repos/{owner}/{repo}/git/refs/tags/{tag}`)로 원격 Git Tag 확실히 삭제
+4. GitHub Actions 실행 요약(`$GITHUB_STEP_SUMMARY`)에 삭제 결과 리포트 출력
+
+권한:
+
+- `contents: write` (Release 및 Tag 삭제 권한)
+
 
 ## 배포 트러블슈팅 (자동배포 실패 시 점검 포인트)
 
