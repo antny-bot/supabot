@@ -7,10 +7,46 @@ Every new page and every page-level redesign must follow these rules unless ther
 
 > Directory/module map (pages, components, hooks, api, ...) lives in `manager/README.md` → "프론트엔드 구조". This document covers *how things must look and behave*, not *where files live*.
 
-## Page Header Rule
+---
 
-- Every app page except `Login` must render a shared `PageHeader` (left icon + title + subtitle + optional right-side actions). Never render a bare `h1` for app pages.
-- Titles: short, explicit nouns. Subtitles: one sentence on the page's operational purpose.
+## 🚨 Core Frontend Directives (필수 UI/UX 준수 원칙)
+
+사용자 피드백 및 디자인 일관성을 위해 확립된 최우선 프론트엔드 구성 지시사항입니다.
+
+### 1. 페이지 헤더 규칙 (Page Header Rule)
+- 모든 앱 페이지(로그인 제외)는 공통 컴포넌트인 `PageHeader`를 사용한다. 직접 `h1`을 개별 작성하지 않는다.
+- **서브타이틀(subtitle) 제거 원칙**: 페이지 타이틀 아래의 설명성 서브타이틀 문구는 불필요하므로 노출하지 않는다.
+- 좌측 아이콘 박스(`p-3 rounded-2xl bg-primary-50`), 페이지 제목(`h1.text-app-title font-bold`), 우측 액션 버튼들을 수직 중앙 정렬(`items-center`)로 일관되게 배치하여 헤더 높이를 깔끔하게 정돈한다.
+
+### 2. 서브메뉴 구성 표준화 (Responsive Sheet Tabs)
+- **'관리자'의 '시트' 메뉴 구성 방식으로 일원화**: 모든 다중 탭/서브메뉴(관리자, 리포트, 설정 등)는 `ResponsiveTabs` 컴포넌트를 사용한다.
+- **이중 카테고리 그룹핑 금지**: '전체 리포트', '포트폴리오'와 같은 상위 세그먼트 컨트롤로 탭을 이중 분류하지 않고, 단일 반응형 시트 탭 스트립으로 명확하고 단순하게 구성한다.
+- **Desktop (`md:`)**: 밑줄 인디케이터 시트 탭 (`border-b-2 -mb-px`, `overflow-x-auto scrollbar-none`, `shrink-0 whitespace-nowrap break-keep`).
+- **Mobile (기본)**: 가로 스크롤 다이얼 pill 버튼 (`overflow-x-auto scrollbar-none snap-x`, `shrink-0 whitespace-nowrap break-keep`).
+- 기간 필터(`DateRangePicker`) 등 탭 종속 컨트롤은 탭 바 우측 또는 탭 바로 아래 컨텐츠 영역에 배치한다.
+
+### 3. 한국어 타이포그래피 및 줄바꿈 방지 규칙
+- **전역 단어 단위 줄바꿈 (`word-break: keep-all`)**: 한국어 텍스트는 브라우저 기본값에서 글자 단위로 어색하게 쪼개지므로, `body` 및 전역에 `word-break: keep-all; overflow-wrap: break-word;`를 필수로 적용한다.
+- **탭/버튼/라벨 한 줄 유지 (`whitespace-nowrap break-keep`)**: 특히 태블릿, 창 크기 축소 환경에서 '주문 및 신호 주기', '전략 템플릿' 등의 긴 한글 라벨이 두 줄로 꺾이는 현상이 발생하지 않도록, 모든 탭(`ResponsiveTabs`, `SegmentedControl`, `FilterBar`) 버튼에 `whitespace-nowrap break-keep` 및 컨테이너 가로 스크롤을 보장한다.
+
+### 4. 컬럼 레이아웃 및 카드 상단 높이 정렬 규칙 (`space-y-*` 주의)
+- **인접 컬럼 상단 높이 정렬**: 좌/우 다중 컬럼(예: 대시보드 좌측 7/12, 우측 5/12)의 첫 번째 카드는 상단 높이가 정확히 수평 일치해야 한다.
+- **반응형 숨김 요소 포함 시 `space-y-*` 금지**: 자식 요소 중에 모바일 전용 UI(`<div className="md:hidden">`) 등 반응형 숨김 요소가 포함된 경우 부모 컨테이너에 `space-y-*`를 사용하지 않는다.
+  - Tailwind의 `space-y-*`는 CSS `> * + *` 선택자로 동작하여 데스크톱에서 `display: none`인 요소 뒤에 오는 첫 번째 카드에 불필요한 `margin-top`을 붙여 높이가 어긋난다.
+  - **해결책**: 반드시 `flex flex-col gap-*` 또는 CSS Grid `gap-*`을 사용하여 숨김 요소가 간격 계산에서 완전히 배제되도록 한다.
+
+### 5. 좌측 사이드바(Sidebar) 너비 표준
+- 본문 작업 공간(대시보드 차트, 주문 테이블, 리포트 등)을 충분히 넓게 활용하기 위해 사이드바 폭을 콤팩트하게 유지한다.
+- **펼침 상태**: `w-[150px]` (기존 224px 대비 약 2/3 폭)
+- **접힘 상태**: `w-14` (56px)
+- 내부 네비게이션 아이템은 패딩과 아이콘(`17px`)을 콤팩트하게 다듬고 `whitespace-nowrap break-keep`을 적용하여 5글자 이상의 한글 메뉴도 말줄임표 없이 여유 있게 표시한다.
+
+### 6. 도넛/파이 차트 경계선 제거 및 모듈화 (`DonutChart`)
+- **다크모드 흰색 테두리 노출 금지**: Recharts의 `<Pie>` 컴포넌트는 기본 `stroke="#fff"`가 설정되어 있어 다크모드에서 각 조각 둘레에 부자연스러운 흰색 경계선이 노출된다.
+- **`stroke="none"` 및 `strokeWidth={0}` 필수 적용**: 테두리를 없애고 조각 간 간격은 `paddingAngle`로만 깔끔하게 시각적 분리를 제공한다.
+- **공통 컴포넌트([DonutChart.tsx](file:///E:/apps/supabot/manager/frontend/src/components/ui/DonutChart.tsx)) 사용**: 도넛 차트 구현 시 개별 작성 대신 공통 컴포넌트를 사용하여 다크모드 툴팁, 레전드 스타일, 반응형 높이를 일관되게 유지한다.
+
+---
 
 ## Icon Rule
 
@@ -22,12 +58,12 @@ Every new page and every page-level redesign must follow these rules unless ther
 
 Default order for app pages: `PageHeader` → status feedback (`ErrorBanner`/success banners) → filters/summary controls → summary cards → primary data card/table/chart/form → small footer metadata (totals, etc).
 
-Use `space-y-4`/`space-y-5`/`space-y-6` and keep one clear vertical rhythm.
+Use vertical flex/grid with `gap-4`/`gap-5`/`gap-6` and keep one clear vertical rhythm.
 
 ## Core Components
 
 Prefer these shared building blocks before inventing new page-specific UI:
-`PageHeader`, `StatCard`, `FilterBar`, `ErrorBanner`, `Spinner`, `Skeleton`, `Badge`, `Button`, `ProgressBar`, `SegmentedControl`, `BottomSheet`, `MfaSettingsCard`, `DisplaySettingsCard`.
+`PageHeader`, `ResponsiveTabs`, `DonutChart`, `StatCard`, `FilterBar`, `ErrorBanner`, `Spinner`, `Skeleton`, `Badge`, `Button`, `ProgressBar`, `SegmentedControl`, `BottomSheet`, `MfaSettingsCard`, `DisplaySettingsCard`.
 
 If a pattern repeats on 2+ pages, extract it into `src/components/ui` (or another shared folder) instead of duplicating markup.
 
@@ -40,21 +76,21 @@ If a pattern repeats on 2+ pages, extract it into `src/components/ui` (or anothe
 ## Typography
 
 - Manager-wide font system is user-adjustable from `Config > 표시` (font family + size `12px`–`22px`, default `16px`; storage in `src/lib/displayPreferences.ts`). Root uses `font-app-ui` so preferences apply everywhere.
-- Fonts: `Noto Sans KR`, `Noto Serif KR`.
+- Fonts: `Pretendard JP Variable`, `Pretendard`, `Noto Sans KR`, `Noto Serif KR`.
+- Korean word break: `word-break: keep-all; overflow-wrap: break-word;` 기본 적용.
 
 Prefer these app tokens over page-local `text-*` sizing:
 
 | Use | Token |
 |---|---|
 | Page title | `text-app-title font-bold` |
-| Subtitle | `text-app-body-sm text-slate-500 dark:text-slate-400` |
 | Card section title | `text-app-body font-semibold` |
 | Body / compact body | `text-app-body` / `text-app-body-sm` |
 | Labels, table headers | `text-app-label` |
 | Metadata, badges | `text-app-caption` |
 | Large metric values | `text-app-metric` |
 
-`src/index.css` remaps legacy `text-xs`…`text-3xl` inside `.font-app-ui` as a *compatibility layer* (not the preferred authoring style — use the tokens above for new code). Numeric/code-like cells keep `font-mono`; only the surrounding size scale should change. Keep titles/subtitles visually consistent across all pages.
+`src/index.css` remaps legacy `text-xs`…`text-3xl` inside `.font-app-ui` as a *compatibility layer*. Numeric/code-like cells keep `font-mono`; only the surrounding size scale should change.
 
 ## Display Settings
 
@@ -62,16 +98,15 @@ Prefer these app tokens over page-local `text-*` sizing:
 
 ## Actions
 
-- Page-level primary actions tied directly to the page belong in the `PageHeader` actions slot (e.g. template creation on `Templates`, period filter on `Reports`/`Trades`).
+- Page-level primary actions tied directly to the page belong in the `PageHeader` actions slot (e.g. template creation on `Templates`, sync indicators).
 - Secondary filters can sit below the header when multiple controls would make the header too dense.
 
 ## Responsive Layout (Mobile ↔ Desktop)
 
-> Frontend 구조(파일 위치)는 `manager/README.md` "프론트엔드 구조" 참고. 여기서는 모바일↔데스크톱 전환 규칙만 다룬다.
+> Frontend 구조(파일 위치)는 `manager/README.md` "프론트엔드 구조" 참고.
 
 ### Breakpoint convention
 - **단일 브레이크포인트 `md:` (768px)** 로 모바일/데스크톱을 가른다 — mobile-first 기본 스타일에 `md:`로 데스크톱을 오버라이드한다.
-  (코드 기준 `md:` 사용 44회 vs `sm:`/`lg:`/`xl:` 합계 9회 — 압도적 표준. 새 분기점을 임의로 추가하지 않는다.)
 - **레이아웃 스위치**: `AppLayout`이 분기한다.
   ```
   md+:  [ Sidebar (sticky, full-height) ] [ main content (flex-1) ]
@@ -79,102 +114,43 @@ Prefer these app tokens over page-local `text-*` sizing:
   ```
   `TopBar`는 `md:hidden`, `Sidebar`는 `hidden md:flex`로 상호 배타 — 둘 다 보이면 회귀.
 
-### General principles
-- Desktop과 mobile은 동일한 정보 위계를 유지한다. 헤더 아이콘·제목·부제는 모바일에서도 항상 보여야 한다.
-- 페이지 헤더 액션은 작은 화면에서 제목 블록 아래로 줄바꿈될 수 있다.
-- 모바일 하단 네비 라벨은 데스크톱보다 짧을 수 있으나 동일한 page metadata/icon을 참조해야 한다.
-- 폰트 크기를 허용 범위 상단까지 키워도 네비 라벨·필터 칩·밀집 테이블의 가독성과 정보 위계가 깨지면 안 된다.
-
-### Tab strip — responsive 2-mode
-다중 탭 페이지는 반드시 이 패턴을 쓴다:
-- **Desktop (`md:`)**: underline 탭 — `border-b-2 -mb-px`, 하단 보더 컨테이너로 감쌈. 활성 = `border-indigo-600 text-indigo-600`
-- **Mobile (기본)**: 가로 스크롤 다이얼 — `overflow-x-auto`, `snap-x snap-mandatory`, pill 버튼(`rounded-full`). 활성 = `bg-indigo-600 text-white`
-
-규칙: 탭에 `flex-wrap` 금지(여러 줄 줄바꿈 = 회귀) · 모바일 스크롤 컨테이너는 `index.css`의 `scrollbar-none` 유틸로 스크롤바 숨김(Tailwind 스크롤바 플러그인 추가 금지).
-
-### Mobile navigation — Bottom Nav + 전체 Drawer
-- 하단 네비는 **최대 6개**: 고정 항목 최대 5개(`localStorage` nav 순서의 앞 `MAX_PINNED`개) + 고정 **"전체"** 버튼(햄버거, 맨 우측). 순서·기본 페이지는 `src/lib/navPreferences.ts`에 저장.
-- **전체 Drawer (`AllMenuDrawer`)**: "전체" 버튼으로 바텀시트 슬라이드업, admin 전용 항목은 비admin에 숨김.
-  - **드래그 재정렬**: `@dnd-kit/core`+`@dnd-kit/sortable` → `writeNavOrder`로 즉시 저장, 상위 5개가 고정 항목이 됨. 이 패턴을 다른 화면에 재구현할 때는 `docs/drag-reorder-menu.md` 참고.
-  - **별표(★) = 기본 페이지**: 탭하면 로그인 후 랜딩 페이지로 지정(`writeDefaultPage`), 동시에 하나만 가능.
-  - `BottomNav`는 `sbm-navprefs-change` 커스텀 이벤트로 변경을 구독·재렌더링.
-- 모든 페이지는 `src/config/pageMeta.ts`의 `APP_NAV_ITEMS`에 선언. 현재 키: `dashboard`, `orders`, `trades`, `templates`, `reports`, `admin`(admin 전용), `config`. `adminOnly: true` 항목은 drawer에서 숨겨지고 비admin에 고정되지 않음.
-- **규칙**: `APP_NAV_ITEMS` 밖에서 nav 리스트 하드코딩 금지 · 슬롯 6개(고정 5 + 전체) 초과 금지 · 기본 고정 순서 `dashboard, orders, trades, reports, config` · 새 페이지는 `APP_NAV_ITEMS` + `navPreferences.ALL_NAV_KEYS`에 등록하면 drawer에 자동 표시.
-
 ### Desktop sidebar layout
 `AppLayout`이 `md:`+ 에서 `Sidebar.tsx`(sticky 좌측, full-height)를 렌더링하고 본문이 우측에 위치한다.
 
 | State | Width | 표시 |
 |---|---|---|
-| Expanded | `w-56` (224px) | 모든 항목의 아이콘 + 라벨 |
-| Collapsed | `w-16` (64px) | 아이콘만, 호버 시 `title` 툴팁 |
+| Expanded | `w-[150px]` (150px) | 모든 항목의 아이콘 + 라벨, 슬림 콤팩트 레이아웃 |
+| Collapsed | `w-14` (56px) | 아이콘만, 호버 시 `title` 툴팁 |
 
-- 토글 = 사이드바 헤더 우측의 햄버거(`Menu`) 아이콘 (영역 밖 떠 있는 chevron 버튼 금지). collapsed 상태는 `localStorage` 키 `sbm_sidebar_collapsed`에 저장.
+- 토글 = 사이드바 헤더 우측의 햄버거(`Menu`) 아이콘. collapsed 상태는 `localStorage` 키 `sbm_sidebar_collapsed`에 저장.
 - 헤더: 좌측 = supabot 로고(Zap + "supabot", collapsed 시 숨김, `/dashboard` NavLink) / 우측 = `Menu` 토글.
-- Nav 항목은 `APP_NAV_ITEMS`를 `adminOnly` vs `user.is_admin`으로 필터. 활성 = `bg-indigo-50 text-indigo-600`(light) / `bg-indigo-900/30 text-indigo-400`(dark). **설정(`/config`)·관리자(`/admin`)는 일반 nav 항목** — 별도 하단 버튼으로 중복 배치 금지.
-- **하단 유저 행**: 아바타(이메일 첫 글자) + 이메일(collapsed 시 숨김), 클릭 시 위로 슬라이드되는 설정 팝업(`absolute bottom-full`):
-  1. 테마 행 (Sun/Moon, 활성 모드 `bg-indigo-50` 강조) → 2. **설정** `/config` → 3. **관리자 메뉴** `/admin` (admin만) → 4. **로그아웃** (상단 보더 구분, rose)
-  - 팝업은 외부 클릭(`mousedown`) 또는 네비 링크 클릭 시 닫힘. Settings/Theme/Logout 전용 별도 버튼 추가 금지.
-- **규칙**: 데스크톱에서 `TopBar` 금지(`md:hidden`) · 모바일에서 `Sidebar` 금지(`hidden md:flex`) · `Sidebar.tsx`가 데스크톱 네비/유저 표시/세션 액션의 단일 소스 · `<aside>`에 `overflow-visible` 필수(없으면 팝업이 잘림).
+- Nav 항목은 `APP_NAV_ITEMS`를 `adminOnly` vs `user.is_admin`으로 필터. 활성 = `bg-primary-50 text-primary-600`(light) / `bg-primary-900/30 text-primary-400`(dark).
+- 하단 유저 행: 아바타 + 이메일/이름, 클릭 시 위로 슬라이드되는 설정 팝업(myhome 표준 포맷: 설정, 테마 토글, 로그아웃). 사이드바가 collapsed(접힘) 상태일 때도 팝업이 잘리지 않도록 `collapsed ? 'left-2 w-52' : 'left-2 right-2 w-auto'`로 오른쪽 영역으로 넓게 전개.
+
+### Mobile navigation — Bottom Nav + 전체 Drawer
+- 하단 네비는 **최대 6개**: 고정 항목 최대 5개 + 고정 **"전체"** 버튼(햄버거, 맨 우측).
+- **전체 Drawer (`AllMenuDrawer`)**: "전체" 버튼으로 바텀시트 슬라이드업.
+- 모든 페이지는 `src/config/pageMeta.ts`의 `APP_NAV_ITEMS`에 선언.
 
 ## Page Architecture
 
-- **Dashboard** (`/dashboard`): 3초 룰 기반 글랜스 UI 적용. 모바일 뷰에서는 통합 히어로 카드(총자산, 당일손익, 7일 스파크라인)와 세그먼트 스위처 제공. 데스크톱 뷰에서는 3-Column 워크벤치 제공.
-- **Orders** (`/orders`): `활성 주문(Open)`과 `주문 이력(History)` 듀얼 뷰 탭 분리. 모바일에서는 통합 필터 바텀시트(`BottomSheet`) 및 슬림 카드 뷰 제공.
-- **Trades** (`/trades`): 체결 거래 목록과 함께 실시간 매수/매도 비율 게이지 바(Bull/Bear ratio) 및 모바일 타임라인 카드 제공.
+- **Dashboard** (`/dashboard`): 3초 룰 기반 글랜스 UI 적용. 좌측(7/12) 손익 추이 및 자산 배분 / 우측(5/12) 보유 자산 요약 및 최근 체결 내역. 컬럼 컨테이너는 `flex flex-col gap-5`를 사용하여 카드 상단 높이를 완벽 정렬.
+- **Orders** (`/orders`): `활성 주문(Open)`과 `주문 이력(History)` 듀얼 뷰 탭 분리.
+- **Trades** (`/trades`): 체결 거래 목록과 함께 실시간 매수/매도 비율 게이지 바 및 날짜 필터 제공.
 - **Templates** (`/templates`): 전략 템플릿 카드 라이브러리 및 폼 모달 제공 (그리드, 스마트그리드, RSI).
-- **Reports** (`/reports`): 11개 세부 리포트를 3대 허브(`포트폴리오 자산`, `수익 & 리스크`, `트레이딩 분석`) 및 상단 카테고리 스위처로 계층화.
-- **Admin** (`/admin`, admin-only): 3개 탭 — 유저관리(`<UsersContent />` from `pages/Users.tsx`), 이벤트(`<EventsContent />` from `pages/Events.tsx`), 주문 및 신호 주기(모니터링 간격 설정 폼). `/users`·`/events`는 `/admin`으로 redirect. 새 admin 전용 기능은 새 라우트 대신 `Admin.tsx`에 탭 추가.
-- **Config** (`/config`): 2개 탭 — 화면 표시(`DisplaySettingsCard`, localStorage only), 보안(`MfaSettingsCard`, TOTP/MFA). 모니터링 간격은 `/admin` "주문 및 신호 주기" 탭으로 이동됨.
+- **Reports** (`/reports`): 이중 카테고리 그룹핑을 제거하고, 관리자 방식의 1차원 `ResponsiveTabs` 시트 메뉴(15개 탭)로 일원화. 기간 민감 탭 선택 시 하단 우측에 `DateRangePicker` 연동.
+- **Admin** (`/admin`, admin-only): `ResponsiveTabs` 시트 탭 기반 유저관리, 이벤트, 모니터링, 종목 캐시, NL 로그 등 관리.
+- **Config** (`/config`): `ResponsiveTabs` 시트 탭 기반 화면 표시, 보안(MFA) 설정.
 
 ## Accordion / Collapsible Animation
 
-모든 collapsible 패널(`collapsible`+`isOpen`+`onToggle` props)은 열림/닫힘 애니메이션이 필수다. 즉시 전환은 디자인 회귀로 처리한다.
-
-**기법**: JS 높이 측정이나 외부 라이브러리 없이 CSS `grid-template` 전환(`0fr → 1fr`)으로 구현. 방향에 따라 `grid-rows`/`grid-cols` 선택.
-
-#### 1. 세로 아코디언 — 일반 패널/설정창
-```tsx
-<div className={`grid transition-all duration-200 ease-in-out ${
-  isOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
-}`}>
-  <div className="overflow-hidden min-h-0">
-    <div className="pt-2">{/* content */}</div>
-  </div>
-</div>
-```
-아이콘: `ChevronDown`, 열릴 때 180° 회전.
-
-#### 2. 가로 아코디언 — 다중 필터 바 (`FilterBar`, `DateRangePicker`)
-닫혀있을 때 필터 버튼들을 밀착시키고, 펼쳐질 때 우측 공간을 확보한다.
-```tsx
-<div className={`flex items-center transition-all duration-200 ${disabled ? 'opacity-40 pointer-events-none' : ''} ${className}`}>
-  <button onClick={onToggle} disabled={disabled} className="shrink-0">{/* trigger chip */}</button>
-  <div className={`grid transition-all duration-200 ease-in-out ${
-    isOpen ? 'grid-cols-[1fr] opacity-100 ml-1.5' : 'grid-cols-[0fr] opacity-0 ml-0'
-  }`}>
-    <div className="overflow-hidden min-w-0">
-      <div className="flex flex-nowrap items-center gap-1.5 p-0.5 whitespace-nowrap">
-        {/* filter options */}
-      </div>
-    </div>
-  </div>
-</div>
-```
-아이콘: `ChevronRight`, 열릴 때 180°(좌측 방향) 회전. **주의**: 펼쳐지는 동안 줄바꿈이 생기면 애니메이션이 끊기므로 `flex-nowrap`+`whitespace-nowrap` 필수.
-
-##### 가로 아코디언 필터 디자인 규칙
-- **경계선 및 테두리 최소화**: 아코디언이 펼쳐져 나타나는 옵션 목록 컨테이너에 전체 테두리(`border border-slate-200`)나 배경색(`bg-slate-50`)을 두르지 않는다. 복잡한 경계선은 화면을 촌스럽고 혼란스럽게 만든다. 대신 컨테이너는 단순히 padding/gap(`p-0.5 gap-1.5`)만 남기고, 내부 버튼들이 각자의 보더와 배경색을 그대로 유지해 자연스럽게 노출되도록 한다.
-- **비활성(Dimmed) 처리 연동**: 다중 필터가 배치된 화면에서 하나의 필터가 펼쳐져 활성화되면, 나머지 펼쳐지지 않은 다른 필터(및 인접 검색창, 리셋 버튼 등)는 `disabled` 처리와 함께 시각적으로 흐려져야 한다 (`opacity-40 pointer-events-none transition-all duration-200`). 이를 통해 사용자가 현재 조작하고 있는 활성 필터 영역에 완전히 집중할 수 있도록 돕는다.
-
-**공통 규칙**: 표준 duration **200ms ease-in-out**(제품적 이유 없이 변경 금지) · 트리거 칩은 항상 마운트 유지(unmount/remount 금지) · `overflow-hidden`+`min-h-0`(또는 `min-w-0`) 필수(없으면 `0fr`로 완전히 수축되지 않음) · `grid-rows-[0fr]`/`grid-cols-[1fr]`은 Tailwind JIT arbitrary value로 지원됨.
-
-지원 브라우저: Chrome 107+, Firefox 109+, Safari 16.4+ (관리자 대시보드 지원 범위).
+모든 collapsible 패널(`collapsible`+`isOpen`+`onToggle` props)은 열림/닫힘 애니메이션이 필수다.
+CSS `grid-template` 전환(`0fr → 1fr`)으로 구현.
 
 ## Maintenance Rule
 
-- New page → update `src/config/pageMeta.ts`, use `PageHeader`, add nav config if user-visible.
-- Title/subtitle/icon changes → update `pageMeta.ts` first.
-- Shared typography changes → update `src/index.css` and this document together.
-- New display-preference controls stay frontend-local unless there's an explicit product decision to sync server-side.
-- Missing subtitles or page-local icon drift = design regressions; reviewers should flag them.
+- 새 페이지 추가 시 `src/config/pageMeta.ts` 업데이트 후 `PageHeader` 적용 (서브타이틀 없이 제목만 구성).
+- 다중 탭 화면 구성 시 반드시 `ResponsiveTabs` 사용 (카테고리 다중 그룹핑 금지).
+- 모든 탭, 버튼, 라벨 요소에 `whitespace-nowrap break-keep` 적용 필수.
+- 컬럼 레이아웃에서 반응형 숨김 요소가 포함될 경우 `space-y-*` 대신 `flex flex-col gap-*` 사용.
+- 사이드바 너비는 `w-[150px]` (접힘 `w-14`) 표준 준수.

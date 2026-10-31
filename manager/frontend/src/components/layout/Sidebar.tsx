@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
-import { LogOut, Menu, Moon, Settings, ShieldCheck, Sun, Zap } from 'lucide-react'
+import { LogOut, Menu, Moon, Settings, ShieldCheck, Sun, Zap, MessageSquarePlus } from 'lucide-react'
 import { APP_NAV_ITEMS } from '../../config/pageMeta'
 import { useAuthContext } from '../../contexts/AuthContext'
+import FeedbackModal from '../feedback/FeedbackModal'
 import { useTheme } from '../../hooks/useTheme'
 
 const COLLAPSED_KEY = 'sbm_sidebar_collapsed'
@@ -20,6 +21,7 @@ export default function Sidebar() {
   const navigate = useNavigate()
   const [collapsed, setCollapsed] = useState(readCollapsed)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => { writeCollapsed(collapsed) }, [collapsed])
@@ -53,17 +55,17 @@ export default function Sidebar() {
   return (
     <aside
       className={`hidden md:flex flex-col shrink-0 h-screen sticky top-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 transition-all duration-200 overflow-visible ${
-        collapsed ? 'w-16' : 'w-56'
+        collapsed ? 'w-14' : 'w-[150px]'
       }`}
     >
       {/* Header: logo + hamburger toggle */}
-      <div className={`flex h-14 items-center border-b border-slate-200 dark:border-slate-800 shrink-0 px-3 gap-2 ${collapsed ? 'justify-center' : ''}`}>
+      <div className={`flex h-14 items-center border-b border-slate-200 dark:border-slate-800 shrink-0 px-2.5 gap-1.5 ${collapsed ? 'justify-center' : ''}`}>
         {!collapsed && (
           <NavLink
             to="/dashboard"
-            className="flex items-center gap-2 font-bold text-slate-900 dark:text-white min-w-0 flex-1"
+            className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-white min-w-0 flex-1"
           >
-            <div className="shrink-0 rounded-lg bg-primary-600 p-1.5">
+            <div className="shrink-0 rounded-lg bg-primary-600 p-1">
               <Zap size={14} className="text-white" />
             </div>
             <span className="text-app-body-sm whitespace-nowrap truncate">supabot</span>
@@ -79,21 +81,21 @@ export default function Sidebar() {
       </div>
 
       {/* Nav items */}
-      <nav className="flex-1 overflow-y-auto py-3 space-y-0.5 px-2">
+      <nav className="flex-1 overflow-y-auto py-3 space-y-0.5 px-1.5">
         {visibleItems.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
             title={collapsed ? item.label : undefined}
             className={({ isActive }) =>
-              `flex items-center gap-3 rounded-xl px-2.5 py-2 text-app-body-sm font-medium transition-colors ${
+              `flex items-center gap-2 rounded-xl px-2 py-2 text-app-body-sm font-medium whitespace-nowrap break-keep transition-colors ${
                 isActive
                   ? 'bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-400'
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200'
               } ${collapsed ? 'justify-center' : ''}`
             }
           >
-            <item.Icon size={18} className="shrink-0" />
+            <item.Icon size={17} className="shrink-0" />
             {!collapsed && (
               <>
                 <span className="truncate">{item.label}</span>
@@ -106,67 +108,90 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      {/* Bottom: user + settings popup trigger */}
-      <div className="shrink-0 border-t border-slate-200 dark:border-slate-800 px-2 py-3 relative" ref={menuRef}>
-        {/* Settings popup — slides up above this area */}
+      {/* Bottom Profile / Settings Area */}
+      <div className="relative border-t border-slate-200 dark:border-slate-800 p-2 shrink-0" ref={menuRef}>
+        {/* Popover Menu */}
         {menuOpen && (
-          <div className="absolute bottom-full left-2 right-2 mb-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-lg overflow-hidden z-50">
-            {/* Theme row */}
-            <div className="flex items-center gap-1 px-3 py-2 border-b border-slate-100 dark:border-slate-800">
-              <span className="text-xs text-slate-500 dark:text-slate-400 flex-1">
-                {collapsed ? '' : '테마'}
-              </span>
-              <button
-                onClick={() => { toggleTheme() }}
-                title={isDark ? '라이트 모드' : '다크 모드'}
-                className={`rounded-lg p-1.5 transition-colors ${
-                  !isDark
-                    ? 'bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-400'
-                    : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800'
-                }`}
-              >
-                <Sun size={15} />
-              </button>
-              <button
-                onClick={() => { toggleTheme() }}
-                title={isDark ? '라이트 모드' : '다크 모드'}
-                className={`rounded-lg p-1.5 transition-colors ${
-                  isDark
-                    ? 'bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-400'
-                    : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800'
-                }`}
-              >
-                <Moon size={15} />
-              </button>
-            </div>
-
-            {/* Settings link */}
+          <div
+            className={`absolute bottom-full mb-2 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl p-1.5 z-50 text-app-body-sm animate-fade-in-up ${
+              collapsed ? 'left-2 w-52' : 'left-2 right-2 w-auto'
+            }`}
+          >
+            {/* 설정 링크 */}
             <NavLink
               to="/config"
               onClick={() => setMenuOpen(false)}
-              className="flex items-center gap-2.5 px-3 py-2.5 text-app-body-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+              className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors whitespace-nowrap"
             >
-              <Settings size={15} className="shrink-0 text-slate-500 dark:text-slate-400" />
-              설정
+              <Settings size={15} />
+              <span>설정</span>
             </NavLink>
 
+            <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
 
-            {/* Logout */}
+            {/* 테마 셀렉터 */}
+            <div className="flex items-center justify-between px-3 py-1.5">
+              <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">테마</span>
+              <div className="flex items-center gap-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => toggleTheme()}
+                  className={`rounded-md p-1 transition-colors ${
+                    !isDark
+                      ? 'bg-white text-primary-600 shadow-sm dark:bg-slate-700 font-semibold'
+                      : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                  }`}
+                  title="라이트 모드"
+                >
+                  <Sun size={13} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleTheme()}
+                  className={`rounded-md p-1 transition-colors ${
+                    isDark
+                      ? 'bg-white text-primary-600 shadow-sm dark:bg-slate-700 font-semibold'
+                      : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                  }`}
+                  title="다크 모드"
+                >
+                  <Moon size={13} />
+                </button>
+              </div>
+            </div>
+
+            <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+
+            {/* 피드백 보내기 버튼 */}
+            <button
+              onClick={() => {
+                setMenuOpen(false)
+                setFeedbackOpen(true)
+              }}
+              className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors whitespace-nowrap"
+            >
+              <MessageSquarePlus size={15} className="text-primary-500" />
+              <span>피드백 보내기</span>
+            </button>
+
+            <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+
+            {/* 로그아웃 버튼 */}
             <button
               onClick={handleLogout}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-app-body-sm text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors border-t border-slate-100 dark:border-slate-800"
+              className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors whitespace-nowrap"
             >
-              <LogOut size={15} className="shrink-0" />
-              로그아웃
+              <LogOut size={15} />
+              <span>로그아웃</span>
             </button>
           </div>
         )}
 
-        {/* User row */}
+        {/* Profile Bar */}
         <button
           onClick={() => setMenuOpen((v) => !v)}
           className={`w-full flex items-center gap-2.5 rounded-xl px-2 py-2 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800 ${
-            collapsed ? 'justify-center' : ''
+            collapsed ? 'justify-center px-0' : ''
           } ${menuOpen ? 'bg-slate-100 dark:bg-slate-800' : ''}`}
           title={collapsed ? displayName : undefined}
         >
@@ -177,7 +202,7 @@ export default function Sidebar() {
           </div>
           {!collapsed && (
             <>
-              <span className="flex-1 text-left text-app-body-sm font-medium text-slate-700 dark:text-slate-200 truncate min-w-0">
+              <span className="flex-1 text-left text-xs font-normal text-slate-700 dark:text-slate-200 truncate min-w-0">
                 {displayName}
               </span>
               <Settings size={14} className="shrink-0 text-slate-400 dark:text-slate-500" />
@@ -185,6 +210,8 @@ export default function Sidebar() {
           )}
         </button>
       </div>
+      {/* 피드백 모달 */}
+      <FeedbackModal isOpen={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
     </aside>
   )
 }

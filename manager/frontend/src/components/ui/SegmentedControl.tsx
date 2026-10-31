@@ -39,7 +39,7 @@ export default function SegmentedControl<T extends string = string>({
             role="tab"
             aria-selected={active}
             onClick={() => onChange(option.id)}
-            className={`flex items-center justify-center gap-1.5 rounded-lg px-3 ${py} ${text} font-medium transition-all duration-150 ${
+            className={`flex shrink-0 whitespace-nowrap break-keep items-center justify-center gap-1.5 rounded-lg px-3 ${py} ${text} font-medium transition-all duration-150 ${
               active
                 ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-white'
                 : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'

@@ -1,6 +1,6 @@
 import { FormEvent, Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import {
-  AlertTriangle, Check, CheckCircle, ChevronLeft, ChevronRight, Clock,
+  AlertTriangle, Check, CheckCircle, ChevronLeft, ChevronRight, Clock, Database,
   Download, RefreshCw, ShoppingCart, Trash2, TrendingUp, Upload, UserCheck, Users,
 } from 'lucide-react'
 import { fetchConfig, saveConfig } from '../api/config'
@@ -20,15 +20,17 @@ import ErrorBanner from '../components/ui/ErrorBanner'
 import PageHeader from '../components/ui/PageHeader'
 import ResponsiveTabs from '../components/ui/ResponsiveTabs'
 import Spinner from '../components/ui/Spinner'
+import ProgressBar from '../components/ui/ProgressBar'
 import StatCard from '../components/ui/StatCard'
 import { PAGE_META } from '../config/pageMeta'
 import { useRealtime } from '../hooks/useRealtime'
-import type { ConfigItem, DashboardData, DashboardStats } from '../types'
+import type { ConfigItem, DashboardData, DashboardStats, SupabaseHealthStats } from '../types'
 import { staggerDelay } from '../utils/animation'
 import { krwFmt } from '../utils/formatters'
 import { EventsContent } from './Events'
 import { UsersContent } from './Users'
 import NlLogsSection from './reports/NlLogsSection'
+import AdminFeedbacksTab from './admin/AdminFeedbacksTab'
 
 const Analytics = lazy(() => import('./Analytics'))
 
@@ -36,6 +38,7 @@ const ADMIN_TABS = [
   { id: 'dashboard',   label: '대시보드' },
   { id: 'analytics',   label: '사용 분석' },
   { id: 'users',       label: '유저관리' },
+  { id: 'feedback',    label: '피드백' },
   { id: 'events',      label: '이벤트' },
   { id: 'monitoring',  label: '주문 및 신호 주기' },
   { id: 'stock-cache', label: '종목 캐시' },
@@ -53,6 +56,88 @@ const DASHBOARD_STAT_CONFIG: { key: keyof DashboardStats; label: string; Icon: R
 
 function fmtTime(value: string) {
   return value ? value.slice(0, 19).replace('T', ' ') : '--'
+}
+
+
+function SupabaseHealthCard({ health }: { health?: SupabaseHealthStats }) {
+  if (!health) return null
+
+  const isHealthy = health.health_status === 'healthy'
+  const isWarning = health.health_status === 'warning'
+  const barColor = isHealthy ? 'bg-emerald-500' : isWarning ? 'bg-amber-500' : 'bg-rose-500'
+  const statusBadge = isHealthy
+    ? { bg: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400', label: '정상 (여유)' }
+    : isWarning
+    ? { bg: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400', label: '용량 주의 (75% 초과)' }
+    : { bg: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400', label: '용량 위험 (한도 임박)' }
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 animate-fade-in-up">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-b border-slate-100 pb-3.5 dark:border-slate-800">
+        <div className="flex items-center gap-2.5">
+          <div className="rounded-lg bg-emerald-50 p-2 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400">
+            <Database size={18} />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+              Supabase 인프라 헬스 체크
+              <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${statusBadge.bg}`}>
+                {statusBadge.label}
+              </span>
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              무료 티어(Free Tier) 스토리지 용량 한도 모니터링
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 text-xs text-slate-500 font-mono">
+          <span>데이터 소스:</span>
+          <span className="font-semibold text-slate-700 dark:text-slate-300">
+            {health.source === 'database_actual' ? 'PostgreSQL 실측' : '테이블 통계 추정'}
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-4 space-y-2">
+        <div className="flex items-center justify-between text-xs font-medium">
+          <span className="text-slate-600 dark:text-slate-300">
+            현재 사용량: <strong className="font-mono text-slate-900 dark:text-white text-sm">{health.used_mb} MB</strong>
+            <span className="text-slate-400 font-normal"> / {health.limit_mb} MB (한도)</span>
+          </span>
+          <span className="text-slate-600 dark:text-slate-300 font-mono">
+            잔여 용량: <strong className={`text-sm ${isHealthy ? 'text-emerald-600 dark:text-emerald-400' : isWarning ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'}`}>{health.remaining_mb} MB</strong> ({((health.remaining_mb / health.limit_mb) * 100).toFixed(1)}% 남음)
+          </span>
+        </div>
+
+        <ProgressBar value={health.usage_pct} color={barColor} className="w-full" />
+
+        <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 font-mono">
+          <span>0 MB</span>
+          <span>50% (250 MB)</span>
+          <span>100% (500 MB)</span>
+        </div>
+      </div>
+
+      {health.table_counts && (
+        <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
+          <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-2">
+            주요 테이블 데이터 규모
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(health.table_counts).map(([tbl, count]) => (
+              <div
+                key={tbl}
+                className="flex items-center gap-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/80 px-2.5 py-1 text-xs border border-slate-200/60 dark:border-slate-700/60 font-mono"
+              >
+                <span className="text-slate-500 dark:text-slate-400">{tbl}:</span>
+                <span className="font-semibold text-slate-700 dark:text-slate-200">{count.toLocaleString()}건</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function DashboardTab() {
@@ -118,6 +203,9 @@ function DashboardTab() {
               </div>
             ))}
           </div>
+
+          {/* Supabase 인프라 헬스 체크 카드 */}
+          <SupabaseHealthCard health={data.db_health} />
 
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
             <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-800 flex justify-between items-center">
@@ -570,6 +658,7 @@ export default function Admin() {
           </Suspense>
         )}
         {activeTab === 'users'       && <UsersContent />}
+        {activeTab === 'feedback'    && <AdminFeedbacksTab />}
         {activeTab === 'events'      && <EventsContent />}
         {activeTab === 'monitoring'  && <MonitoringTab />}
         {activeTab === 'stock-cache' && <StockCacheTab />}

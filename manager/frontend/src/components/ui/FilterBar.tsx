@@ -29,7 +29,7 @@ export default function FilterBar({
   disabled = false,
 }: FilterBarProps) {
   const btnClass = (active: boolean) =>
-    `px-3 py-1.5 rounded-lg text-app-caption font-medium transition-colors ${
+    `px-3 py-1.5 rounded-lg text-app-caption font-medium whitespace-nowrap break-keep transition-colors ${
       active
         ? 'bg-primary-600 text-white shadow-sm'
         : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'

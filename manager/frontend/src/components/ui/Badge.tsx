@@ -20,6 +20,11 @@ const colorMap: Record<string, string> = {
   error:   'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-400',
   warning: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
   info:    'bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-400',
+  // feedback status
+  new:         'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
+  in_progress: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
+  resolved:    'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400',
+  dismissed:   'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
   // exchange
   upbit:   'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400',
   bithumb: 'bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-400',
@@ -37,7 +42,7 @@ const labelMap: Record<string, string> = {
   pending_reorder: '재주문대기', reserved: '예약', stoploss: '손절',
   bid: '매수', ask: '매도',
   error: '오류', warning: '경고', info: '정보',
-  auto: '즉시실행', confirmed: '실행', rejected: '취소', expired: '만료',
+  new: '접수대기', in_progress: '검토/처리중', resolved: '반영완료', dismissed: '보류/반려', auto: '즉시실행', confirmed: '실행', rejected: '취소', expired: '만료',
 }
 
 interface BadgeProps {

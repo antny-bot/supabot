@@ -329,3 +329,40 @@ ALTER TABLE budget_ledger ENABLE ROW LEVEL SECURITY;
 GRANT ALL ON TABLE budget_ledger TO service_role;
 GRANT ALL ON SEQUENCE budget_ledger_id_seq TO service_role;
 
+
+-- Supabase 데이터베이스 크기(bytes) 조회 RPC 함수 (무료 티어 500MB 모니터링용)
+CREATE OR REPLACE FUNCTION get_db_size_bytes()
+RETURNS bigint
+LANGUAGE sql
+SECURITY DEFINER
+AS $$
+  SELECT pg_database_size(current_database());
+$$;
+GRANT EXECUTE ON FUNCTION get_db_size_bytes() TO service_role;
+
+-- ── Feedbacks (사용자 피드백 / 건의사항) ────────────────────────────────────
+CREATE TABLE IF NOT EXISTS feedbacks (
+  id            TEXT PRIMARY KEY,
+  user_id       TEXT NOT NULL,
+  user_email    TEXT NOT NULL DEFAULT '',
+  category      TEXT NOT NULL DEFAULT 'feature', -- bug|feature|inquiry
+  title         TEXT NOT NULL,
+  content       TEXT NOT NULL,
+  browser_info  TEXT,
+  status        TEXT NOT NULL DEFAULT 'new',     -- new|in_progress|resolved|dismissed
+  admin_note    TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_feedbacks_user ON feedbacks(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_feedbacks_status ON feedbacks(status, created_at DESC);
+
+DROP TRIGGER IF EXISTS feedbacks_updated_at ON feedbacks;
+CREATE TRIGGER feedbacks_updated_at
+  BEFORE UPDATE ON feedbacks
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+ALTER TABLE feedbacks ENABLE ROW LEVEL SECURITY;
+GRANT ALL ON TABLE feedbacks TO service_role;
+

@@ -82,6 +82,8 @@ export default function WinStatsSection({ dateRange }: { dateRange: DateRangeVal
             <ResponsiveContainer width="100%" height="90%">
               <PieChart>
                 <Pie
+                  stroke="none"
+                  strokeWidth={0}
                   data={pieData}
                   dataKey="value"
                   nameKey="name"
@@ -94,7 +96,7 @@ export default function WinStatsSection({ dateRange }: { dateRange: DateRangeVal
                   animationDuration={600}
                 >
                   {pieData.map((_, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} stroke="none" />
                   ))}
                 </Pie>
                 <Tooltip

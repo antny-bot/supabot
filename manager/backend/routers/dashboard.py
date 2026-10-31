@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse, RedirectResponse
 
-from ..db import get_db
+from ..db import get_db, get_supabase_health_stats
 from ._auth import get_current_user
 
 router = APIRouter()
@@ -157,7 +157,13 @@ async def api_dashboard(user: dict = Depends(get_current_user)):
                 .limit(10)
                 .execute()
             ).data
-            return JSONResponse({"stats": stats, "recent_events": events, "mfa_enabled": mfa_enabled})
+            db_health = await get_supabase_health_stats()
+            return JSONResponse({
+                "stats": stats,
+                "recent_events": events,
+                "mfa_enabled": mfa_enabled,
+                "db_health": db_health,
+            })
 
         if not bot_user_id:
             return JSONResponse({"error": "Linked bot account not found."}, status_code=403)

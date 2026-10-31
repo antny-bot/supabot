@@ -108,6 +108,8 @@
   body {
     @apply bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 antialiased;
     font-family: var(--app-font-family);
+    word-break: keep-all;
+    overflow-wrap: break-word;
   }
 }
 

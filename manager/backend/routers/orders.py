@@ -1,3 +1,4 @@
+import logging
 import inspect
 from datetime import datetime, timedelta
 
@@ -8,6 +9,7 @@ from .. import bot_client
 from ..db import get_db, get_stock_name_map
 from ._auth import get_current_user
 
+logger = logging.getLogger("manager.orders")
 router = APIRouter()
 
 _STATUS_LABELS = {
@@ -296,3 +298,133 @@ async def api_force_update_order(
         raise
     except Exception as e:
         return JSONResponse({"error": "Internal error"}, status_code=500)
+
+@router.get("/api/orders/batches")
+async def api_list_order_batches(
+    template_id: int | None = None,
+    exchange: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+    user: dict = Depends(get_current_user),
+):
+    """전략 템플릿별 배치(group_no) 묶음 주문 트래킹 API."""
+    is_admin = user["is_admin"]
+    bot_user_id = user["bot_user_id"]
+
+    if not is_admin and not bot_user_id:
+        return JSONResponse({"error": "연결된 봇 계정이 없습니다."}, status_code=403)
+
+    try:
+        db = get_db()
+        q = db.table("orders").select("*").order("created_at", desc=True)
+        q._params["group_no"] = "not.is.null"
+        if not is_admin:
+            q._params["user_id"] = f"eq.{bot_user_id}"
+        if template_id is not None:
+            q._params["template_id"] = f"eq.{template_id}"
+        if exchange:
+            q._params["exchange"] = f"eq.{exchange}"
+
+        res = await q.execute()
+        orders = res.data or []
+
+        # 템플릿 메타 매핑
+        tpl_map = {}
+        try:
+            tpl_res = await db.table("strategy_templates").select("id,name,strategy_type,exchange").execute()
+            tpl_map = {t["id"]: t for t in (tpl_res.data or [])}
+        except Exception:
+            pass
+
+        stock_map = await get_stock_name_map()
+
+        from collections import defaultdict
+        batches_dict = defaultdict(list)
+        for o in orders:
+            g_no = o.get("group_no")
+            t_id = o.get("template_id")
+            key = (t_id, g_no)
+            batches_dict[key].append(o)
+
+        batch_list = []
+        for (t_id, g_no), ords in batches_dict.items():
+            tpl = tpl_map.get(t_id, {})
+            first_ord = ords[0]
+            latest_ts = max(float(o.get("created_at") or 0) for o in ords)
+
+            total_orders = len(ords)
+            buy_count = sum(1 for o in ords if o.get("side") == "bid")
+            sell_count = sum(1 for o in ords if o.get("side") == "ask")
+            done_count = sum(1 for o in ords if o.get("status") == "done")
+            wait_count = sum(1 for o in ords if o.get("status") == "wait")
+            reserved_count = sum(1 for o in ords if o.get("status") == "reserved")
+            partial_count = sum(1 for o in ords if o.get("status") == "partial")
+            cancel_count = sum(1 for o in ords if o.get("status") == "cancel")
+
+            total_val = sum(float(o.get("price") or 0) * float(o.get("volume") or 0) for o in ords)
+            filled_val = sum(float(o.get("price") or 0) * float(o.get("filled_volume") or 0) for o in ords)
+            fill_pct = round(done_count / total_orders * 100) if total_orders else 0
+
+            formatted_orders = []
+            for o in ords:
+                ticker = o.get("ticker", "")
+                p = float(o.get("price") or 0)
+                v = float(o.get("volume") or 0)
+                fv = float(o.get("filled_volume") or 0)
+                formatted_orders.append({
+                    "uuid": o.get("uuid"),
+                    "ticker": stock_map.get(ticker, ticker),
+                    "raw_ticker": ticker,
+                    "side": o.get("side"),
+                    "price": p,
+                    "volume": v,
+                    "filled_volume": fv,
+                    "order_value": p * v,
+                    "fill_pct": round(fv / v * 100) if v else 0,
+                    "status": o.get("status"),
+                    "status_label": _STATUS_LABELS.get(o.get("status", ""), o.get("status", "")),
+                    "created_fmt": _fmt_ts(o.get("created_at")),
+                })
+
+            batch_list.append({
+                "group_no": g_no,
+                "template_id": t_id,
+                "template_name": tpl.get("name") or (f"전략 템플릿 #{t_id}" if t_id else "전략 배치"),
+                "strategy": first_ord.get("strategy") or tpl.get("strategy_type", "kospi_top_dca"),
+                "exchange": first_ord.get("exchange") or tpl.get("exchange", "toss"),
+                "created_at": latest_ts,
+                "created_fmt": _fmt_ts(latest_ts),
+                "total_orders": total_orders,
+                "buy_count": buy_count,
+                "sell_count": sell_count,
+                "done_count": done_count,
+                "wait_count": wait_count,
+                "reserved_count": reserved_count,
+                "partial_count": partial_count,
+                "cancel_count": cancel_count,
+                "total_order_value": total_val,
+                "total_filled_value": filled_val,
+                "fill_pct": fill_pct,
+                "orders": formatted_orders,
+            })
+
+        batch_list.sort(key=lambda b: (b.get("group_no") or 0, b.get("created_at") or 0), reverse=True)
+
+        total_batches = len(batch_list)
+        safe_page_size = max(1, min(page_size, 100))
+        total_pages = max(1, (total_batches + safe_page_size - 1) // safe_page_size)
+        safe_page = min(max(1, page), total_pages)
+        start_idx = (safe_page - 1) * safe_page_size
+        end_idx = start_idx + safe_page_size
+        paged_batches = batch_list[start_idx:end_idx]
+
+        return JSONResponse({
+            "batches": paged_batches,
+            "total": total_batches,
+            "page": safe_page,
+            "page_size": safe_page_size,
+            "total_pages": total_pages,
+        })
+    except Exception as e:
+        logger.error(f"Failed to fetch order batches: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)

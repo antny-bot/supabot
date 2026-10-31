@@ -18,6 +18,14 @@ supabot 프로젝트 안전 규칙, 검증 절차, 백업/롤백 절차 정의. 
 
 7. **`/resetuser`(관리자 전용, `system_handlers.resetuser_command`)는 비가역적.** 거래소 미체결 주문 취소 → confirm → 대상 유저 `orders`/`trade_logs`(DB+`trades.jsonl`) 전체 삭제. 거래소 취소 실패 시 자동 중단되나 삭제 자체는 백업 없이 복구 불가 — 실행 전 Supabase 백업 확보 권장. 상세: [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md).
 
+8. **프론트엔드 UI 구성 표준 ([DESIGN.md](file:///E:/apps/supabot/manager/frontend/DESIGN.md)).** 매니저 웹 UI 작업 시 필독 준수.
+   - **헤더 서브타이틀 제거**: `PageHeader`에 불필요한 설명성 서브타이틀(`subtitle`)을 노출하지 않고 아이콘/타이틀/액션을 수직 중앙(`items-center`) 정렬.
+   - **서브메뉴 탭 일원화**: 모든 탭/서브메뉴는 관리자 화면의 시트 탭 방식([ResponsiveTabs.tsx](file:///E:/apps/supabot/manager/frontend/src/components/ui/ResponsiveTabs.tsx))으로 일원화하며, '전체 리포트' 등 상위 카테고리 이중 그룹핑을 금지.
+   - **한국어 단어 줄바꿈 방지**: 전역 `word-break: keep-all;` 적용. 모든 탭, 버튼, 라벨에 `whitespace-nowrap break-keep` 필수.
+   - **사이드바 폭 표준**: 본문 작업 공간 확보를 위해 `w-[150px]` (접힘 `w-14` / 56px) 콤팩트 크기 유지.
+   - **카드 상단 높이 정렬**: 컬럼 내 반응형 숨김 요소(`md:hidden` 등) 포함 시 `space-y-*` 대신 `flex flex-col gap-*` 사용.
+   - **도넛/파이 차트 경계선 제거**: Recharts의 `<Pie>` 기본값인 흰색 테두리(`stroke="#fff"`)가 다크모드에서 노출되지 않도록 `stroke="none"` 적용 및 [DonutChart.tsx](file:///E:/apps/supabot/manager/frontend/src/components/ui/DonutChart.tsx) 공통 컴포넌트 사용.
+
 ---
 
 ## 🛠️ 검증 절차

@@ -572,7 +572,9 @@ export default function Templates() {
     setExecuting(true)
     try {
       const res = await executeTemplate(executingTemplate.id)
-      toast.success(res.message || '템플릿 전략이 성공적으로 실행되었습니다.')
+      const groupNo = (res as any)?.data?.group_no
+      const baseMsg = res.message || '템플릿 전략이 성공적으로 실행되었습니다.'
+      toast.success(groupNo ? `${baseMsg} (주문 현황 > '전략 배치 묶음'에서 확인 가능)` : baseMsg)
       setExecutingTemplate(null)
     } catch (e) {
       toast.error('실행 실패: ' + (e instanceof Error ? e.message : String(e)))

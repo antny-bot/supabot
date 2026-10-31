@@ -107,6 +107,18 @@ class _SupabaseClient:
     def table(self, name: str) -> _Table:
         return _Table(self._client, f"{self._base}/{name}")
 
+    async def rpc(self, func_name: str, params: dict | None = None) -> _APIResponse:
+        url = f"{self._base}/rpc/{func_name}"
+        resp = await self._client.post(
+            url,
+            json=params or {},
+            timeout=15.0,
+        )
+        if not resp.is_success:
+            raise RuntimeError(f"Supabase RPC [{resp.status_code}]: {resp.text[:300]}")
+        data = resp.json() if resp.text.strip() else None
+        return _APIResponse(data=data)
+
     async def close(self):
         await self._client.aclose()
 
@@ -137,3 +149,65 @@ async def get_stock_name_map() -> dict[str, str]:
     except Exception:
         pass
     return {row["code"]: row["name"] for row in rows if "code" in row and "name" in row}
+
+async def get_supabase_health_stats() -> dict:
+    """Supabase 데이터베이스 용량 및 무료 티어(500MB) 상태 계산"""
+    db = get_db()
+    limit_mb = 500.0  # Supabase 무료 티어 한도: 500MB
+
+    db_size_bytes = None
+    source = "estimated"
+    try:
+        rpc_res = await db.rpc("get_db_size_bytes")
+        if isinstance(rpc_res.data, (int, float)):
+            db_size_bytes = int(rpc_res.data)
+            source = "database_actual"
+    except Exception:
+        pass
+
+    table_counts = {}
+    tables = [
+        ("users", 2048),
+        ("orders", 1200),
+        ("trade_logs", 800),
+        ("operational_events", 1500),
+        ("kr_stock_cache", 500),
+        ("command_logs", 500),
+        ("user_daily_summary", 600),
+        ("daily_stats", 600),
+    ]
+
+    estimated_data_bytes = 0
+    for tbl, row_size in tables:
+        try:
+            cnt = (await db.table(tbl).select("*", count="exact").limit(0).execute()).count or 0
+            table_counts[tbl] = cnt
+            estimated_data_bytes += cnt * row_size
+        except Exception:
+            table_counts[tbl] = 0
+
+    if db_size_bytes is None:
+        # PostgreSQL 시스템 카탈로그, WAL 및 인덱스 오버헤드 (~32MB) + 테이블 추정치
+        base_overhead_bytes = 32 * 1024 * 1024
+        db_size_bytes = base_overhead_bytes + estimated_data_bytes
+
+    used_mb = round(db_size_bytes / (1024 * 1024), 2)
+    remaining_mb = max(0.0, round(limit_mb - used_mb, 2))
+    usage_pct = min(100.0, round((used_mb / limit_mb) * 100, 1))
+
+    if usage_pct < 75.0:
+        health_status = "healthy"
+    elif usage_pct < 90.0:
+        health_status = "warning"
+    else:
+        health_status = "critical"
+
+    return {
+        "limit_mb": limit_mb,
+        "used_mb": used_mb,
+        "remaining_mb": remaining_mb,
+        "usage_pct": usage_pct,
+        "health_status": health_status,
+        "source": source,
+        "table_counts": table_counts,
+    }

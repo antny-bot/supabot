@@ -126,10 +126,21 @@ export interface DashboardStats {
   errors_24h?: number
 }
 
+export interface SupabaseHealthStats {
+  limit_mb: number
+  used_mb: number
+  remaining_mb: number
+  usage_pct: number
+  health_status: 'healthy' | 'warning' | 'critical'
+  source: 'database_actual' | 'estimated'
+  table_counts?: Record<string, number>
+}
+
 export interface DashboardData {
   stats: DashboardStats
   recent_events: Event[]
   mfa_enabled?: boolean
+  db_health?: SupabaseHealthStats
 }
 
 export interface TradeSummary {
@@ -367,4 +378,81 @@ export interface AllocationReport {
   by_exchange: AllocationItem[]
   by_category: AllocationItem[]
   asset_count: number
+}
+
+export type FeedbackCategory = 'bug' | 'feature' | 'inquiry'
+export type FeedbackStatus = 'new' | 'in_progress' | 'resolved' | 'dismissed'
+
+export interface FeedbackItem {
+  id: string
+  user_id: string
+  user_email: string
+  username?: string
+  category: FeedbackCategory
+  title: string
+  content: string
+  browser_info?: string | null
+  status: FeedbackStatus
+  admin_note?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface FeedbackPagination {
+  page: number
+  pageSize: number
+  totalItems: number
+  totalPages: number
+  hasPrev: boolean
+  hasNext: boolean
+}
+
+export interface AdminFeedbackListResponse {
+  reports: FeedbackItem[]
+  pagination: FeedbackPagination
+}
+
+export interface OrderBatchOrder {
+  uuid: string
+  ticker: string
+  raw_ticker: string
+  side: 'bid' | 'ask'
+  price: number
+  volume: number
+  filled_volume: number
+  order_value: number
+  fill_pct: number
+  status: string
+  status_label: string
+  created_fmt: string
+}
+
+export interface OrderBatchItem {
+  group_no: number
+  template_id?: number
+  template_name: string
+  strategy: string
+  exchange: string
+  created_at: number
+  created_fmt: string
+  total_orders: number
+  buy_count: number
+  sell_count: number
+  done_count: number
+  wait_count: number
+  reserved_count: number
+  partial_count: number
+  cancel_count: number
+  total_order_value: number
+  total_filled_value: number
+  fill_pct: number
+  orders: OrderBatchOrder[]
+}
+
+export interface OrderBatchListResponse {
+  batches: OrderBatchItem[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
 }

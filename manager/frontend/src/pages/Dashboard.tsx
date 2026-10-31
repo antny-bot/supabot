@@ -22,11 +22,12 @@ import {
   XAxis,
   YAxis,
   Tooltip as RechartsTooltip,
-  PieChart,
-  Pie,
-  Cell,
-  Legend,
+
+
+
+
 } from 'recharts'
+import DonutChart from '../components/ui/DonutChart'
 import { fetchDashboard } from '../api/dashboard'
 import { fetchReportHoldings, fetchReportDaily, fetchReportAllocation } from '../api/reports'
 import { fetchTrades } from '../api/trades'
@@ -386,7 +387,7 @@ export default function Dashboard() {
           ========================================================================= */}
       <div className="grid gap-5 md:grid-cols-12">
         {/* 데스크톱 Left Col (7/12 cols): 일별 누적 손익 곡선 + 자산 배분 비중 */}
-        <div className="space-y-5 md:col-span-7">
+        <div className="flex flex-col gap-5 md:col-span-7">
           {/* 일별 누적 손익 추이 */}
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
@@ -458,52 +459,21 @@ export default function Dashboard() {
             </div>
 
             <div className="mt-4 h-52 w-full">
-              {donutData.length === 0 ? (
-                <div className="flex h-full items-center justify-center text-xs text-slate-400">
-                  보유 자산이 없습니다.
-                </div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={donutData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={45}
-                      outerRadius={65}
-                      paddingAngle={4}
-                      dataKey="value"
-                    >
-                      {donutData.map((_, index) => (
-                        <Cell key={`cell-${index}`} fill={ALLOCATION_COLORS[index % ALLOCATION_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <RechartsTooltip
-                      formatter={(val: number) => [`${krwFmt(val)}`, '평가금액']}
-                      contentStyle={{
-                        backgroundColor: 'rgba(15, 23, 42, 0.95)',
-                        border: 'none',
-                        borderRadius: '8px',
-                        color: '#fff',
-                        fontSize: '12px',
-                      }}
-                    />
-                    <Legend
-                      verticalAlign="bottom"
-                      iconSize={8}
-                      formatter={(value) => (
-                        <span className="text-xs text-slate-600 dark:text-slate-300">{value}</span>
-                      )}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              )}
+              <DonutChart
+                data={donutData}
+                colors={ALLOCATION_COLORS}
+                innerRadius={45}
+                outerRadius={65}
+                paddingAngle={4}
+                tooltipFormatter={(val: number) => [`${krwFmt(val)}`, '평가금액']}
+                emptyMessage="보유 자산이 없습니다."
+              />
             </div>
           </div>
         </div>
 
         {/* 데스크톱 Right Col (5/12 cols) / 모바일 세그먼트 스위처 영역 */}
-        <div className="space-y-5 md:col-span-5">
+        <div className="flex flex-col gap-5 md:col-span-5">
           {/* 모바일 화면에서는 탭 스위처 제공 (보유자산 vs 최근체결) */}
           <div className="flex items-center justify-between md:hidden">
             <SegmentedControl

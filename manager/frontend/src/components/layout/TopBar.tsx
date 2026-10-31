@@ -1,5 +1,7 @@
 import { useNavigate } from 'react-router-dom'
-import { LogOut, Moon, Sun, Zap } from 'lucide-react'
+import { LogOut, Moon, Sun, Zap, MessageSquarePlus } from 'lucide-react'
+import { useState } from 'react'
+import FeedbackModal from '../feedback/FeedbackModal'
 import { NavLink } from 'react-router-dom'
 import { useTheme } from '../../hooks/useTheme'
 import { useAuthContext } from '../../contexts/AuthContext'
@@ -8,6 +10,7 @@ export default function TopBar() {
   const { isDark, toggle } = useTheme()
   const navigate = useNavigate()
   const { user: _user } = useAuthContext()
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
 
   async function handleLogout() {
     await fetch('/api/logout', { method: 'POST', credentials: 'include' })
@@ -34,6 +37,14 @@ export default function TopBar() {
           </button>
 
           <button
+            onClick={() => setFeedbackOpen(true)}
+            className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-primary-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-primary-400"
+            title="피드백 보내기"
+          >
+            <MessageSquarePlus size={16} />
+          </button>
+
+          <button
             onClick={handleLogout}
             className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-rose-50 hover:text-rose-600 dark:text-slate-400 dark:hover:bg-rose-900/20 dark:hover:text-rose-400"
             title="로그아웃"
@@ -42,6 +53,7 @@ export default function TopBar() {
           </button>
         </div>
       </div>
+      <FeedbackModal isOpen={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
     </header>
   )
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   RotateCcw,
   RefreshCw,
@@ -7,6 +8,7 @@ import {
   Filter,
   CheckCircle2,
   Clock,
+  Layers,
 } from 'lucide-react'
 import { fetchOrders, cancelOrder, cancelAllOrders, syncOrder, forceUpdateOrder } from '../api/orders'
 import type { OrdersData, Order } from '../types'
@@ -20,6 +22,7 @@ import ProgressBar from '../components/ui/ProgressBar'
 import SegmentedControl from '../components/ui/SegmentedControl'
 import { CardSkeleton } from '../components/ui/Skeleton'
 import SyncIndicator from '../components/ui/SyncIndicator'
+import OrderBatchesSection from './orders/OrderBatchesSection'
 import { PAGE_META } from '../config/pageMeta'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { useRealtime } from '../hooks/useRealtime'
@@ -49,7 +52,15 @@ export default function Orders() {
   const toast = useToast()
 
   // 듀얼 뷰 모드: 'open' (활성 주문) | 'history' (체결/취소 이력)
-  const [viewMode, setViewMode] = usePersistedState<'open' | 'history'>('orders:view_mode', 'open')
+  const [searchParams] = useSearchParams()
+  const tabParam = searchParams.get('tab')
+  const groupNoParam = searchParams.get('group_no')
+
+  // 뷰 모드: 'open' (활성 주문) | 'history' (체결/취소 이력) | 'batches' (전략 배치 묶음)
+  const [viewMode, setViewMode] = usePersistedState<'open' | 'history' | 'batches'>(
+    'orders:view_mode',
+    tabParam === 'batches' ? 'batches' : 'open'
+  )
 
   // 데이터 상태
   const [data, setData] = useState<OrdersData | null>(null)
@@ -61,7 +72,8 @@ export default function Orders() {
   const [exchange, setExchange] = usePersistedState('filter:orders:exchange', '')
   const [side, setSide] = usePersistedState('filter:orders:side', '')
   const [dateRange, setDateRange] = usePersistedState<DateRangeValue>('filter:orders:dateRange', DEFAULT_RANGE)
-  const [groupNoFilter, setGroupNoFilter] = useState<number | undefined>(undefined)
+  const initialGroupNo = groupNoParam ? Number(groupNoParam) : undefined
+  const [groupNoFilter, setGroupNoFilter] = useState<number | undefined>(initialGroupNo)
   const [groupNoInput, setGroupNoInput] = useState('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = usePersistedState('filter:orders:pageSize', 50)
@@ -311,25 +323,31 @@ export default function Orders() {
           options={[
             {
               id: 'open',
-              label: '활성 주문 (오픈)',
+              label: '활성 주문',
               icon: <Clock size={15} />,
               badge: viewMode === 'open' ? data?.total : undefined,
             },
             {
               id: 'history',
-              label: '주문 이력 (히스토리)',
+              label: '체결/취소 이력',
               icon: <CheckCircle2 size={15} />,
               badge: viewMode === 'history' ? data?.total : undefined,
+            },
+            {
+              id: 'batches',
+              label: '전략 배치 묶음',
+              icon: <Layers size={15} />,
             },
           ]}
           value={viewMode}
           onChange={(mode) => {
-            setViewMode(mode)
+            setViewMode(mode as any)
             setPage(1)
           }}
         />
 
         {/* 필터 조작: 모바일에서는 바텀시트 열기 버튼, PC에서는 인라인 필터 */}
+        {viewMode !== 'batches' && (
         <div className="flex items-center gap-2">
           {/* 모바일 필터 열기 버튼 */}
           <button
@@ -406,10 +424,22 @@ export default function Orders() {
             )}
           </div>
         </div>
+        )}
       </div>
 
-      {/* 주문 리스트 본문 (데스크톱: 고밀도 테이블 / 모바일: 슬림 카드 뷰) */}
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      {viewMode === 'batches' ? (
+        <OrderBatchesSection
+          onSelectGroupNo={(gNo) => {
+            setGroupNoFilter(gNo)
+            setGroupNoInput(String(gNo))
+            setViewMode('open')
+            setPage(1)
+          }}
+          initialGroupNo={initialGroupNo}
+        />
+      ) : (
+        /* 주문 리스트 본문 (데스크톱: 고밀도 테이블 / 모바일: 슬림 카드 뷰) */
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
         {loading && !data ? (
           <div className="p-4 space-y-3">
             <CardSkeleton />
@@ -629,6 +659,7 @@ export default function Orders() {
           />
         )}
       </div>
+      )}
 
       {/* 모바일 통합 필터 바텀시트 */}
       <BottomSheet

@@ -1,12 +1,5 @@
+import DonutChart from '../../components/ui/DonutChart'
 import { useEffect, useState } from 'react'
-import {
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  Tooltip,
-  Legend,
-} from 'recharts'
 import { PieChart as PieIcon, Layers, Download } from 'lucide-react'
 import { fetchReportAllocation } from '../../api/reports'
 import Spinner from '../../components/ui/Spinner'
@@ -91,38 +84,14 @@ export default function AllocationSection() {
           </div>
 
           <div className="mt-4 h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={data.by_category}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={50}
-                  outerRadius={75}
-                  paddingAngle={3}
-                  dataKey="value"
-                >
-                  {data.by_category.map((_, index) => (
-                    <Cell key={`cat-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  formatter={(val: number) => [`${krwFmt(val)}`, '평가금액']}
-                  contentStyle={{
-                    backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                    border: 'none',
-                    borderRadius: '8px',
-                    color: '#fff',
-                    fontSize: '12px',
-                  }}
-                />
-                <Legend
-                  verticalAlign="bottom"
-                  iconSize={8}
-                  formatter={(value) => <span className="text-xs text-slate-600 dark:text-slate-300">{value}</span>}
-                />
-              </PieChart>
-            </ResponsiveContainer>
+            <DonutChart
+              data={data.by_category}
+              colors={COLORS}
+              innerRadius={50}
+              outerRadius={75}
+              paddingAngle={3}
+              tooltipFormatter={(val: number) => [`${krwFmt(val)}`, '평가금액']}
+            />
           </div>
 
           <div className="mt-4 divide-y divide-slate-100 dark:divide-slate-800 border-t border-slate-100 dark:border-slate-800">
@@ -153,38 +122,14 @@ export default function AllocationSection() {
           </div>
 
           <div className="mt-4 h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={data.by_exchange}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={50}
-                  outerRadius={75}
-                  paddingAngle={3}
-                  dataKey="value"
-                >
-                  {data.by_exchange.map((_, index) => (
-                    <Cell key={`exch-${index}`} fill={COLORS[(index + 2) % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  formatter={(val: number) => [`${krwFmt(val)}`, '평가금액']}
-                  contentStyle={{
-                    backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                    border: 'none',
-                    borderRadius: '8px',
-                    color: '#fff',
-                    fontSize: '12px',
-                  }}
-                />
-                <Legend
-                  verticalAlign="bottom"
-                  iconSize={8}
-                  formatter={(value) => <span className="text-xs text-slate-600 dark:text-slate-300">{value}</span>}
-                />
-              </PieChart>
-            </ResponsiveContainer>
+            <DonutChart
+              data={data.by_exchange}
+              colors={COLORS.map((_, i) => COLORS[(i + 2) % COLORS.length])}
+              innerRadius={50}
+              outerRadius={75}
+              paddingAngle={3}
+              tooltipFormatter={(val: number) => [`${krwFmt(val)}`, '평가금액']}
+            />
           </div>
 
           <div className="mt-4 divide-y divide-slate-100 dark:divide-slate-800 border-t border-slate-100 dark:border-slate-800">

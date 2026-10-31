@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from .auth import supabase_sign_in, generate_pkce_pair, build_oauth_url, exchange_pkce_code
-from .routers import dashboard, events, orders, reports, sysconfig, stock_cache, trades, users, templates, mfa, analytics
+from .routers import dashboard, events, orders, reports, sysconfig, stock_cache, trades, users, templates, mfa, analytics, feedbacks
 from .routers._auth import get_current_user
 
 from contextlib import asynccontextmanager
@@ -191,6 +191,7 @@ app.include_router(templates.router)
 app.include_router(mfa.router)
 app.include_router(analytics.router)
 app.include_router(stock_cache.router)
+app.include_router(feedbacks.router)
 
 
 class RealtimeBroadcastManager:

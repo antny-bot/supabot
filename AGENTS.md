@@ -24,6 +24,7 @@ AI 에이전트(Claude Code, Codex, Antigravity) 공통 진입점. 작업 전 �
   - **[보안 및 안전장치](file:///E:/apps/supabot/docs/205b_security_logging.md)**: API 암호화, 일회용 토큰, 킬스위치
   - **[유틸리티 파서](file:///E:/apps/supabot/docs/205c_utility_parsers.md)**: 주요 파서 및 포맷터 함수 목록
 - **[[206] 토스 API 레퍼런스](file:///E:/apps/supabot/docs/206_toss_api_reference.md)**: 엔드포인트·필드
+- **[프론트엔드 디자인 표준 (DESIGN.md)](file:///E:/apps/supabot/manager/frontend/DESIGN.md)**: UI/UX 지침, 헤더(서브타이틀 제거), 시트 탭 통일, 한글 단어 줄바꿈 방지, 사이드바 너비, 카드 높이 정렬
 
 ### 3. 알고리즘 & 정책 상세
 - **[[301] RSI 거래 알고리즘](file:///E:/apps/supabot/docs/301_rsi_algorithm.md)**: RSI/거미줄 매매 로직

@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { OrdersData } from '../types'
+import type { OrdersData, OrderBatchListResponse } from '../types'
 
 export const fetchOrders = (
   status?: string,
@@ -37,3 +37,17 @@ export const forceUpdateOrder = (uuid: string, state: string, filledVolume: numb
     state,
     filled_volume: filledVolume,
   })
+
+export const fetchOrderBatches = (
+  templateId?: number,
+  exchange?: string,
+  page = 1,
+  pageSize = 20,
+) => {
+  const params = new URLSearchParams()
+  if (templateId !== undefined) params.set('template_id', String(templateId))
+  if (exchange) params.set('exchange', exchange)
+  params.set('page', String(page))
+  params.set('page_size', String(pageSize))
+  return api.get<OrderBatchListResponse>(`/api/orders/batches?${params.toString()}`)
+}
