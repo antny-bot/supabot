@@ -350,8 +350,8 @@ export default function BacktestSimulatorSection() {
       {results && (
         <div className="space-y-4 animate-fade-in">
           {/* 리더보드 성적표 매트릭스 */}
-          <div className={CARD}>
-            <div className="flex items-center justify-between mb-3">
+          <div className={`${CARD} overflow-hidden`}>
+            <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Award size={18} className="text-amber-500" />
                 <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">
@@ -436,7 +436,7 @@ export default function BacktestSimulatorSection() {
           </div>
 
           {/* 다중 시나리오 오버레이 비교 차트 */}
-          <div className={CARD}>
+          <div className={`${CARD} p-4`}>
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <TrendingUp size={18} className="text-indigo-600 dark:text-indigo-400" />
@@ -506,8 +506,8 @@ export default function BacktestSimulatorSection() {
 
           {/* 선택 시나리오 상세 드릴다운 리플레이 */}
           {results.scenario_details && results.scenario_details[selectedScenarioIdx] && (
-            <div className={CARD}>
-              <div className="flex items-center justify-between mb-3 border-b border-slate-100 dark:border-slate-700 pb-2">
+            <div className={`${CARD} overflow-hidden`}>
+              <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span
                     className="w-3 h-3 rounded-full"
