@@ -162,15 +162,23 @@ async def spend_for_buy(
     cycle_no: int,
     order_uuid: str,
     rank: int = None,
+    carryover_before: float | None = None,
+    monthly_spent_before: float | None = None,
+    mutate_params: bool = True,
 ) -> dict:
-    """매수 주문 발주 시 가용 예산 차감 및 원장 기록."""
+    """매수 주문 발주 시 가용 예산 차감 및 원장 기록.
+
+    step_single_day가 이미 params의 예산을 차감한 경우 이중 차감을 막기 위해
+    mutate_params=False와 차감 직전 잔액(carryover_before/monthly_spent_before)을 넘긴다.
+    반환 dict에는 차감 후 잔액이 담긴다.
+    """
     params = template.get("params") or {}
     budget_epoch = int(params.get("budget_epoch", 1))
     plan_rev = int(params.get("plan_revision_no", 1))
     monthly_budget = float(params.get("monthly_budget", template.get("budget", 3000000.0)))
 
-    carryover = float(params.get("carryover_budget", 0.0))
-    monthly_spent = float(params.get("monthly_spent", 0.0))
+    carryover = float(params.get("carryover_budget", 0.0)) if carryover_before is None else float(carryover_before)
+    monthly_spent = float(params.get("monthly_spent", 0.0)) if monthly_spent_before is None else float(monthly_spent_before)
 
     new_carryover = max(0.0, carryover - cost_krw)
     new_monthly_spent = monthly_spent + cost_krw
@@ -195,9 +203,10 @@ async def spend_for_buy(
         description=desc,
     )
 
-    params["carryover_budget"] = new_carryover
-    params["monthly_spent"] = new_monthly_spent
-    return params
+    if mutate_params:
+        params["carryover_budget"] = new_carryover
+        params["monthly_spent"] = new_monthly_spent
+    return {"carryover_budget": new_carryover, "monthly_spent": new_monthly_spent}
 
 
 async def refund_cancelled_orders(

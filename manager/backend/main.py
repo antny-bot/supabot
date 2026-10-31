@@ -26,8 +26,17 @@ logger = logging.getLogger("manager")
 KST = timezone(timedelta(hours=9))
 
 
+async def _run_top_strategy_safe(template_id: int):
+    from .services import progression_manager
+    try:
+        await progression_manager.run_strategy_progression(template_id)
+    except Exception as e:
+        logger.error(f"Scheduled TOP N strategy #{template_id} failed: {e}")
+
+
 async def _top_strategy_scheduler_loop():
     logger.info("Started TOP N strategy background scheduler loop")
+    attempted: set[tuple[int, str]] = set()  # (template_id, date) 하루 1회만 시도
     while True:
         try:
             await asyncio.sleep(60)
@@ -37,6 +46,7 @@ async def _top_strategy_scheduler_loop():
 
             if now_kst.weekday() >= 5:
                 continue
+            attempted = {k for k in attempted if k[1] == today_str}
 
             from .db import get_db
             from .services import progression_manager
@@ -52,26 +62,59 @@ async def _top_strategy_scheduler_loop():
                 sched_time = params.get("schedule_time", "09:10")
                 last_run = params.get("last_run_date")
 
-                if cur_time_str == sched_time and last_run != today_str:
+                # sleep(60) 드리프트로 해당 분을 건너뛰어도 실행되도록 '>=' 사용 (장 마감 15:30 이전까지)
+                key = (tpl["id"], today_str)
+                if sched_time <= cur_time_str < "15:30" and last_run != today_str and key not in attempted:
+                    attempted.add(key)
                     logger.info(f"Triggering scheduled TOP N strategy #{tpl['id']} ({tpl.get('name')}) at {cur_time_str}")
-                    asyncio.create_task(progression_manager.run_strategy_progression(tpl["id"]))
+                    asyncio.create_task(_run_top_strategy_safe(tpl["id"]))
         except asyncio.CancelledError:
             break
         except Exception as e:
-            logger.debug(f"Error in TOP N scheduler loop: {e}")
+            logger.warning(f"Error in TOP N scheduler loop: {e}")
+
+
+_scheduler_lock_fh = None
+
+
+def _acquire_scheduler_lock() -> bool:
+    """다중 워커 환경에서 스케줄러가 한 프로세스에서만 돌도록 OS 파일 락을 획득한다.
+
+    락은 프로세스 종료 시 OS가 자동 해제하므로 stale lock이 남지 않는다.
+    """
+    global _scheduler_lock_fh
+    import tempfile
+    path = os.path.join(tempfile.gettempdir(), "supabot_manager_top_scheduler.lock")
+    try:
+        fh = open(path, "a+")
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _scheduler_lock_fh = fh  # 참조 유지 (GC 시 락 해제 방지)
+        return True
+    except OSError:
+        return False
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    scheduler_task = asyncio.create_task(_top_strategy_scheduler_loop())
+    scheduler_task = None
+    if _acquire_scheduler_lock():
+        scheduler_task = asyncio.create_task(_top_strategy_scheduler_loop())
+    else:
+        logger.info("TOP N scheduler already running in another worker; skipping in this process")
     try:
         yield
     finally:
-        scheduler_task.cancel()
-        try:
-            await scheduler_task
-        except asyncio.CancelledError:
-            pass
+        if scheduler_task:
+            scheduler_task.cancel()
+            try:
+                await scheduler_task
+            except asyncio.CancelledError:
+                pass
 
 
 session_secret = os.environ.get("SESSION_SECRET", "").strip()
