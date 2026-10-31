@@ -23,6 +23,7 @@ _STATUS_LABELS = {
 }
 
 _OPEN_STATUSES = ("wait", "partial", "pending_reorder", "reserved")
+_HISTORY_STATUSES = ("done", "cancel", "error", "expired", "stoploss")
 
 
 def _fmt_ts(ts) -> str:
@@ -71,6 +72,8 @@ async def api_list_orders(
         q = db.table("orders").select("*", count="exact").order("created_at", desc=True)
         if status == "open":
             q.in_("status", list(_OPEN_STATUSES))
+        elif status == "history":
+            q.in_("status", list(_HISTORY_STATUSES))
         elif status:
             q._params["status"] = f"eq.{status}"
         if exchange:

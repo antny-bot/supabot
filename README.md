@@ -1,4 +1,4 @@
-# TTBot (Telegram Trading Bot)
+# supabot (Telegram Trading Bot)
 
 Oracle Cloud VM Docker 환경에서 24시간 무중단 구동되는 **멀티유저 & 멀티거래소 통합 자동매매 봇**입니다. 단순한 주문 도구를 넘어, 지능형 알고리즘과 실시간 동기화 엔진을 갖춘 전문 트레이딩 시스템입니다.
 
@@ -6,14 +6,46 @@ Oracle Cloud VM Docker 환경에서 24시간 무중단 구동되는 **멀티유�
 
 봇과 관리 도구는 **Supabase PostgreSQL을 공유 데이터 레이어로** 사용하는 두 개의 독립 컴포넌트로 분리되어 있습니다. 봇은 manager 없이도 완전히 동작하며, manager는 확장(관리 UI)에 불과합니다.
 
-```
-   [Oracle Cloud VM]                  [Supabase]                [Synology NAS]
-   supabot (Telegram Bot)  ◄────────► PostgreSQL DB ◄────────►  supabot-manager
-     · 주문 실행/추적                   공유 데이터 레이어            (FastAPI + HTMX 웹)
-     · 시그널 알림                      users, orders,              · 유저 승인/차단/삭제
-     · /internal/notify ◄───────────── trade_logs, nl_logs,        · 주문/거래/이벤트 모니터링
-          (Telegram 전송 위임)          operational_events,         · system_config 편집
-                                       system_config
+```mermaid
+flowchart LR
+    subgraph Clients["사용자 및 관리자"]
+        direction TB
+        TGUser["텔레그램 유저 (Telegram App)"]
+        AdminUser["관리자 (Web Browser)"]
+    end
+
+    subgraph OCI["Oracle Cloud VM (Docker)"]
+        direction TB
+        Bot["supabot 엔진\n• 주문 실행 및 실시간 추적\n• RSI 역산 및 시그널 모니터링\n• /internal/notify 수신"]
+        LocalData[("로컬 백업 스토리지\ndata/*.json (DB 장애 시 폴백)")]
+    end
+
+    subgraph CloudDB["Supabase (공유 데이터 레이어)"]
+        DB[("PostgreSQL DB\n• users, orders\n• trade_logs, nl_logs\n• operational_events\n• system_config")]
+    end
+
+    subgraph Synology["Synology NAS (Docker)"]
+        Manager["supabot-manager\n• FastAPI + React 웹 대시보드\n• 유저 승인 및 권한 관리\n• 주문/이벤트 모니터링"]
+    end
+
+    subgraph External["연동 거래소 및 외부 API"]
+        direction TB
+        Crypto["코인 거래소 (Upbit, Bithumb)"]
+        Stock["증권사 Open API (한국투자증권, 토스증권)"]
+        Gemini["Google Gemini API (자연어 명령 해석)"]
+    end
+
+    TGUser <-->|"명령어·자연어 입력 / 알림 수신"| Bot
+    AdminUser <-->|"웹 대시보드 접속"| Manager
+
+    Bot <-->|"직접 Read/Write"| DB
+    Bot -.->|"자동 폴백"| LocalData
+    Manager <-->|"직접 Read/Write"| DB
+    Manager -->|"/internal/notify (알림 위임)"| Bot
+
+    Bot <-->|"주문/시세 조회"| Crypto
+    Bot <-->|"정규장 주문/예약·재주문"| Stock
+    Bot <-->|"자연어 Intent 질의"| Gemini
 ```
 
 - **봇 → Supabase 직접 read/write** (DB 장애 시 `data/*.json` 파일로 폴백)

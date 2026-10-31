@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   AlertCircle,
   Bug,
@@ -159,8 +160,8 @@ export default function FeedbackModal({ isOpen, onClose }: Props) {
     }
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       {/* 백드롭 */}
       <div
         className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm transition-opacity"
@@ -505,6 +506,7 @@ export default function FeedbackModal({ isOpen, onClose }: Props) {
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

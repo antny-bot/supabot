@@ -93,8 +93,8 @@ export default function Orders() {
   const [editLoading, setEditLoading] = useState(false)
 
   // viewMode에 따른 status 쿼리 결정
-  // open 모드일 때는 백엔드에 'open' (또는 wait,partial 등) 요청
-  const queryStatus = viewMode === 'open' ? 'open' : ''
+  // open 모드일 때는 'open' (미체결), history 모드일 때는 'history' (체결/취소 완료)
+  const queryStatus = viewMode === 'open' ? 'open' : viewMode === 'history' ? 'history' : ''
   const dateFrom = dateRange.mode === 'custom' ? dateRange.from : undefined
   const dateTo = dateRange.mode === 'custom' ? dateRange.to : undefined
 

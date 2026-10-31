@@ -54,7 +54,7 @@ export default function Sidebar() {
 
   return (
     <aside
-      className={`hidden md:flex flex-col shrink-0 h-screen sticky top-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 transition-all duration-200 overflow-visible ${
+      className={`hidden md:flex flex-col shrink-0 h-screen sticky top-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 transition-all duration-200 overflow-visible z-30 ${
         collapsed ? 'w-14' : 'w-[150px]'
       }`}
     >
@@ -113,9 +113,7 @@ export default function Sidebar() {
         {/* Popover Menu */}
         {menuOpen && (
           <div
-            className={`absolute bottom-full mb-2 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl p-1.5 z-50 text-app-body-sm animate-fade-in-up ${
-              collapsed ? 'left-2 w-52' : 'left-2 right-2 w-auto'
-            }`}
+            className="absolute bottom-full left-2 mb-2 w-52 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl p-1.5 z-50 text-app-body-sm animate-fade-in-up"
           >
             {/* 설정 링크 */}
             <NavLink
@@ -163,16 +161,25 @@ export default function Sidebar() {
             <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
 
             {/* 피드백 보내기 버튼 */}
-            <button
+            <div
               onClick={() => {
                 setMenuOpen(false)
                 setFeedbackOpen(true)
               }}
-              className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors whitespace-nowrap"
+              className="flex items-center justify-between px-3 py-1.5 rounded-xl cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors group"
             >
-              <MessageSquarePlus size={15} className="text-primary-500" />
-              <span>피드백 보내기</span>
-            </button>
+              <span className="text-xs text-slate-500 dark:text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-200 whitespace-nowrap">피드백</span>
+              <div className="flex items-center rounded-lg bg-slate-100 dark:bg-slate-800 p-0.5">
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  className="rounded-md p-1 text-slate-400 group-hover:text-primary-600 dark:text-slate-400 dark:group-hover:text-primary-400 group-hover:bg-white dark:group-hover:bg-slate-700 group-hover:shadow-sm transition-colors"
+                  title="피드백 보내기"
+                >
+                  <MessageSquarePlus size={13} />
+                </button>
+              </div>
+            </div>
 
             <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
 
