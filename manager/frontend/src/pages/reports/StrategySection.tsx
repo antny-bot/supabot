@@ -6,7 +6,7 @@ import {
 import { fetchReportStrategy } from '../../api/reports'
 import type { StrategyReport } from '../../types'
 import type { DateRangeValue } from '../../components/ui/DateRangePicker'
-import Spinner from '../../components/ui/Spinner'
+import { ChartSkeleton, DonutChartSkeleton, TableRowSkeleton } from '../../components/ui/Skeleton'
 import ErrorBanner from '../../components/ui/ErrorBanner'
 import ProgressBar from '../../components/ui/ProgressBar'
 import { staggerDelay, staggerDelayMs } from '../../utils/animation'
@@ -26,7 +26,36 @@ export default function StrategySection({ dateRange }: { dateRange: DateRangeVal
       .finally(() => setLoading(false))
   }, [dateRange])
 
-  if (loading) return <Spinner />
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <ChartSkeleton height="h-60" />
+          <DonutChartSkeleton />
+        </div>
+        <div className={`${CARD} overflow-hidden`}>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+                <th className={TH}>전략</th>
+                <th className={`${TH} text-right`}>거래건수</th>
+                <th className={`${TH} text-right`}>매수금액</th>
+                <th className={`${TH} text-right`}>매도금액</th>
+                <th className={`${TH} text-right`}>실현손익</th>
+                <th className={`${TH} text-right`}>수익률</th>
+                <th className={`${TH} text-right`}>손익기여도</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <TableRowSkeleton key={i} cols={7} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
+  }
   if (error) return <ErrorBanner message={error} />
   if (!data) return null
 

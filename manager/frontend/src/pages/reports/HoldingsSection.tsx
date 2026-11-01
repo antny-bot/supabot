@@ -1,9 +1,9 @@
-﻿import { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { TrendingUp, TrendingDown, DollarSign, Award } from 'lucide-react'
 import { fetchReportHoldings } from '../../api/reports'
 import type { HoldingsReport } from '../../types'
 import Badge from '../../components/ui/Badge'
-import Spinner from '../../components/ui/Spinner'
+import { StatCardSkeleton, TableRowSkeleton } from '../../components/ui/Skeleton'
 import ErrorBanner from '../../components/ui/ErrorBanner'
 import { staggerDelay } from '../../utils/animation'
 import { krwFmt, pctFmt, pctColor, CARD, TH, TD } from './ReportsShared'
@@ -22,7 +22,38 @@ export default function HoldingsSection() {
       .finally(() => setLoading(false))
   }, [])
 
-  if (loading) return <Spinner />
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <StatCardSkeleton key={i} />
+          ))}
+        </div>
+        <div className={`${CARD} overflow-hidden`}>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+                <th className={TH}>거래소</th>
+                <th className={TH}>종목</th>
+                <th className={`${TH} text-right`}>보유수량</th>
+                <th className={`${TH} text-right`}>평균매수가</th>
+                <th className={`${TH} text-right`}>현재가</th>
+                <th className={`${TH} text-right`}>평가금액</th>
+                <th className={`${TH} text-right`}>평가손익</th>
+                <th className={`${TH} text-right`}>수익률</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <TableRowSkeleton key={i} cols={8} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
+  }
   if (error) return <ErrorBanner message={error} />
   if (!data) return null
 

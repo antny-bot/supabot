@@ -19,7 +19,13 @@ import Badge from '../components/ui/Badge'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import PageHeader from '../components/ui/PageHeader'
 import ResponsiveTabs from '../components/ui/ResponsiveTabs'
-import Spinner from '../components/ui/Spinner'
+import {
+  Skeleton,
+  StatCardSkeleton,
+  TableRowSkeleton,
+  FormSkeleton,
+  CardSkeleton,
+} from '../components/ui/Skeleton'
 import ProgressBar from '../components/ui/ProgressBar'
 import StatCard from '../components/ui/StatCard'
 import { PAGE_META } from '../config/pageMeta'
@@ -73,61 +79,68 @@ function SupabaseHealthCard({ health }: { health?: SupabaseHealthStats }) {
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 animate-fade-in-up">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-b border-slate-100 pb-3.5 dark:border-slate-800">
-        <div className="flex items-center gap-2.5">
-          <div className="rounded-lg bg-emerald-50 p-2 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400">
+      {/* 헤더: 제목 + 상태 뱃지 한 줄 정렬 */}
+      <div className="flex items-center justify-between border-b border-slate-100 pb-3.5 dark:border-slate-800">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="rounded-lg bg-emerald-50 p-2 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400 shrink-0">
             <Database size={18} />
           </div>
-          <div>
-            <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2">
-              Supabase 인프라 헬스 체크
-              <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${statusBadge.bg}`}>
-                {statusBadge.label}
-              </span>
-            </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              무료 티어(Free Tier) 스토리지 용량 한도 모니터링
-            </p>
+          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap break-keep truncate">
+            Supabase 헬스 체크
+          </h3>
+        </div>
+        <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-medium whitespace-nowrap break-keep ${statusBadge.bg}`}>
+          {statusBadge.label}
+        </span>
+      </div>
+
+      {/* 사용량 및 잔여 용량 KPI 미니 그리드 */}
+      <div className="mt-3.5 grid grid-cols-2 gap-2 rounded-lg bg-slate-50 p-2.5 dark:bg-slate-800/40">
+        <div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap break-keep">
+            사용량 ({health.usage_pct.toFixed(1)}%)
+          </div>
+          <div className="mt-0.5 font-mono text-sm font-bold text-slate-900 dark:text-white whitespace-nowrap">
+            {health.used_mb} <span className="text-xs font-normal text-slate-400">/ {health.limit_mb} MB</span>
           </div>
         </div>
-        <div className="flex items-center gap-1.5 text-xs text-slate-500 font-mono">
-          <span>데이터 소스:</span>
-          <span className="font-semibold text-slate-700 dark:text-slate-300">
-            {health.source === 'database_actual' ? 'PostgreSQL 실측' : '테이블 통계 추정'}
-          </span>
+        <div className="text-right">
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap break-keep">
+            잔여 공간
+          </div>
+          <div className={`mt-0.5 font-mono text-sm font-bold whitespace-nowrap ${isHealthy ? 'text-emerald-600 dark:text-emerald-400' : isWarning ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'}`}>
+            {health.remaining_mb} <span className="text-xs font-normal text-slate-400">MB</span>
+          </div>
         </div>
       </div>
 
-      <div className="mt-4 space-y-2">
-        <div className="flex items-center justify-between text-xs font-medium">
-          <span className="text-slate-600 dark:text-slate-300">
-            현재 사용량: <strong className="font-mono text-slate-900 dark:text-white text-sm">{health.used_mb} MB</strong>
-            <span className="text-slate-400 font-normal"> / {health.limit_mb} MB (한도)</span>
-          </span>
-          <span className="text-slate-600 dark:text-slate-300 font-mono">
-            잔여 용량: <strong className={`text-sm ${isHealthy ? 'text-emerald-600 dark:text-emerald-400' : isWarning ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'}`}>{health.remaining_mb} MB</strong> ({((health.remaining_mb / health.limit_mb) * 100).toFixed(1)}% 남음)
-          </span>
-        </div>
-
+      {/* 용량 프로그레스 바 & 메타 정보 */}
+      <div className="mt-3 space-y-1.5">
         <ProgressBar value={health.usage_pct} color={barColor} className="w-full" />
-
-        <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 font-mono">
+        <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
           <span>0 MB</span>
-          <span>50% (250 MB)</span>
-          <span>100% (500 MB)</span>
+          <span>50%</span>
+          <span>{health.limit_mb} MB</span>
+        </div>
+        <div className="flex items-center justify-between pt-0.5 text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+          <span className="whitespace-nowrap break-keep">무료 티어 ({health.limit_mb} MB)</span>
+          <span className="whitespace-nowrap break-keep">
+            데이터 소스: <strong className="font-semibold text-slate-700 dark:text-slate-300">{health.source === 'database_actual' ? 'PostgreSQL 실측' : '테이블 통계 추정'}</strong>
+          </span>
         </div>
       </div>
 
+      {/* 주요 테이블 데이터 규모 */}
       {health.table_counts && (
         <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
-          <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-2">
+          <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-2 whitespace-nowrap break-keep">
             주요 테이블 데이터 규모
           </div>
           <div className="flex flex-wrap gap-2">
             {Object.entries(health.table_counts).map(([tbl, count]) => (
               <div
                 key={tbl}
-                className="flex items-center gap-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/80 px-2.5 py-1 text-xs border border-slate-200/60 dark:border-slate-700/60 font-mono"
+                className="flex items-center gap-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/80 px-2.5 py-1 text-xs border border-slate-200/60 dark:border-slate-700/60 font-mono whitespace-nowrap break-keep"
               >
                 <span className="text-slate-500 dark:text-slate-400">{tbl}:</span>
                 <span className="font-semibold text-slate-700 dark:text-slate-200">{count.toLocaleString()}건</span>
@@ -172,7 +185,26 @@ function DashboardTab() {
     }
   }
 
-  if (!data && !error) return <Spinner />
+  if (!data && !error) {
+    return (
+      <div className="flex flex-col gap-5">
+        <Skeleton className="h-12 w-full rounded-xl" />
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <StatCardSkeleton key={i} />
+          ))}
+        </div>
+        <div className="grid gap-5 md:grid-cols-12 md:gap-4">
+          <div className="md:col-span-4">
+            <CardSkeleton className="h-64" />
+          </div>
+          <div className="md:col-span-8">
+            <CardSkeleton className="h-64" />
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-5">
@@ -368,7 +400,7 @@ function MonitoringTab() {
     }
   }
 
-  if (loading) return <Spinner />
+  if (loading) return <FormSkeleton />
 
   const monitoringItems = config.filter((item) => isMonitoringKey(item.key))
   const otherItems = config.filter((item) => !isMonitoringKey(item.key))
@@ -600,7 +632,21 @@ function StockCacheTab() {
         </div>
 
         {loading ? (
-          <div className="flex justify-center py-10"><Spinner /></div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 dark:border-slate-800 text-left text-xs text-slate-500 uppercase">
+                <th className="px-4 py-2">종목명</th>
+                <th className="px-4 py-2">종목코드</th>
+                <th className="px-4 py-2">갱신일시</th>
+                <th className="px-4 py-2 text-right">삭제</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <TableRowSkeleton key={i} cols={4} />
+              ))}
+            </tbody>
+          </table>
         ) : rows.length === 0 ? (
           <p className="py-8 text-center text-sm text-slate-400">데이터 없음</p>
         ) : (
@@ -670,7 +716,18 @@ export default function Admin() {
       <div key={activeTab} className="animate-fade-in-up">
         {activeTab === 'dashboard'   && <DashboardTab />}
         {activeTab === 'analytics'   && (
-          <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
+          <Suspense
+            fallback={
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <StatCardSkeleton key={i} />
+                  ))}
+                </div>
+                <CardSkeleton className="h-64" />
+              </div>
+            }
+          >
             <Analytics hideHeader />
           </Suspense>
         )}

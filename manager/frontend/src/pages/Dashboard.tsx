@@ -39,7 +39,7 @@ import type { DateRangeValue } from '../components/ui/DateRangePicker'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import PageHeader from '../components/ui/PageHeader'
 import SegmentedControl from '../components/ui/SegmentedControl'
-import { StatCardSkeleton, CardSkeleton } from '../components/ui/Skeleton'
+import { StatCardSkeleton, CardSkeleton, Skeleton } from '../components/ui/Skeleton'
 import SyncIndicator from '../components/ui/SyncIndicator'
 import { PAGE_META } from '../config/pageMeta'
 import { useRealtime } from '../hooks/useRealtime'
@@ -417,7 +417,20 @@ export default function Dashboard() {
             </div>
 
             <div className="mt-4 h-60 w-full">
-              {chartRows.length === 0 ? (
+              {loading && !dailyData ? (
+                <div className="flex h-full items-end gap-3 px-2">
+                  {Array.from({ length: 12 }).map((_, i) => (
+                    <Skeleton
+                      key={i}
+                      className={`flex-1 rounded-t ${
+                        ['h-16', 'h-28', 'h-20', 'h-36', 'h-24', 'h-44', 'h-32', 'h-40', 'h-28', 'h-48', 'h-36', 'h-52'][
+                          i % 12
+                        ]
+                      }`}
+                    />
+                  ))}
+                </div>
+              ) : chartRows.length === 0 ? (
                 <div className="flex h-full items-center justify-center text-xs text-slate-400">
                   표시할 손익 데이터가 없습니다.
                 </div>
@@ -475,15 +488,26 @@ export default function Dashboard() {
             </div>
 
             <div className="mt-4 h-60 w-full">
-              <DonutChart
-                data={donutData}
-                colors={ALLOCATION_COLORS}
-                innerRadius={55}
-                outerRadius={80}
-                paddingAngle={4}
-                tooltipFormatter={(val: number) => [`${krwFmt(val)}`, '평가금액']}
-                emptyMessage="보유 자산이 없습니다."
-              />
+              {loading && !allocation ? (
+                <div className="flex h-full flex-col items-center justify-center gap-4">
+                  <Skeleton className="h-32 w-32 rounded-full" />
+                  <div className="flex gap-2">
+                    <Skeleton className="h-4 w-12 rounded-full" />
+                    <Skeleton className="h-4 w-12 rounded-full" />
+                    <Skeleton className="h-4 w-12 rounded-full" />
+                  </div>
+                </div>
+              ) : (
+                <DonutChart
+                  data={donutData}
+                  colors={ALLOCATION_COLORS}
+                  innerRadius={55}
+                  outerRadius={80}
+                  paddingAngle={4}
+                  tooltipFormatter={(val: number) => [`${krwFmt(val)}`, '평가금액']}
+                  emptyMessage="보유 자산이 없습니다."
+                />
+              )}
             </div>
           </div>
         </>
@@ -530,7 +554,20 @@ export default function Dashboard() {
             </div>
 
             <div className="divide-y divide-slate-100 dark:divide-slate-800">
-              {!holdings || holdings.rows.length === 0 ? (
+              {loading && !holdings ? (
+                Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="flex items-center justify-between px-5 py-3">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Skeleton className="h-5 w-12 rounded" />
+                      <Skeleton className="h-4 w-24" />
+                    </div>
+                    <div className="space-y-1.5 text-right">
+                      <Skeleton className="h-4 w-20 ml-auto" />
+                      <Skeleton className="h-3 w-12 ml-auto" />
+                    </div>
+                  </div>
+                ))
+              ) : !holdings || holdings.rows.length === 0 ? (
                 <div className="py-10 text-center text-xs text-slate-400">보유 자산이 없습니다.</div>
               ) : (
                 holdings.rows.slice(0, 5).map((row) => (
@@ -581,7 +618,21 @@ export default function Dashboard() {
             </div>
 
             <div className="divide-y divide-slate-100 dark:divide-slate-800">
-              {!recentTrades || recentTrades.length === 0 ? (
+              {loading && !recentTrades ? (
+                Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="flex items-center justify-between px-5 py-3">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Skeleton className="h-5 w-10 rounded" />
+                      <Skeleton className="h-4 w-20" />
+                      <Skeleton className="h-3 w-10" />
+                    </div>
+                    <div className="space-y-1.5 text-right">
+                      <Skeleton className="h-4 w-16 ml-auto" />
+                      <Skeleton className="h-3 w-12 ml-auto" />
+                    </div>
+                  </div>
+                ))
+              ) : !recentTrades || recentTrades.length === 0 ? (
                 <div className="py-10 text-center text-xs text-slate-400">최근 체결 내역이 없습니다.</div>
               ) : (
                 recentTrades.slice(0, 5).map((trade, i) => (

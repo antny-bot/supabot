@@ -7,7 +7,7 @@ import {
   fetchBudgetLedger, fetchBudgetHealth,
   updateBudgetPlan, resetBudgetPlan, toggleTemplateHolding
 } from '../../api/templates'
-import Spinner from '../../components/ui/Spinner'
+import { StatCardSkeleton, TableRowSkeleton } from '../../components/ui/Skeleton'
 import ErrorBanner from '../../components/ui/ErrorBanner'
 import BudgetHealthCard from '../../components/budget/BudgetHealthCard'
 import { krwFmt, CARD, TH, TD } from './ReportsShared'
@@ -122,7 +122,37 @@ export default function BudgetPlanSection() {
     }
   }
 
-  if (loading && !ledgerData) return <Spinner />
+  if (loading && !ledgerData) {
+    return (
+      <div className="space-y-4">
+        <BudgetHealthCard loading={true} />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <StatCardSkeleton key={i} />
+          ))}
+        </div>
+        <div className={`${CARD} overflow-hidden`}>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+                <th className={TH}>일자</th>
+                <th className={TH}>구분</th>
+                <th className={`${TH} text-right`}>배정예산</th>
+                <th className={`${TH} text-right`}>사용금액</th>
+                <th className={`${TH} text-right`}>당일잔여</th>
+                <th className={`${TH} text-right`}>이월금액</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <TableRowSkeleton key={i} cols={6} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
+  }
   if (error) return <ErrorBanner message={error} />
 
   const selectedTemplate = templates.find((t) => t.id === selectedTemplateId)

@@ -3,7 +3,7 @@ import { fetchReportPairs } from '../../api/reports'
 import type { PairsReport } from '../../types'
 import type { DateRangeValue } from '../../components/ui/DateRangePicker'
 import Badge from '../../components/ui/Badge'
-import Spinner from '../../components/ui/Spinner'
+import { TableRowSkeleton } from '../../components/ui/Skeleton'
 import ErrorBanner from '../../components/ui/ErrorBanner'
 import { staggerDelay } from '../../utils/animation'
 import { krwFmt, pctFmt, pctColor, CARD, TH, TD } from './ReportsShared'
@@ -22,7 +22,38 @@ export default function PairsSection({ dateRange }: { dateRange: DateRangeValue 
       .finally(() => setLoading(false))
   }, [dateRange])
 
-  if (loading) return <Spinner />
+  if (loading) {
+    return (
+      <div className={`${CARD} overflow-hidden`}>
+        <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800">
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">거래 페어</h3>
+          <p className="text-xs text-slate-400 mt-0.5">평단 기준 실현 매도 이벤트</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
+                <th className={`${TH} text-left`}>종목</th>
+                <th className={`${TH} text-left`}>거래소</th>
+                <th className={`${TH} text-left`}>전략</th>
+                <th className={`${TH} text-right`}>매수가</th>
+                <th className={`${TH} text-right`}>매도가</th>
+                <th className={`${TH} text-right`}>수량</th>
+                <th className={`${TH} text-right`}>보유기간</th>
+                <th className={`${TH} text-right`}>손익</th>
+                <th className={`${TH} text-right`}>수익률</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <TableRowSkeleton key={i} cols={9} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
+  }
   if (error) return <ErrorBanner message={error} />
   if (!data) return null
 

@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
+import { MemoryRouter } from 'react-router-dom'
 import Reports from './Reports'
 
 vi.mock('./reports/HoldingsSection', () => ({ default: () => <div>holdings section</div> }))
@@ -21,7 +22,11 @@ describe('Reports', () => {
   it('renders correctly and handles tab switching', async () => {
     const user = userEvent.setup()
 
-    render(<Reports />)
+    render(
+      <MemoryRouter>
+        <Reports />
+      </MemoryRouter>
+    )
 
     // 1. holdings tab is default and active
     expect(screen.getByText('holdings section')).toBeInTheDocument()

@@ -1,7 +1,7 @@
 import { Suspense, lazy, type ReactNode } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import AppLayout from './components/layout/AppLayout'
-import Spinner from './components/ui/Spinner'
+import { PageSkeleton } from './components/ui/Skeleton'
 import { useAuthContext } from './contexts/AuthContext'
 import { ToastProvider } from './contexts/ToastContext'
 import { readDefaultPage } from './lib/navPreferences'
@@ -17,11 +17,9 @@ const Admin = lazy(() => import('./pages/Admin'))
 
 function RouteFallback() {
   return (
-    <div className="font-app-ui flex min-h-[40vh] items-center justify-center">
-      <div className="flex flex-col items-center gap-3 text-slate-500 dark:text-slate-400">
-        <Spinner className="py-0" />
-        <span className="text-app-body-sm">Loading…</span>
-      </div>
+    <div className="font-app-ui space-y-4">
+      <span className="sr-only">Loading…</span>
+      <PageSkeleton />
     </div>
   )
 }

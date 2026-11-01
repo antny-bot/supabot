@@ -6,7 +6,7 @@ import {
 import { fetchReportDaily } from '../../api/reports'
 import type { DailyReport } from '../../types'
 import type { DateRangeValue } from '../../components/ui/DateRangePicker'
-import Spinner from '../../components/ui/Spinner'
+import { ChartSkeleton, TableRowSkeleton } from '../../components/ui/Skeleton'
 import ErrorBanner from '../../components/ui/ErrorBanner'
 import { staggerDelay, staggerDelayMs } from '../../utils/animation'
 import { krwFmt, pctColor, PNL_UP_HEX, PNL_DOWN_HEX, CARD, TH, TD } from './ReportsShared'
@@ -25,7 +25,34 @@ export default function DailySection({ dateRange }: { dateRange: DateRangeValue 
       .finally(() => setLoading(false))
   }, [dateRange])
 
-  if (loading) return <Spinner />
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <div className="grid md:grid-cols-2 gap-4">
+          <ChartSkeleton height="h-60" />
+          <ChartSkeleton height="h-60" />
+        </div>
+        <div className={`${CARD} overflow-hidden`}>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+                <th className={TH}>날짜</th>
+                <th className={`${TH} text-right`}>매수수량</th>
+                <th className={`${TH} text-right`}>매도수량</th>
+                <th className={`${TH} text-right`}>실현손익</th>
+                <th className={`${TH} text-right`}>누적손익</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <TableRowSkeleton key={i} cols={5} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
+  }
   if (error) return <ErrorBanner message={error} />
   if (!data) return null
 

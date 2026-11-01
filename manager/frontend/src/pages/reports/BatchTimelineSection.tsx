@@ -5,7 +5,7 @@ import {
 import { AlertTriangle, CalendarClock, Filter, RotateCcw } from 'lucide-react'
 import { fetchReportBatches, type BatchesReport } from '../../api/reports'
 import type { DateRangeValue } from '../../components/ui/DateRangePicker'
-import Spinner from '../../components/ui/Spinner'
+import { ChartSkeleton, CardSkeleton } from '../../components/ui/Skeleton'
 import ErrorBanner from '../../components/ui/ErrorBanner'
 import { staggerDelay } from '../../utils/animation'
 import { krwFmt, pctColor, PNL_UP_HEX, PNL_DOWN_HEX, CARD, TH, TD } from './ReportsShared'
@@ -26,7 +26,17 @@ export default function BatchTimelineSection({ dateRange }: { dateRange: DateRan
       .finally(() => setLoading(false))
   }, [dateRange, selectedBatch, selectedTicker])
 
-  if (loading) return <Spinner />
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <ChartSkeleton height="h-72" />
+        <div className="space-y-3">
+          <CardSkeleton />
+          <CardSkeleton />
+        </div>
+      </div>
+    )
+  }
   if (error) return <ErrorBanner message={error} />
   if (!data) return null
 

@@ -4,7 +4,7 @@ import DisplaySettingsCard from '../components/settings/DisplaySettingsCard'
 import MfaSettingsCard from '../components/settings/MfaSettingsCard'
 import PageHeader from '../components/ui/PageHeader'
 import ResponsiveTabs from '../components/ui/ResponsiveTabs'
-import Spinner from '../components/ui/Spinner'
+import { FormSkeleton } from '../components/ui/Skeleton'
 import { PAGE_META } from '../config/pageMeta'
 import { useAuthContext } from '../contexts/AuthContext'
 import {
@@ -41,7 +41,14 @@ export default function Config() {
     return () => window.removeEventListener(DISPLAY_PREFERENCES_EVENT, syncPreferences)
   }, [])
 
-  if (loading) return <Spinner />
+  if (loading) {
+    return (
+      <div className="max-w-xl space-y-5">
+        <PageHeader {...PAGE_META.config} />
+        <FormSkeleton />
+      </div>
+    )
+  }
 
   return (
     <div className="max-w-xl space-y-5">

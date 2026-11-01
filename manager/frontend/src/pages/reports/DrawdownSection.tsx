@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 import { fetchReportDrawdown } from '../../api/reports'
 import type { DateRangeValue } from '../../components/ui/DateRangePicker'
-import Spinner from '../../components/ui/Spinner'
+import { StatCardSkeleton, ChartSkeleton } from '../../components/ui/Skeleton'
 import ErrorBanner from '../../components/ui/ErrorBanner'
 import StatCard from '../../components/ui/StatCard'
 import type { DrawdownReport } from '../../types'
@@ -48,7 +48,19 @@ export default function DrawdownSection({ dateRange }: Props) {
     load()
   }, [load])
 
-  if (loading && !data) return <Spinner />
+  if (loading && !data) {
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <StatCardSkeleton key={i} />
+          ))}
+        </div>
+        <ChartSkeleton height="h-72" />
+        <ChartSkeleton height="h-60" />
+      </div>
+    )
+  }
   if (error) return <ErrorBanner message={error} />
   if (!data || !data.series || data.series.length === 0) {
     return (

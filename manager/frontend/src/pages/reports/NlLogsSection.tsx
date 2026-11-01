@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { fetchReportNlLogs } from '../../api/reports'
 import type { NlLogRow } from '../../types'
 import Badge from '../../components/ui/Badge'
-import Spinner from '../../components/ui/Spinner'
+import { TableRowSkeleton } from '../../components/ui/Skeleton'
 import ErrorBanner from '../../components/ui/ErrorBanner'
 import { staggerDelay } from '../../utils/animation'
 
@@ -27,7 +27,26 @@ export default function NlLogsSection() {
     <div className="space-y-4">
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
         {loading ? (
-          <Spinner />
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+                  <th className="px-4 py-3 text-left font-medium">시각</th>
+                  <th className="px-4 py-3 text-left font-medium">유저</th>
+                  <th className="px-4 py-3 text-left font-medium">원문</th>
+                  <th className="px-4 py-3 text-left font-medium">전처리</th>
+                  <th className="px-4 py-3 text-left font-medium">LLM 액션</th>
+                  <th className="px-4 py-3 text-left font-medium">최종 액션</th>
+                  <th className="px-4 py-3 text-left font-medium">상태</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <TableRowSkeleton key={i} cols={7} />
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">

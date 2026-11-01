@@ -21,6 +21,7 @@ import {
 } from '../../api/feedback'
 import Badge from '../ui/Badge'
 import Spinner from '../ui/Spinner'
+import { Skeleton } from '../ui/Skeleton'
 import type { FeedbackCategory, FeedbackItem } from '../../types'
 
 interface Props {
@@ -352,8 +353,20 @@ export default function FeedbackModal({ isOpen, onClose }: Props) {
             /* 내 작성 내역 탭 */
             <div>
               {loadingHistory ? (
-                <div className="py-12 flex justify-center">
-                  <Spinner />
+                <div className="space-y-3 py-2">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-2.5"
+                    >
+                      <div className="flex items-center justify-between">
+                        <Skeleton className="h-5 w-24 rounded-md" />
+                        <Skeleton className="h-4 w-16" />
+                      </div>
+                      <Skeleton className="h-4 w-4/5" />
+                      <Skeleton className="h-4 w-3/5" />
+                    </div>
+                  ))}
                 </div>
               ) : myFeedbacks.length === 0 ? (
                 <div className="py-12 text-center text-slate-400 dark:text-slate-500 text-xs flex flex-col items-center gap-2">

@@ -7,7 +7,7 @@ import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import FilterBar from '../components/ui/FilterBar'
-import Spinner from '../components/ui/Spinner'
+import { CardSkeleton, TableRowSkeleton } from '../components/ui/Skeleton'
 import { staggerDelay } from '../utils/animation'
 
 const STATUS_OPTIONS = [
@@ -237,7 +237,32 @@ export function UsersContent() {
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
         {loading ? (
-          <Spinner />
+          <>
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+                    <th className="px-4 py-3 text-left font-medium">유저 ID</th>
+                    <th className="px-4 py-3 text-left font-medium">이름</th>
+                    <th className="px-4 py-3 text-left font-medium">상태</th>
+                    <th className="px-4 py-3 text-left font-medium">관리자</th>
+                    <th className="px-4 py-3 text-left font-medium">매니저 이메일</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-left font-medium">가입일</th>
+                    <th className="px-4 py-3 text-left font-medium">액션</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <TableRowSkeleton key={i} cols={7} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="p-4 space-y-3 md:hidden">
+              <CardSkeleton />
+              <CardSkeleton />
+            </div>
+          </>
         ) : (
           <>
             <div className="hidden overflow-x-auto md:block">

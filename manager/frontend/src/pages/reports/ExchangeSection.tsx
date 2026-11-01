@@ -6,7 +6,7 @@ import {
 import { fetchReportExchange } from '../../api/reports'
 import type { ExchangeReport } from '../../types'
 import type { DateRangeValue } from '../../components/ui/DateRangePicker'
-import Spinner from '../../components/ui/Spinner'
+import { ChartSkeleton, TableRowSkeleton } from '../../components/ui/Skeleton'
 import ErrorBanner from '../../components/ui/ErrorBanner'
 import ProgressBar from '../../components/ui/ProgressBar'
 import { staggerDelay, staggerDelayMs } from '../../utils/animation'
@@ -33,7 +33,34 @@ export default function ExchangeSection({ dateRange }: { dateRange: DateRangeVal
       .finally(() => setLoading(false))
   }, [dateRange])
 
-  if (loading) return <Spinner />
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <ChartSkeleton height="h-60" />
+        <div className={`${CARD} overflow-hidden`}>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+                <th className={TH}>거래소</th>
+                <th className={`${TH} text-right`}>거래건수</th>
+                <th className={`${TH} text-right`}>매수금액</th>
+                <th className={`${TH} text-right`}>매도금액</th>
+                <th className={`${TH} text-right`}>수수료</th>
+                <th className={`${TH} text-right`}>실현손익</th>
+                <th className={`${TH} text-right`}>수익률</th>
+                <th className={`${TH} text-right`}>손익기여도</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <TableRowSkeleton key={i} cols={8} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
+  }
   if (error) return <ErrorBanner message={error} />
   if (!data) return null
 

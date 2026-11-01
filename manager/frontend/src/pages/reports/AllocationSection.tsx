@@ -1,8 +1,8 @@
-﻿import DonutChart from '../../components/ui/DonutChart'
+import DonutChart from '../../components/ui/DonutChart'
 import { useEffect, useState } from 'react'
 import { PieChart as PieIcon, Layers, Download } from 'lucide-react'
 import { fetchReportAllocation } from '../../api/reports'
-import Spinner from '../../components/ui/Spinner'
+import { Skeleton, DonutChartSkeleton } from '../../components/ui/Skeleton'
 import ErrorBanner from '../../components/ui/ErrorBanner'
 import type { AllocationReport } from '../../types'
 import { krwFmt } from '../../utils/formatters'
@@ -26,7 +26,17 @@ export default function AllocationSection() {
       .finally(() => setLoading(false))
   }, [])
 
-  if (loading && !data) return <Spinner />
+  if (loading && !data) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-16 w-full rounded-xl" />
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <DonutChartSkeleton />
+          <DonutChartSkeleton />
+        </div>
+      </div>
+    )
+  }
   if (error) return <ErrorBanner message={error} />
   if (!data || data.asset_count === 0) {
     return (

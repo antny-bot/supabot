@@ -19,7 +19,7 @@ import {
   updateAdminFeedback,
 } from '../../api/feedback'
 import Badge from '../../components/ui/Badge'
-import Spinner from '../../components/ui/Spinner'
+import { Skeleton } from '../../components/ui/Skeleton'
 import type { FeedbackCategory, FeedbackItem, FeedbackStatus } from '../../types'
 
 const CATEGORY_META: Record<
@@ -248,8 +248,26 @@ export default function AdminFeedbacksTab() {
 
       {/* 목록 리스트 */}
       {loading ? (
-        <div className="py-20 flex justify-center">
-          <Spinner />
+        <div className="space-y-4">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div
+              key={i}
+              className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-6 w-16 rounded-lg" />
+                  <Skeleton className="h-5 w-40" />
+                </div>
+                <Skeleton className="h-6 w-20 rounded-lg" />
+              </div>
+              <Skeleton className="h-16 w-full rounded-xl" />
+              <div className="flex items-center justify-between pt-1">
+                <Skeleton className="h-4 w-28" />
+                <Skeleton className="h-7 w-20 rounded-lg" />
+              </div>
+            </div>
+          ))}
         </div>
       ) : filteredFeedbacks.length === 0 ? (
         <div className="py-20 text-center text-slate-400 dark:text-slate-500 text-xs flex flex-col items-center gap-2">

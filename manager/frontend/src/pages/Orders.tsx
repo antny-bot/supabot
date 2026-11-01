@@ -20,7 +20,7 @@ import PageHeader from '../components/ui/PageHeader'
 import Pagination from '../components/ui/Pagination'
 import ProgressBar from '../components/ui/ProgressBar'
 import SegmentedControl from '../components/ui/SegmentedControl'
-import { CardSkeleton } from '../components/ui/Skeleton'
+import { CardSkeleton, TableRowSkeleton } from '../components/ui/Skeleton'
 import SyncIndicator from '../components/ui/SyncIndicator'
 import OrderBatchesSection from './orders/OrderBatchesSection'
 import { PAGE_META } from '../config/pageMeta'
@@ -441,10 +441,38 @@ export default function Orders() {
         /* 주문 리스트 본문 (데스크톱: 고밀도 테이블 / 모바일: 슬림 카드 뷰) */
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
         {loading && !data ? (
-          <div className="p-4 space-y-3">
-            <CardSkeleton />
-            <CardSkeleton />
-          </div>
+          <>
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 font-semibold text-slate-500 dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-400">
+                    <th className="px-4 py-3">#배치</th>
+                    <th className="px-4 py-3">시간</th>
+                    <th className="px-4 py-3">거래소</th>
+                    <th className="px-4 py-3">종목</th>
+                    <th className="px-4 py-3">구분</th>
+                    <th className="px-4 py-3">전략</th>
+                    <th className="px-4 py-3 text-right">주문가격</th>
+                    <th className="px-4 py-3 text-right">수량</th>
+                    <th className="px-4 py-3 text-right">주문금액</th>
+                    <th className="w-28 px-4 py-3">체결률</th>
+                    <th className="px-4 py-3">상태</th>
+                    <th className="px-4 py-3 text-right">제어</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <TableRowSkeleton key={i} cols={12} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="p-4 space-y-3 md:hidden">
+              <CardSkeleton />
+              <CardSkeleton />
+              <CardSkeleton />
+            </div>
+          </>
         ) : (
           <>
             {/* [1] 데스크톱 테이블 뷰 (md+) */}

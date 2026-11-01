@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { RotateCw, TrendingUp, DollarSign, Clock, Layers, ArrowUpRight, ArrowDownRight, CheckCircle2 } from 'lucide-react'
 import { fetchTemplates, type Template } from '../../api/templates'
 import { fetchTopRotationReport, type TopRotationReport } from '../../api/reports'
-import Spinner from '../../components/ui/Spinner'
+import { StatCardSkeleton, TableRowSkeleton } from '../../components/ui/Skeleton'
 import ErrorBanner from '../../components/ui/ErrorBanner'
 import { krwFmt, CARD, TH, TD } from './ReportsShared'
 
@@ -41,7 +41,36 @@ export default function TopRotationSection() {
       .finally(() => setLoading(false))
   }, [selectedTemplateId, selectedGroupNo])
 
-  if (loading && !report) return <Spinner />
+  if (loading && !report) {
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <StatCardSkeleton key={i} />
+          ))}
+        </div>
+        <div className={`${CARD} overflow-hidden`}>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+                <th className={TH}>순위</th>
+                <th className={TH}>종목</th>
+                <th className={`${TH} text-right`}>편입단가</th>
+                <th className={`${TH} text-right`}>현재가</th>
+                <th className={`${TH} text-right`}>수익률</th>
+                <th className={`${TH} text-right`}>보유비중</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <TableRowSkeleton key={i} cols={6} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
+  }
   if (error) return <ErrorBanner message={error} />
 
   const filteredTemplates = templates.filter((t) => {

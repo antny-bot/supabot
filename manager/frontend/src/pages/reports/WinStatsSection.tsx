@@ -6,7 +6,7 @@ import {
 import { fetchReportWinStats } from '../../api/reports'
 import type { WinStatsReport } from '../../types'
 import type { DateRangeValue } from '../../components/ui/DateRangePicker'
-import Spinner from '../../components/ui/Spinner'
+import { StatCardSkeleton, ChartSkeleton, DonutChartSkeleton } from '../../components/ui/Skeleton'
 import ErrorBanner from '../../components/ui/ErrorBanner'
 import { staggerDelay, staggerDelayMs } from '../../utils/animation'
 import { pctFmt, pctColor, PNL_UP_HEX, PNL_DOWN_HEX, CARD } from './ReportsShared'
@@ -25,7 +25,26 @@ export default function WinStatsSection({ dateRange }: { dateRange: DateRangeVal
       .finally(() => setLoading(false))
   }, [dateRange])
 
-  if (loading) return <Spinner />
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <StatCardSkeleton key={i} />
+          ))}
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <StatCardSkeleton key={i} />
+          ))}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <DonutChartSkeleton />
+          <ChartSkeleton height="h-60" />
+        </div>
+      </div>
+    )
+  }
   if (error) return <ErrorBanner message={error} />
   if (!data) return null
 

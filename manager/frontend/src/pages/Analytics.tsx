@@ -17,7 +17,7 @@ import type {
   AnalyticsUserItem,
 } from '../types'
 import StatCard from '../components/ui/StatCard'
-import Spinner from '../components/ui/Spinner'
+import { Skeleton, StatCardSkeleton, TableRowSkeleton } from '../components/ui/Skeleton'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import PageHeader from '../components/ui/PageHeader'
 import FilterBar from '../components/ui/FilterBar'
@@ -65,7 +65,16 @@ function OverviewSection() {
       .finally(() => setLoading(false))
   }, [])
 
-  if (loading) return <Spinner />
+  if (loading) {
+    return (
+      <div className="md:col-span-12 grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <StatCardSkeleton />
+        <StatCardSkeleton />
+        <StatCardSkeleton />
+        <StatCardSkeleton />
+      </div>
+    )
+  }
   if (error)   return <ErrorBanner message={error} />
   if (!data)   return null
 
@@ -130,9 +139,20 @@ function ActivitySection({ days, onDaysChange }: ActivitySectionProps) {
           onChange={(v) => onDaysChange(Number(v))}
         />
       </div>
-      {loading ? <div className="h-48 flex items-center justify-center"><Spinner /></div>
-       : error  ? <ErrorBanner message={error} />
-       : (
+      {loading ? (
+        <div className="h-48 flex items-end gap-2 px-2 pb-2">
+          {Array.from({ length: 14 }).map((_, i) => (
+            <Skeleton
+              key={i}
+              className={`flex-1 rounded-t ${
+                ['h-16', 'h-28', 'h-20', 'h-36', 'h-24', 'h-40', 'h-32'][i % 7]
+              }`}
+            />
+          ))}
+        </div>
+      ) : error ? (
+        <ErrorBanner message={error} />
+      ) : (
         <ResponsiveContainer width="100%" height={200}>
           <BarChart data={displayData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--tw-border-opacity, #e2e8f0)" />
@@ -170,9 +190,22 @@ function CommandsSection({ period }: { period: string }) {
         <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">명령어 빈도 (상위 15)</h2>
         <span className="text-xs text-slate-400">총 {total.toLocaleString()}건</span>
       </div>
-      {loading ? <div className="h-48 flex items-center justify-center"><Spinner /></div>
-       : error  ? <ErrorBanner message={error} />
-       : commands.length === 0 ? (
+      {loading ? (
+        <div className="space-y-2.5 py-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <Skeleton className="h-4 w-12" />
+              <Skeleton
+                className={`h-4.5 rounded ${
+                  ['w-4/5', 'w-3/4', 'w-3/5', 'w-1/2', 'w-2/5', 'w-1/4'][i]
+                }`}
+              />
+            </div>
+          ))}
+        </div>
+      ) : error ? (
+        <ErrorBanner message={error} />
+      ) : commands.length === 0 ? (
         <p className="text-sm text-slate-400 py-8 text-center">데이터 없음</p>
        ) : (
         <ResponsiveContainer width="100%" height={Math.max(180, commands.length * 28)}>
@@ -237,10 +270,22 @@ function HeatmapSection() {
           {tooltip.label} {tooltip.h}시: <span className="font-semibold">{tooltip.val}건</span>
         </div>
       )}
-      {loading ? <div className="h-32 flex items-center justify-center"><Spinner /></div>
-       : error  ? <ErrorBanner message={error} />
-       : !matrix ? null
-       : (
+      {loading ? (
+        <div className="space-y-1.5 py-3">
+          {Array.from({ length: 7 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <Skeleton className="h-4 w-8 shrink-0" />
+              <div className="flex flex-1 gap-0.5">
+                {Array.from({ length: 24 }).map((_, j) => (
+                  <Skeleton key={j} className="h-5 flex-1 rounded-sm" />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : error ? (
+        <ErrorBanner message={error} />
+      ) : !matrix ? null : (
         <div
           ref={scrollRef}
           className="overflow-x-auto scrollbar-none select-none cursor-grab"
@@ -315,9 +360,28 @@ function UsersSection({ period }: { period: string }) {
       <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800">
         <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">사용자별 활동</h2>
       </div>
-      {loading ? <div className="p-8 flex justify-center"><Spinner /></div>
-       : error  ? <div className="p-4"><ErrorBanner message={error} /></div>
-       : users.length === 0 ? (
+      {loading ? (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
+                <th className={TH}>#</th>
+                <th className={TH}>사용자 ID</th>
+                <th className={TH}>이름</th>
+                <th className={`${TH} text-right`}>명령 수</th>
+                <th className={`${TH} text-right`}>마지막 활동</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <TableRowSkeleton key={i} cols={5} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : error ? (
+        <div className="p-4"><ErrorBanner message={error} /></div>
+      ) : users.length === 0 ? (
         <p className="text-sm text-slate-400 py-8 text-center">데이터 없음</p>
        ) : (
         <div className="overflow-x-auto">

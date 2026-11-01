@@ -15,7 +15,7 @@ import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import FilterBar from '../components/ui/FilterBar'
-import Spinner from '../components/ui/Spinner'
+import { TableRowSkeleton } from '../components/ui/Skeleton'
 import Pagination from '../components/ui/Pagination'
 import { staggerDelay } from '../utils/animation'
 
@@ -185,7 +185,29 @@ export function EventsContent() {
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
         {loading ? (
-          <Spinner />
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+                  <th className="whitespace-nowrap px-4 py-3 text-left font-medium w-8">
+                    <div className="h-4 w-4 rounded bg-slate-200 dark:bg-slate-700 animate-pulse" />
+                  </th>
+                  <th className="whitespace-nowrap px-4 py-3 text-left font-medium">시간</th>
+                  <th className="px-4 py-3 text-left font-medium">레벨</th>
+                  <th className="px-4 py-3 text-left font-medium">소스</th>
+                  <th className="px-4 py-3 text-left font-medium">메시지</th>
+                  <th className="px-4 py-3 text-left font-medium">상세</th>
+                  <th className="px-4 py-3 text-left font-medium">상태</th>
+                  <th className="px-4 py-3 text-left font-medium">작업</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <TableRowSkeleton key={i} cols={8} />
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : (
           <>
             <div className="overflow-x-auto">
