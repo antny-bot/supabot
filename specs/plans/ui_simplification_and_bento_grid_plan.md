@@ -24,16 +24,25 @@
    - 전략별 세부 파라미터(RSI 가중 매수, DCA 스케줄 상세 등)를 점진적 공개 형태로 정돈.
 
 ### B. 정보 밀집 화면 벤토 그리드(Bento Grid) 확장 적용
-1. **대시보드 (`Dashboard.tsx`)** (적용 완료):
+1. **대시보드 (`Dashboard.tsx`)**:
    - 1행: KPI 4타일 (`col-span-3` × 4)
    - 2행: 일별 실현손익 차트(`col-span-8`) + 거래소별 자산 배분 도넛(`col-span-4`)
    - 3행: 보유 자산 요약(`col-span-6`) + 최근 체결 내역(`col-span-6`)
-2. **리포트 - 자산 배분 (`AllocationSection.tsx`)**:
-   - 단일 12컬럼 그리드 적용: 상단 헤더 요약 + 2개 도넛 차트(`col-span-6` × 2)의 대칭 및 반응형 높이 일치.
-3. **관리자 시스템 현황 (`Admin.tsx - DashboardTab`)**:
+2. **관리자 시스템 현황 (`Admin.tsx - DashboardTab`)**:
    - 1행: 봇 상태 퀵 배너 및 엔진 상태
    - 2행: 핵심 6대 지표 KPI (`col-span-4` sm / `col-span-2` xl)
-   - 3행: Supabase DB 헬스(`col-span-5` lg) + 최근 미확인 이벤트 테이블(`col-span-7` lg)
+   - 3행: Supabase DB 헬스(`col-span-4` lg) + 최근 미확인 이벤트 테이블(`col-span-8` lg)
+3. **관리자 종목 캐시 (`Admin.tsx - StockCacheTab`)**:
+   - 1행: 단건 종목 추가/수정 패널(`col-span-5` md) + CSV 일괄 업로드 및 KRX 전체 갱신 패널(`col-span-7` md)
+   - 2행: 검색 필터 및 종목 목록 테이블(`col-span-12` md)
+4. **관리자 사용 분석 (`Analytics.tsx`)**:
+   - 1행: DAU/WAU/MAU/명령수 4대 KPI (`col-span-3` × 4 md)
+   - 2행: 일별 명령 추이 바차트(`col-span-7` md) + 명령어 빈도 TOP15(`col-span-5` md)
+   - 3행: 24시간 × 7일 시간대별 이용 히트맵(`col-span-12` md)
+   - 4행: 사용자별 활동 내역 테이블(`col-span-12` md)
+5. **리포트 화면군 (`AllocationSection.tsx`, `WinStatsSection.tsx`)**:
+   - `AllocationSection`: 상단 자산 요약 + 자산군별 비중 도넛(`col-span-6`) + 거래소별 비중 도넛(`col-span-6`)
+   - `WinStatsSection`: 4개 승률 카운트 타일 + 3대 핵심 성과 지표(수익률/손실률/RR비율) + 승률 비중 파이차트(`col-span-6`) 및 평균 손익 비교 바차트(`col-span-6`) 대칭 배치
 
 ---
 

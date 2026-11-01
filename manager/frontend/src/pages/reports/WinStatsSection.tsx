@@ -51,8 +51,8 @@ export default function WinStatsSection({ dateRange }: { dateRange: DateRangeVal
   const COLORS = [PNL_UP_HEX, PNL_DOWN_HEX]
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+    <div className="flex flex-col gap-5">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {countCards.map(({ label, value, bg }, index) => (
           <div key={label} className={`${CARD} animate-fade-in-up p-4`} style={staggerDelay(index)}>
             <p className={`text-xs font-medium text-white ${bg} w-fit px-2 py-0.5 rounded-md mb-2`}>{label}</p>
@@ -61,7 +61,7 @@ export default function WinStatsSection({ dateRange }: { dateRange: DateRangeVal
         ))}
       </div>
 
-      <div className="grid md:grid-cols-3 gap-3">
+      <div className="grid md:grid-cols-3 gap-4">
         {[
           { label: '평균 수익률 (win)', value: pctFmt(stats.avg_win_pct), color: pctColor(stats.avg_win_pct), desc: '수익 거래 평균' },
           { label: '평균 손실률 (loss)', value: pctFmt(stats.avg_loss_pct), color: pctColor(stats.avg_loss_pct), desc: '손실 거래 평균' },

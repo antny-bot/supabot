@@ -524,33 +524,46 @@ function StockCacheTab() {
   const pagedRows = rows.slice((page - 1) * pageSize, page * pageSize)
 
   return (
-    <div className="space-y-5">
-      {error && <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-400">{error}</div>}
-      {uploadStatus && <div className="rounded-lg bg-green-50 px-4 py-3 text-sm text-green-700 dark:bg-green-900/30 dark:text-green-400">{uploadStatus}</div>}
+    <div className="grid gap-5 md:grid-cols-12">
+      {error && (
+        <div className="md:col-span-12 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-400">
+          {error}
+        </div>
+      )}
+      {uploadStatus && (
+        <div className="md:col-span-12 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-700 dark:bg-green-900/30 dark:text-green-400">
+          {uploadStatus}
+        </div>
+      )}
 
-      {/* 단건 추가 */}
-      <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900">
-        <h3 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-300">종목 추가 / 수정</h3>
-        <form onSubmit={handleAdd} className="flex flex-wrap gap-2 items-end">
-          <div className="flex flex-col gap-1">
-            <label className="text-xs text-slate-500">종목명</label>
-            <input className={inputCls} placeholder="삼천당제약" value={newName} onChange={e => setNewName(e.target.value)} required />
+      {/* Bento 1: 단건 추가 */}
+      <div className="md:col-span-5 flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div>
+          <h3 className="mb-1 text-sm font-semibold text-slate-800 dark:text-slate-200">종목 추가 / 수정</h3>
+          <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">개별 종목명과 6자리 종목코드를 수동 등록합니다.</p>
+        </div>
+        <form onSubmit={handleAdd} className="flex flex-wrap gap-2.5 items-end pt-1">
+          <div className="flex flex-col gap-1 flex-1 min-w-[120px]">
+            <label className="text-xs font-medium text-slate-600 dark:text-slate-400">종목명</label>
+            <input className={inputCls} placeholder="예: 삼천당제약" value={newName} onChange={e => setNewName(e.target.value)} required />
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs text-slate-500">종목코드</label>
+          <div className="flex flex-col gap-1 w-28">
+            <label className="text-xs font-medium text-slate-600 dark:text-slate-400">종목코드</label>
             <input className={inputCls} placeholder="000250" value={newCode} onChange={e => setNewCode(e.target.value)} required maxLength={6} />
           </div>
           <button type="submit" disabled={saving} className={btnPrimary}>{saving ? '저장 중...' : '저장'}</button>
         </form>
       </div>
 
-      {/* CSV 업로드 */}
-      <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900">
-        <h3 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-300">CSV 일괄 업로드</h3>
-        <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">CSV 형식: 헤더 <code className="font-mono">name,code</code> (순서 무관)</p>
-        <div className="flex flex-wrap gap-3 items-center">
-          <label className="flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-300 cursor-pointer">
-            <input type="checkbox" checked={overwrite} onChange={e => setOverwrite(e.target.checked)} className="rounded" />
+      {/* Bento 2: CSV 일괄 및 KRX 갱신 */}
+      <div className="md:col-span-7 flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div>
+          <h3 className="mb-1 text-sm font-semibold text-slate-800 dark:text-slate-200">CSV 및 KRX 일괄 갱신</h3>
+          <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">CSV 형식: 헤더 <code className="font-mono">name,code</code> (순서 무관) 또는 KRX 전체 자동 갱신</p>
+        </div>
+        <div className="flex flex-wrap gap-2.5 items-center pt-1">
+          <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 cursor-pointer mr-1">
+            <input type="checkbox" checked={overwrite} onChange={e => setOverwrite(e.target.checked)} className="rounded text-primary-600" />
             중복 덮어쓰기
           </label>
           <label className={`${btnPrimary} flex items-center gap-1.5 cursor-pointer`}>
@@ -558,19 +571,19 @@ function StockCacheTab() {
             CSV 업로드
             <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleUpload} />
           </label>
-          <button onClick={handleExport} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
+          <button onClick={handleExport} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3.5 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors">
             <Download size={14} />
             CSV 내보내기
           </button>
-          <button onClick={handleRefresh} disabled={refreshing} className={`${btnPrimary} flex items-center gap-1.5`}>
+          <button onClick={handleRefresh} disabled={refreshing} className="rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-1.5 transition-colors">
             <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
             {refreshing ? 'KRX 갱신 중...' : 'KRX 전체 갱신'}
           </button>
         </div>
       </div>
 
-      {/* 검색 + 목록 */}
-      <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+      {/* Bento 3: 검색 + 목록 (전체 너비 12) */}
+      <div className="md:col-span-12 rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 overflow-hidden">
         <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
           <form onSubmit={handleSearch} className="flex gap-2 flex-1">
             <input className={`${inputCls} flex-1 max-w-xs`} placeholder="종목명 또는 코드 검색" value={search} onChange={e => setSearch(e.target.value)} />

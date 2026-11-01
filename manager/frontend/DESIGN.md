@@ -54,7 +54,13 @@ Every new page and every page-level redesign must follow these rules unless ther
 - **모바일(기본)**: 1열 스택. DOM 순서 = 모바일 노출 순서이므로 타일 순서를 "중요도 순"으로 작성한다. 모바일 전용/데스크톱 전용 요소는 `md:hidden` / `hidden md:contents`(자식을 부모 그리드에 편입)로 처리한다.
 - **간격**: 숨김 요소가 섞이므로 `space-y-*` 금지(4번 규칙). 페이지 루트도 `flex flex-col gap-*`.
 - **타일 셸**: 기존 Card 스타일 유지 (`rounded-xl border bg-white shadow-sm dark:...`), 타일 헤더는 아이콘 + `text-app-body font-semibold` + 우측 "전체보기" 링크.
-- **적용 현황**: `Dashboard` (KPI 4 + 손익 추이 8 / 자산 배분 4 + 보유 자산 6 / 최근 체결 6). 신규 정보 밀집 화면(Admin 시스템 현황, Reports 현황 등)은 이 규칙을 따른다.
+- **적용 현황**:
+  - `Dashboard`: 1행 KPI 4(3+3+3+3), 2행 일별 손익(8) + 거래소 배분(4), 3행 보유 자산(6) + 최근 체결(6).
+  - `Admin > 대시보드`: 1행 퀵 배너, 2행 6대 지표 KPI, 3행 Supabase DB 헬스(4) + 최근 미확인 이벤트(8).
+  - `Admin > 종목 캐시`: 1행 종목 추가/수정(5) + CSV 및 KRX 일괄 갱신(7), 2행 검색 및 종목 목록 테이블(12).
+  - `Admin > 사용 분석` (`/analytics`): 1행 4대 핵심 KPI(3+3+3+3), 2행 일별 명령 추이(7) + 명령어 빈도 TOP15(5), 3행 시간대별 이용 히트맵(12), 4행 사용자별 활동 테이블(12).
+  - `Reports > 포트폴리오 자산 배분`: 1행 상단 자산 요약, 2행 자산군별 비중(6) + 거래소별 비중(6).
+  - `Reports > 승률/손익비`: 1행 승률 카운트 4타일, 2행 3대 성과 지표(4+4+4), 3행 거래 승률 비중(6) + 평균 손익 비교(6).
 
 ---
 
@@ -149,7 +155,7 @@ Prefer these app tokens over page-local `text-*` sizing:
 - **Trades** (`/trades`): 체결 거래 목록과 함께 실시간 매수/매도 비율 게이지 바 및 날짜 필터 제공.
 - **Templates** (`/templates`): 전략 템플릿 카드 라이브러리 및 폼 모달 제공 (그리드, 스마트그리드, RSI).
 - **Reports** (`/reports`): 이중 카테고리 그룹핑을 제거하고, 관리자 방식의 1차원 `ResponsiveTabs` 시트 메뉴(15개 탭)로 일원화. 기간 민감 탭 선택 시 하단 우측에 `DateRangePicker` 연동.
-- **Admin** (`/admin`, admin-only): `ResponsiveTabs` 시트 탭 기반 유저관리, 이벤트, 모니터링, 종목 캐시, NL 로그 등 관리.
+- **Admin** (`/admin`, admin-only): `ResponsiveTabs` 시트 탭 기반. 대시보드(DB헬스 4 + 이벤트 8 벤토 그리드), 사용 분석(KPI + 명령 추이 7 + 빈도 5 벤토 그리드), 종목 캐시(단건 추가 5 + CSV/KRX 갱신 7 + 목록 12 벤토 그리드), 이벤트, 모니터링, NL 로그 등 관리.
 - **Config** (`/config`): `ResponsiveTabs` 시트 탭 기반 화면 표시, 보안(MFA) 설정.
 
 ## Accordion / Collapsible Animation

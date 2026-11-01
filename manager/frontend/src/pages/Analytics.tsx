@@ -70,7 +70,7 @@ function OverviewSection() {
   if (!data)   return null
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+    <div className="md:col-span-12 grid grid-cols-2 sm:grid-cols-4 gap-4">
       <div className="animate-fade-in-up" style={staggerDelay(0)}>
         <StatCard label="DAU (오늘)"   value={data.dau}                 icon={<Users size={18} />}    iconBg="bg-primary-500" />
       </div>
@@ -121,7 +121,7 @@ function ActivitySection({ days, onDaysChange }: ActivitySectionProps) {
   const tickInterval = days <= 7 ? 0 : days <= 30 ? 4 : 9
 
   return (
-    <div className={`${CARD} animate-fade-in-up p-5`} style={staggerDelay(4)}>
+    <div className={`${CARD} md:col-span-7 animate-fade-in-up p-5 flex flex-col justify-between`} style={staggerDelay(4)}>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">일별 명령 건수</h2>
         <FilterBar
@@ -165,7 +165,7 @@ function CommandsSection({ period }: { period: string }) {
   }, [period])
 
   return (
-    <div className={`${CARD} animate-fade-in-up p-5`} style={staggerDelay(6)}>
+    <div className={`${CARD} md:col-span-5 animate-fade-in-up p-5 flex flex-col justify-between`} style={staggerDelay(6)}>
       <div className="flex items-center justify-between mb-1">
         <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">명령어 빈도 (상위 15)</h2>
         <span className="text-xs text-slate-400">총 {total.toLocaleString()}건</span>
@@ -227,7 +227,7 @@ function HeatmapSection() {
   }
 
   return (
-    <div className={`${CARD} animate-fade-in-up p-5 relative`} style={staggerDelay(5)}>
+    <div className={`${CARD} md:col-span-12 animate-fade-in-up p-5 relative`} style={staggerDelay(5)}>
       <div className="flex items-center gap-2 mb-4">
         <Clock size={16} className="text-slate-400" />
         <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">시간대별 사용 히트맵 (최근 90일, KST)</h2>
@@ -311,7 +311,7 @@ function UsersSection({ period }: { period: string }) {
   const TD = 'px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200'
 
   return (
-    <div className={`${CARD} animate-fade-in-up overflow-hidden`} style={staggerDelay(7)}>
+    <div className={`${CARD} md:col-span-12 animate-fade-in-up overflow-hidden`} style={staggerDelay(7)}>
       <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800">
         <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">사용자별 활동</h2>
       </div>
@@ -364,7 +364,7 @@ export default function Analytics({ hideHeader = false }: { hideHeader?: boolean
   }
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="flex flex-col gap-5 pb-12">
       {!hideHeader ? (
         <PageHeader
           title={meta.title}
@@ -388,16 +388,14 @@ export default function Analytics({ hideHeader = false }: { hideHeader?: boolean
         </div>
       )}
 
-      <OverviewSection />
-
-      <ActivitySection days={days} onDaysChange={setDays} />
-
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(680px,2fr)_minmax(280px,1fr)] gap-6">
-        <HeatmapSection />
+      {/* Bento Grid: 1행 KPI(12) -> 2행 일별 명령(7) + 명령어 빈도(5) -> 3행 히트맵(12) -> 4행 사용자 활동(12) */}
+      <div className="grid gap-5 md:grid-cols-12 md:gap-4">
+        <OverviewSection />
+        <ActivitySection days={days} onDaysChange={setDays} />
         <CommandsSection period={period} />
+        <HeatmapSection />
+        <UsersSection period={period} />
       </div>
-
-      <UsersSection period={period} />
     </div>
   )
 }
