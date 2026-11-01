@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
-import { LogOut, Menu, Moon, Settings, ShieldCheck, Sun, Zap, MessageSquarePlus } from 'lucide-react'
+import { LogOut, Menu, Monitor, Moon, Settings, ShieldCheck, Sun, Zap, MessageSquarePlus } from 'lucide-react'
 import { APP_NAV_ITEMS } from '../../config/pageMeta'
 import { useAuthContext } from '../../contexts/AuthContext'
 import FeedbackModal from '../feedback/FeedbackModal'
@@ -17,7 +17,7 @@ function writeCollapsed(v: boolean) {
 
 export default function Sidebar() {
   const { user } = useAuthContext()
-  const { isDark, toggle: toggleTheme } = useTheme()
+  const { theme, setTheme } = useTheme()
   const navigate = useNavigate()
   const [collapsed, setCollapsed] = useState(readCollapsed)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -133,9 +133,9 @@ export default function Sidebar() {
               <div className="flex items-center gap-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 p-0.5">
                 <button
                   type="button"
-                  onClick={() => toggleTheme()}
+                  onClick={() => setTheme('light')}
                   className={`rounded-md p-1 transition-colors ${
-                    !isDark
+                    theme === 'light'
                       ? 'bg-white text-primary-600 shadow-sm dark:bg-slate-700 font-semibold'
                       : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
                   }`}
@@ -145,15 +145,27 @@ export default function Sidebar() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => toggleTheme()}
+                  onClick={() => setTheme('dark')}
                   className={`rounded-md p-1 transition-colors ${
-                    isDark
+                    theme === 'dark'
                       ? 'bg-white text-primary-600 shadow-sm dark:bg-slate-700 font-semibold'
                       : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
                   }`}
                   title="다크 모드"
                 >
                   <Moon size={13} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTheme('system')}
+                  className={`rounded-md p-1 transition-colors ${
+                    theme === 'system'
+                      ? 'bg-white text-primary-600 shadow-sm dark:bg-slate-700 font-semibold'
+                      : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                  }`}
+                  title="시스템 모드"
+                >
+                  <Monitor size={13} />
                 </button>
               </div>
             </div>

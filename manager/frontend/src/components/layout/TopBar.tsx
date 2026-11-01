@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { LogOut, Moon, Sun, Zap, MessageSquarePlus } from 'lucide-react'
+import { LogOut, Monitor, Moon, Sun, Zap, MessageSquarePlus } from 'lucide-react'
 import { useState } from 'react'
 import FeedbackModal from '../feedback/FeedbackModal'
 import { NavLink } from 'react-router-dom'
@@ -7,7 +7,7 @@ import { useTheme } from '../../hooks/useTheme'
 import { useAuthContext } from '../../contexts/AuthContext'
 
 export default function TopBar() {
-  const { isDark, toggle } = useTheme()
+  const { theme, toggle } = useTheme()
   const navigate = useNavigate()
   const { user: _user } = useAuthContext()
   const [feedbackOpen, setFeedbackOpen] = useState(false)
@@ -29,11 +29,17 @@ export default function TopBar() {
 
         <div className="ml-auto flex items-center gap-1">
           <button
+            type="button"
             onClick={toggle}
             className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-            title={isDark ? '라이트 모드' : '다크 모드'}
+            title={
+              theme === 'light' ? '라이트 모드' :
+              theme === 'dark' ? '다크 모드' : '시스템 모드'
+            }
           >
-            {isDark ? <Sun size={16} /> : <Moon size={16} />}
+            {theme === 'light' && <Sun size={16} />}
+            {theme === 'dark' && <Moon size={16} />}
+            {theme === 'system' && <Monitor size={16} />}
           </button>
 
           <button

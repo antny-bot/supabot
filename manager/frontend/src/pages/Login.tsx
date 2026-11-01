@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertCircle, Moon, Sun, Zap } from 'lucide-react'
+import { AlertCircle, Monitor, Moon, Sun, Zap } from 'lucide-react'
 import { loginWithMfa, loginWithPassword } from '../api/auth'
 import { ApiError } from '../api/client'
 import { useTheme } from '../hooks/useTheme'
@@ -33,7 +33,7 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
-  const { isDark, toggle } = useTheme()
+  const { theme, toggle } = useTheme()
 
   useEffect(() => {
     localStorage.setItem(REMEMBER_KEY, String(rememberEmail))
@@ -121,8 +121,14 @@ export default function Login() {
         type="button"
         onClick={toggle}
         className="absolute right-4 top-4 rounded-xl border border-slate-200/50 bg-white/50 p-2 text-slate-600 shadow-md backdrop-blur-md transition-all hover:bg-white/80 dark:border-slate-800/50 dark:bg-slate-900/50 dark:text-slate-400 dark:hover:bg-slate-800/80"
+        title={
+          theme === 'light' ? '라이트 모드' :
+          theme === 'dark' ? '다크 모드' : '시스템 모드'
+        }
       >
-        {isDark ? <Sun size={18} /> : <Moon size={18} />}
+        {theme === 'light' && <Sun size={18} />}
+        {theme === 'dark' && <Moon size={18} />}
+        {theme === 'system' && <Monitor size={18} />}
       </button>
 
       <div className="w-full max-w-sm relative z-10">

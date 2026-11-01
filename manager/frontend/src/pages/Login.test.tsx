@@ -13,7 +13,7 @@ vi.mock('../api/auth', () => ({
 }))
 
 vi.mock('../hooks/useTheme', () => ({
-  useTheme: () => ({ isDark: false, toggle: vi.fn() }),
+  useTheme: () => ({ theme: 'system', isDark: false, toggle: vi.fn(), setTheme: vi.fn() }),
 }))
 
 vi.mock('react-router-dom', async () => {
