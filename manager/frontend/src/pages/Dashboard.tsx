@@ -28,6 +28,8 @@ import {
 
 } from 'recharts'
 import DonutChart from '../components/ui/DonutChart'
+import BudgetHealthCard, { type BudgetHealthData } from '../components/budget/BudgetHealthCard'
+import { fetchBudgetHealth } from '../api/templates'
 import { fetchDashboard } from '../api/dashboard'
 import { fetchReportHoldings, fetchReportDaily, fetchReportAllocation } from '../api/reports'
 import { fetchTrades } from '../api/trades'
@@ -62,6 +64,7 @@ export default function Dashboard() {
   const [recentTrades, setRecentTrades] = useState<Trade[] | null>(null)
   const [dailyData, setDailyData] = useState<DailyReport | null>(null)
   const [allocation, setAllocation] = useState<AllocationReport | null>(null)
+  const [budgetHealth, setBudgetHealth] = useState<BudgetHealthData | null>(null)
 
   // 모바일 탭 스위처: 'holdings' | 'trades'
   const [mobileTab, setMobileTab] = useState<'holdings' | 'trades'>('holdings')
@@ -88,12 +91,14 @@ export default function Dashboard() {
       fetchTrades(RECENT_TRADES_RANGE, 1, 5).catch(() => ({ trades: [], total: 0 })),
       fetchReportDaily(CHART_RANGE).catch(() => null),
       fetchReportAllocation().catch(() => null),
+      fetchBudgetHealth('toss').catch(() => null),
     ])
-      .then(([holdingsRes, tradesRes, dailyRes, allocRes]) => {
+      .then(([holdingsRes, tradesRes, dailyRes, allocRes, healthRes]) => {
         if (holdingsRes) setHoldings(holdingsRes)
         if (tradesRes) setRecentTrades(tradesRes.trades)
         if (dailyRes) setDailyData(dailyRes)
         if (allocRes) setAllocation(allocRes)
+        if (healthRes) setBudgetHealth(healthRes?.data || healthRes)
       })
       .catch(() => {})
   }, [])
@@ -291,10 +296,20 @@ export default function Dashboard() {
       </div>
 
       {/* =========================================================================
-          [2] 데스크톱 전용: 4대 핵심 지표 요약 바
+          [2] 통합 예수금 Health Check 카드 & 4대 핵심 지표 요약 바
           ========================================================================= */}
       <div className="grid gap-5 md:grid-cols-12 md:gap-4">
-      <div className="hidden md:contents">
+        {/* 거래소별 통합 예수금 Health Check 카드 (클릭 시 감사 원장 리포트 직행) */}
+        <div className="col-span-12">
+          <BudgetHealthCard
+            healthData={budgetHealth}
+            loading={loading && !budgetHealth}
+            showDetailLink
+            onClick={() => navigate('/reports?tab=budget_plan')}
+          />
+        </div>
+
+        <div className="hidden md:contents">
         {loading && !data ? (
           <>
             <div className="md:col-span-3"><StatCardSkeleton /></div>

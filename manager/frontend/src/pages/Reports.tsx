@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import DateRangePicker, { type DateRangeValue } from '../components/ui/DateRangePicker'
 import PageHeader from '../components/ui/PageHeader'
 import ResponsiveTabs from '../components/ui/ResponsiveTabs'
@@ -54,16 +55,34 @@ const PERIOD_SENSITIVE_TABS = new Set([
 const DEFAULT_RANGE: DateRangeValue = { mode: '30d', from: '', to: '' }
 
 export default function Reports() {
-  const [activeTab, setActiveTab] = useState('holdings')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tabFromUrl = searchParams.get('tab')
+  const [activeTab, setActiveTab] = useState(() => {
+    if (tabFromUrl && REPORT_TABS.some((t) => t.id === tabFromUrl)) {
+      return tabFromUrl
+    }
+    return 'holdings'
+  })
   const [dateRange, setDateRange] = useState<DateRangeValue>(DEFAULT_RANGE)
   const [dateFilterOpen, setDateFilterOpen] = useState(false)
+
+  useEffect(() => {
+    if (tabFromUrl && REPORT_TABS.some((t) => t.id === tabFromUrl) && tabFromUrl !== activeTab) {
+      setActiveTab(tabFromUrl)
+    }
+  }, [tabFromUrl, activeTab])
+
+  const handleTabChange = (newTab: string) => {
+    setActiveTab(newTab)
+    setSearchParams({ tab: newTab }, { replace: true })
+  }
 
   return (
     <div className="space-y-4 pb-8">
       <PageHeader {...PAGE_META.reports} />
 
       {/* 시트 형태 반응형 서브메뉴 탭 */}
-      <ResponsiveTabs tabs={REPORT_TABS} activeTab={activeTab} onChange={setActiveTab} />
+      <ResponsiveTabs tabs={REPORT_TABS} activeTab={activeTab} onChange={handleTabChange} />
 
       {/* 기간 선택기 — 기간 민감 탭에만 표시 */}
       {PERIOD_SENSITIVE_TABS.has(activeTab) && (

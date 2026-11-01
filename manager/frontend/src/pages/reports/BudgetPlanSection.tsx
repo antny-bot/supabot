@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  ShieldCheck, DollarSign, RotateCcw, Edit3, Layers
+  DollarSign, RotateCcw, Edit3, Layers
 } from 'lucide-react'
 import {
   fetchTemplates, type Template,
@@ -9,6 +9,7 @@ import {
 } from '../../api/templates'
 import Spinner from '../../components/ui/Spinner'
 import ErrorBanner from '../../components/ui/ErrorBanner'
+import BudgetHealthCard from '../../components/budget/BudgetHealthCard'
 import { krwFmt, CARD, TH, TD } from './ReportsShared'
 
 export default function BudgetPlanSection() {
@@ -126,58 +127,10 @@ export default function BudgetPlanSection() {
 
   const selectedTemplate = templates.find((t) => t.id === selectedTemplateId)
   const currentParams = selectedTemplate?.params || {}
-  const healthGrade = healthData?.health_grade || 'HEALTHY'
-  const isHealthy = healthGrade === 'HEALTHY'
-  const isWarning = healthGrade === 'WARNING'
-
   return (
     <div className="space-y-4">
       {/* 1. 상단 거래소별 통합 예수금 Health Check 카드 */}
-      <div className={`rounded-xl border p-4 ${
-        isHealthy
-          ? 'border-emerald-200 bg-emerald-50/70 dark:border-emerald-800/50 dark:bg-emerald-950/20'
-          : isWarning
-          ? 'border-amber-200 bg-amber-50/70 dark:border-amber-800/50 dark:bg-amber-950/20'
-          : 'border-red-200 bg-red-50/70 dark:border-red-800/50 dark:bg-red-950/20'
-      }`}>
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <ShieldCheck size={20} className={isHealthy ? 'text-emerald-600' : isWarning ? 'text-amber-600' : 'text-red-600'} />
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-sm text-slate-800 dark:text-slate-100">
-                  [{healthData?.exchange || 'TOSS'}] 멀티 전략 통합 예수금 Health Check
-                </span>
-                <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
-                  isHealthy ? 'bg-emerald-200 text-emerald-800' : isWarning ? 'bg-amber-200 text-amber-800' : 'bg-red-200 text-red-800'
-                }`}>
-                  {healthGrade}
-                </span>
-              </div>
-              <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">
-                {healthData?.health_message}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4 text-xs font-mono">
-            <div>
-              <span className="text-slate-500 block text-[11px]">예수금</span>
-              <span className="font-bold text-slate-800 dark:text-slate-100" title={`${Number(healthData?.actual_cash_krw || 0).toLocaleString()}원`}>
-                {krwFmt(healthData?.actual_cash_krw || 0)}
-              </span>
-            </div>
-            <div>
-              <span className="text-slate-500 block text-[11px]">일 필요액 합계</span>
-              <span className="font-bold text-slate-800 dark:text-slate-100">{krwFmt(healthData?.daily_required_krw || 0)}</span>
-            </div>
-            <div>
-              <span className="text-slate-500 block text-[11px]">당월 잔여 필요액</span>
-              <span className="font-bold text-slate-800 dark:text-slate-100">{krwFmt(healthData?.monthly_remaining_required_krw || 0)}</span>
-            </div>
-          </div>
-        </div>
-      </div>
+      <BudgetHealthCard healthData={healthData} />
 
       {/* 2. 템플릿 선택 및 Budget Plan 컨트롤 보드 */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
