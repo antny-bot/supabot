@@ -1,4 +1,4 @@
-import DonutChart from '../../components/ui/DonutChart'
+﻿import DonutChart from '../../components/ui/DonutChart'
 import { useEffect, useState } from 'react'
 import { PieChart as PieIcon, Layers, Download } from 'lucide-react'
 import { fetchReportAllocation } from '../../api/reports'
@@ -55,7 +55,7 @@ export default function AllocationSection() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-5">
       {/* 상단 요약 & CSV 내보내기 */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
         <div>

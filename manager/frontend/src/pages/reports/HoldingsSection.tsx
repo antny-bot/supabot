@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { TrendingUp, TrendingDown, DollarSign, Award } from 'lucide-react'
 import { fetchReportHoldings } from '../../api/reports'
 import type { HoldingsReport } from '../../types'
@@ -49,7 +49,7 @@ export default function HoldingsSection() {
   ]
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {summaryCards.map(({ label, value, Icon, bg, extra, extraColor }, index) => (
           <div key={label} className={`${CARD} animate-fade-in-up p-4 flex items-center gap-3`} style={staggerDelay(index)}>

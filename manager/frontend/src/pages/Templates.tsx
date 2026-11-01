@@ -31,6 +31,7 @@ import {
 } from '../api/templates'
 import Badge from '../components/ui/Badge'
 import PageHeader from '../components/ui/PageHeader'
+import AdvancedSection from '../components/ui/AdvancedSection'
 import { CardSkeleton } from '../components/ui/Skeleton'
 import { PAGE_META } from '../config/pageMeta'
 import { useToast } from '../contexts/ToastContext'
@@ -1167,71 +1168,76 @@ export default function Templates() {
                           </div>
                         </div>
 
-                        {/* 휩쏘 방지 안전장치 */}
-                        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-3 dark:border-slate-800 dark:bg-slate-800/40">
-                          <span className="block text-xs font-bold text-slate-800 dark:text-slate-200">
-                            순위 이탈 안전장치 (휩쏘·일시적 등락 방지)
-                          </span>
+                        {/* 휩쏘 방지 안전장치 (고급 설정 아코디언) */}
+                        <AdvancedSection
+                          title="고급 설정 · 휩쏘 방지 옵션"
+                          summary={`유예 +${form.exitRankBuffer || 0}위 · ${form.exitConfirmDays || 1}영업일 확인 · ${form.sellSplitDays || 5}일 분할매도`}
+                        >
+                          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-3 dark:border-slate-800 dark:bg-slate-800/40">
+                            <span className="block text-xs font-bold text-slate-800 dark:text-slate-200">
+                              순위 이탈 안전장치 (휩쏘·일시적 등락 방지)
+                            </span>
 
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                                유예 순위 버퍼 (+위)
-                              </label>
-                              <input
-                                type="number"
-                                aria-label="유예 순위 버퍼"
-                                min="0"
-                                max="20"
-                                value={form.exitRankBuffer}
-                                onChange={(e) => setForm({ ...form, exitRankBuffer: e.target.value })}
-                                className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                                required
-                              />
-                              <p className="mt-1 text-[10px] text-slate-400">
-                                +{form.exitRankBuffer || 0}위까지는 일시적 밀림으로 인정해 매도 대기
-                              </p>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                                  유예 순위 버퍼 (+위)
+                                </label>
+                                <input
+                                  type="number"
+                                  aria-label="유예 순위 버퍼"
+                                  min="0"
+                                  max="20"
+                                  value={form.exitRankBuffer}
+                                  onChange={(e) => setForm({ ...form, exitRankBuffer: e.target.value })}
+                                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                                  required
+                                />
+                                <p className="mt-1 text-[10px] text-slate-400">
+                                  +{form.exitRankBuffer || 0}위까지는 일시적 밀림으로 인정해 매도 대기
+                                </p>
+                              </div>
+
+                              <div>
+                                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                                  연속 이탈 확인 (영업일)
+                                </label>
+                                <input
+                                  type="number"
+                                  aria-label="연속 이탈 확인"
+                                  min="1"
+                                  max="20"
+                                  value={form.exitConfirmDays}
+                                  onChange={(e) => setForm({ ...form, exitConfirmDays: e.target.value })}
+                                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                                  required
+                                />
+                                <p className="mt-1 text-[10px] text-slate-400">
+                                  {form.exitConfirmDays || 1}영업일 연속 유예를 벗어나야 최종 확정
+                                </p>
+                              </div>
                             </div>
 
-                            <div>
+                            <div className="pt-1">
                               <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                                연속 이탈 확인 (영업일)
+                                이탈 시 분할 매도 기간 (영업일)
                               </label>
                               <input
                                 type="number"
-                                aria-label="연속 이탈 확인"
+                                aria-label="이탈 시 분할매도"
                                 min="1"
-                                max="20"
-                                value={form.exitConfirmDays}
-                                onChange={(e) => setForm({ ...form, exitConfirmDays: e.target.value })}
+                                max="60"
+                                value={form.sellSplitDays}
+                                onChange={(e) => setForm({ ...form, sellSplitDays: e.target.value })}
                                 className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                                 required
                               />
                               <p className="mt-1 text-[10px] text-slate-400">
-                                {form.exitConfirmDays || 1}영업일 연속 유예를 벗어나야 최종 확정
+                                이탈 확정 종목을 {form.sellSplitDays || 5}일에 걸쳐 균등 분할 매도하여 시장 충격을 최소화합니다.
                               </p>
                             </div>
                           </div>
-
-                          <div className="pt-1">
-                            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                              이탈 시 분할 매도 기간 (영업일)
-                            </label>
-                            <input
-                              type="number"
-                              aria-label="이탈 시 분할매도"
-                              min="1"
-                              max="60"
-                              value={form.sellSplitDays}
-                              onChange={(e) => setForm({ ...form, sellSplitDays: e.target.value })}
-                              className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                              required
-                            />
-                            <p className="mt-1 text-[10px] text-slate-400">
-                              이탈 확정 종목을 {form.sellSplitDays || 5}일에 걸쳐 균등 분할 매도하여 시장 충격을 최소화합니다.
-                            </p>
-                          </div>
-                        </div>
+                        </AdvancedSection>
 
                         {/* 가이드 배너 */}
                         <div className="flex items-start gap-2.5 rounded-xl bg-slate-50 p-3 text-xs text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
@@ -1364,50 +1370,77 @@ export default function Templates() {
                           </div>
                         </div>
 
-                        {/* 사이클당 종목 배분 방식 & 매도금 처리 */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div>
-                            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                              사이클당 종목 배분 방식
-                            </label>
-                            <select
-                              aria-label="사이클당 종목 배분 방식"
-                              value={form.cycleAllocMode}
-                              onChange={(e) =>
-                                setForm({
-                                  ...form,
-                                  cycleAllocMode: e.target.value as 'one_share' | 'target_amount',
-                                })
-                              }
-                              className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white focus:border-violet-500"
-                            >
-                              <option value="one_share">1주씩 순차 매수 (one_share - 추천)</option>
-                              <option value="target_amount">종목당 목표 금액 균등 매수 (target_amount)</option>
-                            </select>
-                            <p className="mt-1 text-[10px] text-slate-400">
-                              {form.cycleAllocMode === 'one_share'
-                                ? '유니버스 종목을 매일 1주씩 골고루 모아갑니다.'
-                                : '종목마다 정해진 금액을 목표로 균등 분할 매수합니다.'}
-                            </p>
-                          </div>
-
-                          {form.cycleAllocMode === 'target_amount' ? (
+                        {/* 사이클당 종목 배분 방식 & 매도금 처리 (고급 설정 아코디언) */}
+                        <AdvancedSection
+                          title="고급 설정 · 종목 배분 및 매도금 처리"
+                          summary={`${form.cycleAllocMode === 'one_share' ? '1주씩 순차 매수' : '종목당 목표금액 균등'} · ${form.sellProceedsMode === 'keep_cash' ? '예수금 보관' : '예산 풀 재투입'}`}
+                        >
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div>
                               <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                                종목당 1회 목표 금액 (KRW)
+                                사이클당 종목 배분 방식
                               </label>
-                              <input
-                                type="number"
-                                aria-label="종목당 1회 목표 금액"
-                                step="any"
-                                min="1000"
-                                value={form.cycleTargetKrw}
-                                onChange={(e) => setForm({ ...form, cycleTargetKrw: e.target.value })}
-                                className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                                required
-                              />
+                              <select
+                                aria-label="사이클당 종목 배분 방식"
+                                value={form.cycleAllocMode}
+                                onChange={(e) =>
+                                  setForm({
+                                    ...form,
+                                    cycleAllocMode: e.target.value as 'one_share' | 'target_amount',
+                                  })
+                                }
+                                className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white focus:border-violet-500"
+                              >
+                                <option value="one_share">1주씩 순차 매수 (one_share - 추천)</option>
+                                <option value="target_amount">종목당 목표 금액 균등 매수 (target_amount)</option>
+                              </select>
+                              <p className="mt-1 text-[10px] text-slate-400">
+                                {form.cycleAllocMode === 'one_share'
+                                  ? '유니버스 종목을 매일 1주씩 골고루 모아갑니다.'
+                                  : '종목마다 정해진 금액을 목표로 균등 분할 매수합니다.'}
+                              </p>
                             </div>
-                          ) : (
+
+                            {form.cycleAllocMode === 'target_amount' ? (
+                              <div>
+                                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                                  종목당 1회 목표 금액 (KRW)
+                                </label>
+                                <input
+                                  type="number"
+                                  aria-label="종목당 1회 목표 금액"
+                                  step="any"
+                                  min="1000"
+                                  value={form.cycleTargetKrw}
+                                  onChange={(e) => setForm({ ...form, cycleTargetKrw: e.target.value })}
+                                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                                  required
+                                />
+                              </div>
+                            ) : (
+                              <div>
+                                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                                  이탈 매도 대금 처리 방식
+                                </label>
+                                <select
+                                  aria-label="이탈 매도 대금 처리 방식"
+                                  value={form.sellProceedsMode}
+                                  onChange={(e) =>
+                                    setForm({
+                                      ...form,
+                                      sellProceedsMode: e.target.value as 'keep_cash' | 'recycle_to_budget',
+                                    })
+                                  }
+                                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white focus:border-violet-500"
+                                >
+                                  <option value="keep_cash">예수금 보관 (익월 입금 부담 경감)</option>
+                                  <option value="recycle_to_budget">전략 가용 예산 풀에 자동 재투입</option>
+                                </select>
+                              </div>
+                            )}
+                          </div>
+
+                          {form.cycleAllocMode === 'target_amount' && (
                             <div>
                               <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
                                 이탈 매도 대금 처리 방식
@@ -1428,29 +1461,7 @@ export default function Templates() {
                               </select>
                             </div>
                           )}
-                        </div>
-
-                        {form.cycleAllocMode === 'target_amount' && (
-                          <div>
-                            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                              이탈 매도 대금 처리 방식
-                            </label>
-                            <select
-                              aria-label="이탈 매도 대금 처리 방식"
-                              value={form.sellProceedsMode}
-                              onChange={(e) =>
-                                setForm({
-                                  ...form,
-                                  sellProceedsMode: e.target.value as 'keep_cash' | 'recycle_to_budget',
-                                })
-                              }
-                              className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white focus:border-violet-500"
-                            >
-                              <option value="keep_cash">예수금 보관 (익월 입금 부담 경감)</option>
-                              <option value="recycle_to_budget">전략 가용 예산 풀에 자동 재투입</option>
-                            </select>
-                          </div>
-                        )}
+                        </AdvancedSection>
                       </div>
                     )}
 

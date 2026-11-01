@@ -46,6 +46,16 @@ Every new page and every page-level redesign must follow these rules unless ther
 - **`stroke="none"` 및 `strokeWidth={0}` 필수 적용**: 테두리를 없애고 조각 간 간격은 `paddingAngle`로만 깔끔하게 시각적 분리를 제공한다.
 - **공통 컴포넌트([DonutChart.tsx](file:///E:/apps/supabot/manager/frontend/src/components/ui/DonutChart.tsx)) 사용**: 도넛 차트 구현 시 개별 작성 대신 공통 컴포넌트를 사용하여 다크모드 툴팁, 레전드 스타일, 반응형 높이를 일관되게 유지한다.
 
+### 7. 벤토 그리드 레이아웃 (Bento Grid) — 정보 밀집 화면 표준
+여러 종류의 정보(KPI + 차트 + 목록)를 한 화면에 보여주는 페이지(대시보드 등)는 좌/우 컬럼 스택 대신 **단일 12컬럼 벤토 그리드**로 구성한다. 컬럼 높이 불균형으로 생기는 빈 공간을 없애고 화면을 효율적으로 쓰기 위함이다.
+- **컨테이너**: `grid gap-5 md:grid-cols-12 md:gap-4` 한 개. 타일은 컬럼 래퍼 없이 이 그리드의 직접 자식으로 배치한다 (`md:col-span-N`). 같은 행 타일은 그리드 stretch로 높이가 자동 정렬된다.
+- **타일 크기 어휘 (md+)**: KPI = `col-span-3`(4개/행), 주 차트 = `col-span-8`, 보조 차트 = `col-span-4`, 목록 = `col-span-6`(2개/행). 한 행의 span 합은 항상 12.
+- **같은 행 차트 타일은 동일 고정 높이**(예: `h-60`)를 써서 하단 정렬을 맞춘다. (`ResponsiveContainer`는 flex 높이에 의존시키지 않는다.)
+- **모바일(기본)**: 1열 스택. DOM 순서 = 모바일 노출 순서이므로 타일 순서를 "중요도 순"으로 작성한다. 모바일 전용/데스크톱 전용 요소는 `md:hidden` / `hidden md:contents`(자식을 부모 그리드에 편입)로 처리한다.
+- **간격**: 숨김 요소가 섞이므로 `space-y-*` 금지(4번 규칙). 페이지 루트도 `flex flex-col gap-*`.
+- **타일 셸**: 기존 Card 스타일 유지 (`rounded-xl border bg-white shadow-sm dark:...`), 타일 헤더는 아이콘 + `text-app-body font-semibold` + 우측 "전체보기" 링크.
+- **적용 현황**: `Dashboard` (KPI 4 + 손익 추이 8 / 자산 배분 4 + 보유 자산 6 / 최근 체결 6). 신규 정보 밀집 화면(Admin 시스템 현황, Reports 현황 등)은 이 규칙을 따른다.
+
 ---
 
 ## Icon Rule
@@ -134,7 +144,7 @@ Prefer these app tokens over page-local `text-*` sizing:
 
 ## Page Architecture
 
-- **Dashboard** (`/dashboard`): 3초 룰 기반 글랜스 UI 적용. 좌측(7/12) 손익 추이 및 자산 배분 / 우측(5/12) 보유 자산 요약 및 최근 체결 내역. 컬럼 컨테이너는 `flex flex-col gap-5`를 사용하여 카드 상단 높이를 완벽 정렬.
+- **Dashboard** (`/dashboard`): 3초 룰 기반 글랜스 UI 적용. 벤토 그리드(7번 규칙) 적용: 1행 KPI 4타일(3+3+3+3), 2행 손익 추이(8)+자산 배분(4), 3행 보유 자산 요약(6)+최근 체결 내역(6). 모바일은 히어로 카드 + 1열 스택(보유/체결은 세그먼트 전환). 루트·그리드 모두 `gap-*` 사용.
 - **Orders** (`/orders`): `활성 주문(Open)`과 `주문 이력(History)` 듀얼 뷰 탭 분리.
 - **Trades** (`/trades`): 체결 거래 목록과 함께 실시간 매수/매도 비율 게이지 바 및 날짜 필터 제공.
 - **Templates** (`/templates`): 전략 템플릿 카드 라이브러리 및 폼 모달 제공 (그리드, 스마트그리드, RSI).

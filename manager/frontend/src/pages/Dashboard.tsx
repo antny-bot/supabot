@@ -160,7 +160,7 @@ export default function Dashboard() {
         }, []) ?? []
 
   return (
-    <div className="space-y-5 pb-8">
+    <div className="flex flex-col gap-5 pb-8">
       {/* 최상단 페이지 헤더 및 액션 바 */}
       <PageHeader
         {...PAGE_META.dashboard}
@@ -293,17 +293,18 @@ export default function Dashboard() {
       {/* =========================================================================
           [2] 데스크톱 전용: 4대 핵심 지표 요약 바
           ========================================================================= */}
-      <div className="hidden md:grid md:grid-cols-4 md:gap-4">
+      <div className="grid gap-5 md:grid-cols-12 md:gap-4">
+      <div className="hidden md:contents">
         {loading && !data ? (
           <>
-            <StatCardSkeleton />
-            <StatCardSkeleton />
-            <StatCardSkeleton />
-            <StatCardSkeleton />
+            <div className="md:col-span-3"><StatCardSkeleton /></div>
+            <div className="md:col-span-3"><StatCardSkeleton /></div>
+            <div className="md:col-span-3"><StatCardSkeleton /></div>
+            <div className="md:col-span-3"><StatCardSkeleton /></div>
           </>
         ) : (
           <>
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:col-span-3 dark:border-slate-800 dark:bg-slate-900">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-slate-500 dark:text-slate-400">총 평가자산</span>
                 <div className="rounded-lg bg-emerald-500/10 p-1.5 text-emerald-600 dark:text-emerald-400">
@@ -316,7 +317,7 @@ export default function Dashboard() {
               <p className="mt-1 text-xs text-slate-400">원금: {krwFmt(totalCost)}</p>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:col-span-3 dark:border-slate-800 dark:bg-slate-900">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-slate-500 dark:text-slate-400">총 평가손익</span>
                 <div
@@ -339,7 +340,7 @@ export default function Dashboard() {
               </p>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:col-span-3 dark:border-slate-800 dark:bg-slate-900">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-slate-500 dark:text-slate-400">24시간 실현손익</span>
                 <div className="rounded-lg bg-violet-500/10 p-1.5 text-violet-600 dark:text-violet-400">
@@ -353,7 +354,7 @@ export default function Dashboard() {
               <p className="mt-1 text-xs text-slate-400">체결 거래 기준 손익</p>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:col-span-3 dark:border-slate-800 dark:bg-slate-900">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-slate-500 dark:text-slate-400">봇 상태 & 활성 주문</span>
                 <div
@@ -385,11 +386,11 @@ export default function Dashboard() {
       {/* =========================================================================
           [3] 메인 시각화 그리드 (PC: 3컬럼 모듈 워크벤치 / 모바일: 세그먼트 스위처)
           ========================================================================= */}
-      <div className="grid gap-5 md:grid-cols-12">
+      {/* Bento: 아래 타일들은 위 12컬럼 그리드에 직접 배치된다 */}
         {/* 데스크톱 Left Col (7/12 cols): 일별 누적 손익 곡선 + 자산 배분 비중 */}
-        <div className="flex flex-col gap-5 md:col-span-7">
+        <>
           {/* 일별 누적 손익 추이 */}
-          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm md:col-span-8 dark:border-slate-800 dark:bg-slate-900">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
               <div className="flex items-center gap-2">
                 <ChartIcon size={16} className="text-indigo-500" />
@@ -442,7 +443,7 @@ export default function Dashboard() {
           </div>
 
           {/* 거래소별 자산 배분 비중 (데스크톱 및 모바일 공통) */}
-          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm md:col-span-4 dark:border-slate-800 dark:bg-slate-900">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
               <div className="flex items-center gap-2">
                 <PieIcon size={16} className="text-emerald-500" />
@@ -458,22 +459,22 @@ export default function Dashboard() {
               </button>
             </div>
 
-            <div className="mt-4 h-52 w-full">
+            <div className="mt-4 h-60 w-full">
               <DonutChart
                 data={donutData}
                 colors={ALLOCATION_COLORS}
-                innerRadius={45}
-                outerRadius={65}
+                innerRadius={55}
+                outerRadius={80}
                 paddingAngle={4}
                 tooltipFormatter={(val: number) => [`${krwFmt(val)}`, '평가금액']}
                 emptyMessage="보유 자산이 없습니다."
               />
             </div>
           </div>
-        </div>
+        </>
 
         {/* 데스크톱 Right Col (5/12 cols) / 모바일 세그먼트 스위처 영역 */}
-        <div className="flex flex-col gap-5 md:col-span-5">
+        <>
           {/* 모바일 화면에서는 탭 스위처 제공 (보유자산 vs 최근체결) */}
           <div className="flex items-center justify-between md:hidden">
             <SegmentedControl
@@ -495,7 +496,7 @@ export default function Dashboard() {
           {/* 보유 자산 모듈 (데스크톱 상시 표시, 모바일은 mobileTab === 'holdings' 일 때) */}
           <div
             className={`rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 overflow-hidden ${
-              mobileTab !== 'holdings' ? 'hidden md:block' : 'block'
+              mobileTab !== 'holdings' ? 'hidden md:col-span-6 md:block' : 'block md:col-span-6'
             }`}
           >
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5 dark:border-slate-800">
@@ -546,7 +547,7 @@ export default function Dashboard() {
           {/* 최근 체결 모듈 (데스크톱 상시 표시, 모바일은 mobileTab === 'trades' 일 때) */}
           <div
             className={`rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 overflow-hidden ${
-              mobileTab !== 'trades' ? 'hidden md:block' : 'block'
+              mobileTab !== 'trades' ? 'hidden md:col-span-6 md:block' : 'block md:col-span-6'
             }`}
           >
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5 dark:border-slate-800">
@@ -595,7 +596,7 @@ export default function Dashboard() {
               )}
             </div>
           </div>
-        </div>
+        </>
       </div>
 
       {/* 비상 긴급 일괄 취소 확인 모달 */}
