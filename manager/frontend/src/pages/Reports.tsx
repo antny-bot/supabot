@@ -29,7 +29,7 @@ export const REPORT_TABS = [
   { id: 'daily', label: '일별 손익' },
   { id: 'monthly', label: '월별 손익' },
   { id: 'drawdown', label: 'MDD / 리스크' },
-  { id: 'top_rotation', label: 'TOP 10 포지션·순위' },
+  { id: 'top_rotation', label: '시총 순위 포지션·회전' },
   { id: 'budget_plan', label: 'Budget Plan & 감사 원장' },
   { id: 'backtest_compare', label: '다중 시나리오 백테스트' },
   { id: 'batches', label: '배치·시계열 추적' },
