@@ -67,7 +67,7 @@ export default function DailySection({ dateRange }: { dateRange: DateRangeValue 
   return (
     <div className="space-y-4">
       <p className="text-[11px] text-slate-400 dark:text-slate-500">
-        ※ 원화 기준 일별 실현 손익입니다. 토스 해외(USD) 종목은 환산 없이 합산됩니다.
+        ※ 원화 기준 일별 실현 손익입니다. TOSS 해외(USD) 종목은 환산 없이 합산됩니다.
       </p>
 
       {chartData.length > 0 && (

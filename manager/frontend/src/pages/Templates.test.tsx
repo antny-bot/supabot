@@ -63,7 +63,7 @@ describe('Templates stock cache combobox', () => {
     expect(screen.getByText('고려아연')).toBeInTheDocument()
     expect(screen.queryByRole('listbox', { name: '종목 검색 결과' })).not.toBeInTheDocument()
 
-    // 토스증권에서도 동일하게 동작 및 클릭 선택 확인
+    // TOSS에서도 동일하게 동작 및 클릭 선택 확인
     await user.selectOptions(exchangeSelect, 'toss')
     await user.clear(tickerInput)
     await user.type(tickerInput, '고려')

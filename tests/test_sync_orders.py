@@ -364,7 +364,7 @@ async def test_toss_strategy_order_cancel_marks_pending_reorder(tmp_path, monkey
     assert om.orders[0]["status"] == "pending_reorder"
     assert om.orders[0]["next_check_at"] == 9_999_999.0
     sent_text = app.bot.send_message.call_args.kwargs.get("text", "")
-    assert "토스증권" in sent_text
+    assert "TOSS" in sent_text
     assert "재주문 예정" in sent_text
     assert "외부 개입" not in sent_text
 

@@ -64,7 +64,7 @@ async def test_orders_command_without_args_shows_all_user_orders_across_exchange
     mock_om.get_user_orders.assert_any_call("111", None)
     text = update.message.reply_text.call_args.args[0]
     assert "BITHUMB" in text
-    assert "토스증권" in text
+    assert "TOSS" in text
     assert "403850" in text
 
 
@@ -85,5 +85,5 @@ async def test_orders_command_with_exchange_arg_filters_to_that_exchange(monkeyp
     assert mock_om.get_user_orders.call_count == 2
     mock_om.get_user_orders.assert_any_call("111", "toss")
     text = update.message.reply_text.call_args.args[0]
-    assert "토스증권" in text
+    assert "TOSS" in text
     assert "403850" in text

@@ -133,6 +133,8 @@ async def _fetch_naver_market_top(market: str, max_n: int = 50) -> list[dict]:
                         price = 0.0
 
                     market_cap_raw = s.get("marketValue", 0)
+                    if isinstance(market_cap_raw, str):
+                        market_cap_raw = market_cap_raw.replace(",", "")
                     try:
                         market_cap = float(market_cap_raw)
                     except (ValueError, TypeError):
@@ -221,7 +223,7 @@ async def freeze_or_get_master_top(market: str, date_str: str = None, max_n: int
         )
         if res.data:
             items = res.data[0].get("items", [])
-            if items:
+            if items and items[0].get("market_cap", 0) > 0:
                 return items[:max_n]
     except Exception as e:
         logger.debug(f"DB snapshot lookup error (will fetch): {e}")
@@ -249,6 +251,10 @@ async def freeze_or_get_master_top(market: str, date_str: str = None, max_n: int
     return items
 
 
+# 메모리 스냅샷 캐시: {(market, date_str): items}
+_SNAPSHOT_MEM_CACHE: dict[tuple[str, str], list[dict]] = {}
+
+
 async def backfill_historical_master_top(market: str, start_date: str, end_date: str, max_n: int = 50) -> dict[str, list[dict]]:
     """백테스트용 일자별 마스터 TOP 50 스냅샷 맵({date_str: items})을 반환하며 미존재일은 일괄 백필한다."""
     market_norm = market.upper()
@@ -257,49 +263,61 @@ async def backfill_historical_master_top(market: str, start_date: str, end_date:
     elif market_norm == "BITHUMB":
         market_norm = "BITHUMB_KRW"
 
-    db = get_db()
-    
-    # 1. 기존 DB에 저장된 날짜 확인
+    # 1. 인메모리 캐시 확인
     existing_map = {}
-    try:
-        res = (
-            await db.table("market_top_snapshots")
-            .select("snapshot_date,market,top_n,items")
-            .eq("market", market_norm)
-            .execute()
-        )
-        if res.data:
-            for row in res.data:
-                d = str(row["snapshot_date"])
-                if start_date <= d <= end_date:
-                    existing_map[d] = row.get("items", [])
-    except Exception as e:
-        logger.debug(f"DB historical snapshots lookup error: {e}")
+    missing_dates = []
 
-    # 2. 날짜 생성 (주말 제외)
     dt_cur = datetime.strptime(start_date, "%Y-%m-%d").date()
     dt_end = datetime.strptime(end_date, "%Y-%m-%d").date()
-    
-    base_snapshot = await freeze_or_get_master_top(market_norm, date_str=None, max_n=max_n)
-    
-    new_rows = []
-    current_items = [dict(x) for x in base_snapshot]
-
+    target_dates = []
     while dt_cur <= dt_end:
-        # 주식 시장은 주말 제외 (토 5, 일 6)
         if market_norm in ("KOSPI", "KOSDAQ") and dt_cur.weekday() >= 5:
             dt_cur += timedelta(days=1)
             continue
-
         d_str = dt_cur.strftime("%Y-%m-%d")
-        if d_str in existing_map:
-            current_items = [dict(x) for x in existing_map[d_str]]
+        target_dates.append(d_str)
+        cache_key = (market_norm, d_str)
+        if cache_key in _SNAPSHOT_MEM_CACHE:
+            existing_map[d_str] = [dict(x) for x in _SNAPSHOT_MEM_CACHE[cache_key]]
         else:
-            # 일자별 약간의 결정론적 주가/순위 변동을 주어 사실적인 백테스트 가능
-            # 해시 기반 pseudo-random walk
+            missing_dates.append(d_str)
+        dt_cur += timedelta(days=1)
+
+    # 2. 미캐시 일자가 있는 경우 DB 조회
+    if missing_dates:
+        try:
+            db = get_db()
+            res = (
+                await db.table("market_top_snapshots")
+                .select("snapshot_date,market,top_n,items")
+                .eq("market", market_norm)
+                .in_("snapshot_date", missing_dates[:100])
+                .execute()
+            )
+            if res.data:
+                for row in res.data:
+                    d = str(row["snapshot_date"])
+                    items = row.get("items", [])
+                    if items and items[0].get("market_cap", 0) > 0:
+                        _SNAPSHOT_MEM_CACHE[(market_norm, d)] = items
+                        existing_map[d] = [dict(x) for x in items]
+        except Exception as e:
+            logger.debug(f"DB historical snapshots lookup error: {e}")
+
+    # 3. 그래도 없는 일자는 결정론적 시뮬레이션 백필 (인메모리 캐싱)
+    still_missing = [d for d in target_dates if d not in existing_map]
+    if still_missing:
+        base_snapshot = await freeze_or_get_master_top(market_norm, date_str=None, max_n=max_n)
+        current_items = [dict(x) for x in base_snapshot]
+
+        for d_str in target_dates:
+            if d_str in existing_map:
+                current_items = [dict(x) for x in existing_map[d_str]]
+                continue
+
             day_hash = hash(f"{d_str}_{market_norm}") % 1000
             drift_pct = ((day_hash % 21) - 10) * 0.003  # -3.0% ~ +3.0%
-            
+
             simulated_items = []
             for item in current_items:
                 sim_item = dict(item)
@@ -309,32 +327,13 @@ async def backfill_historical_master_top(market: str, start_date: str, end_date:
                 sim_item["market_cap"] = float(item.get("market_cap", 0.0)) * (1.0 + item_drift)
                 simulated_items.append(sim_item)
 
-            # 시총/가격 기준 재정렬
             simulated_items.sort(key=lambda x: (x.get("market_cap", 0) or x.get("price", 0)), reverse=True)
             for idx, si in enumerate(simulated_items):
                 si["rank"] = idx + 1
 
-            existing_map[d_str] = simulated_items
+            _SNAPSHOT_MEM_CACHE[(market_norm, d_str)] = simulated_items
+            existing_map[d_str] = [dict(x) for x in simulated_items]
             current_items = simulated_items
-            new_rows.append({
-                "snapshot_date": d_str,
-                "market": market_norm,
-                "top_n": max_n,
-                "items": simulated_items,
-                "frozen_at": datetime.now(KST).isoformat(),
-            })
-
-        dt_cur += timedelta(days=1)
-
-    # 3. 새 스냅샷 일괄 DB 저장
-    if new_rows:
-        try:
-            for chunk_start in range(0, len(new_rows), 50):
-                chunk = new_rows[chunk_start:chunk_start + 50]
-                await db.table("market_top_snapshots").upsert(chunk).execute()
-            logger.info(f"Backfilled {len(new_rows)} historical master snapshots for {market_norm}")
-        except Exception as e:
-            logger.warning(f"Failed to batch upsert historical snapshots: {e}")
 
     return existing_map
 

@@ -37,7 +37,7 @@ const EXCHANGE_OPTIONS = [
   { value: 'upbit', label: 'Upbit' },
   { value: 'bithumb', label: 'Bithumb' },
   { value: 'kis', label: 'KIS' },
-  { value: 'toss', label: '토스증권' },
+  { value: 'toss', label: 'TOSS' },
 ]
 
 const SIDE_OPTIONS = [

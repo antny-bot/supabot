@@ -312,7 +312,7 @@ export default function Templates() {
   const [saving, setSaving] = useState(false)
   const [topDcaStep, setTopDcaStep] = useState<1 | 2 | 3 | 4>(1)
 
-  // 종목 캐시 & 다운콤보 상태 (한국투자증권 / 토스증권)
+  // 종목 캐시 & 다운콤보 상태 (한국투자증권 / TOSS)
   const [stockList, setStockList] = useState<StockCacheRow[]>([])
   const [stockLoading, setStockLoading] = useState(false)
   const [dropdownOpen, setDropdownOpen] = useState(false)
@@ -1107,7 +1107,7 @@ export default function Templates() {
                               }}
                               className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white focus:border-violet-500"
                             >
-                              <option value="toss">토스증권</option>
+                              <option value="toss">TOSS</option>
                               <option value="kis">한국투자증권(KIS)</option>
                               <option value="upbit">Upbit</option>
                               <option value="bithumb">Bithumb</option>
@@ -1771,7 +1771,7 @@ export default function Templates() {
                           <option value="upbit">Upbit</option>
                           <option value="bithumb">Bithumb</option>
                           <option value="kis">한국투자증권(KIS)</option>
-                          <option value="toss">토스증권</option>
+                          <option value="toss">TOSS</option>
                         </select>
                       </div>
 

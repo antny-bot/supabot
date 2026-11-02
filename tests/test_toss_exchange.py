@@ -655,7 +655,7 @@ def test_normalize_exchange_toss():
 
 def test_exchange_display_name_toss():
     from core.parsers import exchange_display_name
-    assert exchange_display_name("toss") == "토스증권"
+    assert exchange_display_name("toss") == "TOSS"
 
 
 def test_parse_exchange_and_ticker_toss():

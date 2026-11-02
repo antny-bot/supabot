@@ -46,7 +46,7 @@ def exchange_display_name(exchange):
         "upbit": "UPBIT",
         "bithumb": "BITHUMB",
         "kis": "한국투자증권",
-        "toss": "토스증권",
+        "toss": "TOSS",
     }.get(exchange, exchange.upper())
 
 
@@ -227,7 +227,7 @@ def parse_config_value(key, raw_value):
     if key == "default_exchange":
         exchange = normalize_exchange(raw_value)
         if not exchange:
-            raise ValueError("기본 거래소는 upbit, bithumb, kis, toss, 업비트, 빗썸, 한투, 토스증권 중 하나여야 합니다.")
+            raise ValueError("기본 거래소는 upbit, bithumb, kis, toss, 업비트, 빗썸, 한투, TOSS 중 하나여야 합니다.")
         return exchange
     if key == "asset_min_display_krw":
         amount = parse_number(raw_value)

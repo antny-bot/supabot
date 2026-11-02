@@ -25,7 +25,7 @@ async def asset_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     if context.args:
         exchange = normalize_exchange(context.args[0])
         if not exchange:
-            await update.message.reply_text("⚠️ 거래소는 업비트, 빗썸, 한투, 토스증권 중 하나로 입력해 주세요.")
+            await update.message.reply_text("⚠️ 거래소는 업비트, 빗썸, 한투, TOSS 중 하나로 입력해 주세요.")
             return
         exchanges = [exchange]
     else:

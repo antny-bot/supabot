@@ -16,7 +16,7 @@ const EXCHANGE_LABELS: Record<string, string> = {
   upbit: '업비트',
   bithumb: '빗썸',
   kis: '한국투자',
-  toss: '토스',
+  toss: 'TOSS',
 }
 
 export default function ExchangeSection({ dateRange }: { dateRange: DateRangeValue }) {
@@ -73,7 +73,7 @@ export default function ExchangeSection({ dateRange }: { dateRange: DateRangeVal
   return (
     <div className="space-y-4">
       <p className="text-[11px] text-slate-400 dark:text-slate-500">
-        ※ 모든 금액은 원화 기준 합계입니다. 토스 해외(USD) 종목은 환산 없이 합산되므로 거래소별 비교 시 참고하세요.
+        ※ 모든 금액은 원화 기준 합계입니다. TOSS 해외(USD) 종목은 환산 없이 합산되므로 거래소별 비교 시 참고하세요.
       </p>
 
       {chartData.length > 0 && (

@@ -32,7 +32,7 @@ interface ScenarioConfig {
 
 const DEFAULT_SCENARIOS: ScenarioConfig[] = [
   {
-    name: '시나리오 A (표준 TOP 1~10)',
+    name: '시나리오 A (표준 TOP 1~10 1주균등)',
     market: 'KOSPI',
     rank_start: 1,
     rank_end: 10,
@@ -49,7 +49,7 @@ const DEFAULT_SCENARIOS: ScenarioConfig[] = [
     initial_carryover: 0,
   },
   {
-    name: '시나리오 B (초대형주 집중 TOP 1~5)',
+    name: '시나리오 B (초대형주 TOP 1~5 집중)',
     market: 'KOSPI',
     rank_start: 1,
     rank_end: 5,
@@ -66,11 +66,11 @@ const DEFAULT_SCENARIOS: ScenarioConfig[] = [
     initial_carryover: 0,
   },
   {
-    name: '시나리오 C (매도대금 복리 재투자)',
+    name: '시나리오 C (금액균등 30만 + 복리재투자)',
     market: 'KOSPI',
     rank_start: 1,
     rank_end: 10,
-    cycle_alloc_mode: 'one_share',
+    cycle_alloc_mode: 'target_amount',
     cycle_target_krw: 300000,
     sell_proceeds_mode: 'recycle_to_budget',
     sell_split_days: 5,
@@ -85,7 +85,7 @@ const DEFAULT_SCENARIOS: ScenarioConfig[] = [
 ]
 
 export default function BacktestSimulatorSection() {
-  const [startDate, setStartDate] = useState('2026-06-01')
+  const [startDate, setStartDate] = useState('2026-08-01')
   const [endDate, setEndDate] = useState('2026-10-30')
   const [scenarios, setScenarios] = useState<ScenarioConfig[]>(DEFAULT_SCENARIOS)
   const [results, setResults] = useState<any>(null)
@@ -128,6 +128,10 @@ export default function BacktestSimulatorSection() {
       return
     }
     setScenarios(scenarios.filter((_, i) => i !== idx))
+  }
+
+  const updateScenario = (idx: number, patch: Partial<ScenarioConfig>) => {
+    setScenarios(scenarios.map((s, i) => (i === idx ? { ...s, ...patch } : s)))
   }
 
   // 프리셋 로더
@@ -255,11 +259,7 @@ export default function BacktestSimulatorSection() {
                 <input
                   type="text"
                   value={sc.name}
-                  onChange={(e) => {
-                    const next = [...scenarios]
-                    next[idx].name = e.target.value
-                    setScenarios(next)
-                  }}
+                  onChange={(e) => updateScenario(idx, { name: e.target.value })}
                   className="w-full rounded border border-slate-200 dark:border-slate-700 p-1 font-semibold text-slate-800 dark:text-slate-100 bg-slate-50/50 dark:bg-slate-700/50"
                 />
               </div>
@@ -271,22 +271,14 @@ export default function BacktestSimulatorSection() {
                     <input
                       type="number"
                       value={sc.rank_start}
-                      onChange={(e) => {
-                        const next = [...scenarios]
-                        next[idx].rank_start = Number(e.target.value)
-                        setScenarios(next)
-                      }}
+                      onChange={(e) => updateScenario(idx, { rank_start: Number(e.target.value) })}
                       className="w-12 rounded border border-slate-200 dark:border-slate-700 p-1 text-center bg-slate-50 dark:bg-slate-700"
                     />
                     <span>~</span>
                     <input
                       type="number"
                       value={sc.rank_end}
-                      onChange={(e) => {
-                        const next = [...scenarios]
-                        next[idx].rank_end = Number(e.target.value)
-                        setScenarios(next)
-                      }}
+                      onChange={(e) => updateScenario(idx, { rank_end: Number(e.target.value) })}
                       className="w-12 rounded border border-slate-200 dark:border-slate-700 p-1 text-center bg-slate-50 dark:bg-slate-700"
                     />
                     <span className="text-[11px]">위</span>
@@ -297,11 +289,7 @@ export default function BacktestSimulatorSection() {
                   <label className="text-[11px] text-slate-400 block">매수 배분</label>
                   <select
                     value={sc.cycle_alloc_mode}
-                    onChange={(e) => {
-                      const next = [...scenarios]
-                      next[idx].cycle_alloc_mode = e.target.value
-                      setScenarios(next)
-                    }}
+                    onChange={(e) => updateScenario(idx, { cycle_alloc_mode: e.target.value })}
                     className="w-full rounded border border-slate-200 dark:border-slate-700 p-1 bg-slate-50 dark:bg-slate-700 text-xs"
                   >
                     <option value="one_share">1주 균등</option>
@@ -315,11 +303,7 @@ export default function BacktestSimulatorSection() {
                   <label className="text-[11px] text-slate-400 block">매도 대금</label>
                   <select
                     value={sc.sell_proceeds_mode}
-                    onChange={(e) => {
-                      const next = [...scenarios]
-                      next[idx].sell_proceeds_mode = e.target.value
-                      setScenarios(next)
-                    }}
+                    onChange={(e) => updateScenario(idx, { sell_proceeds_mode: e.target.value })}
                     className="w-full rounded border border-slate-200 dark:border-slate-700 p-1 bg-slate-50 dark:bg-slate-700 text-xs"
                   >
                     <option value="keep_cash">예수금 보관</option>
@@ -332,11 +316,7 @@ export default function BacktestSimulatorSection() {
                   <input
                     type="number"
                     value={sc.sell_split_days}
-                    onChange={(e) => {
-                      const next = [...scenarios]
-                      next[idx].sell_split_days = Number(e.target.value)
-                      setScenarios(next)
-                    }}
+                    onChange={(e) => updateScenario(idx, { sell_split_days: Number(e.target.value) })}
                     className="w-full rounded border border-slate-200 dark:border-slate-700 p-1 bg-slate-50 dark:bg-slate-700 text-xs font-mono"
                   />
                 </div>

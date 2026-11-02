@@ -128,10 +128,17 @@ async def run_multi_scenario_backtest(
         cycle_durations = []
         cycle_start_date = sorted_dates[0]
         cur_cycle_tracked = 1
+        cur_month = None
 
         # 일자별 타임라인 시뮬레이션
         for d_str in sorted_dates:
             d_dt = datetime.strptime(d_str, "%Y-%m-%d")
+
+            # 월이 바뀌었으면 monthly_spent 리셋 (새 달의 월간 예산 플랜 시작)
+            m_key = d_str[:7]
+            if cur_month != m_key:
+                cur_month = m_key
+                sim_state["monthly_spent"] = 0.0
             master_items = daily_snapshots_map[d_str]
             price_map = {item["code"]: float(item["price"]) for item in master_items}
 
