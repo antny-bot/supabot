@@ -29,8 +29,11 @@ export default function OrderBatchesSection({ onSelectGroupNo, initialGroupNo }:
   const [totalPages, setTotalPages] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
 
-  // 펼쳐진 배치 목록 상태
-  const [expandedBatches, setExpandedBatches] = useState<Set<number>>(new Set())
+  // 배치의 고유 식별자 키 생성 (template_id와 group_no의 조합으로 중복 방지)
+  const getBatchKey = (batch: OrderBatchItem) => `${batch.template_id ?? 'solo'}_${batch.group_no}`
+
+  // 펼쳐진 배치 목록 상태 (고유 batchKey 기준)
+  const [expandedBatches, setExpandedBatches] = useState<Set<string>>(new Set())
 
   const loadBatches = useCallback(
     async (showSpinner = false) => {
@@ -43,8 +46,12 @@ export default function OrderBatchesSection({ onSelectGroupNo, initialGroupNo }:
         setError(null)
 
         // initialGroupNo가 있으면 자동 펼침
-        if (initialGroupNo && !expandedBatches.has(initialGroupNo)) {
-          setExpandedBatches((prev) => new Set([...prev, initialGroupNo]))
+        if (initialGroupNo) {
+          const matched = (res.batches || []).find((b: OrderBatchItem) => b.group_no === initialGroupNo)
+          if (matched) {
+            const key = getBatchKey(matched)
+            setExpandedBatches((prev) => new Set([...prev, key]))
+          }
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : '배치 목록을 불러오지 못했습니다.')
@@ -59,13 +66,13 @@ export default function OrderBatchesSection({ onSelectGroupNo, initialGroupNo }:
     loadBatches(true)
   }, [loadBatches])
 
-  const toggleExpand = (groupNo: number) => {
+  const toggleExpand = (batchKey: string) => {
     setExpandedBatches((prev) => {
       const next = new Set(prev)
-      if (next.has(groupNo)) {
-        next.delete(groupNo)
+      if (next.has(batchKey)) {
+        next.delete(batchKey)
       } else {
-        next.add(groupNo)
+        next.add(batchKey)
       }
       return next
     })
@@ -120,12 +127,13 @@ export default function OrderBatchesSection({ onSelectGroupNo, initialGroupNo }:
       ) : (
         <div className="space-y-3.5">
           {batches.map((batch) => {
-            const isExpanded = expandedBatches.has(batch.group_no)
+            const batchKey = getBatchKey(batch)
+            const isExpanded = expandedBatches.has(batchKey)
             const isFullyDone = batch.total_orders > 0 && batch.done_count === batch.total_orders
 
             return (
               <div
-                key={batch.group_no}
+                key={batchKey}
                 className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs transition-all dark:border-slate-800 dark:bg-slate-900"
               >
                 {/* 배치 카드 헤더 */}
@@ -157,7 +165,7 @@ export default function OrderBatchesSection({ onSelectGroupNo, initialGroupNo }:
 
                       <button
                         type="button"
-                        onClick={() => toggleExpand(batch.group_no)}
+                        onClick={() => toggleExpand(batchKey)}
                         className="flex items-center gap-1 rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
                       >
                         <span>{isExpanded ? '접기' : '상세 목록'}</span>

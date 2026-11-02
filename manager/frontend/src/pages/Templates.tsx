@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import {
   ChevronDown,
@@ -13,6 +14,7 @@ import {
   Trash2,
   X,
   Layers,
+  Activity,
   AlertCircle,
   Sparkles,
   ShieldCheck,
@@ -25,6 +27,7 @@ import {
   duplicateTemplate,
   executeTemplate,
   fetchTemplates,
+  toggleTemplateHolding,
   type Template,
   type TemplateParams,
   updateTemplate,
@@ -261,7 +264,43 @@ function templateToForm(template: Template): TemplateFormState {
 
 export default function Templates() {
   const toast = useToast()
+  const navigate = useNavigate()
   const [templates, setTemplates] = useState<Template[]>([])
+  const [togglingId, setTogglingId] = useState<number | null>(null)
+
+  const handleToggleHolding = async (tpl: Template) => {
+    const p = (tpl.params || {}) as any
+    const currentActive = p.strategy_status === 'active' || (p.strategy_status === undefined && p.schedule_enabled !== false)
+    const nextHolding = currentActive
+
+    setTogglingId(tpl.id)
+    try {
+      const res = await toggleTemplateHolding(tpl.id, nextHolding)
+      if (res.ok) {
+        toast.success(`전략 #${tpl.id} [${tpl.name}] 가 ${!nextHolding ? '가동(ON)' : '일시정지(OFF)'} 상태로 변경되었습니다.`)
+        setTemplates((prev) =>
+          prev.map((item) =>
+            item.id === tpl.id
+              ? {
+                  ...item,
+                  params: {
+                    ...item.params,
+                    strategy_status: !nextHolding ? 'active' : 'paused',
+                    schedule_enabled: !nextHolding,
+                  },
+                }
+              : item
+          )
+        )
+      } else {
+        toast.error('전략 상태 변경에 실패했습니다.')
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '전략 상태 변경 중 오류가 발생했습니다.')
+    } finally {
+      setTogglingId(null)
+    }
+  }
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -712,23 +751,54 @@ export default function Templates() {
                 className="flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-all hover:border-indigo-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-indigo-800"
               >
                 <div>
-                  {/* 상단: 거래소, 종목, 전략 유형 */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <Badge value={tpl.exchange} label={tpl.exchange.toUpperCase()} />
-                      <span className="text-sm font-bold text-slate-900 dark:text-white">
-                        {tpl.ticker}
-                      </span>
-                      {stockName && (
-                        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                          ({stockName})
-                        </span>
-                      )}
-                    </div>
-                    <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                      {STRATEGY_BADGE_LABELS[stype] || stype.toUpperCase()}
-                    </span>
-                  </div>
+                  {/* 상단: 거래소, 종목, 전략 유형 및 ON/OFF 토글 */}
+                  {(() => {
+                    const isActive = p.strategy_status === 'active' || (p.strategy_status === undefined && p.schedule_enabled !== false)
+                    return (
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <Badge value={tpl.exchange} label={tpl.exchange.toUpperCase()} />
+                          <span className="text-sm font-bold text-slate-900 dark:text-white">
+                            {tpl.ticker}
+                          </span>
+                          {stockName && (
+                            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                              ({stockName})
+                            </span>
+                          )}
+                          <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                            {STRATEGY_BADGE_LABELS[stype] || stype.toUpperCase()}
+                          </span>
+                        </div>
+
+                        {/* On / Off 토글 스위치 */}
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            disabled={togglingId === tpl.id}
+                            onClick={() => handleToggleHolding(tpl)}
+                            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                              isActive ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'
+                            } ${togglingId === tpl.id ? 'opacity-50' : ''}`}
+                            title={isActive ? '전략 가동 중 (클릭 시 일시정지 OFF)' : '전략 일시정지됨 (클릭 시 가동 ON)'}
+                          >
+                            <span
+                              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                                isActive ? 'translate-x-5' : 'translate-x-0'
+                              }`}
+                            />
+                          </button>
+                          <span
+                            className={`text-[11px] font-extrabold font-mono w-7 text-center ${
+                              isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'
+                            }`}
+                          >
+                            {isActive ? 'ON' : 'OFF'}
+                          </span>
+                        </div>
+                      </div>
+                    )
+                  })()}
 
                   {/* 템플릿 명칭 */}
                   <h4 className="mt-2.5 text-base font-bold text-slate-800 dark:text-slate-100 truncate">
@@ -837,13 +907,26 @@ export default function Templates() {
                     </button>
                   </div>
 
-                  <button
-                    onClick={() => setExecutingTemplate(tpl)}
-                    className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700 transition-colors"
-                  >
-                    <Play size={13} />
-                    <span>즉시 실행</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {isTopDca && (
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/operations?template_id=${tpl.id}&tab=rotation`)}
+                        className="flex items-center gap-1 rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
+                        title="전략 전용 포지션, 회전 현황 및 예산 감사원장 조회"
+                      >
+                        <Activity size={13} className="text-indigo-500" />
+                        <span>모니터링</span>
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setExecutingTemplate(tpl)}
+                      className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700 transition-colors"
+                    >
+                      <Play size={13} />
+                      <span>즉시 실행</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             )

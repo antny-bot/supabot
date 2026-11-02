@@ -75,6 +75,9 @@ export const toggleTemplateHolding = (id: number, is_holding: boolean) =>
 export const stopTemplate = (id: number, mode: 'pause' | 'stop_and_cancel' | 'terminate_and_liquidate') =>
   api.post<any>(`/api/templates/${id}/stop`, { mode })
 
+export const manualTopupTemplate = (id: number, amount_krw: number, memo?: string) =>
+  api.post<any>(`/api/templates/${id}/topup`, { amount_krw, memo: memo || '' })
+
 export const updateBudgetPlan = (id: number, payload: { new_plan_config: any; apply_today_diff?: boolean; memo?: string }) =>
   api.post<any>(`/api/templates/${id}/budget-plan`, payload)
 

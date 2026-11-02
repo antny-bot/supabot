@@ -122,6 +122,71 @@ export const fetchReportBatches = (
   return api.get<BatchesReport>(`/api/reports/batches?${params.toString()}`)
 }
 
+export interface CycleTargetItem {
+  rank: number
+  code: string
+  name: string
+  price: number
+  target_qty: number
+  cost: number
+  status: 'bought' | 'next' | 'waiting'
+}
+
+export interface NextTargetInfo {
+  rank: number
+  code: string
+  name: string
+  price: number
+  target_qty: number
+  required_krw: number
+  carryover_budget: number
+  shortfall: number
+  budget_sufficient: boolean
+  cycle_no: number
+  note?: string
+}
+
+export interface CyclePipelineInfo {
+  cycle_no: number
+  rank_start: number
+  rank_end: number
+  total_targets: number
+  bought_count: number
+  progress_pct: number
+  pipeline: CycleTargetItem[]
+  next_target: NextTargetInfo | null
+}
+
+export interface DailyExecutionFlowItem {
+  date: string
+  group_no?: number
+  cycle_no?: number
+  carryover_budget: number
+  buys: Array<{
+    code: string
+    name: string
+    rank?: number
+    price: number
+    volume: number
+    cost: number
+    status: string
+  }>
+  sells: Array<{
+    code: string
+    name: string
+    volume: number
+    price: number
+    remaining_days?: number
+  }>
+  snapshot_top: Array<{
+    rank: number
+    code: string
+    name: string
+    price: number
+  }>
+  waiting_next?: any
+}
+
 export interface TopRotationReport {
   template: any
   holdings_status: any[]
@@ -129,6 +194,8 @@ export interface TopRotationReport {
   orders: any[]
   trades: any[]
   master_top: any[]
+  cycle_pipeline?: CyclePipelineInfo
+  daily_execution_flow?: DailyExecutionFlowItem[]
 }
 
 export const fetchTopRotationReport = (templateId: number, groupNo?: number | null) => {

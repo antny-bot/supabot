@@ -165,7 +165,7 @@ export default function Dashboard() {
         }, []) ?? []
 
   return (
-    <div className="flex flex-col gap-5 pb-8">
+    <div className="flex flex-col gap-5 pb-8 min-w-0 w-full overflow-hidden">
       {/* 최상단 페이지 헤더 및 액션 바 */}
       <PageHeader
         {...PAGE_META.dashboard}
@@ -298,14 +298,14 @@ export default function Dashboard() {
       {/* =========================================================================
           [2] 통합 예수금 Health Check 카드 & 4대 핵심 지표 요약 바
           ========================================================================= */}
-      <div className="grid gap-5 md:grid-cols-12 md:gap-4">
+      <div className="grid gap-5 md:grid-cols-12 md:gap-4 min-w-0 w-full">
         {/* 거래소별 통합 예수금 Health Check 카드 (클릭 시 감사 원장 리포트 직행) */}
         <div className="col-span-12">
           <BudgetHealthCard
             healthData={budgetHealth}
             loading={loading && !budgetHealth}
             showDetailLink
-            onClick={() => navigate('/reports?tab=budget_plan')}
+            onClick={() => navigate('/operations?tab=ledger')}
           />
         </div>
 
@@ -405,7 +405,7 @@ export default function Dashboard() {
         {/* 데스크톱 Left Col (7/12 cols): 일별 누적 손익 곡선 + 자산 배분 비중 */}
         <>
           {/* 일별 누적 손익 추이 */}
-          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm md:col-span-8 dark:border-slate-800 dark:bg-slate-900">
+          <div className="hidden md:block rounded-xl border border-slate-200 bg-white p-5 shadow-sm md:col-span-8 dark:border-slate-800 dark:bg-slate-900 min-w-0">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
               <div className="flex items-center gap-2">
                 <ChartIcon size={16} className="text-indigo-500" />
@@ -471,7 +471,7 @@ export default function Dashboard() {
           </div>
 
           {/* 거래소별 자산 배분 비중 (데스크톱 및 모바일 공통) */}
-          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm md:col-span-4 dark:border-slate-800 dark:bg-slate-900">
+          <div className="hidden md:block rounded-xl border border-slate-200 bg-white p-5 shadow-sm md:col-span-4 dark:border-slate-800 dark:bg-slate-900 min-w-0">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
               <div className="flex items-center gap-2">
                 <PieIcon size={16} className="text-emerald-500" />
@@ -515,7 +515,7 @@ export default function Dashboard() {
         {/* 데스크톱 Right Col (5/12 cols) / 모바일 세그먼트 스위처 영역 */}
         <>
           {/* 모바일 화면에서는 탭 스위처 제공 (보유자산 vs 최근체결) */}
-          <div className="flex items-center justify-between md:hidden">
+          <div className="col-span-12 flex items-center justify-between md:hidden min-w-0">
             <SegmentedControl
               options={[
                 { id: 'holdings', label: '보유 자산', badge: holdings?.summary.asset_count },
@@ -535,7 +535,7 @@ export default function Dashboard() {
           {/* 보유 자산 모듈 (데스크톱 상시 표시, 모바일은 mobileTab === 'holdings' 일 때) */}
           <div
             className={`rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 overflow-hidden ${
-              mobileTab !== 'holdings' ? 'hidden md:col-span-6 md:block' : 'block md:col-span-6'
+              mobileTab !== 'holdings' ? 'hidden md:col-span-6 md:block' : 'col-span-12 block md:col-span-6 min-w-0'
             }`}
           >
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5 dark:border-slate-800">
@@ -599,7 +599,7 @@ export default function Dashboard() {
           {/* 최근 체결 모듈 (데스크톱 상시 표시, 모바일은 mobileTab === 'trades' 일 때) */}
           <div
             className={`rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 overflow-hidden ${
-              mobileTab !== 'trades' ? 'hidden md:col-span-6 md:block' : 'block md:col-span-6'
+              mobileTab !== 'trades' ? 'hidden md:col-span-6 md:block' : 'col-span-12 block md:col-span-6 min-w-0'
             }`}
           >
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5 dark:border-slate-800">

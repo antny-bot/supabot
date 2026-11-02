@@ -51,6 +51,10 @@ class HoldingRequest(BaseModel):
 class StopRequest(BaseModel):
     mode: str = "pause"  # pause | stop_and_cancel | terminate_and_liquidate
 
+class TopupRequest(BaseModel):
+    amount_krw: float
+    memo: str = ""
+
 class BudgetPlanRequest(BaseModel):
     new_plan_config: dict
     apply_today_diff: bool = False
@@ -404,6 +408,30 @@ async def api_stop_strategy(template_id: int, payload: StopRequest, user: dict =
     try:
         res = await progression_manager.stop_strategy(template_id, payload.mode)
         return JSONResponse({"ok": True, "data": res})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.post("/api/templates/{template_id}/topup")
+async def api_topup_budget(template_id: int, payload: TopupRequest, user: dict = Depends(get_current_user)):
+    """사용자 수동 가용 예산 추가 투입 (특별 추경)."""
+    if payload.amount_krw <= 0:
+        return JSONResponse({"error": "충전 금액은 0원보다 커야 합니다."}, status_code=400)
+
+    db = get_db()
+    t_res = await db.table("strategy_templates").select("*").eq("id", template_id).execute()
+    if not t_res.data:
+        return JSONResponse({"error": "Template not found"}, status_code=404)
+
+    template = t_res.data[0]
+    try:
+        new_params = await budget_manager.manual_topup(
+            template=template,
+            amount_krw=payload.amount_krw,
+            memo=payload.memo,
+        )
+        await db.table("strategy_templates").update({"params": new_params}).eq("id", template_id).execute()
+        return JSONResponse({"ok": True, "data": new_params})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 

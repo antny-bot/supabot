@@ -12,9 +12,20 @@ import ErrorBanner from '../../components/ui/ErrorBanner'
 import BudgetHealthCard from '../../components/budget/BudgetHealthCard'
 import { krwFmt, CARD, TH, TD } from './ReportsShared'
 
-export default function BudgetPlanSection() {
+interface BudgetPlanSectionProps {
+  templateId?: number | null
+}
+
+export default function BudgetPlanSection({ templateId }: BudgetPlanSectionProps = {}) {
   const [templates, setTemplates] = useState<Template[]>([])
-  const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null)
+  const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(templateId || null)
+
+  useEffect(() => {
+    if (templateId && templateId !== selectedTemplateId) {
+      setSelectedTemplateId(templateId)
+      loadData(templateId)
+    }
+  }, [templateId])
   const [ledgerData, setLedgerData] = useState<any>(null)
   const [healthData, setHealthData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -59,7 +70,9 @@ export default function BudgetPlanSection() {
       .then((tpls) => {
         const topTpls = tpls.filter((t) => t.strategy_type === 'kospi_top_dca' || t.name.includes('TOP'))
         setTemplates(topTpls)
-        const targetId = topTpls.length > 0 ? topTpls[0].id : (tpls.length > 0 ? tpls[0].id : null)
+        const targetId = (templateId && tpls.some((t) => t.id === templateId))
+          ? templateId
+          : (topTpls.length > 0 ? topTpls[0].id : (tpls.length > 0 ? tpls[0].id : null))
         setSelectedTemplateId(targetId)
         if (targetId) loadData(targetId)
       })

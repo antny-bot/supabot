@@ -105,34 +105,34 @@ export default function BudgetHealthCard({
           </div>
         </div>
 
-        {/* 우측 수치 지표 및 상세 연결 링크 */}
-        <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4">
-          <div className="flex items-center gap-3 sm:gap-4 text-xs font-mono">
-            <div>
-              <span className="text-slate-500 block text-[11px]">예수금</span>
+        {/* 우측 수치 지표 및 상세 연결 링크 (모바일 대응 flex-wrap 및 grid) */}
+        <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2.5 sm:gap-4 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-200/60 dark:border-slate-800/60 min-w-0">
+          <div className="grid grid-cols-3 sm:flex items-center gap-2 sm:gap-4 text-xs font-mono min-w-0 flex-1 sm:flex-initial">
+            <div className="min-w-0">
+              <span className="text-slate-500 block text-[10px] sm:text-[11px] truncate">예수금</span>
               <span
-                className="font-bold text-slate-800 dark:text-slate-100"
+                className="font-bold text-slate-800 dark:text-slate-100 text-xs sm:text-sm truncate block"
                 title={`${Number(healthData.actual_cash_krw || 0).toLocaleString()}원`}
               >
                 {krwFmt(healthData.actual_cash_krw || 0)}
               </span>
             </div>
-            <div>
-              <span className="text-slate-500 block text-[11px]">일 필요액 합계</span>
-              <span className="font-bold text-slate-800 dark:text-slate-100">
+            <div className="min-w-0">
+              <span className="text-slate-500 block text-[10px] sm:text-[11px] truncate">일 필요액</span>
+              <span className="font-bold text-slate-800 dark:text-slate-100 text-xs sm:text-sm truncate block">
                 {krwFmt(healthData.daily_required_krw || 0)}
               </span>
             </div>
-            <div>
-              <span className="text-slate-500 block text-[11px]">당월 잔여 필요액</span>
-              <span className="font-bold text-slate-800 dark:text-slate-100">
+            <div className="min-w-0">
+              <span className="text-slate-500 block text-[10px] sm:text-[11px] truncate">당월 잔여</span>
+              <span className="font-bold text-slate-800 dark:text-slate-100 text-xs sm:text-sm truncate block">
                 {krwFmt(healthData.monthly_remaining_required_krw || 0)}
               </span>
             </div>
           </div>
 
           {showDetailLink && (
-            <div className="flex items-center gap-1 pl-2 sm:pl-3 border-l border-slate-300/80 dark:border-slate-700/80 text-xs font-semibold text-slate-600 dark:text-slate-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 shrink-0 transition-colors">
+            <div className="flex items-center gap-1 ml-auto sm:ml-0 pl-2 sm:pl-3 border-l border-slate-300/80 dark:border-slate-700/80 text-xs font-semibold text-slate-600 dark:text-slate-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 shrink-0 transition-colors">
               <span className="hidden md:inline">감사 원장 보기</span>
               <span className="md:hidden">상세</span>
               <ChevronRight size={14} className="transition-transform group-hover:translate-x-0.5" />

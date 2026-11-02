@@ -59,7 +59,11 @@ export default function Sidebar() {
       }`}
     >
       {/* Header: logo + hamburger toggle */}
-      <div className={`flex h-14 items-center border-b border-slate-200 dark:border-slate-800 shrink-0 px-2.5 gap-1.5 ${collapsed ? 'justify-center' : ''}`}>
+      <div
+        className={`flex h-14 items-center border-b border-slate-200 dark:border-slate-800 shrink-0 ${
+          collapsed ? 'justify-center px-0' : 'px-2.5 gap-1.5'
+        }`}
+      >
         {!collapsed && (
           <NavLink
             to="/dashboard"
@@ -73,7 +77,9 @@ export default function Sidebar() {
         )}
         <button
           onClick={() => setCollapsed((v) => !v)}
-          className="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-colors"
+          className={`shrink-0 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-colors ${
+            collapsed ? 'w-10 h-10 flex items-center justify-center p-0 mx-auto' : 'p-1.5'
+          }`}
           title={collapsed ? '메뉴 펼치기' : '메뉴 접기'}
         >
           <Menu size={16} />
@@ -81,18 +87,22 @@ export default function Sidebar() {
       </div>
 
       {/* Nav items */}
-      <nav className="flex-1 overflow-y-auto py-3 space-y-0.5 px-1.5">
+      <nav className="flex-1 overflow-y-auto scrollbar-none py-3 space-y-0.5 px-1.5">
         {visibleItems.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
             title={collapsed ? item.label : undefined}
             className={({ isActive }) =>
-              `flex items-center gap-2 rounded-xl px-2 py-2 text-app-body-sm font-medium whitespace-nowrap break-keep transition-colors ${
+              `flex items-center rounded-xl transition-colors ${
+                collapsed
+                  ? 'w-10 h-10 mx-auto justify-center p-0'
+                  : 'gap-2 px-2 py-2 text-app-body-sm font-medium whitespace-nowrap break-keep'
+              } ${
                 isActive
                   ? 'bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-400'
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200'
-              } ${collapsed ? 'justify-center' : ''}`
+              }`
             }
           >
             <item.Icon size={17} className="shrink-0" />
@@ -209,8 +219,8 @@ export default function Sidebar() {
         {/* Profile Bar */}
         <button
           onClick={() => setMenuOpen((v) => !v)}
-          className={`w-full flex items-center gap-2.5 rounded-xl px-2 py-2 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800 ${
-            collapsed ? 'justify-center px-0' : ''
+          className={`flex items-center rounded-xl transition-colors hover:bg-slate-100 dark:hover:bg-slate-800 ${
+            collapsed ? 'w-10 h-10 mx-auto justify-center p-0' : 'w-full gap-2.5 px-2 py-2'
           } ${menuOpen ? 'bg-slate-100 dark:bg-slate-800' : ''}`}
           title={collapsed ? displayName : undefined}
         >

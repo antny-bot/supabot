@@ -2,12 +2,12 @@ const NAV_ORDER_KEY = 'sbm_nav_order'
 const NAV_DEFAULT_KEY = 'sbm_nav_default'
 
 export const ALL_NAV_KEYS = [
-  'dashboard', 'orders', 'trades', 'templates', 'reports', 'admin', 'config',
+  'dashboard', 'operations', 'orders', 'trades', 'templates', 'reports', 'admin', 'config',
 ] as const
 export type NavKey = (typeof ALL_NAV_KEYS)[number]
 
 const DEFAULT_ORDER: NavKey[] = [
-  'dashboard', 'orders', 'trades', 'reports', 'config', 'templates', 'admin',
+  'dashboard', 'operations', 'orders', 'trades', 'templates', 'reports', 'config', 'admin',
 ]
 
 export const MAX_PINNED = 5

@@ -1376,7 +1376,25 @@ async def api_reports_top_rotation(
             tr_q._params["group_no"] = f"eq.{group_no}"
 
         orders_data = (await ord_q.execute()).data or []
-        trades_data = (await tr_q.execute()).data or []
+        try:
+            trades_data = (await tr_q.execute()).data or []
+        except Exception as e:
+            # trade_logs 테이블에 group_no 컬럼이 아직 없는 환경 fallback
+            logger.warning(f"Failed to fetch trade_logs with group_no filter: {e}")
+            try:
+                fallback_tr_q = db.table("trade_logs").select("*").eq("template_id", template_id).order("executed_at", desc=True)
+                raw_trades = (await fallback_tr_q.execute()).data or []
+                if group_no is not None:
+                    order_uuids = {o.get("uuid") for o in orders_data if o.get("uuid")}
+                    trades_data = [
+                        t for t in raw_trades
+                        if (t.get("group_no") == group_no) or (t.get("uuid") in order_uuids)
+                    ]
+                else:
+                    trades_data = raw_trades
+            except Exception as e2:
+                logger.error(f"Fallback query for trade_logs also failed: {e2}")
+                trades_data = []
 
         for o in orders_data:
             tk = o.get("ticker", "")
@@ -1390,8 +1408,135 @@ async def api_reports_top_rotation(
             tr["order_kind"] = "모으기 매수" if tr.get("side") == "bid" else "이탈 분할매도"
             tr["executed_fmt"] = _fmt_ts(tr.get("executed_at"))
 
-        # 3. 타임라인 매트릭스 및 배치별 예산 흐름
+        # 3. 사이클 파이프라인 및 다음 영업일 매수 타겟(Next Target) 산출
+        cycle_no = int(params.get("cycle_no", 1))
+        current_cycle_bought = list(params.get("current_cycle_bought", []))
+        carryover_budget = float(params.get("carryover_budget", 0.0))
+        cycle_alloc_mode = params.get("cycle_alloc_mode", "one_share")
+        cycle_target_krw = float(params.get("cycle_target_krw", 300000))
+
+        target_items = [it for it in master_top if rank_start <= it["rank"] <= rank_end]
+        target_pipeline = []
+        next_target = None
+
+        for item in target_items:
+            code = item["code"]
+            p = float(item["price"])
+            rank = item["rank"]
+            name = stock_map.get(code, item.get("name", code))
+
+            if cycle_alloc_mode == "target_amount":
+                t_qty = max(1.0, round(cycle_target_krw / max(1.0, p)))
+            else:
+                t_qty = 1.0
+            cost = t_qty * p
+
+            is_bought = code in current_cycle_bought
+            is_next = False
+            if not is_bought and next_target is None:
+                is_next = True
+                shortfall = max(0.0, cost - carryover_budget)
+                next_target = {
+                    "rank": rank,
+                    "code": code,
+                    "name": name,
+                    "price": p,
+                    "target_qty": t_qty,
+                    "required_krw": cost,
+                    "carryover_budget": carryover_budget,
+                    "shortfall": shortfall,
+                    "budget_sufficient": carryover_budget >= cost,
+                    "cycle_no": cycle_no,
+                }
+
+            status = "bought" if is_bought else ("next" if is_next else "waiting")
+            target_pipeline.append({
+                "rank": rank,
+                "code": code,
+                "name": name,
+                "price": p,
+                "target_qty": t_qty,
+                "cost": cost,
+                "status": status,
+            })
+
+        if not next_target and target_items:
+            first_it = target_items[0]
+            f_code = first_it["code"]
+            f_p = float(first_it["price"])
+            f_qty = max(1.0, round(cycle_target_krw / max(1.0, f_p))) if cycle_alloc_mode == "target_amount" else 1.0
+            f_cost = f_qty * f_p
+            next_target = {
+                "rank": first_it["rank"],
+                "code": f_code,
+                "name": stock_map.get(f_code, first_it.get("name", f_code)),
+                "price": f_p,
+                "target_qty": f_qty,
+                "required_krw": f_cost,
+                "carryover_budget": carryover_budget,
+                "shortfall": max(0.0, f_cost - carryover_budget),
+                "budget_sufficient": carryover_budget >= f_cost,
+                "cycle_no": cycle_no + 1,
+                "note": "1사이클 완주 후 다음 사이클 1위 종목",
+            }
+
+        # 4. 일단위 실행 흐름 (일별 스냅샷 순위, 매수 성공 여부, 익일 타겟)
         history = params.get("history", [])
+        daily_execution_flow = []
+        for h_item in reversed(history[-14:]):
+            dt = h_item.get("date", "")
+            g_no = h_item.get("group_no")
+            c_no = h_item.get("cycle_no", cycle_no)
+            buys = h_item.get("buy_orders", [])
+            sells = h_item.get("sell_orders", [])
+            snap = h_item.get("snapshot", [])
+            w_next = h_item.get("waiting_next")
+            cob = h_item.get("carryover_budget", 0.0)
+
+            formatted_buys = []
+            for b in buys:
+                b_code = b.get("code") or b.get("ticker", "")
+                formatted_buys.append({
+                    "code": b_code,
+                    "name": stock_map.get(b_code, b.get("name", b_code)),
+                    "rank": b.get("rank"),
+                    "price": b.get("price", 0),
+                    "volume": b.get("volume", b.get("qty", 1)),
+                    "cost": b.get("cost", 0),
+                    "status": "done",
+                })
+
+            formatted_sells = []
+            for s in sells:
+                s_code = s.get("code") or s.get("ticker", "")
+                formatted_sells.append({
+                    "code": s_code,
+                    "name": stock_map.get(s_code, s.get("name", s_code)),
+                    "volume": s.get("volume", s.get("qty", 1)),
+                    "price": s.get("price", 0),
+                    "remaining_days": s.get("remaining_days"),
+                })
+
+            snap_preview = []
+            for sp in snap[:rank_end]:
+                sp_code = sp.get("code", "")
+                snap_preview.append({
+                    "rank": sp.get("rank"),
+                    "code": sp_code,
+                    "name": stock_map.get(sp_code, sp.get("name", sp_code)),
+                    "price": sp.get("price", 0),
+                })
+
+            daily_execution_flow.append({
+                "date": dt,
+                "group_no": g_no,
+                "cycle_no": c_no,
+                "carryover_budget": cob,
+                "buys": formatted_buys,
+                "sells": formatted_sells,
+                "snapshot_top": snap_preview,
+                "waiting_next": w_next,
+            })
 
         return JSONResponse({
             "template": template,
@@ -1400,6 +1545,17 @@ async def api_reports_top_rotation(
             "orders": orders_data,
             "trades": trades_data,
             "master_top": master_top[:15],
+            "cycle_pipeline": {
+                "cycle_no": cycle_no,
+                "rank_start": rank_start,
+                "rank_end": rank_end,
+                "total_targets": len(target_pipeline),
+                "bought_count": len(current_cycle_bought),
+                "progress_pct": round(len(current_cycle_bought) / max(1, len(target_pipeline)) * 100),
+                "pipeline": target_pipeline,
+                "next_target": next_target,
+            },
+            "daily_execution_flow": daily_execution_flow,
         })
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)

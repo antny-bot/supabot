@@ -12,6 +12,7 @@ import {
 
 export type PageMetaKey =
   | 'dashboard'
+  | 'operations'
   | 'orders'
   | 'trades'
   | 'templates'
@@ -40,6 +41,11 @@ export const PAGE_META: Record<PageMetaKey, PageMeta> = {
     title: '대시보드',
     subtitle: '서비스 운영 현황과 거래 상태를 한눈에 확인합니다.',
     Icon: LayoutDashboard,
+  },
+  operations: {
+    title: '전략 운용 모니터링',
+    subtitle: '실행 중인 전략 On/Off 제어, 포지션 회전, 당일 체결 및 감사원장을 통합 모니터링합니다.',
+    Icon: Activity,
   },
   orders: {
     title: '주문 현황',
@@ -80,6 +86,7 @@ export const PAGE_META: Record<PageMetaKey, PageMeta> = {
 
 export const APP_NAV_ITEMS: NavItem[] = [
   { key: 'dashboard', to: '/dashboard', label: '대시보드', compactLabel: '대시보드', adminOnly: false, Icon: LayoutDashboard },
+  { key: 'operations', to: '/operations', label: '전략 운용', compactLabel: '전략운용', adminOnly: false, Icon: Activity },
   { key: 'orders', to: '/orders', label: '주문 현황', compactLabel: '주문', adminOnly: false, Icon: ClipboardList },
   { key: 'trades', to: '/trades', label: '거래 내역', compactLabel: '거래', adminOnly: false, Icon: ArrowLeftRight },
   { key: 'templates', to: '/templates', label: '전략 템플릿', compactLabel: '템플릿', adminOnly: false, Icon: LayoutTemplate },

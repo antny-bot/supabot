@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
+import { Activity, ArrowRight } from 'lucide-react'
 import DateRangePicker, { type DateRangeValue } from '../components/ui/DateRangePicker'
 import PageHeader from '../components/ui/PageHeader'
 import ResponsiveTabs from '../components/ui/ResponsiveTabs'
@@ -55,6 +56,7 @@ const PERIOD_SENSITIVE_TABS = new Set([
 const DEFAULT_RANGE: DateRangeValue = { mode: '30d', from: '', to: '' }
 
 export default function Reports() {
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const tabFromUrl = searchParams.get('tab')
   const [activeTab, setActiveTab] = useState(() => {
@@ -94,6 +96,25 @@ export default function Reports() {
             value={dateRange}
             onChange={setDateRange}
           />
+        </div>
+      )}
+
+      {/* 전략 운용 메뉴 승격 안내 배너 */}
+      {['top_rotation', 'budget_plan', 'batches'].includes(activeTab) && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 p-3 text-xs text-indigo-700 dark:text-indigo-300">
+          <div className="flex items-center gap-2">
+            <Activity size={16} className="shrink-0 text-indigo-600 dark:text-indigo-400" />
+            <span>
+              전략 실행 On/Off 제어, 회전 현황 및 감사원장은 독립된 <strong>[전략 운용]</strong> 전용 대시보드에서 원스톱으로 관리하실 수 있습니다.
+            </span>
+          </div>
+          <button
+            onClick={() => navigate(`/operations?tab=${activeTab === 'budget_plan' ? 'ledger' : activeTab === 'batches' ? 'batches' : 'rotation'}`)}
+            className="flex items-center gap-1 font-bold text-indigo-600 dark:text-indigo-300 hover:underline shrink-0"
+          >
+            <span>전략 운용 대시보드 이동</span>
+            <ArrowRight size={13} />
+          </button>
         </div>
       )}
 

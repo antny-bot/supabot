@@ -8,6 +8,7 @@ import { readDefaultPage } from './lib/navPreferences'
 
 const Login = lazy(() => import('./pages/Login'))
 const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Operations = lazy(() => import('./pages/Operations'))
 const Orders = lazy(() => import('./pages/Orders'))
 const Trades = lazy(() => import('./pages/Trades'))
 const Templates = lazy(() => import('./pages/Templates'))
@@ -48,6 +49,8 @@ export default function App() {
           <Route element={<AppLayout />}>
             <Route index element={<DefaultRedirect />} />
             <Route path="/dashboard" element={withRouteFallback(<Dashboard />)} />
+            <Route path="/operations" element={withRouteFallback(<Operations />)} />
+            <Route path="/strategy-monitor" element={<Navigate to="/operations" replace />} />
             <Route path="/orders" element={withRouteFallback(<Orders />)} />
             <Route path="/trades" element={withRouteFallback(<Trades />)} />
             <Route path="/templates" element={withRouteFallback(<Templates />)} />

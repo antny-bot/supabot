@@ -84,9 +84,18 @@ async def api_list_trades(
         q._params["limit"] = page_size
         q._params["offset"] = offset
         
-        res = await q.execute()
-        trades = res.data
-        total_count = res.count or 0
+        try:
+            res = await q.execute()
+            trades = res.data
+            total_count = res.count or 0
+        except Exception as e:
+            if group_no is not None:
+                q._params.pop("group_no", None)
+                res = await q.execute()
+                trades = [t for t in (res.data or []) if t.get("group_no") == group_no]
+                total_count = len(trades)
+            else:
+                raise
 
         summary = {"total": total_count, "buy": 0, "sell": 0, "volume_krw": 0.0}
         

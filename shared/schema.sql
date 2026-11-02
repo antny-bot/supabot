@@ -82,6 +82,11 @@ CREATE TABLE IF NOT EXISTS trade_logs (
   fee_amount  DOUBLE PRECISION NOT NULL DEFAULT 0
 );
 
+ALTER TABLE trade_logs ADD COLUMN IF NOT EXISTS template_id BIGINT;
+ALTER TABLE trade_logs ADD COLUMN IF NOT EXISTS group_no INTEGER;
+CREATE INDEX IF NOT EXISTS idx_trade_logs_template_id ON trade_logs(template_id);
+CREATE INDEX IF NOT EXISTS idx_trade_logs_group_no    ON trade_logs(group_no);
+
 -- ── Operational Events ─────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS operational_events (
   id         BIGSERIAL PRIMARY KEY,
