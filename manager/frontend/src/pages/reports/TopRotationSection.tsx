@@ -795,13 +795,13 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
                         +{krwFmt(b.daily_allowance || 0)}
                       </td>
                       <td className={`${TD} text-right font-mono text-rose-500 font-semibold`}>
-                        -{krwFmt(b.spent || 0)}
+                        -{krwFmt(b.spent ?? b.spent_today ?? 0)}
                       </td>
                       <td className={`${TD} text-right font-mono font-semibold`}>
-                        {krwFmt(b.new_carryover || 0)}
+                        {krwFmt(b.new_carryover ?? b.end_carryover ?? 0)}
                       </td>
-                      <td className={`${TD} max-w-xs truncate text-slate-600 dark:text-slate-300`} title={b.summary}>
-                        {b.summary || '-'}
+                      <td className={`${TD} max-w-xs truncate text-slate-600 dark:text-slate-300`} title={b.summary || b.status_summary}>
+                        {b.summary || b.status_summary || '-'}
                       </td>
                     </tr>
                   ))
