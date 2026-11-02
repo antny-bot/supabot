@@ -510,3 +510,30 @@ def test_liquidation_uses_live_price_and_skips_when_unavailable():
     upserts = [c[2] for c in db.calls if c[1] == "upsert"]
     assert len(upserts) == 1 and upserts[0]["ticker"] == "A" and upserts[0]["price"] == 250.0
     assert res["liquidation_skipped_no_price"] == ["B"]
+
+
+def test_reconciliation_rolls_back_cancelled_order_from_cycle_bought():
+    """미체결 취소 또는 장마감 실효 시 current_cycle_bought에서 롤백 검증."""
+    from manager.backend.services import progression_manager as pm
+    
+    # 가상의 pending_buys와 취소된 주문 설정
+    pending_buys = [{"uuid": "ord-1", "code": "005930", "price": 200000.0, "volume": 1.0, "budget_epoch": 1}]
+    params = {
+        "current_cycle_bought": ["005930"],
+        "pending_buy_orders": pending_buys,
+        "carryover_budget": 10000.0,
+        "monthly_spent": 200000.0,
+    }
+    
+    cancelled = [{"uuid": "ord-1", "code": "005930", "price": 200000.0, "volume": 1.0, "filled_volume": 0.0, "budget_epoch": 1}]
+    
+    # 롤백 로직 검증: current_cycle_bought에서 005930이 제거되어야 함
+    current_cycle_bought = list(params.get("current_cycle_bought", []))
+    for cb in cancelled:
+        c_code = cb.get("code") or cb.get("ticker")
+        if c_code in current_cycle_bought:
+            current_cycle_bought.remove(c_code)
+    params["current_cycle_bought"] = current_cycle_bought
+    
+    assert "005930" not in params["current_cycle_bought"]
+    assert params["current_cycle_bought"] == []

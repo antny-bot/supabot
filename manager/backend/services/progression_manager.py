@@ -369,19 +369,49 @@ async def run_strategy_progression(
         # 4. 직전 배치 미체결 취소 주문 정산 (Reconciliation)
         pending_buys = params.get("pending_buy_orders", [])
         if pending_buys:
-            # orders 테이블에서 실제 상태 확인
+            # orders 테이블에서 실제 상태 확인 (uuid 및 reorder_of 양방향 매칭)
             order_uuids = [o["uuid"] for o in pending_buys if "uuid" in o]
             if order_uuids:
-                ord_res = await db.table("orders").select("uuid,status,filled_volume,price,volume").in_("uuid", order_uuids).execute()
-                status_map = {o["uuid"]: o for o in (ord_res.data or [])}
+                status_map = {}
+                try:
+                    ord_res = await db.table("orders").select("uuid,status,filled_volume,price,volume,reorder_of").in_("uuid", order_uuids).execute()
+                    for o in (ord_res.data or []):
+                        status_map[o["uuid"]] = o
+                except Exception as e:
+                    logger.warning(f"Failed to query orders by uuid: {e}")
+
+                try:
+                    reorder_res = await db.table("orders").select("uuid,status,filled_volume,price,volume,reorder_of").in_("reorder_of", order_uuids).execute()
+                    for o in (reorder_res.data or []):
+                        if o.get("reorder_of"):
+                            status_map[o["reorder_of"]] = o
+                except Exception as e:
+                    logger.debug(f"reorder_of lookup fallback: {e}")
+
                 cancelled = []
                 for pb in pending_buys:
                     s_info = status_map.get(pb["uuid"])
-                    if s_info and s_info.get("status") == "cancel":
-                        pb["filled_volume"] = s_info.get("filled_volume", 0.0)
-                        cancelled.append(pb)
+                    if s_info:
+                        st = s_info.get("status")
+                        # cancel, failed, rejected, market_closed(장마감 실효) 등 미체결 상태
+                        if st in ("cancel", "failed", "rejected", "market_closed"):
+                            pb["filled_volume"] = s_info.get("filled_volume", 0.0)
+                            cancelled.append(pb)
+                            if st == "market_closed":
+                                try:
+                                    await db.table("orders").update({"status": "cancel"}).eq("uuid", s_info["uuid"]).execute()
+                                except Exception as e:
+                                    logger.warning(f"Failed to mark market_closed order as cancel: {e}")
+
                 if cancelled:
                     await budget_manager.refund_cancelled_orders(template, cancelled)
+                    # 미체결 취소 종목은 사이클 매수 완료 목록(current_cycle_bought)에서 제거하여 재시도 복원
+                    current_cycle_bought = list(params.get("current_cycle_bought", []))
+                    for cb in cancelled:
+                        c_code = cb.get("code") or cb.get("ticker")
+                        if c_code in current_cycle_bought:
+                            current_cycle_bought.remove(c_code)
+                    params["current_cycle_bought"] = current_cycle_bought
 
         # 5. 일일 예산 충전 (1일 1회 불변식 2 보장)
         carryover_before_credit = float(params.get("carryover_budget", 0.0))
