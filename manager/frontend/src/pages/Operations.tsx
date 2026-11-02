@@ -2,13 +2,10 @@ import { useEffect, useState, useCallback } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import {
   Activity,
-  Layers,
   DollarSign,
   Play,
   RotateCw,
   Plus,
-  Compass,
-  TrendingUp,
   ShieldAlert,
   AlertTriangle,
   X,
@@ -28,20 +25,20 @@ import SegmentedControl from '../components/ui/SegmentedControl'
 import Spinner from '../components/ui/Spinner'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import TopRotationSection from './reports/TopRotationSection'
+import SingleStrategySection from './reports/SingleStrategySection'
 import BudgetPlanSection from './reports/BudgetPlanSection'
 import BatchTimelineSection from './reports/BatchTimelineSection'
 import OrderBatchesSection from './orders/OrderBatchesSection'
+import ResponsiveTabs from '../components/ui/ResponsiveTabs'
 import { useToast } from '../contexts/ToastContext'
 import { krwFmt } from '../utils/formatters'
 import type { DateRangeValue } from '../components/ui/DateRangePicker'
 
 const DEFAULT_TIMELINE_RANGE: DateRangeValue = { mode: '30d', from: '', to: '' }
 
-const OPERATION_TABS = [
-  { id: 'rotation', label: '포지션 & 순위 회전', icon: Compass },
-  { id: 'ledger', label: '예산 플랜 & 감사원장', icon: DollarSign },
-  { id: 'batches', label: '전략 배치 주문 묶음', icon: Layers },
-  { id: 'timeline', label: '배치 실행 타임라인', icon: TrendingUp },
+const MAIN_VIEWS = [
+  { id: 'workbench', label: '전략 실시간 관제 (워크벤치)' },
+  { id: 'list', label: '실행 전략 목록 & 빠른 제어' },
 ]
 
 export default function Operations() {
@@ -49,11 +46,18 @@ export default function Operations() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
 
+  const viewParam = searchParams.get('view')
   const tabParam = searchParams.get('tab')
   const templateIdParam = searchParams.get('template_id')
 
+  const [viewMode, setViewMode] = useState<'workbench' | 'list'>(() => {
+    return viewParam === 'list' ? 'list' : 'workbench'
+  })
+
   const [activeTab, setActiveTab] = useState(() => {
-    return tabParam && OPERATION_TABS.some((t) => t.id === tabParam) ? tabParam : 'rotation'
+    return tabParam && ['rotation', 'ledger', 'batches', 'timeline'].includes(tabParam)
+      ? tabParam
+      : 'rotation'
   })
 
   const [templates, setTemplates] = useState<Template[]>([])
@@ -102,6 +106,10 @@ export default function Operations() {
   useEffect(() => {
     const params = new URLSearchParams(searchParams)
     let changed = false
+    if (viewMode && params.get('view') !== viewMode) {
+      params.set('view', viewMode)
+      changed = true
+    }
     if (activeTab && params.get('tab') !== activeTab) {
       params.set('tab', activeTab)
       changed = true
@@ -113,7 +121,17 @@ export default function Operations() {
     if (changed) {
       setSearchParams(params, { replace: true })
     }
-  }, [activeTab, selectedTemplateId, searchParams, setSearchParams])
+  }, [viewMode, activeTab, selectedTemplateId, searchParams, setSearchParams])
+
+  const selectedTemplate = templates.find((t) => t.id === selectedTemplateId)
+  const isTopDca = selectedTemplate?.strategy_type === 'kospi_top_dca'
+
+  const workbenchTabs = [
+    { id: 'rotation', label: isTopDca ? '포지션 & 순위 회전' : '포지션 & 전략 지표' },
+    { id: 'ledger', label: '예산 플랜 & 감사원장' },
+    { id: 'batches', label: '전략 배치 주문 묶음' },
+    { id: 'timeline', label: '배치 실행 타임라인' },
+  ]
 
   const handleToggleHolding = async (tpl: Template, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -239,8 +257,6 @@ export default function Operations() {
     }
   }
 
-  const selectedTemplate = templates.find((t) => t.id === selectedTemplateId)
-
   return (
     <div className="space-y-6 pb-12 break-keep animate-fade-in-up">
       {/* 최상단 페이지 헤더 */}
@@ -269,70 +285,244 @@ export default function Operations() {
 
       {error && <ErrorBanner message={error} />}
 
-      {/* =========================================================================
-          [1] 독립적인 전략 단위별 On/Off 및 핵심 지표 카드 그리드
-          ========================================================================= */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-              실행 등록 전략 목록 ({templates.length}개)
-            </h3>
-            <span className="text-xs text-slate-400">
-              카드를 클릭하여 아래 실시간 워크벤치 대상을 선택하세요.
-            </span>
-          </div>
+      {/* 2대 메인 모드 분리 탭 (실시간 관제 워크벤치 vs 등록 전략 총괄 제어) */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
+        <SegmentedControl
+          options={MAIN_VIEWS}
+          value={viewMode}
+          onChange={(v) => setViewMode(v as 'workbench' | 'list')}
+        />
+        <div className="text-xs text-slate-400">
+          {viewMode === 'workbench'
+            ? '선택된 전략의 실시간 포지션/지표 및 감사원장을 집중 관제합니다.'
+            : '전체 전략의 On/Off 가동 상태 및 비상 제어를 총괄 관리합니다.'}
         </div>
+      </div>
 
-        {loading && templates.length === 0 ? (
-          <div className="flex justify-center py-10">
-            <Spinner />
+      {/* =========================================================================
+          [1] 뷰 1: 등록 전략 목록 및 총괄 빠른 제어 (카드 그리드 대시보드)
+          ========================================================================= */}
+      {viewMode === 'list' && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                실행 등록 전략 목록 ({templates.length}개)
+              </h3>
+              <span className="text-xs text-slate-400">
+                카드의 [상세 관제]를 클릭하여 실시간 워크벤치를 확인하세요.
+              </span>
+            </div>
           </div>
-        ) : templates.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-xs text-slate-400 dark:border-slate-700">
-            등록된 전략이 없습니다. [새 전략 설정]에서 전략을 생성해주세요.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {templates.map((tpl) => {
-              const p = (tpl.params || {}) as any
-              const isSelected = tpl.id === selectedTemplateId
-              const isActive =
-                p.strategy_status === 'active' ||
-                (p.strategy_status === undefined && p.schedule_enabled !== false)
 
-              return (
-                <div
-                  key={tpl.id}
-                  onClick={() => setSelectedTemplateId(tpl.id)}
-                  className={`relative flex flex-col justify-between rounded-2xl border p-4 transition-all cursor-pointer ${
-                    isSelected
-                      ? 'border-indigo-500 bg-indigo-50/20 shadow-md ring-2 ring-indigo-500/20 dark:border-indigo-500 dark:bg-indigo-950/20'
-                      : 'border-slate-200 bg-white shadow-xs hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700'
-                  }`}
-                >
-                  <div>
-                    {/* 상단: 거래소, 종목 & ON/OFF 토글 스위치 */}
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <Badge value={tpl.exchange} label={tpl.exchange.toUpperCase()} />
-                        <span className="text-xs font-extrabold text-slate-900 dark:text-white">
-                          #{tpl.id}
-                        </span>
-                        <span className="text-xs text-slate-400 font-mono">
-                          {tpl.strategy_type === 'kospi_top_dca' ? '시총 TOP N' : tpl.strategy_type}
-                        </span>
+          {loading && templates.length === 0 ? (
+            <div className="flex justify-center py-10">
+              <Spinner />
+            </div>
+          ) : templates.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-xs text-slate-400 dark:border-slate-700">
+              등록된 전략이 없습니다. [새 전략 설정]에서 전략을 생성해주세요.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {templates.map((tpl) => {
+                const p = (tpl.params || {}) as any
+                const isSelected = tpl.id === selectedTemplateId
+                const isActive =
+                  p.strategy_status === 'active' ||
+                  (p.strategy_status === undefined && p.schedule_enabled !== false)
+
+                return (
+                  <div
+                    key={tpl.id}
+                    onClick={() => {
+                      setSelectedTemplateId(tpl.id)
+                      setViewMode('workbench')
+                    }}
+                    className={`relative flex flex-col justify-between rounded-2xl border p-4 transition-all cursor-pointer ${
+                      isSelected
+                        ? 'border-indigo-500 bg-indigo-50/20 shadow-md ring-2 ring-indigo-500/20 dark:border-indigo-500 dark:bg-indigo-950/20'
+                        : 'border-slate-200 bg-white shadow-xs hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700'
+                    }`}
+                  >
+                    <div>
+                      {/* 상단: 거래소, 종목 & ON/OFF 토글 스위치 */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <Badge value={tpl.exchange} label={tpl.exchange.toUpperCase()} />
+                          <span className="text-xs font-extrabold text-slate-900 dark:text-white">
+                            #{tpl.id}
+                          </span>
+                          <span className="text-xs text-slate-400 font-mono">
+                            {tpl.strategy_type === 'kospi_top_dca' ? '시총 TOP N' : tpl.strategy_type}
+                          </span>
+                        </div>
+
+                        {/* On / Off 스위치 */}
+                        <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            disabled={togglingId === tpl.id}
+                            onClick={(e) => handleToggleHolding(tpl, e)}
+                            className={`relative inline-flex h-5 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                              isActive ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'
+                            } ${togglingId === tpl.id ? 'opacity-50' : ''}`}
+                            title={isActive ? '전략 가동중 (클릭 시 일시정지 OFF)' : '전략 일시정지 (클릭 시 가동 ON)'}
+                          >
+                            <span
+                              className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-xs ring-0 transition duration-200 ease-in-out ${
+                                isActive ? 'translate-x-5' : 'translate-x-0'
+                              }`}
+                            />
+                          </button>
+                          <span
+                            className={`text-[10px] font-extrabold font-mono w-6 text-center ${
+                              isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'
+                            }`}
+                          >
+                            {isActive ? 'ON' : 'OFF'}
+                          </span>
+                        </div>
                       </div>
 
-                      {/* On / Off 스위치 */}
+                      {/* 전략 명칭 */}
+                      <h4 className="mt-2 text-sm font-bold text-slate-900 dark:text-white truncate">
+                        {tpl.name}
+                      </h4>
+
+                      {/* 독립적 지표 요약 그리드 */}
+                      <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-slate-50 p-2.5 text-xs dark:bg-slate-800/50">
+                        <div>
+                          <div className="flex items-center justify-between text-[10px] text-slate-400">
+                            <span>이월 가용 예산</span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setTopupTargetTpl(tpl)
+                                setTopupAmount(300000)
+                                setTopupMemo('가용 예산 보충')
+                              }}
+                              className="text-indigo-600 dark:text-indigo-400 font-bold hover:underline"
+                              title="예산 즉시 수동 추가 충전"
+                            >
+                              +충전
+                            </button>
+                          </div>
+                          <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                            {krwFmt(p.carryover_budget ?? 0)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 block">당월 누적 소진</span>
+                          <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                            {krwFmt(p.monthly_spent ?? 0)}
+                          </span>
+                        </div>
+                        <div className="col-span-2 pt-1 border-t border-slate-200/60 dark:border-slate-700/60 flex items-center justify-between text-[11px]">
+                          <span className="text-slate-400">
+                            {p.last_group_no ? `최근 실행: Batch #${p.last_group_no}` : '실행 대기중'}
+                          </span>
+                          <span className="font-mono text-slate-500">
+                            스케줄: 매일 {p.schedule_time || '09:10'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 하단 제어 액션 바 */}
+                    <div className="mt-3.5 flex items-center justify-between border-t border-slate-100 pt-2.5 dark:border-slate-800">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setStopTargetTpl(tpl)
+                          setStopMode('pause')
+                          setLiquidateConfirmText('')
+                        }}
+                        className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-slate-500 hover:bg-slate-100 hover:text-rose-600 dark:hover:bg-slate-800 dark:hover:text-rose-400 transition-colors"
+                        title="비상 일시정지, 주문 취소 또는 전량 청산"
+                      >
+                        <ShieldAlert size={12} />
+                        <span>제어/청산</span>
+                      </button>
+
                       <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                         <button
                           type="button"
-                          disabled={togglingId === tpl.id}
-                          onClick={(e) => handleToggleHolding(tpl, e)}
+                          disabled={executingId === tpl.id}
+                          onClick={(e) => handleExecuteNow(tpl, e)}
+                          className="flex items-center gap-1 rounded-xl bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white shadow-xs hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                        >
+                          <Play size={11} className={executingId === tpl.id ? 'animate-spin' : ''} />
+                          <span>즉시 실행</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedTemplateId(tpl.id)
+                            setViewMode('workbench')
+                          }}
+                          className="flex items-center gap-1 rounded-xl bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:text-indigo-300 transition-colors"
+                        >
+                          <span>관제 열기 →</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* =========================================================================
+          [2] 뷰 2: 선택된 전략별 실시간 관제 워크벤치
+          ========================================================================= */}
+      {viewMode === 'workbench' && (
+        <div className="space-y-4">
+          {/* 슬림 전략 선택 & 빠른 제어 바 */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+            {/* 좌측: 전략 셀렉터 & 기본 식별 정보 */}
+            <div className="flex flex-1 flex-wrap items-center gap-2.5">
+              <span className="text-xs font-bold text-slate-500 dark:text-slate-400 shrink-0">
+                관제 대상 전략:
+              </span>
+              <select
+                value={selectedTemplateId || ''}
+                onChange={(e) => setSelectedTemplateId(Number(e.target.value))}
+                className="max-w-[280px] sm:max-w-[340px] truncate rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+              >
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    #{t.id} {t.name} [{t.exchange.toUpperCase()}] ({t.strategy_type === 'kospi_top_dca' ? 'TOP N' : t.strategy_type})
+                  </option>
+                ))}
+              </select>
+
+              {selectedTemplate && (
+                <>
+                  <Badge value={selectedTemplate.exchange} label={selectedTemplate.exchange.toUpperCase()} />
+                  <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300 font-mono">
+                    {isTopDca ? '시총 TOP N DCA' : (selectedTemplate.strategy_type || '').toUpperCase()}
+                  </span>
+
+                  {/* 가동 상태 토글 스위치 */}
+                  {(() => {
+                    const p = (selectedTemplate.params || {}) as any
+                    const isActive =
+                      p.strategy_status === 'active' ||
+                      (p.strategy_status === undefined && p.schedule_enabled !== false)
+                    return (
+                      <div className="flex items-center gap-1.5 pl-1">
+                        <button
+                          type="button"
+                          disabled={togglingId === selectedTemplate.id}
+                          onClick={(e) => handleToggleHolding(selectedTemplate, e)}
                           className={`relative inline-flex h-5 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
                             isActive ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'
-                          } ${togglingId === tpl.id ? 'opacity-50' : ''}`}
+                          } ${togglingId === selectedTemplate.id ? 'opacity-50' : ''}`}
                           title={isActive ? '전략 가동중 (클릭 시 일시정지 OFF)' : '전략 일시정지 (클릭 시 가동 ON)'}
                         >
                           <span
@@ -342,153 +532,132 @@ export default function Operations() {
                           />
                         </button>
                         <span
-                          className={`text-[10px] font-extrabold font-mono w-6 text-center ${
+                          className={`text-[10px] font-extrabold font-mono ${
                             isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'
                           }`}
                         >
                           {isActive ? 'ON' : 'OFF'}
                         </span>
                       </div>
-                    </div>
+                    )
+                  })()}
+                </>
+              )}
+            </div>
 
-                    {/* 전략 명칭 */}
-                    <h4 className="mt-2 text-sm font-bold text-slate-900 dark:text-white truncate">
-                      {tpl.name}
-                    </h4>
-
-                    {/* 독립적 지표 요약 그리드 */}
-                    <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-slate-50 p-2.5 text-xs dark:bg-slate-800/50">
-                      <div>
-                        <div className="flex items-center justify-between text-[10px] text-slate-400">
-                          <span>이월 가용 예산</span>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setTopupTargetTpl(tpl)
-                              setTopupAmount(300000)
-                              setTopupMemo('가용 예산 보충')
-                            }}
-                            className="text-indigo-600 dark:text-indigo-400 font-bold hover:underline"
-                            title="예산 즉시 수동 추가 충전"
-                          >
-                            +충전
-                          </button>
-                        </div>
-                        <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                          {krwFmt(p.carryover_budget ?? 0)}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-slate-400 block">당월 누적 소진</span>
-                        <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                          {krwFmt(p.monthly_spent ?? 0)}
-                        </span>
-                      </div>
-                      <div className="col-span-2 pt-1 border-t border-slate-200/60 dark:border-slate-700/60 flex items-center justify-between text-[11px]">
-                        <span className="text-slate-400">
-                          {p.last_group_no ? `최근 실행: Batch #${p.last_group_no}` : '실행 대기중'}
-                        </span>
-                        <span className="font-mono text-slate-500">
-                          스케줄: 매일 {p.schedule_time || '09:10'}
-                        </span>
-                      </div>
-                    </div>
+            {/* 우측: 인라인 예산 요약 & 빠른 제어 버튼 */}
+            {selectedTemplate && (
+              <div className="flex flex-wrap items-center gap-2 self-end lg:self-auto">
+                <div className="hidden sm:flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-1.5 text-xs dark:bg-slate-800/60 font-mono">
+                  <div>
+                    <span className="text-[10px] text-slate-400 block">이월 가용예산</span>
+                    <span className="font-bold text-slate-700 dark:text-slate-200">
+                      {krwFmt((selectedTemplate.params as any)?.carryover_budget ?? 0)}
+                    </span>
                   </div>
-
-                  {/* 하단 제어 액션 바 */}
-                  <div className="mt-3.5 flex items-center justify-between border-t border-slate-100 pt-2.5 dark:border-slate-800">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setStopTargetTpl(tpl)
-                        setStopMode('pause')
-                        setLiquidateConfirmText('')
-                      }}
-                      className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-slate-500 hover:bg-slate-100 hover:text-rose-600 dark:hover:bg-slate-800 dark:hover:text-rose-400 transition-colors"
-                      title="비상 일시정지, 주문 취소 또는 전량 청산"
-                    >
-                      <ShieldAlert size={12} />
-                      <span>제어/청산</span>
-                    </button>
-
-                    <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        disabled={executingId === tpl.id}
-                        onClick={(e) => handleExecuteNow(tpl, e)}
-                        className="flex items-center gap-1 rounded-xl bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white shadow-xs hover:bg-emerald-700 disabled:opacity-50 transition-colors"
-                      >
-                        <Play size={11} className={executingId === tpl.id ? 'animate-spin' : ''} />
-                        <span>즉시 실행</span>
-                      </button>
-                    </div>
+                  <div className="border-l border-slate-200 dark:border-slate-700 pl-3">
+                    <span className="text-[10px] text-slate-400 block">당월 소진</span>
+                    <span className="font-bold text-slate-700 dark:text-slate-200">
+                      {krwFmt((selectedTemplate.params as any)?.monthly_spent ?? 0)}
+                    </span>
                   </div>
                 </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
 
-      {/* =========================================================================
-          [2] 선택된 전략 전용 통합 실시간 워크벤치 (4대 탭)
-          ========================================================================= */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900 space-y-5">
-        {/* 상단 탭 스위처 & 현재 포커스 전략 배너 */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-100 pb-4 dark:border-slate-800">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
-              현재 분석 대상 전략:
-            </span>
-            {selectedTemplate ? (
-              <div className="flex items-center gap-1.5">
-                <span className="rounded-lg bg-indigo-100 px-2.5 py-0.5 text-xs font-bold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
-                  #{selectedTemplate.id} {selectedTemplate.name}
-                </span>
-                <Badge value={selectedTemplate.exchange} label={selectedTemplate.exchange.toUpperCase()} />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTopupTargetTpl(selectedTemplate)
+                    setTopupAmount(300000)
+                    setTopupMemo('가용 예산 보충')
+                  }}
+                  className="flex items-center gap-1 rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
+                  title="예산 즉시 수동 추가 충전"
+                >
+                  <Plus size={12} />
+                  <span>충전</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStopTargetTpl(selectedTemplate)
+                    setStopMode('pause')
+                    setLiquidateConfirmText('')
+                  }}
+                  className="flex items-center gap-1 rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-rose-50 hover:text-rose-600 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-rose-950/40 dark:hover:text-rose-400 transition-colors"
+                  title="비상 일시정지, 주문 취소 또는 전량 청산"
+                >
+                  <ShieldAlert size={12} />
+                  <span>제어/청산</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={executingId === selectedTemplate.id}
+                  onClick={(e) => handleExecuteNow(selectedTemplate, e)}
+                  className="flex items-center gap-1 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                >
+                  <Play size={11} className={executingId === selectedTemplate.id ? 'animate-spin' : ''} />
+                  <span>즉시 실행</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setViewMode('list')}
+                  className="flex items-center gap-1 rounded-xl border border-indigo-200 px-2.5 py-1.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 dark:border-indigo-800 dark:text-indigo-400 dark:hover:bg-indigo-950/40 transition-colors"
+                >
+                  <span>목록 보기</span>
+                </button>
               </div>
-            ) : (
-              <span className="text-xs text-slate-400">전략을 선택하세요.</span>
             )}
           </div>
 
-          <div className="w-full sm:w-auto">
-            <SegmentedControl
-              options={OPERATION_TABS.map((t) => ({ id: t.id, label: t.label }))}
-              value={activeTab}
+          {/* 4대 탭 네비게이션 */}
+          <div className="space-y-4">
+            <ResponsiveTabs
+              tabs={workbenchTabs}
+              activeTab={activeTab}
               onChange={setActiveTab}
             />
+
+            {/* 탭별 컨텐츠 섹션 (전략 타입에 따라 적응형 렌더링) */}
+            <div className="min-w-0">
+              {activeTab === 'rotation' && (
+                selectedTemplate ? (
+                  isTopDca ? (
+                    <TopRotationSection templateId={selectedTemplateId} />
+                  ) : (
+                    <SingleStrategySection templateId={selectedTemplateId!} />
+                  )
+                ) : (
+                  <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-xs text-slate-400 dark:border-slate-700">
+                    전략을 선택해주세요.
+                  </div>
+                )
+              )}
+
+              {activeTab === 'ledger' && (
+                <BudgetPlanSection templateId={selectedTemplateId} />
+              )}
+
+              {activeTab === 'batches' && (
+                <OrderBatchesSection
+                  initialGroupNo={
+                    (selectedTemplate?.params as any)?.last_group_no
+                      ? Number((selectedTemplate?.params as any)?.last_group_no)
+                      : undefined
+                  }
+                  onSelectGroupNo={(g) => navigate(`/orders?group_no=${g}`)}
+                />
+              )}
+
+              {activeTab === 'timeline' && (
+                <BatchTimelineSection dateRange={DEFAULT_TIMELINE_RANGE} />
+              )}
+            </div>
           </div>
         </div>
-
-        {/* 탭별 컨텐츠 섹션 */}
-        <div className="min-w-0">
-          {activeTab === 'rotation' && (
-            <TopRotationSection templateId={selectedTemplateId} />
-          )}
-
-          {activeTab === 'ledger' && (
-            <BudgetPlanSection templateId={selectedTemplateId} />
-          )}
-
-          {activeTab === 'batches' && (
-            <OrderBatchesSection
-              initialGroupNo={
-                (selectedTemplate?.params as any)?.last_group_no
-                  ? Number((selectedTemplate?.params as any)?.last_group_no)
-                  : undefined
-              }
-              onSelectGroupNo={(g) => navigate(`/orders?group_no=${g}`)}
-            />
-          )}
-
-          {activeTab === 'timeline' && (
-            <BatchTimelineSection dateRange={DEFAULT_TIMELINE_RANGE} />
-          )}
-        </div>
-      </div>
+      )}
 
       {/* =========================================================================
           [모달 1] 수동 예산 추가 충전 (Manual Top-up) 모달

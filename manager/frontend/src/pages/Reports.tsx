@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { Activity, ArrowRight } from 'lucide-react'
 import DateRangePicker, { type DateRangeValue } from '../components/ui/DateRangePicker'
 import PageHeader from '../components/ui/PageHeader'
 import ResponsiveTabs from '../components/ui/ResponsiveTabs'
@@ -18,9 +17,6 @@ import PairsSection from './reports/PairsSection'
 import WinStatsSection from './reports/WinStatsSection'
 import DrawdownSection from './reports/DrawdownSection'
 import AllocationSection from './reports/AllocationSection'
-import BatchTimelineSection from './reports/BatchTimelineSection'
-import TopRotationSection from './reports/TopRotationSection'
-import BudgetPlanSection from './reports/BudgetPlanSection'
 import BacktestSimulatorSection from './reports/BacktestSimulatorSection'
 
 export const REPORT_TABS = [
@@ -30,21 +26,17 @@ export const REPORT_TABS = [
   { id: 'daily', label: '일별 손익' },
   { id: 'monthly', label: '월별 손익' },
   { id: 'drawdown', label: 'MDD / 리스크' },
-  { id: 'top_rotation', label: '시총 순위 포지션·회전' },
-  { id: 'budget_plan', label: 'Budget Plan & 감사 원장' },
-  { id: 'backtest_compare', label: '다중 시나리오 백테스트' },
-  { id: 'batches', label: '배치·시계열 추적' },
   { id: 'strategy', label: '전략별 분석' },
   { id: 'exchange', label: '거래소별 분석' },
   { id: 'ranking', label: '수익률 랭킹' },
   { id: 'pairs', label: '거래 페어' },
   { id: 'winstats', label: '승률/손익비' },
+  { id: 'backtest_compare', label: '다중 시나리오 백테스트' },
 ]
 
 const PERIOD_SENSITIVE_TABS = new Set([
   'pnl',
   'daily',
-  'batches',
   'strategy',
   'exchange',
   'ranking',
@@ -59,6 +51,18 @@ export default function Reports() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const tabFromUrl = searchParams.get('tab')
+
+  // 기존 운용성 탭 접근 시 전략 운용 페이지로 자동 안내/리다이렉트
+  useEffect(() => {
+    if (tabFromUrl === 'top_rotation') {
+      navigate('/operations?tab=rotation', { replace: true })
+    } else if (tabFromUrl === 'budget_plan') {
+      navigate('/operations?tab=ledger', { replace: true })
+    } else if (tabFromUrl === 'batches') {
+      navigate('/operations?tab=batches', { replace: true })
+    }
+  }, [tabFromUrl, navigate])
+
   const [activeTab, setActiveTab] = useState(() => {
     if (tabFromUrl && REPORT_TABS.some((t) => t.id === tabFromUrl)) {
       return tabFromUrl
@@ -99,25 +103,6 @@ export default function Reports() {
         </div>
       )}
 
-      {/* 전략 운용 메뉴 승격 안내 배너 */}
-      {['top_rotation', 'budget_plan', 'batches'].includes(activeTab) && (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 p-3 text-xs text-indigo-700 dark:text-indigo-300">
-          <div className="flex items-center gap-2">
-            <Activity size={16} className="shrink-0 text-indigo-600 dark:text-indigo-400" />
-            <span>
-              전략 실행 On/Off 제어, 회전 현황 및 감사원장은 독립된 <strong>[전략 운용]</strong> 전용 대시보드에서 원스톱으로 관리하실 수 있습니다.
-            </span>
-          </div>
-          <button
-            onClick={() => navigate(`/operations?tab=${activeTab === 'budget_plan' ? 'ledger' : activeTab === 'batches' ? 'batches' : 'rotation'}`)}
-            className="flex items-center gap-1 font-bold text-indigo-600 dark:text-indigo-300 hover:underline shrink-0"
-          >
-            <span>전략 운용 대시보드 이동</span>
-            <ArrowRight size={13} />
-          </button>
-        </div>
-      )}
-
       {/* Tab content */}
       <div key={activeTab} className="animate-fade-in">
         {activeTab === 'holdings' && <HoldingsSection />}
@@ -125,10 +110,7 @@ export default function Reports() {
         {activeTab === 'drawdown' && <DrawdownSection dateRange={dateRange} />}
         {activeTab === 'pnl' && <PnlSection dateRange={dateRange} />}
         {activeTab === 'daily' && <DailySection dateRange={dateRange} />}
-        {activeTab === 'top_rotation' && <TopRotationSection />}
-        {activeTab === 'budget_plan' && <BudgetPlanSection />}
         {activeTab === 'backtest_compare' && <BacktestSimulatorSection />}
-        {activeTab === 'batches' && <BatchTimelineSection dateRange={dateRange} />}
         {activeTab === 'strategy' && <StrategySection dateRange={dateRange} />}
         {activeTab === 'exchange' && <ExchangeSection dateRange={dateRange} />}
         {activeTab === 'ranking' && <RoiRankingSection dateRange={dateRange} />}

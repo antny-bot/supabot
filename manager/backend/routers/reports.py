@@ -1561,6 +1561,95 @@ async def api_reports_top_rotation(
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
+@router.get("/api/reports/strategy-detail")
+async def api_reports_strategy_detail(
+    request: Request,
+    template_id: int,
+):
+    """단일 종목 / 일반 전략(GRID, RSI, DCA 등) 상세 운용 현황 리포트."""
+    ctx, err = _auth_guard(request)
+    if err:
+        return err
+    is_admin, bot_user_id = ctx
+
+    try:
+        db = get_db()
+        t_q = db.table("strategy_templates").select("*").eq("id", template_id)
+        if not is_admin and bot_user_id:
+            t_q._params["user_id"] = f"eq.{bot_user_id}"
+        t_rows = (await t_q.execute()).data
+        if not t_rows:
+            return JSONResponse({"error": "전략 템플릿을 찾을 수 없습니다."}, status_code=404)
+
+        template = t_rows[0]
+        ticker = (template.get("ticker") or "").upper()
+        exchange = (template.get("exchange") or "upbit").lower()
+        params = template.get("params") or {}
+        stock_map = await get_stock_name_map()
+
+        # 1. 템플릿 기준 보유 포지션
+        holdings = await progression_manager.get_template_holdings(template["user_id"], template_id)
+        holding_item = holdings.get(ticker, {"qty": 0.0, "total_cost": 0.0, "avg_price": 0.0})
+        qty = float(holding_item.get("qty", 0.0))
+        total_cost = float(holding_item.get("total_cost", 0.0))
+        avg_price = float(holding_item.get("avg_price", 0.0))
+
+        # 2. 현재가 조회 및 평가 손익 계산
+        current_price = avg_price
+        try:
+            price_res = await _fetch_current_prices([{"exchange": exchange, "ticker": ticker, "user_id": template["user_id"]}], bot_user_id)
+            fetched_price = price_res.get((str(template["user_id"]), exchange, ticker))
+            if fetched_price and float(fetched_price) > 0:
+                current_price = float(fetched_price)
+        except Exception:
+            pass
+
+        eval_value = qty * current_price
+        pnl = (eval_value - total_cost) if total_cost > 0 else 0.0
+        pnl_pct = (pnl / total_cost * 100.0) if total_cost > 0 else 0.0
+
+        # 3. 최근 주문 내역
+        ord_q = db.table("orders").select("*").eq("template_id", template_id).order("created_at", desc=True).limit(50)
+        orders_data = (await ord_q.execute()).data or []
+
+        # 4. 최근 체결 내역
+        tr_q = db.table("trade_logs").select("*").eq("template_id", template_id).order("executed_at", desc=True).limit(50)
+        try:
+            trades_data = (await tr_q.execute()).data or []
+        except Exception:
+            trades_data = []
+
+        for o in orders_data:
+            tk = o.get("ticker", "")
+            o["name"] = stock_map.get(tk, tk)
+            o["created_fmt"] = _fmt_ts(o.get("created_at"))
+
+        for tr in trades_data:
+            tk = tr.get("ticker", "")
+            tr["name"] = stock_map.get(tk, tk)
+            tr["executed_fmt"] = _fmt_ts(tr.get("executed_at"))
+
+        return JSONResponse({
+            "template": template,
+            "ticker": ticker,
+            "name": stock_map.get(ticker, ticker),
+            "exchange": exchange,
+            "holding": {
+                "qty": qty,
+                "avg_price": round(avg_price, 2),
+                "total_cost": round(total_cost),
+                "current_price": round(current_price, 2),
+                "eval_value": round(eval_value),
+                "pnl": round(pnl),
+                "pnl_pct": round(pnl_pct, 2),
+            },
+            "orders": orders_data,
+            "trades": trades_data,
+        })
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
 @router.post("/api/reports/top-rotation/backtest-compare")
 async def api_reports_backtest_compare(request: Request):
     """다중 시나리오 역테스트 & 수익률 비교 아레나."""

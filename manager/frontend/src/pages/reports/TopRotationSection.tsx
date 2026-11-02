@@ -47,21 +47,23 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
   const [topupLoading, setTopupLoading] = useState(false)
 
   useEffect(() => {
-    if (templateId && templateId !== selectedTemplateId) {
+    if (templateId) {
       setSelectedTemplateId(templateId)
     }
   }, [templateId])
 
   useEffect(() => {
+    if (templateId) {
+      setSelectedTemplateId(templateId)
+      return
+    }
     fetchTemplates()
       .then((tpls) => {
         const topTpls = tpls.filter(
           (t) => t.strategy_type === 'kospi_top_dca' || t.name.includes('TOP'),
         )
         setTemplates(topTpls)
-        if (templateId && tpls.some((t) => t.id === templateId)) {
-          setSelectedTemplateId(templateId)
-        } else if (topTpls.length > 0) {
+        if (topTpls.length > 0) {
           setSelectedTemplateId(topTpls[0].id)
         } else if (tpls.length > 0) {
           setSelectedTemplateId(tpls[0].id)
@@ -146,61 +148,17 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
   return (
     <div className="space-y-5 break-keep">
       {/* 템플릿 선택 및 상단 컨트롤 바 */}
-      <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs space-y-3">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          {/* 전략 선택, 거래소 필터, 검색 */}
-          <div className="flex flex-1 flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1.5 font-semibold text-sm text-slate-700 dark:text-slate-200">
-              <Layers size={18} className="text-indigo-600 dark:text-indigo-400" />
-              <span>전략:</span>
-            </div>
-
-            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-700/60 p-0.5 rounded-lg text-xs">
-              {['all', 'toss', 'kis', 'upbit', 'bithumb'].map((ex) => (
-                <button
-                  key={ex}
-                  onClick={() => setExchangeFilter(ex)}
-                  className={`px-2 py-0.5 rounded-md font-medium transition-colors ${
-                    exchangeFilter === ex
-                      ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-xs'
-                      : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-                  }`}
-                >
-                  {ex === 'all' ? '전체' : ex.toUpperCase()}
-                </button>
-              ))}
-            </div>
-
-            <input
-              type="text"
-              placeholder="전략명/#ID 검색..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-2.5 py-1 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 w-32 sm:w-40"
-            />
-
-            <select
-              value={selectedTemplateId || ''}
-              onChange={(e) => setSelectedTemplateId(Number(e.target.value))}
-              className="max-w-[220px] sm:max-w-[300px] truncate rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-1 text-xs sm:text-sm font-medium text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-            >
-              {filteredTemplates.length === 0 ? (
-                <option value="" disabled>검색 결과 없음</option>
-              ) : (
-                filteredTemplates.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    #{t.id} {t.name} [{t.exchange.toUpperCase()}]
-                  </option>
-                ))
-              )}
-            </select>
-            <span className="text-[11px] text-slate-400">
-              ({filteredTemplates.length}/{templates.length}개)
+      {templateId ? (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex items-center gap-2">
+            <span className="rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-bold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+              시총 상위 TOP N 순위 회전 관제
+            </span>
+            <span className="text-xs text-slate-400">
+              실시간 순위 추적 · 이탈 유예 매도 · 익일 사이클 매수 파이프라인
             </span>
           </div>
-
-          {/* 우측 배치 필터 및 새로고침 */}
-          <div className="flex items-center gap-2 self-end lg:self-auto">
+          <div className="flex items-center gap-2">
             <span className="text-xs text-slate-500 dark:text-slate-400">배치 필터:</span>
             <select
               value={selectedGroupNo === null ? '' : selectedGroupNo}
@@ -230,7 +188,93 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
             </button>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs space-y-3">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            {/* 전략 선택, 거래소 필터, 검색 */}
+            <div className="flex flex-1 flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1.5 font-semibold text-sm text-slate-700 dark:text-slate-200">
+                <Layers size={18} className="text-indigo-600 dark:text-indigo-400" />
+                <span>전략:</span>
+              </div>
+
+              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-700/60 p-0.5 rounded-lg text-xs">
+                {['all', 'toss', 'kis', 'upbit', 'bithumb'].map((ex) => (
+                  <button
+                    key={ex}
+                    onClick={() => setExchangeFilter(ex)}
+                    className={`px-2 py-0.5 rounded-md font-medium transition-colors ${
+                      exchangeFilter === ex
+                        ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                    }`}
+                  >
+                    {ex === 'all' ? '전체' : ex.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+
+              <input
+                type="text"
+                placeholder="전략명/#ID 검색..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-2.5 py-1 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 w-32 sm:w-40"
+              />
+
+              <select
+                value={selectedTemplateId || ''}
+                onChange={(e) => setSelectedTemplateId(Number(e.target.value))}
+                className="max-w-[220px] sm:max-w-[300px] truncate rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-1 text-xs sm:text-sm font-medium text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+              >
+                {filteredTemplates.length === 0 ? (
+                  <option value="" disabled>검색 결과 없음</option>
+                ) : (
+                  filteredTemplates.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      #{t.id} {t.name} [{t.exchange.toUpperCase()}]
+                    </option>
+                  ))
+                )}
+              </select>
+              <span className="text-[11px] text-slate-400">
+                ({filteredTemplates.length}/{templates.length}개)
+              </span>
+            </div>
+
+            {/* 우측 배치 필터 및 새로고침 */}
+            <div className="flex items-center gap-2 self-end lg:self-auto">
+              <span className="text-xs text-slate-500 dark:text-slate-400">배치 필터:</span>
+              <select
+                value={selectedGroupNo === null ? '' : selectedGroupNo}
+                onChange={(e) => setSelectedGroupNo(e.target.value === '' ? null : Number(e.target.value))}
+                className="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-2 py-1 text-xs text-slate-700 dark:text-slate-200"
+              >
+                <option value="">전체 배치</option>
+                {(params.history || []).map((h: any) => (
+                  <option key={h.group_no} value={h.group_no}>
+                    Batch #{h.group_no} ({h.date})
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={() => {
+                  if (selectedTemplateId) {
+                    setLoading(true)
+                    fetchTopRotationReport(selectedTemplateId, selectedGroupNo)
+                      .then(setReport)
+                      .finally(() => setLoading(false))
+                  }
+                }}
+                className="flex items-center gap-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200"
+              >
+                <RotateCw size={13} className={loading ? 'animate-spin' : ''} />
+                새로고침
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {error && <ErrorBanner message={error} />}
 

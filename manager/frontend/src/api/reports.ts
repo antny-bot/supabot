@@ -206,6 +206,30 @@ export const fetchTopRotationReport = (templateId: number, groupNo?: number | nu
   return api.get<TopRotationReport>(`/api/reports/top-rotation?${p.toString()}`)
 }
 
+export interface StrategyDetailHolding {
+  qty: number
+  avg_price: number
+  total_cost: number
+  current_price: number
+  eval_value: number
+  pnl: number
+  pnl_pct: number
+}
+
+export interface StrategyDetailReport {
+  template: any
+  ticker: string
+  name: string
+  exchange: string
+  holding: StrategyDetailHolding
+  orders: any[]
+  trades: any[]
+}
+
+export const fetchStrategyDetail = (templateId: number) => {
+  return api.get<StrategyDetailReport>(`/api/reports/strategy-detail?template_id=${templateId}`)
+}
+
 export const compareBacktestScenarios = (payload: {
   start_date: string
   end_date: string
