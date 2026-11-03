@@ -390,17 +390,23 @@ async def run_strategy_progression(
 
                 # orders 테이블에서 삭제된 주문의 체결 여부를 확인하기 위해 trade_logs 조회
                 trade_vol_by_group_ticker: dict[tuple, float] = {}
+                buy_groups = list({int(pb["group_no"]) for pb in pending_buys if pb.get("group_no") is not None})
                 try:
+                    if not buy_groups:
+                        raise LookupError("no group_no")
                     t_res = (
                         await db.table("trade_logs")
                         .select("uuid,ticker,side,volume,group_no")
                         .eq("template_id", template_id)
                         .eq("side", "bid")
+                        .in_("group_no", buy_groups)
                         .execute()
                     )
                     for tr in (t_res.data or []):
                         key = (tr.get("group_no"), tr.get("ticker"))
                         trade_vol_by_group_ticker[key] = trade_vol_by_group_ticker.get(key, 0.0) + float(tr.get("volume") or 0.0)
+                except LookupError:
+                    pass
                 except Exception as e:
                     logger.warning(f"Failed to query trade_logs for reconciliation: {e}")
 
@@ -452,7 +458,8 @@ async def run_strategy_progression(
                         .in_("group_no", sell_groups)
                         .execute()
                     )
-                    recycled_uuids = set(params.get("recycled_sell_uuids", []))
+                    recycled_list = list(params.get("recycled_sell_uuids", []))
+                    recycled_uuids = set(recycled_list)
                     for tr in (s_tr_res.data or []):
                         tr_uuid = tr.get("uuid") or f"{tr.get('group_no')}:{tr.get('ticker')}"
                         if tr_uuid in recycled_uuids:
@@ -467,7 +474,8 @@ async def run_strategy_progression(
                                 group_no=tr.get("group_no"),
                             )
                             recycled_uuids.add(tr_uuid)
-                    params["recycled_sell_uuids"] = list(recycled_uuids)[-200:]
+                            recycled_list.append(tr_uuid)
+                    params["recycled_sell_uuids"] = recycled_list[-200:]
             except Exception as e:
                 logger.warning(f"Failed to recycle sell proceeds: {e}")
             params["pending_sell_orders"] = []
