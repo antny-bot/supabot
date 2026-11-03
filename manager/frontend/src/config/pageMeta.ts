@@ -48,13 +48,13 @@ export const PAGE_META: Record<PageMetaKey, PageMeta> = {
     Icon: Activity,
   },
   orders: {
-    title: '주문 현황',
-    subtitle: '전체 주문의 상태와 진행률을 빠르게 확인합니다.',
+    title: '주문 관리',
+    subtitle: '미체결 주문과 취소·만료 이력을 빠르게 확인하고 관리합니다.',
     Icon: ClipboardList,
   },
   trades: {
-    title: '거래 내역',
-    subtitle: '최근 체결 현황과 거래 규모를 검토합니다.',
+    title: '체결 내역',
+    subtitle: '실제 체결된 거래 내역과 거래 규모, 손익을 검토합니다.',
     Icon: ArrowLeftRight,
   },
   templates: {
@@ -87,8 +87,8 @@ export const PAGE_META: Record<PageMetaKey, PageMeta> = {
 export const APP_NAV_ITEMS: NavItem[] = [
   { key: 'dashboard', to: '/dashboard', label: '대시보드', compactLabel: '대시보드', adminOnly: false, Icon: LayoutDashboard },
   { key: 'operations', to: '/operations', label: '전략 운용', compactLabel: '전략운용', adminOnly: false, Icon: Activity },
-  { key: 'orders', to: '/orders', label: '주문 현황', compactLabel: '주문', adminOnly: false, Icon: ClipboardList },
-  { key: 'trades', to: '/trades', label: '거래 내역', compactLabel: '거래', adminOnly: false, Icon: ArrowLeftRight },
+  { key: 'orders', to: '/orders', label: '주문 관리', compactLabel: '주문', adminOnly: false, Icon: ClipboardList },
+  { key: 'trades', to: '/trades', label: '체결 내역', compactLabel: '체결', adminOnly: false, Icon: ArrowLeftRight },
   { key: 'templates', to: '/templates', label: '전략 템플릿', compactLabel: '템플릿', adminOnly: false, Icon: LayoutTemplate },
   { key: 'reports', to: '/reports', label: '리포트', compactLabel: '리포트', adminOnly: false, Icon: BarChart2 },
   { key: 'admin', to: '/admin', label: '관리자', compactLabel: '관리', adminOnly: true, Icon: ShieldCheck },

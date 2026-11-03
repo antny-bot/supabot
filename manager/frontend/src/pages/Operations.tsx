@@ -641,18 +641,29 @@ export default function Operations() {
               )}
 
               {activeTab === 'batches' && (
-                <OrderBatchesSection
-                  initialGroupNo={
-                    (selectedTemplate?.params as any)?.last_group_no
-                      ? Number((selectedTemplate?.params as any)?.last_group_no)
-                      : undefined
-                  }
-                  onSelectGroupNo={(g) => navigate(`/orders?group_no=${g}`)}
-                />
+                selectedTemplateId ? (
+                  <OrderBatchesSection
+                    key={selectedTemplateId}
+                    templateId={selectedTemplateId}
+                    initialGroupNo={
+                      (selectedTemplate?.params as any)?.last_group_no
+                        ? Number((selectedTemplate?.params as any)?.last_group_no)
+                        : undefined
+                    }
+                    onSelectGroupNo={(g) => navigate(`/orders?group_no=${g}`)}
+                  />
+                ) : (
+                  <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-xs text-slate-400 dark:border-slate-700">
+                    전략을 선택해주세요.
+                  </div>
+                )
               )}
 
               {activeTab === 'timeline' && (
-                <BatchTimelineSection dateRange={DEFAULT_TIMELINE_RANGE} />
+                <BatchTimelineSection
+                  dateRange={DEFAULT_TIMELINE_RANGE}
+                  templateId={selectedTemplateId ?? undefined}
+                />
               )}
             </div>
           </div>

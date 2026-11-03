@@ -1,6 +1,7 @@
 import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
+import { MemoryRouter } from 'react-router-dom'
 import { ToastProvider } from '../contexts/ToastContext'
 import Templates from './Templates'
 
@@ -34,9 +35,11 @@ describe('Templates stock cache combobox', () => {
     const user = userEvent.setup()
 
     render(
-      <ToastProvider>
-        <Templates />
-      </ToastProvider>,
+      <MemoryRouter>
+        <ToastProvider>
+          <Templates />
+        </ToastProvider>
+      </MemoryRouter>,
     )
 
     const createBtn = await screen.findByRole('button', { name: /단일 종목 템플릿/i })
@@ -78,9 +81,11 @@ describe('Templates stock cache combobox', () => {
     const user = userEvent.setup()
 
     render(
-      <ToastProvider>
-        <Templates />
-      </ToastProvider>,
+      <MemoryRouter>
+        <ToastProvider>
+          <Templates />
+        </ToastProvider>
+      </MemoryRouter>,
     )
 
     const createBtn = await screen.findByRole('button', { name: /복수 종목/i })
@@ -158,9 +163,11 @@ describe('Templates stock cache combobox', () => {
     const user = userEvent.setup()
 
     render(
-      <ToastProvider>
-        <Templates />
-      </ToastProvider>,
+      <MemoryRouter>
+        <ToastProvider>
+          <Templates />
+        </ToastProvider>
+      </MemoryRouter>,
     )
 
     const createBtn = await screen.findByRole('button', { name: /복수 종목/i })
@@ -227,9 +234,11 @@ describe('Templates stock cache combobox', () => {
     const user = userEvent.setup()
 
     render(
-      <ToastProvider>
-        <Templates />
-      </ToastProvider>,
+      <MemoryRouter>
+        <ToastProvider>
+          <Templates />
+        </ToastProvider>
+      </MemoryRouter>,
     )
 
     // 수정 버튼 클릭하여 모달 오픈
@@ -257,5 +266,118 @@ describe('Templates stock cache combobox', () => {
     const saveBtn = screen.getByRole('button', { name: /수정 저장하기/i })
     await user.click(saveBtn)
     expect(updateTemplate).toHaveBeenCalledTimes(1)
+  })
+
+  it('formats amount inputs with thousand commas in single template modal and sends clean numbers', async () => {
+    const { createTemplate } = await import('../api/templates')
+    const user = userEvent.setup()
+
+    render(
+      <MemoryRouter>
+        <ToastProvider>
+          <Templates />
+        </ToastProvider>
+      </MemoryRouter>,
+    )
+
+    const createBtn = await screen.findByRole('button', { name: /단일 종목 템플릿/i })
+    await user.click(createBtn)
+
+    expect(screen.getByText('단일 종목 전략 템플릿 만들기')).toBeInTheDocument()
+
+    // 템플릿 이름 입력
+    const nameInput = screen.getByPlaceholderText(/비트코인 매일 5만원/i)
+    await user.type(nameInput, '비트코인 거미줄')
+
+    // 투자 예산 입력 시 콤마 표시 검증
+    const budgetInput = screen.getByLabelText('투자 예산') as HTMLInputElement
+    await user.clear(budgetInput)
+    await user.type(budgetInput, '1500000')
+    expect(budgetInput.value).toBe('1,500,000')
+
+    // 시작/종료 가격 입력 시 콤마 표시 검증
+    const startPriceInput = screen.getByLabelText('시작 가격') as HTMLInputElement
+    await user.clear(startPriceInput)
+    await user.type(startPriceInput, '80000000')
+    expect(startPriceInput.value).toBe('80,000,000')
+
+    const endPriceInput = screen.getByLabelText('종료 가격') as HTMLInputElement
+    await user.clear(endPriceInput)
+    await user.type(endPriceInput, '90000000')
+    expect(endPriceInput.value).toBe('90,000,000')
+
+    // 폼 저장 시 숫자로 파싱되어 createTemplate에 전달되는지 확인
+    const submitBtn = screen.getByRole('button', { name: /저장하기/i })
+    await user.click(submitBtn)
+
+    expect(createTemplate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: '비트코인 거미줄',
+        budget: 1500000,
+        start_price: 80000000,
+        end_price: 90000000,
+      })
+    )
+  })
+
+  it('correctly updates RSI range when modifying an RSI strategy template', async () => {
+    const { fetchTemplates, updateTemplate } = await import('../api/templates')
+    vi.mocked(fetchTemplates).mockResolvedValueOnce([
+      {
+        id: 77,
+        user_id: 'u1',
+        name: '비트코인 RSI 순환',
+        exchange: 'upbit',
+        ticker: 'KRW-BTC',
+        strategy_type: 'rsitrade',
+        start_price: 0,
+        end_price: 0,
+        count: 10,
+        budget: 2000000,
+        is_holding: false,
+        created_at: 1700000000,
+        params: {
+          buy_rsi_range: '35-40',
+          sell_rsi_range: '65-75',
+          weighted: false,
+        },
+      } as any,
+    ])
+
+    const user = userEvent.setup()
+
+    render(
+      <MemoryRouter>
+        <ToastProvider>
+          <Templates />
+        </ToastProvider>
+      </MemoryRouter>,
+    )
+
+    // 수정 버튼 클릭
+    const editBtn = await screen.findByTitle('수정')
+    await user.click(editBtn)
+    expect(screen.getByText('단일 종목 전략 템플릿 수정')).toBeInTheDocument()
+
+    // 기존 RSI 확인 및 30-35로 변경
+    const buyRsiInput = screen.getByPlaceholderText('25-30') as HTMLInputElement
+    expect(buyRsiInput.value).toBe('35-40')
+    await user.clear(buyRsiInput)
+    await user.type(buyRsiInput, '30-35')
+
+    // 수정 저장
+    const saveBtn = screen.getByRole('button', { name: /저장하기/i })
+    await user.click(saveBtn)
+
+    expect(updateTemplate).toHaveBeenCalledWith(
+      77,
+      expect.objectContaining({
+        strategy_type: 'rsitrade',
+        params: expect.objectContaining({
+          buy_rsi_range: '30-35',
+          sell_rsi_range: '65-75',
+        }),
+      })
+    )
   })
 })

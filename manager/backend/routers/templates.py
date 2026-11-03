@@ -235,10 +235,15 @@ async def api_update_template(template_id: int, payload: TemplateUpdate, user: d
     if payload.strategy_type is not None: update_data["strategy_type"] = payload.strategy_type
 
     if payload.params is not None:
-        # [불변식 5 격리 병합] 오직 CONFIG_KEYS만 업데이트
-        for k, v in payload.params.items():
-            if k in progression_manager.CONFIG_KEYS:
-                old_params[k] = v
+        target_strategy_type = payload.strategy_type or old_tpl.get("strategy_type")
+        if target_strategy_type == "kospi_top_dca":
+            # [불변식 5 격리 병합] kospi_top_dca 전략은 오직 CONFIG_KEYS만 업데이트
+            for k, v in payload.params.items():
+                if k in progression_manager.CONFIG_KEYS:
+                    old_params[k] = v
+        else:
+            # 단일 종목 전략 (rsitrade, grid, dca 등)은 전달된 params를 정상 병합
+            old_params.update(payload.params)
         update_data["params"] = old_params
 
     if not update_data:
@@ -332,7 +337,8 @@ async def api_execute_template(template_id: int, user: dict = Depends(get_curren
                 start_price=tpl["start_price"],
                 end_price=tpl["end_price"],
                 count=tpl["count"],
-                budget=tpl["budget"]
+                budget=tpl["budget"],
+                template_id=template_id,
             )
             success, err_msg = (await res) if inspect.isawaitable(res) else res
             msg = "거미줄 분할 매수 전략이 가동되었습니다."
@@ -345,6 +351,7 @@ async def api_execute_template(template_id: int, user: dict = Depends(get_curren
                 end_price=tpl["end_price"],
                 count=tpl["count"],
                 total_volume=tpl["budget"],
+                template_id=template_id,
             )
             success, err_msg = (await res) if inspect.isawaitable(res) else res
             msg = "거미줄 분할 매도 전략이 가동되었습니다."
@@ -358,7 +365,8 @@ async def api_execute_template(template_id: int, user: dict = Depends(get_curren
                 sell_rsi_range=params.get("sell_rsi_range", "65-75"),
                 count=tpl["count"],
                 budget=tpl["budget"],
-                weighted=params.get("weighted", False)
+                weighted=params.get("weighted", False),
+                template_id=template_id,
             )
             success, err_msg = (await res) if inspect.isawaitable(res) else res
             msg = "RSI 순환 매매 전략이 가동되었습니다."
@@ -378,6 +386,7 @@ async def api_execute_template(template_id: int, user: dict = Depends(get_curren
                 amount=float(tpl["budget"]),
                 exec_time=params.get("exec_time", "09:05"),
                 max_runs=max_runs,
+                template_id=template_id,
             )
             success, err_msg = (await res) if inspect.isawaitable(res) else res
             msg = "정기 적립식 매수 전략이 등록되었습니다." if side == "bid" else "정기 분할 매도 전략이 등록되었습니다."

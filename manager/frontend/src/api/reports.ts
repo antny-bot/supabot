@@ -110,7 +110,8 @@ export interface BatchesReport {
 export const fetchReportBatches = (
   range: DateRangeValue,
   groupNo?: number | null,
-  ticker?: string
+  ticker?: string,
+  templateId?: number | null
 ) => {
   const params = new URLSearchParams(buildPeriodParams(range))
   if (groupNo !== undefined && groupNo !== null) {
@@ -118,6 +119,9 @@ export const fetchReportBatches = (
   }
   if (ticker && ticker.trim()) {
     params.set('ticker', ticker.trim())
+  }
+  if (templateId !== undefined && templateId !== null) {
+    params.set('template_id', String(templateId))
   }
   return api.get<BatchesReport>(`/api/reports/batches?${params.toString()}`)
 }

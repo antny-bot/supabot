@@ -18,9 +18,10 @@ import { krwFmt } from '../../utils/formatters'
 interface Props {
   onSelectGroupNo: (groupNo: number) => void
   initialGroupNo?: number
+  templateId?: number
 }
 
-export default function OrderBatchesSection({ onSelectGroupNo, initialGroupNo }: Props) {
+export default function OrderBatchesSection({ onSelectGroupNo, initialGroupNo, templateId }: Props) {
   const [batches, setBatches] = useState<OrderBatchItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -35,23 +36,36 @@ export default function OrderBatchesSection({ onSelectGroupNo, initialGroupNo }:
   // 펼쳐진 배치 목록 상태 (고유 batchKey 기준)
   const [expandedBatches, setExpandedBatches] = useState<Set<string>>(new Set())
 
+  useEffect(() => {
+    setPage(1)
+    setExpandedBatches(new Set())
+  }, [templateId])
+
   const loadBatches = useCallback(
     async (showSpinner = false) => {
       if (showSpinner) setLoading(true)
       try {
-        const res = await fetchOrderBatches(undefined, undefined, page, pageSize)
-        setBatches(res.batches || [])
+        const res = await fetchOrderBatches(templateId, undefined, page, pageSize)
+        const list = res.batches || []
+        setBatches(list)
         setTotalPages(res.total_pages || 1)
         setTotalCount(res.total || 0)
         setError(null)
 
-        // initialGroupNo가 있으면 자동 펼침
+        // initialGroupNo가 있으면 해당 배치를, 없거나 못 찾으면 선택된 전략의 최신 배치를 자동 펼침
         if (initialGroupNo) {
-          const matched = (res.batches || []).find((b: OrderBatchItem) => b.group_no === initialGroupNo)
+          const matched = list.find(
+            (b: OrderBatchItem) =>
+              b.group_no === initialGroupNo &&
+              (templateId === undefined || b.template_id === templateId),
+          )
           if (matched) {
-            const key = getBatchKey(matched)
-            setExpandedBatches((prev) => new Set([...prev, key]))
+            setExpandedBatches(new Set([getBatchKey(matched)]))
+          } else if (templateId !== undefined && list.length > 0) {
+            setExpandedBatches(new Set([getBatchKey(list[0])]))
           }
+        } else if (templateId !== undefined && list.length > 0) {
+          setExpandedBatches(new Set([getBatchKey(list[0])]))
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : '배치 목록을 불러오지 못했습니다.')
@@ -59,7 +73,7 @@ export default function OrderBatchesSection({ onSelectGroupNo, initialGroupNo }:
         if (showSpinner) setLoading(false)
       }
     },
-    [page, pageSize, initialGroupNo],
+    [templateId, page, pageSize, initialGroupNo],
   )
 
   useEffect(() => {

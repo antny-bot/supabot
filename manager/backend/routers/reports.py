@@ -1212,6 +1212,7 @@ async def api_reports_batches(
     date_to: str | None = None,
     group_no: int | None = None,
     ticker: str | None = None,
+    template_id: int | None = None,
 ):
     ctx, err = _auth_guard(request)
     if err:
@@ -1223,6 +1224,38 @@ async def api_reports_batches(
     try:
         db = get_db()
         trades = await _fetch_trades(db, is_admin, bot_user_id, None)
+        target_tpl = None
+        if template_id is not None:
+            try:
+                tpl_res = await db.table("strategy_templates").select("*").eq("id", template_id).execute()
+                if tpl_res.data:
+                    target_tpl = tpl_res.data[0]
+            except Exception:
+                pass
+
+            def _match_trade_for_tpl(tr: dict) -> bool:
+                if tr.get("template_id") is not None:
+                    return int(tr["template_id"]) == int(template_id)
+                if not target_tpl:
+                    return False
+                t_stype = (target_tpl.get("strategy_type") or "").lower()
+                if t_stype == "kospi_top_dca":
+                    return False
+                t_ex = (target_tpl.get("exchange") or "").lower()
+                t_tk = (target_tpl.get("ticker") or "").upper()
+                tr_ex = (tr.get("exchange") or "").lower()
+                tr_tk = (tr.get("ticker") or "").upper()
+                tr_st = (tr.get("strategy") or "").lower()
+                if t_stype in ("rsitrade", "rsi"):
+                    allowed = ("rsitrade", "rsitrade_sell", "rsi", "sgridrsi")
+                elif t_stype in ("dca", "sdca"):
+                    allowed = ("dca", "sdca")
+                else:
+                    allowed = (t_stype,)
+                return tr_ex == t_ex and tr_tk == t_tk and tr_st in allowed
+
+            trades = [tr for tr in trades if _match_trade_for_tpl(tr)]
+
         window_start, window_end = _resolve_window(period, date_from, date_to)
         stock_map = await get_stock_name_map()
 
@@ -1264,6 +1297,14 @@ async def api_reports_batches(
             dca_rows = (await dca_q.execute()).data or []
             for s in dca_rows:
                 if s.get("status") == "active":
+                    if target_tpl is not None:
+                        t_stype = (target_tpl.get("strategy_type") or "").lower()
+                        if t_stype not in ("dca", "sdca"):
+                            continue
+                        if (s.get("exchange") or "").lower() != (target_tpl.get("exchange") or "").lower():
+                            continue
+                        if (s.get("ticker") or "").upper() != (target_tpl.get("ticker") or "").upper():
+                            continue
                     tk = str(s.get("ticker") or "")
                     dca_schedules.append({
                         "id": s.get("id"),
@@ -1610,14 +1651,48 @@ async def api_reports_strategy_detail(
 
         # 3. 최근 주문 내역
         ord_q = db.table("orders").select("*").eq("template_id", template_id).order("created_at", desc=True).limit(50)
-        orders_data = (await ord_q.execute()).data or []
+        orders_data = list((await ord_q.execute()).data or [])
 
         # 4. 최근 체결 내역
         tr_q = db.table("trade_logs").select("*").eq("template_id", template_id).order("executed_at", desc=True).limit(50)
         try:
-            trades_data = (await tr_q.execute()).data or []
+            trades_data = list((await tr_q.execute()).data or [])
         except Exception:
             trades_data = []
+
+        # 단일 종목 전략 레거시 주문/체결(template_id is null) 폴백 병합
+        t_stype = (template.get("strategy_type") or "").lower()
+        if t_stype != "kospi_top_dca" and exchange and ticker:
+            if t_stype in ("rsitrade", "rsi"):
+                allowed_strats = ("rsitrade", "rsitrade_sell", "rsi", "sgridrsi")
+            elif t_stype in ("dca", "sdca"):
+                allowed_strats = ("dca", "sdca")
+            else:
+                allowed_strats = (t_stype,)
+
+            if not orders_data:
+                try:
+                    l_ord_q = db.table("orders").select("*").eq("exchange", exchange).eq("ticker", ticker).order("created_at", desc=True).limit(50)
+                    l_ord_q._params["template_id"] = "is.null"
+                    if template.get("user_id"):
+                        l_ord_q._params["user_id"] = f"eq.{template['user_id']}"
+                    for lo in ((await l_ord_q.execute()).data or []):
+                        if (lo.get("strategy") or "").lower() in allowed_strats:
+                            orders_data.append(lo)
+                except Exception:
+                    pass
+
+            if not trades_data:
+                try:
+                    l_tr_q = db.table("trade_logs").select("*").eq("exchange", exchange).eq("ticker", ticker).order("executed_at", desc=True).limit(50)
+                    l_tr_q._params["template_id"] = "is.null"
+                    if template.get("user_id"):
+                        l_tr_q._params["user_id"] = f"eq.{template['user_id']}"
+                    for ltr in ((await l_tr_q.execute()).data or []):
+                        if (ltr.get("strategy") or "").lower() in allowed_strats:
+                            trades_data.append(ltr)
+                except Exception:
+                    pass
 
         for o in orders_data:
             tk = o.get("ticker", "")

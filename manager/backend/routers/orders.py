@@ -319,6 +319,26 @@ async def api_list_order_batches(
 
     try:
         db = get_db()
+        # 템플릿 메타 매핑
+        tpl_map = {}
+        try:
+            tpl_res = await db.table("strategy_templates").select("id,user_id,name,strategy_type,exchange,ticker,params").execute()
+            tpl_map = {t["id"]: t for t in (tpl_res.data or [])}
+        except Exception:
+            pass
+
+        def _matched_strategies(stype: str) -> tuple[str, ...]:
+            st = (stype or "").lower()
+            if st in ("rsitrade", "rsi"):
+                return ("rsitrade", "rsitrade_sell", "rsi", "sgridrsi")
+            if st in ("dca", "sdca"):
+                return ("dca", "sdca")
+            if st == "sgrid":
+                return ("sgrid",)
+            if st == "grid":
+                return ("grid",)
+            return (st,) if st else ()
+
         q = db.table("orders").select("*").order("created_at", desc=True)
         q._params["group_no"] = "not.is.null"
         if not is_admin:
@@ -329,15 +349,105 @@ async def api_list_order_batches(
             q._params["exchange"] = f"eq.{exchange}"
 
         res = await q.execute()
-        orders = res.data or []
+        orders = list(res.data or [])
+        seen_uuids = {o.get("uuid") for o in orders if o.get("uuid")}
 
-        # 템플릿 메타 매핑
-        tpl_map = {}
+        # 체결 완료 후 orders에서 제거되어 trade_logs로 이동한 배치 주문도 병합
         try:
-            tpl_res = await db.table("strategy_templates").select("id,name,strategy_type,exchange").execute()
-            tpl_map = {t["id"]: t for t in (tpl_res.data or [])}
+            tq = db.table("trade_logs").select("*").order("executed_at", desc=True)
+            tq._params["group_no"] = "not.is.null"
+            if not is_admin:
+                tq._params["user_id"] = f"eq.{bot_user_id}"
+            if template_id is not None:
+                tq._params["template_id"] = f"eq.{template_id}"
+            if exchange:
+                tq._params["exchange"] = f"eq.{exchange}"
+            t_res = await tq.execute()
+            for tr in (t_res.data or []):
+                tr_uuid = tr.get("uuid") or f"trade_{tr.get('id')}"
+                if tr_uuid in seen_uuids:
+                    continue
+                seen_uuids.add(tr_uuid)
+                vol = float(tr.get("volume") or 0)
+                orders.append({
+                    "uuid": tr_uuid,
+                    "user_id": tr.get("user_id"),
+                    "exchange": tr.get("exchange"),
+                    "ticker": tr.get("ticker"),
+                    "side": tr.get("side"),
+                    "price": float(tr.get("price") or 0),
+                    "volume": vol,
+                    "filled_volume": vol,
+                    "strategy": tr.get("strategy"),
+                    "status": "done",
+                    "created_at": tr.get("executed_at"),
+                    "group_no": tr.get("group_no"),
+                    "template_id": tr.get("template_id"),
+                })
         except Exception:
             pass
+
+        # 단일 종목 전략 템플릿(grid, rsitrade, dca 등)에서 template_id 없이 생성된 레거시 배치 매칭
+        if template_id is not None and template_id in tpl_map:
+            target_tpl = tpl_map[template_id]
+            t_stype = (target_tpl.get("strategy_type") or "").lower()
+            t_ex = (target_tpl.get("exchange") or "").lower()
+            t_tk = (target_tpl.get("ticker") or "").upper()
+            if t_stype != "kospi_top_dca" and t_ex and t_tk:
+                allowed_strats = _matched_strategies(t_stype)
+                try:
+                    lq = db.table("orders").select("*").order("created_at", desc=True)
+                    lq._params["group_no"] = "not.is.null"
+                    lq._params["template_id"] = "is.null"
+                    lq._params["exchange"] = f"eq.{t_ex}"
+                    lq._params["ticker"] = f"eq.{t_tk}"
+                    if not is_admin:
+                        lq._params["user_id"] = f"eq.{bot_user_id}"
+                    elif target_tpl.get("user_id"):
+                        lq._params["user_id"] = f"eq.{target_tpl['user_id']}"
+                    for lo in ((await lq.execute()).data or []):
+                        if (lo.get("strategy") or "").lower() in allowed_strats:
+                            u = lo.get("uuid")
+                            if not u or u not in seen_uuids:
+                                if u:
+                                    seen_uuids.add(u)
+                                lo["template_id"] = template_id
+                                orders.append(lo)
+                except Exception:
+                    pass
+                try:
+                    ltq = db.table("trade_logs").select("*").order("executed_at", desc=True)
+                    ltq._params["group_no"] = "not.is.null"
+                    ltq._params["template_id"] = "is.null"
+                    ltq._params["exchange"] = f"eq.{t_ex}"
+                    ltq._params["ticker"] = f"eq.{t_tk}"
+                    if not is_admin:
+                        ltq._params["user_id"] = f"eq.{bot_user_id}"
+                    elif target_tpl.get("user_id"):
+                        ltq._params["user_id"] = f"eq.{target_tpl['user_id']}"
+                    for ltr in ((await ltq.execute()).data or []):
+                        if (ltr.get("strategy") or "").lower() in allowed_strats:
+                            tr_uuid = ltr.get("uuid") or f"trade_{ltr.get('id')}"
+                            if tr_uuid not in seen_uuids:
+                                seen_uuids.add(tr_uuid)
+                                vol = float(ltr.get("volume") or 0)
+                                orders.append({
+                                    "uuid": tr_uuid,
+                                    "user_id": ltr.get("user_id"),
+                                    "exchange": ltr.get("exchange"),
+                                    "ticker": ltr.get("ticker"),
+                                    "side": ltr.get("side"),
+                                    "price": float(ltr.get("price") or 0),
+                                    "volume": vol,
+                                    "filled_volume": vol,
+                                    "strategy": ltr.get("strategy"),
+                                    "status": "done",
+                                    "created_at": ltr.get("executed_at"),
+                                    "group_no": ltr.get("group_no"),
+                                    "template_id": template_id,
+                                })
+                except Exception:
+                    pass
 
         stock_map = await get_stock_name_map()
 

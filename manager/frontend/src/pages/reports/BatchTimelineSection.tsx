@@ -10,7 +10,13 @@ import ErrorBanner from '../../components/ui/ErrorBanner'
 import { staggerDelay } from '../../utils/animation'
 import { krwFmt, pctColor, PNL_UP_HEX, PNL_DOWN_HEX, CARD, TH, TD } from './ReportsShared'
 
-export default function BatchTimelineSection({ dateRange }: { dateRange: DateRangeValue }) {
+export default function BatchTimelineSection({
+  dateRange,
+  templateId,
+}: {
+  dateRange: DateRangeValue
+  templateId?: number
+}) {
   const [data, setData] = useState<BatchesReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -18,13 +24,18 @@ export default function BatchTimelineSection({ dateRange }: { dateRange: DateRan
   const [selectedTicker, setSelectedTicker] = useState<string>('')
 
   useEffect(() => {
+    setSelectedBatch(null)
+    setSelectedTicker('')
+  }, [templateId])
+
+  useEffect(() => {
     setLoading(true)
     setError(null)
-    fetchReportBatches(dateRange, selectedBatch, selectedTicker)
+    fetchReportBatches(dateRange, selectedBatch, selectedTicker, templateId)
       .then(setData)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류 발생'))
       .finally(() => setLoading(false))
-  }, [dateRange, selectedBatch, selectedTicker])
+  }, [dateRange, selectedBatch, selectedTicker, templateId])
 
   if (loading) {
     return (

@@ -65,42 +65,42 @@ def notify_sync(chat_id: str, text: str, parse_mode: str = "HTML") -> bool:
     except Exception:
         return False
 
-async def execute_grid(user_id: str, exchange: str, ticker: str, start_price: float, end_price: float, count: int, budget: float) -> tuple[bool, str]:
+async def execute_grid(user_id: str, exchange: str, ticker: str, start_price: float, end_price: float, count: int, budget: float, template_id: int | None = None) -> tuple[bool, str]:
     """Send Grid trade execution request via the bot's /internal/execute_grid endpoint with signature."""
     try:
-        resp = await _send_signed_request_async(
-            "/internal/execute_grid",
-            {
-                "user_id": user_id,
-                "exchange": exchange,
-                "ticker": ticker,
-                "start_price": start_price,
-                "end_price": end_price,
-                "count": count,
-                "budget": budget,
-            }
-        )
+        payload = {
+            "user_id": user_id,
+            "exchange": exchange,
+            "ticker": ticker,
+            "start_price": start_price,
+            "end_price": end_price,
+            "count": count,
+            "budget": budget,
+        }
+        if template_id is not None:
+            payload["template_id"] = template_id
+        resp = await _send_signed_request_async("/internal/execute_grid", payload)
         if resp.is_success:
             return True, "ok"
         return False, resp.text or f"HTTP 에러 {resp.status_code}"
     except Exception as e:
         return False, str(e)
 
-async def execute_sgrid(user_id: str, exchange: str, ticker: str, start_price: float, end_price: float, count: int, total_volume: float) -> tuple[bool, str]:
+async def execute_sgrid(user_id: str, exchange: str, ticker: str, start_price: float, end_price: float, count: int, total_volume: float, template_id: int | None = None) -> tuple[bool, str]:
     """Send sGrid (split sell) execution request via the bot's /internal/execute_sgrid endpoint."""
     try:
-        resp = await _send_signed_request_async(
-            "/internal/execute_sgrid",
-            {
-                "user_id": user_id,
-                "exchange": exchange,
-                "ticker": ticker,
-                "start_price": start_price,
-                "end_price": end_price,
-                "count": count,
-                "total_volume": total_volume,
-            }
-        )
+        payload = {
+            "user_id": user_id,
+            "exchange": exchange,
+            "ticker": ticker,
+            "start_price": start_price,
+            "end_price": end_price,
+            "count": count,
+            "total_volume": total_volume,
+        }
+        if template_id is not None:
+            payload["template_id"] = template_id
+        resp = await _send_signed_request_async("/internal/execute_sgrid", payload)
         if resp.is_success:
             return True, "ok"
         return False, resp.text or f"HTTP 에러 {resp.status_code}"
@@ -173,22 +173,22 @@ def get_prices(requests_: list[dict]) -> list[dict]:
     except Exception:
         return []
 
-async def execute_rsitrade(user_id: str, exchange: str, ticker: str, buy_rsi_range: str, sell_rsi_range: str, count: int, budget: float, weighted: bool = False) -> tuple[bool, str]:
+async def execute_rsitrade(user_id: str, exchange: str, ticker: str, buy_rsi_range: str, sell_rsi_range: str, count: int, budget: float, weighted: bool = False, template_id: int | None = None) -> tuple[bool, str]:
     """Send RSITrade execution request via the bot's /internal/execute_rsitrade endpoint with signature."""
     try:
-        resp = await _send_signed_request_async(
-            "/internal/execute_rsitrade",
-            {
-                "user_id": user_id,
-                "exchange": exchange,
-                "ticker": ticker,
-                "buy_rsi_range": buy_rsi_range,
-                "sell_rsi_range": sell_rsi_range,
-                "count": count,
-                "budget": budget,
-                "weighted": weighted,
-            }
-        )
+        payload = {
+            "user_id": user_id,
+            "exchange": exchange,
+            "ticker": ticker,
+            "buy_rsi_range": buy_rsi_range,
+            "sell_rsi_range": sell_rsi_range,
+            "count": count,
+            "budget": budget,
+            "weighted": weighted,
+        }
+        if template_id is not None:
+            payload["template_id"] = template_id
+        resp = await _send_signed_request_async("/internal/execute_rsitrade", payload)
         if resp.is_success:
             return True, "ok"
         return False, resp.text or f"HTTP 에러 {resp.status_code}"
@@ -206,23 +206,24 @@ async def execute_dca(
     amount: float,
     exec_time: str = "09:05",
     max_runs: int | None = None,
+    template_id: int | None = None,
 ) -> tuple[bool, str]:
     """Send DCA/SDCA periodic strategy registration request via /internal/execute_dca."""
     try:
-        resp = await _send_signed_request_async(
-            "/internal/execute_dca",
-            {
-                "user_id": user_id,
-                "exchange": exchange,
-                "ticker": ticker,
-                "side": side,
-                "schedule": schedule,
-                "amount_type": amount_type,
-                "amount": amount,
-                "exec_time": exec_time,
-                "max_runs": max_runs,
-            },
-        )
+        payload = {
+            "user_id": user_id,
+            "exchange": exchange,
+            "ticker": ticker,
+            "side": side,
+            "schedule": schedule,
+            "amount_type": amount_type,
+            "amount": amount,
+            "exec_time": exec_time,
+            "max_runs": max_runs,
+        }
+        if template_id is not None:
+            payload["template_id"] = template_id
+        resp = await _send_signed_request_async("/internal/execute_dca", payload)
         if resp.is_success:
             return True, "ok"
         return False, resp.text or f"HTTP 에러 {resp.status_code}"

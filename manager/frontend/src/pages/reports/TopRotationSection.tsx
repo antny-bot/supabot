@@ -49,6 +49,7 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
   useEffect(() => {
     if (templateId) {
       setSelectedTemplateId(templateId)
+      setSelectedGroupNo(null)
     }
   }, [templateId])
 

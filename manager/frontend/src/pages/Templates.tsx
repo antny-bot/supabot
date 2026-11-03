@@ -38,7 +38,7 @@ import AdvancedSection from '../components/ui/AdvancedSection'
 import { Skeleton } from '../components/ui/Skeleton'
 import { PAGE_META } from '../config/pageMeta'
 import { useToast } from '../contexts/ToastContext'
-import { krwFmt } from '../utils/formatters'
+import { krwFmt, formatWithCommas, stripCommas } from '../utils/formatters'
 
 interface TemplateFormState {
   name: string
@@ -152,7 +152,7 @@ function normalizeStrategyType(raw?: string): string {
 
 function buildPayload(form: TemplateFormState) {
   const stype = normalizeStrategyType(form.strategyType)
-  const parsedCount = parseInt(form.count, 10)
+  const parsedCount = parseInt(stripCommas(form.count), 10)
   const payload = {
     name: form.name.trim(),
     exchange: form.exchange,
@@ -160,14 +160,14 @@ function buildPayload(form: TemplateFormState) {
     start_price: 0,
     end_price: 0,
     count: Number.isNaN(parsedCount) ? 0 : parsedCount,
-    budget: parseFloat(form.budget),
+    budget: parseFloat(stripCommas(form.budget)) || 0,
     strategy_type: stype,
     params: {} as TemplateParams,
   }
 
   if (stype === 'grid' || stype === 'sgrid') {
-    payload.start_price = parseFloat(form.startPrice)
-    payload.end_price = parseFloat(form.endPrice)
+    payload.start_price = parseFloat(stripCommas(form.startPrice)) || 0
+    payload.end_price = parseFloat(stripCommas(form.endPrice)) || 0
   } else if (stype === 'rsitrade') {
     payload.params = {
       buy_rsi_range: form.buyRsiRange.trim(),
@@ -191,8 +191,8 @@ function buildPayload(form: TemplateFormState) {
     payload.count = rEnd - rStart + 1
     payload.budget =
       form.budgetMode === 'daily'
-        ? parseFloat(form.dailyFixedBudget) || 150000
-        : parseFloat(form.budget) || 3000000
+        ? parseFloat(stripCommas(form.dailyFixedBudget)) || 150000
+        : parseFloat(stripCommas(form.budget)) || 3000000
     payload.params = {
       market: mkt,
       rank_start: rStart,
@@ -204,11 +204,11 @@ function buildPayload(form: TemplateFormState) {
       exit_confirm_days: Math.max(1, parseInt(form.exitConfirmDays, 10) || 1),
       sell_split_days: Math.max(1, parseInt(form.sellSplitDays, 10) || 5),
       budget_mode: form.budgetMode,
-      monthly_budget: parseFloat(form.budget) || 0,
-      daily_fixed_budget: parseFloat(form.dailyFixedBudget) || 150000,
+      monthly_budget: parseFloat(stripCommas(form.budget)) || 0,
+      daily_fixed_budget: parseFloat(stripCommas(form.dailyFixedBudget)) || 150000,
       trading_days_per_month: Math.max(1, parseInt(form.tradingDaysPerMonth, 10) || 20),
       cycle_alloc_mode: form.cycleAllocMode,
-      cycle_target_krw: parseFloat(form.cycleTargetKrw) || 300000,
+      cycle_target_krw: parseFloat(stripCommas(form.cycleTargetKrw)) || 300000,
       sell_proceeds_mode: form.sellProceedsMode,
       order_price_mode: form.orderPriceMode,
       schedule_enabled: form.scheduleEnabled,
@@ -224,15 +224,16 @@ function buildPayload(form: TemplateFormState) {
 function templateToForm(template: Template): TemplateFormState {
   const strategyType = normalizeStrategyType(template.strategy_type)
   const p = (template.params || {}) as any
+  const rawBudget = strategyType === 'kospi_top_dca' ? (p.monthly_budget ?? template.budget) : template.budget
   return {
     name: template.name,
     exchange: template.exchange,
     ticker: template.ticker,
     strategyType,
-    startPrice: template.start_price ? String(template.start_price) : '',
-    endPrice: template.end_price ? String(template.end_price) : '',
+    startPrice: template.start_price ? formatWithCommas(template.start_price) : '',
+    endPrice: template.end_price ? formatWithCommas(template.end_price) : '',
     count: String(template.count ?? 0),
-    budget: String(strategyType === 'kospi_top_dca' ? (p.monthly_budget ?? template.budget) : template.budget),
+    budget: formatWithCommas(rawBudget),
     buyRsiRange: p.buy_rsi_range || '25-30',
     sellRsiRange: p.sell_rsi_range || '65-75',
     weighted: Boolean(p.weighted),
@@ -248,10 +249,10 @@ function templateToForm(template: Template): TemplateFormState {
     exitConfirmDays: String(p.exit_confirm_days ?? '2'),
     sellSplitDays: String(p.sell_split_days ?? '5'),
     budgetMode: p.budget_mode === 'daily' ? 'daily' : 'monthly',
-    dailyFixedBudget: String(p.daily_fixed_budget ?? '150000'),
+    dailyFixedBudget: formatWithCommas(p.daily_fixed_budget ?? '150000'),
     tradingDaysPerMonth: String(p.trading_days_per_month ?? '20'),
     cycleAllocMode: p.cycle_alloc_mode === 'target_amount' ? 'target_amount' : 'one_share',
-    cycleTargetKrw: String(p.cycle_target_krw ?? '300000'),
+    cycleTargetKrw: formatWithCommas(p.cycle_target_krw ?? '300000'),
     sellProceedsMode: p.sell_proceeds_mode === 'recycle_to_budget' ? 'recycle_to_budget' : 'keep_cash',
     orderPriceMode:
       p.order_price_mode === 'limit_aggressive' || p.order_price_mode === 'market'
@@ -474,7 +475,7 @@ export default function Templates() {
       }
     } else if (stepNumber === 3) {
       if (form.budgetMode === 'monthly') {
-        const b = parseFloat(form.budget)
+        const b = parseFloat(stripCommas(form.budget))
         const days = parseInt(form.tradingDaysPerMonth, 10)
         if (Number.isNaN(b) || b <= 0) {
           setFormError('월 설정 총예산을 0원보다 크게 입력하세요.')
@@ -485,14 +486,14 @@ export default function Templates() {
           return false
         }
       } else {
-        const fixed = parseFloat(form.dailyFixedBudget)
+        const fixed = parseFloat(stripCommas(form.dailyFixedBudget))
         if (Number.isNaN(fixed) || fixed <= 0) {
           setFormError('일일 고정 충전액을 0원보다 크게 입력하세요.')
           return false
         }
       }
       if (form.cycleAllocMode === 'target_amount') {
-        const target = parseFloat(form.cycleTargetKrw)
+        const target = parseFloat(stripCommas(form.cycleTargetKrw))
         if (Number.isNaN(target) || target < 1000) {
           setFormError('종목당 1회 목표 금액은 최소 1,000원 이상 입력하세요.')
           return false
@@ -635,11 +636,11 @@ export default function Templates() {
       ? `${form.topMarket || 'KOSPI'}_TOP${rankEndNum}`
       : `${form.topMarket || 'KOSPI'}_TOP${rankStartNum}_${rankEndNum}`
 
-  const monthlyBudgetNum = parseFloat(form.budget) || 0
+  const monthlyBudgetNum = parseFloat(stripCommas(form.budget)) || 0
   const tradingDaysNum = parseInt(form.tradingDaysPerMonth, 10) || 20
   const dailyApproxBudget =
     form.budgetMode === 'daily'
-      ? parseFloat(form.dailyFixedBudget) || 150000
+      ? parseFloat(stripCommas(form.dailyFixedBudget)) || 150000
       : Math.floor(monthlyBudgetNum / Math.max(1, tradingDaysNum))
 
   return (
@@ -819,12 +820,15 @@ export default function Templates() {
                             : '월 설정 총예산'
                           : '설정 예산'}
                       </span>
-                      <p className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                      <p
+                        className="font-mono font-bold text-slate-800 dark:text-slate-200"
+                        title={!isVolumeBased ? `${(isTopDca ? (p.budget_mode === 'daily' ? (p.daily_fixed_budget ?? tpl.budget) : (p.monthly_budget ?? tpl.budget)) : tpl.budget).toLocaleString()}원` : undefined}
+                      >
                         {isVolumeBased
                           ? `${tpl.budget} (수량)`
                           : isTopDca
-                          ? krwFmt(p.budget_mode === 'daily' ? (p.daily_fixed_budget ?? tpl.budget) : (p.monthly_budget ?? tpl.budget))
-                          : krwFmt(tpl.budget)}
+                          ? `${krwFmt(p.budget_mode === 'daily' ? (p.daily_fixed_budget ?? tpl.budget) : (p.monthly_budget ?? tpl.budget))} (${(p.budget_mode === 'daily' ? (p.daily_fixed_budget ?? tpl.budget) : (p.monthly_budget ?? tpl.budget)).toLocaleString()}원)`
+                          : `${krwFmt(tpl.budget)} (${tpl.budget.toLocaleString()}원)`}
                       </p>
                     </div>
                     <div>
@@ -1419,23 +1423,21 @@ export default function Templates() {
                               </label>
                               {form.budgetMode === 'daily' ? (
                                 <input
-                                  type="number"
+                                  type="text"
+                                  inputMode="numeric"
                                   aria-label="일일 고정 충전액"
-                                  step="any"
-                                  min="0"
-                                  value={form.dailyFixedBudget}
-                                  onChange={(e) => setForm({ ...form, dailyFixedBudget: e.target.value })}
+                                  value={formatWithCommas(form.dailyFixedBudget)}
+                                  onChange={(e) => setForm({ ...form, dailyFixedBudget: stripCommas(e.target.value) })}
                                   className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                                   required
                                 />
                               ) : (
                                 <input
-                                  type="number"
+                                  type="text"
+                                  inputMode="numeric"
                                   aria-label="월 설정 총예산"
-                                  step="any"
-                                  min="0"
-                                  value={form.budget}
-                                  onChange={(e) => setForm({ ...form, budget: e.target.value })}
+                                  value={formatWithCommas(form.budget)}
+                                  onChange={(e) => setForm({ ...form, budget: stripCommas(e.target.value) })}
                                   className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                                   required
                                 />
@@ -1448,12 +1450,11 @@ export default function Templates() {
                               </label>
                               {form.budgetMode === 'daily' ? (
                                 <input
-                                  type="number"
+                                  type="text"
+                                  inputMode="numeric"
                                   aria-label="월 상한 캡"
-                                  step="any"
-                                  min="0"
-                                  value={form.budget}
-                                  onChange={(e) => setForm({ ...form, budget: e.target.value })}
+                                  value={formatWithCommas(form.budget)}
+                                  onChange={(e) => setForm({ ...form, budget: stripCommas(e.target.value) })}
                                   className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                                   required
                                 />
@@ -1476,7 +1477,7 @@ export default function Templates() {
                           <div className="flex items-center justify-between rounded-lg bg-violet-100/60 px-3 py-2 text-xs text-violet-800 dark:bg-violet-950/60 dark:text-violet-300 font-medium">
                             <span>💡 예상 1영업일 당 집행 예산:</span>
                             <span className="font-mono font-bold">
-                              약 {krwFmt(dailyApproxBudget)}
+                              약 {krwFmt(dailyApproxBudget)} ({dailyApproxBudget.toLocaleString()}원)
                             </span>
                           </div>
                         </div>
@@ -1518,12 +1519,11 @@ export default function Templates() {
                                   종목당 1회 목표 금액 (KRW)
                                 </label>
                                 <input
-                                  type="number"
+                                  type="text"
+                                  inputMode="numeric"
                                   aria-label="종목당 1회 목표 금액"
-                                  step="any"
-                                  min="1000"
-                                  value={form.cycleTargetKrw}
-                                  onChange={(e) => setForm({ ...form, cycleTargetKrw: e.target.value })}
+                                  value={formatWithCommas(form.cycleTargetKrw)}
+                                  onChange={(e) => setForm({ ...form, cycleTargetKrw: stripCommas(e.target.value) })}
                                   className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                                   required
                                 />
@@ -1696,12 +1696,12 @@ export default function Templates() {
                               <div className="font-semibold text-slate-800 dark:text-slate-200">
                                 {form.budgetMode === 'monthly'
                                   ? `월 ${krwFmt(monthlyBudgetNum)} (일 약 ${krwFmt(dailyApproxBudget)})`
-                                  : `일 고정 ${krwFmt(parseFloat(form.dailyFixedBudget) || 0)}`}
+                                  : `일 고정 ${krwFmt(parseFloat(stripCommas(form.dailyFixedBudget)) || 0)}`}
                               </div>
                               <div className="text-[11px] text-slate-500 dark:text-slate-400">
                                 {form.cycleAllocMode === 'one_share'
                                   ? '1주씩 순차 매수'
-                                  : `목표 금액 ${krwFmt(parseFloat(form.cycleTargetKrw) || 0)} 균등 매수`}
+                                  : `목표 금액 ${krwFmt(parseFloat(stripCommas(form.cycleTargetKrw)) || 0)} 균등 매수`}
                               </div>
                               <div className="text-[10px] text-slate-400 mt-0.5">
                                 매도 대금: {form.sellProceedsMode === 'recycle_to_budget' ? '예산 자동 재투입' : '예수금 보관'}
@@ -1992,16 +1992,25 @@ export default function Templates() {
                           </div>
                           <div>
                             <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                              {form.dcaAmountType === 'volume' ? '1회 주문 수량' : '1회 주문 예산'}
+                              {form.dcaAmountType === 'volume' ? '1회 주문 수량 (개/주)' : '1회 주문 예산 (KRW)'}
                             </label>
                             <input
-                              type="number"
-                              step="any"
-                              value={form.budget}
-                              onChange={(e) => setForm({ ...form, budget: e.target.value })}
+                              type="text"
+                              inputMode={form.dcaAmountType === 'volume' ? 'decimal' : 'numeric'}
+                              aria-label={form.dcaAmountType === 'volume' ? '1회 주문 수량' : '1회 주문 예산'}
+                              value={form.dcaAmountType === 'volume' ? form.budget : formatWithCommas(form.budget)}
+                              onChange={(e) => {
+                                const val = e.target.value
+                                setForm({ ...form, budget: form.dcaAmountType === 'volume' ? val : stripCommas(val) })
+                              }}
                               className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                               required
                             />
+                            {form.dcaAmountType === 'budget' && form.budget && !Number.isNaN(parseFloat(stripCommas(form.budget))) && (
+                              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                                ≈ {krwFmt(parseFloat(stripCommas(form.budget)))}
+                              </p>
+                            )}
                           </div>
                           <div>
                             <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">총 횟수 (0=무기한)</label>
@@ -2023,13 +2032,22 @@ export default function Templates() {
                             {isSellGridForm ? '총 매도 수량 (개/주)' : '투자 예산 (KRW)'}
                           </label>
                           <input
-                            type="number"
-                            step="any"
-                            value={form.budget}
-                            onChange={(e) => setForm({ ...form, budget: e.target.value })}
+                            type="text"
+                            inputMode={isSellGridForm ? 'decimal' : 'numeric'}
+                            aria-label={isSellGridForm ? '총 매도 수량' : '투자 예산'}
+                            value={isSellGridForm ? form.budget : formatWithCommas(form.budget)}
+                            onChange={(e) => {
+                              const val = e.target.value
+                              setForm({ ...form, budget: isSellGridForm ? val : stripCommas(val) })
+                            }}
                             className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                             required
                           />
+                          {!isSellGridForm && form.budget && !Number.isNaN(parseFloat(stripCommas(form.budget))) && (
+                            <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                              ≈ {krwFmt(parseFloat(stripCommas(form.budget)))}
+                            </p>
+                          )}
                         </div>
                         <div>
                           <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">분할 주문 수</label>
@@ -2049,28 +2067,44 @@ export default function Templates() {
                     {(form.strategyType === 'grid' || form.strategyType === 'sgrid') && (
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">시작 가격</label>
+                          <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                            {isSellGridForm ? '시작 가격 (최저 매도가, KRW)' : '시작 가격 (최저 매수가, KRW)'}
+                          </label>
                           <input
-                            type="number"
-                            step="any"
+                            type="text"
+                            inputMode="numeric"
+                            aria-label="시작 가격"
                             placeholder={isSellGridForm ? '최저 매도가' : '최저 매수가'}
-                            value={form.startPrice}
-                            onChange={(e) => setForm({ ...form, startPrice: e.target.value })}
+                            value={formatWithCommas(form.startPrice)}
+                            onChange={(e) => setForm({ ...form, startPrice: stripCommas(e.target.value) })}
                             className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                             required
                           />
+                          {form.startPrice && !Number.isNaN(parseFloat(stripCommas(form.startPrice))) && (
+                            <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                              ≈ {krwFmt(parseFloat(stripCommas(form.startPrice)))}
+                            </p>
+                          )}
                         </div>
                         <div>
-                          <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">종료 가격</label>
+                          <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                            {isSellGridForm ? '종료 가격 (최고 매도가, KRW)' : '종료 가격 (최고 매수가, KRW)'}
+                          </label>
                           <input
-                            type="number"
-                            step="any"
+                            type="text"
+                            inputMode="numeric"
+                            aria-label="종료 가격"
                             placeholder={isSellGridForm ? '최고 매도가' : '최고 매수가'}
-                            value={form.endPrice}
-                            onChange={(e) => setForm({ ...form, endPrice: e.target.value })}
+                            value={formatWithCommas(form.endPrice)}
+                            onChange={(e) => setForm({ ...form, endPrice: stripCommas(e.target.value) })}
                             className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                             required
                           />
+                          {form.endPrice && !Number.isNaN(parseFloat(stripCommas(form.endPrice))) && (
+                            <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                              ≈ {krwFmt(parseFloat(stripCommas(form.endPrice)))}
+                            </p>
+                          )}
                         </div>
                       </div>
                     )}

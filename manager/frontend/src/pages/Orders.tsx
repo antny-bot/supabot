@@ -323,13 +323,13 @@ export default function Orders() {
           options={[
             {
               id: 'open',
-              label: '활성 주문',
+              label: '미체결 주문',
               icon: <Clock size={15} />,
               badge: viewMode === 'open' ? data?.total : undefined,
             },
             {
               id: 'history',
-              label: '체결/취소 이력',
+              label: '주문 취소·만료 이력',
               icon: <CheckCircle2 size={15} />,
               badge: viewMode === 'history' ? data?.total : undefined,
             },
@@ -427,6 +427,15 @@ export default function Orders() {
         )}
       </div>
 
+      {viewMode === 'history' && (
+        <div className="flex items-center gap-2 rounded-xl border border-blue-200/80 bg-blue-50/70 px-4 py-2.5 text-xs text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/40 dark:text-blue-300">
+          <CheckCircle2 size={15} className="shrink-0 text-blue-600 dark:text-blue-400" />
+          <span>
+            이 화면은 <strong>취소·만료된 주문 이력</strong>을 표시합니다. 실제 거래가 완료된 상세 내역은 상단 메뉴의 <strong>[체결 내역]</strong>에서 확인하실 수 있습니다.
+          </span>
+        </div>
+      )}
+
       {viewMode === 'batches' ? (
         <OrderBatchesSection
           onSelectGroupNo={(gNo) => {
@@ -498,7 +507,9 @@ export default function Orders() {
                   {!data || data.orders.length === 0 ? (
                     <tr>
                       <td colSpan={12} className="py-12 text-center text-xs text-slate-400 font-sans">
-                        {viewMode === 'open' ? '현재 활성화된 오픈 주문이 없습니다.' : '주문 이력이 없습니다.'}
+                        {viewMode === 'open'
+                          ? '현재 활성화된 미체결 주문이 없습니다.'
+                          : '취소 또는 만료된 주문 이력이 없습니다. (체결 완료된 거래는 상단 메뉴의 [체결 내역]에서 확인하세요)'}
                       </td>
                     </tr>
                   ) : (
@@ -600,7 +611,9 @@ export default function Orders() {
             <div className="block divide-y divide-slate-100 p-3 md:hidden dark:divide-slate-800">
               {!data || data.orders.length === 0 ? (
                 <div className="py-12 text-center text-xs text-slate-400">
-                  {viewMode === 'open' ? '현재 활성화된 오픈 주문이 없습니다.' : '주문 이력이 없습니다.'}
+                  {viewMode === 'open'
+                    ? '현재 활성화된 미체결 주문이 없습니다.'
+                    : '취소 또는 만료된 주문 이력이 없습니다. (체결 완료된 거래는 상단 메뉴의 [체결 내역]에서 확인하세요)'}
                 </div>
               ) : (
                 data.orders.map((order) => (
