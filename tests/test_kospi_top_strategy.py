@@ -537,3 +537,123 @@ def test_reconciliation_rolls_back_cancelled_order_from_cycle_bought():
     
     assert "005930" not in params["current_cycle_bought"]
     assert params["current_cycle_bought"] == []
+
+
+
+def test_reconciliation_handles_deleted_unfilled_orders_via_trade_logs():
+    """Bot이 미체결 취소 주문을 orders 테이블에서 DELETE했더라도 trade_logs 대조로 예산 환원 및 사이클 롤백 검증."""
+    from manager.backend.services import progression_manager as pm
+    from manager.backend.services import budget_manager as bm
+    from manager.backend.services import universe_resolver
+
+    today = "2026-11-03"
+    tpl_params = {
+        "market": "KOSPI",
+        "pending_buy_orders": [
+            {"uuid": "ord-del-1", "code": "005930", "price": 50000.0, "volume": 2.0, "group_no": 1, "budget_epoch": 1}
+        ],
+        "current_cycle_bought": ["005930"],
+        "carryover_budget": 0.0,
+        "monthly_spent": 100000.0,
+        "monthly_budget": 3000000.0,
+        "budget_epoch": 1,
+        "plan_revision_no": 1,
+        "budget_mode": "monthly",
+        "allowance_credited_date": today,
+        "rank_start": 1,
+        "rank_end": 2,
+    }
+    template = {
+        "id": 1,
+        "user_id": "u",
+        "budget": 3000000.0,
+        "params": copy.deepcopy(tpl_params),
+    }
+
+    # orders 테이블에는 해당 주문이 없음 (장마감 후 취소/삭제됨)
+    # trade_logs 테이블에도 체결 내역 없음
+    db = _FakeDB({
+        ("strategy_templates", "select"): [template],
+        ("orders", "select"): [],
+        ("trade_logs", "select"): [],
+    })
+
+    targets = [
+        {"rank": 1, "code": "005930", "name": "삼성전자", "price": 50000.0},
+        {"rank": 2, "code": "000660", "name": "SK하이닉스", "price": 100000.0},
+    ]
+
+    with patch.object(pm, "get_db", return_value=db), \
+         patch.object(pm, "get_template_holdings", new=AsyncMock(return_value={})), \
+         patch.object(universe_resolver, "freeze_or_get_master_top", new=AsyncMock(return_value=targets)), \
+         patch.object(universe_resolver, "resolve_strategy_targets", new=AsyncMock(return_value=targets)), \
+         patch.object(bm, "record_ledger_entry", new=AsyncMock()) as mock_ledger:
+        
+        res = _sync_run(pm.run_strategy_progression(1, is_dry_run=True, force_today=today))
+
+    assert res is not None
+    # ORDER_CANCEL_REFUND 감사 원장 기록 확인 (50,000 * 2 = 100,000원 전액 환원)
+    refund_calls = [c for c in mock_ledger.call_args_list if c.kwargs.get("entry_type") == "ORDER_CANCEL_REFUND"]
+    assert len(refund_calls) == 1
+    assert refund_calls[0].kwargs.get("delta_krw") == 100000.0
+
+
+def test_run_strategy_progression_recycles_sell_proceeds():
+    """recycle_to_budget 모드 시 직전 배치 매도 체결 대금이 가용 예산으로 재투입되는지 검증."""
+    from manager.backend.services import progression_manager as pm
+    from manager.backend.services import budget_manager as bm
+    from manager.backend.services import universe_resolver
+
+    today = "2026-11-03"
+    tpl_params = {
+        "market": "KOSPI",
+        "sell_proceeds_mode": "recycle_to_budget",
+        "pending_sell_orders": [
+            {"uuid": "sell-1", "ticker": "035720", "volume": 2.0, "price": 50000.0, "group_no": 5}
+        ],
+        "carryover_budget": 10000.0,
+        "monthly_spent": 0.0,
+        "monthly_budget": 3000000.0,
+        "budget_epoch": 1,
+        "plan_revision_no": 1,
+        "budget_mode": "monthly",
+        "allowance_credited_date": today,
+        "rank_start": 1,
+        "rank_end": 2,
+    }
+    template = {
+        "id": 2,
+        "user_id": "u",
+        "budget": 3000000.0,
+        "params": copy.deepcopy(tpl_params),
+    }
+
+    db = _FakeDB({
+        ("strategy_templates", "select"): [template],
+        ("orders", "select"): [],
+        ("trade_logs", "select"): [
+            {"uuid": "tr-sell-1", "ticker": "035720", "side": "ask", "price": 50000.0, "volume": 2.0, "fee_amount": 100.0, "group_no": 5}
+        ],
+    })
+
+    targets = [
+        {"rank": 1, "code": "005930", "name": "삼성전자", "price": 50000.0},
+        {"rank": 2, "code": "000660", "name": "SK하이닉스", "price": 100000.0},
+    ]
+
+    with patch.object(pm, "get_db", return_value=db), \
+         patch.object(pm, "get_template_holdings", new=AsyncMock(return_value={})), \
+         patch.object(universe_resolver, "freeze_or_get_master_top", new=AsyncMock(return_value=targets)), \
+         patch.object(universe_resolver, "resolve_strategy_targets", new=AsyncMock(return_value=targets)), \
+         patch.object(bm, "record_ledger_entry", new=AsyncMock()) as mock_ledger:
+        
+        res = _sync_run(pm.run_strategy_progression(2, is_dry_run=True, force_today=today))
+
+    assert res is not None
+    # SELL_PROCEEDS_RECYCLE 기록 확인: 50,000 * 2 - 100 = 99,900원 재투입
+    recycle_calls = [c for c in mock_ledger.call_args_list if c.kwargs.get("entry_type") == "SELL_PROCEEDS_RECYCLE"]
+    assert len(recycle_calls) == 1
+    assert recycle_calls[0].kwargs.get("delta_krw") == 99900.0
+    res_params = res["params"]
+    assert "tr-sell-1" in res_params.get("recycled_sell_uuids", [])
+    assert res_params.get("pending_sell_orders") == []

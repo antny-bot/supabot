@@ -39,7 +39,7 @@ RUNTIME_STATE_KEYS = {
     "cycle_no", "carryover_budget", "current_cycle_bought", "skipped_untradable",
     "exit_candidate_streaks", "next_target_ticker", "last_status_message",
     "pending_buy_orders", "pending_sell_orders", "last_top_tickers",
-    "exit_progress", "history", "holdings",
+    "exit_progress", "history", "holdings", "recycled_sell_uuids",
 }
 
 
@@ -388,20 +388,51 @@ async def run_strategy_progression(
                 except Exception as e:
                     logger.debug(f"reorder_of lookup fallback: {e}")
 
+                # orders 테이블에서 삭제된 주문의 체결 여부를 확인하기 위해 trade_logs 조회
+                trade_vol_by_group_ticker: dict[tuple, float] = {}
+                buy_groups = list({int(pb["group_no"]) for pb in pending_buys if pb.get("group_no") is not None})
+                try:
+                    if not buy_groups:
+                        raise LookupError("no group_no")
+                    t_res = (
+                        await db.table("trade_logs")
+                        .select("uuid,ticker,side,volume,group_no")
+                        .eq("template_id", template_id)
+                        .eq("side", "bid")
+                        .in_("group_no", buy_groups)
+                        .execute()
+                    )
+                    for tr in (t_res.data or []):
+                        key = (tr.get("group_no"), tr.get("ticker"))
+                        trade_vol_by_group_ticker[key] = trade_vol_by_group_ticker.get(key, 0.0) + float(tr.get("volume") or 0.0)
+                except LookupError:
+                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to query trade_logs for reconciliation: {e}")
+
                 cancelled = []
                 for pb in pending_buys:
                     s_info = status_map.get(pb["uuid"])
+                    c_code = pb.get("code") or pb.get("ticker")
+                    pb_vol = float(pb.get("volume", 0.0))
                     if s_info:
                         st = s_info.get("status")
-                        # cancel, failed, rejected, market_closed(장마감 실효) 등 미체결 상태
-                        if st in ("cancel", "failed", "rejected", "market_closed"):
-                            pb["filled_volume"] = s_info.get("filled_volume", 0.0)
+                        # cancel, failed, rejected, market_closed(장마감 실효), cancel_requested 등 미체결 상태
+                        if st in ("cancel", "failed", "rejected", "market_closed", "cancel_requested"):
+                            pb["filled_volume"] = float(s_info.get("filled_volume", 0.0))
                             cancelled.append(pb)
                             if st == "market_closed":
                                 try:
                                     await db.table("orders").update({"status": "cancel"}).eq("uuid", s_info["uuid"]).execute()
                                 except Exception as e:
                                     logger.warning(f"Failed to mark market_closed order as cancel: {e}")
+                    else:
+                        # orders 테이블에 행이 없는 경우: trade_logs에 체결 내역이 있는지 대조
+                        key = (pb.get("group_no"), c_code)
+                        exec_vol = trade_vol_by_group_ticker.get(key, 0.0)
+                        if exec_vol < pb_vol:
+                            pb["filled_volume"] = exec_vol
+                            cancelled.append(pb)
 
                 if cancelled:
                     await budget_manager.refund_cancelled_orders(template, cancelled)
@@ -412,6 +443,42 @@ async def run_strategy_progression(
                         if c_code in current_cycle_bought:
                             current_cycle_bought.remove(c_code)
                     params["current_cycle_bought"] = current_cycle_bought
+
+        # 4-2. 직전 배치 매도 체결 대금 예산 재투입 (recycle_to_budget 모드)
+        pending_sells = params.get("pending_sell_orders", [])
+        if pending_sells and params.get("sell_proceeds_mode") == "recycle_to_budget":
+            try:
+                sell_groups = list({ int(s["group_no"]) for s in pending_sells if s.get("group_no") is not None })
+                if sell_groups:
+                    s_tr_res = (
+                        await db.table("trade_logs")
+                        .select("uuid,ticker,side,price,volume,fee_amount,group_no")
+                        .eq("template_id", template_id)
+                        .eq("side", "ask")
+                        .in_("group_no", sell_groups)
+                        .execute()
+                    )
+                    recycled_list = list(params.get("recycled_sell_uuids", []))
+                    recycled_uuids = set(recycled_list)
+                    for tr in (s_tr_res.data or []):
+                        tr_uuid = tr.get("uuid") or f"{tr.get('group_no')}:{tr.get('ticker')}"
+                        if tr_uuid in recycled_uuids:
+                            continue
+                        proceeds = float(tr.get("price") or 0.0) * float(tr.get("volume") or 0.0) - float(tr.get("fee_amount") or 0.0)
+                        if proceeds > 0:
+                            params = await budget_manager.recycle_sell_proceeds(
+                                template=template,
+                                proceeds_krw=proceeds,
+                                ticker=tr.get("ticker", ""),
+                                order_uuid=tr.get("uuid"),
+                                group_no=tr.get("group_no"),
+                            )
+                            recycled_uuids.add(tr_uuid)
+                            recycled_list.append(tr_uuid)
+                    params["recycled_sell_uuids"] = recycled_list[-200:]
+            except Exception as e:
+                logger.warning(f"Failed to recycle sell proceeds: {e}")
+            params["pending_sell_orders"] = []
 
         # 5. 일일 예산 충전 (1일 1회 불변식 2 보장)
         carryover_before_credit = float(params.get("carryover_budget", 0.0))

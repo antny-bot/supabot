@@ -502,10 +502,10 @@ async def reset_budget_plan(
         try:
             await (
                 db.table("orders")
-                .update({"status": "cancel"})
+                .update({"status": "cancel_requested"})
                 .eq("template_id", template["id"])
                 .eq("side", "bid")
-                .in_("status", ["wait", "reserved", "partial"])
+                .in_("status", ["wait", "reserved", "partial", "pending_reorder"])
                 .execute()
             )
         except Exception as e:

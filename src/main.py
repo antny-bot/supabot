@@ -88,7 +88,14 @@ _bg_tasks: set = set()
 
 
 def _spawn_bg(coro):
-    task = asyncio.create_task(coro)
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        import inspect
+        if inspect.iscoroutine(coro):
+            coro.close()
+        return None
+    task = loop.create_task(coro)
     _bg_tasks.add(task)
     task.add_done_callback(_bg_tasks.discard)
     return task
@@ -947,6 +954,14 @@ async def sync_orders(application):
         exchange = ord['exchange']
         ticker = ord['ticker']
         ex_obj = exchange_adapter.get_exchange(exchange)
+
+        # 0. 백엔드(Manager)로부터 취소 요청(cancel_requested)된 주문 처리
+        if ord.get("status") == "cancel_requested":
+            if str(ord.get("uuid", "")).startswith("reserved:"):
+                order_manager.remove_order(ord["uuid"])
+            else:
+                await cancel_and_remove_order(user_id, ord)
+            continue
 
         if exchange == "toss" and str(ticker).isdigit():
             await exchange_adapter.ensure_toss_kr_calendar(user_id)
