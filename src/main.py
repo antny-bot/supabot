@@ -502,8 +502,33 @@ async def _create_linked_sell_order(application, ord, exec_vol, state):
     if ex.requires_integer_volume() and sell_volume <= 0:
         return "zero_volume"
 
-    s_res = await exchange_adapter.create_order(user_id, exchange, ticker, "ask", sell_price, sell_volume)
+    s_res = None
+    try:
+        s_res = await exchange_adapter.create_order(user_id, exchange, ticker, "ask", sell_price, sell_volume)
+    except Exception as e:
+        _log.warning(f"create_order failed for linked sell: {e}")
+
     if not (s_res and "uuid" in s_res):
+        # 잔고 조회를 통해 외부 수동 매도(잔고 부족) 여부 판단
+        try:
+            balances = await exchange_adapter.get_balances(user_id, exchange)
+            avail_vol = 0.0
+            if balances:
+                for b in balances:
+                    b_ticker = b.get("currency") or b.get("ticker") or ""
+                    if b_ticker.upper() == ticker.upper() or ticker.endswith(b_ticker) or b_ticker.endswith(ticker):
+                        avail_vol = float(b.get("balance", 0.0) or 0.0)
+                        break
+            if avail_vol < sell_volume:
+                order_manager.update_order_fill(ord["uuid"], exec_vol, state)
+                await application.bot.send_message(
+                    chat_id=user_id,
+                    text=f"⚠️ [{exchange.upper()}] {ticker} 잔고 부족 (보유: {avail_vol:g}개 / 필요: {sell_volume:g}개)\n"
+                         f"외부에서 수동 매도된 것으로 감지되어 익절 주문 생성을 생략하고 추적을 종료합니다.",
+                )
+                return "external_sold"
+        except Exception as bal_err:
+            _log.warning(f"Failed to check balance after linked sell failure: {bal_err}")
         return "failed"
 
     stop_loss_pct = float(user.get("preferences", {}).get("stop_loss_pct", 0) or 0)
@@ -523,6 +548,43 @@ async def _create_linked_sell_order(application, ord, exec_vol, state):
              f"• 익절가: {sell_price:,.0f}원 (RSI {target_rsi} 목표)",
     )
     return "created"
+
+
+async def reconcile_external_sells_fifo(application, user_id: str, exchange: str, ticker: str, current_balance: float):
+    """외부 매도 등으로 인해 거래소 실제 잔고가 봇의 오픈 매도 주문 합계보다 적을 때 FIFO로 최근 매도 주문을 정리한다."""
+    user_orders = order_manager.get_user_orders(user_id, exchange)
+    open_asks = [
+        o for o in user_orders
+        if o.get("ticker") == ticker and o.get("side") == "ask" and o.get("status") in ("wait", "partial", "reserved", "pending_reorder")
+    ]
+    if not open_asks:
+        return
+
+    total_ask_volume = sum(float(o.get("volume", 0)) - float(o.get("filled_volume", 0)) for o in open_asks)
+    if current_balance >= total_ask_volume:
+        return
+
+    # FIFO: 오래된 주문 우선 보존, 최근 등록 주문을 정리
+    sorted_asks = sorted(open_asks, key=lambda x: float(x.get("created_at", 0) or 0))
+    remaining_balance = max(0.0, current_balance)
+    canceled_orders = []
+
+    for ord_item in sorted_asks:
+        ord_rem_vol = float(ord_item.get("volume", 0)) - float(ord_item.get("filled_volume", 0))
+        if remaining_balance >= ord_rem_vol:
+            remaining_balance -= ord_rem_vol
+        else:
+            await cancel_and_remove_order(user_id, ord_item)
+            canceled_orders.append(ord_item)
+
+    if canceled_orders:
+        strat_names = ", ".join(f"[{o.get('strategy', '전략')}]" for o in canceled_orders)
+        await application.bot.send_message(
+            chat_id=user_id,
+            text=f"⚠️ [{exchange.upper()}] {ticker} 외부 매도 감지\n"
+                 f"실제 잔고({current_balance:g}개)가 매도 주문 수량({total_ask_volume:g}개)보다 적어 "
+                 f"FIFO 원칙에 따라 최근 주문 {strat_names}이 자동 정리되었습니다.",
+        )
 
 
 async def cancel_and_remove_order(user_id: str, ord_dict: dict) -> bool:
@@ -807,6 +869,8 @@ async def _process_order_fill(application, ord: dict, res: dict, ex_obj) -> None
                 return
             if outcome in ("no_price", "failed"):
                 keep_order_for_retry = True
+            elif outcome == "external_sold":
+                keep_order_for_retry = False
 
         # 일반 체결 알림
         else:

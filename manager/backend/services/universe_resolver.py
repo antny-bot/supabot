@@ -338,8 +338,17 @@ async def backfill_historical_master_top(market: str, start_date: str, end_date:
     return existing_map
 
 
-async def resolve_strategy_targets(template_params: dict, date_str: str = None, master_items: list[dict] = None) -> list[dict]:
-    """전략 파라미터(rank_start ~ rank_end 또는 custom_tickers)에 따라 당일 타겟 종목 리스트를 산출한다."""
+async def resolve_strategy_targets(
+    template_params: dict,
+    date_str: str = None,
+    master_items: list[dict] = None,
+    exclude_tickers: list | set = None,
+) -> list[dict]:
+    """전략 파라미터(rank_start ~ rank_end 또는 custom_tickers)에 따라 당일 타겟 종목 리스트를 산출한다.
+
+    exclude_tickers: 개별 전략(RSI/Grid 등)이 이미 운용 중인 종목 세트.
+    유니버스 분리 정책에 따라 해당 종목은 스킵하고 차순위 종목으로 목표 개수를 채운다.
+    """
     market = template_params.get("market", "KOSPI")
     rank_start = int(template_params.get("rank_start", 1))
     rank_end = int(template_params.get("rank_end", template_params.get("top_n", 10)))
@@ -347,9 +356,12 @@ async def resolve_strategy_targets(template_params: dict, date_str: str = None, 
     # 1단위 개별 지정 지원: rank_start는 최소 1, rank_end >= rank_start
     rank_start = max(1, rank_start)
     rank_end = max(rank_start, rank_end)
+    target_count = (rank_end - rank_start + 1)
 
     if master_items is None:
-        master_items = await freeze_or_get_master_top(market, date_str=date_str, max_n=max(50, rank_end))
+        master_items = await freeze_or_get_master_top(market, date_str=date_str, max_n=max(50, rank_end + 15))
+
+    exclude_set = set(str(t).strip().upper() for t in (exclude_tickers or []))
 
     custom_tickers = template_params.get("custom_tickers")
     if custom_tickers and isinstance(custom_tickers, list) and len(custom_tickers) > 0:
@@ -358,17 +370,31 @@ async def resolve_strategy_targets(template_params: dict, date_str: str = None, 
         matched = []
         rank_idx = 1
         for item in master_items:
-            if item["code"].upper() in ticker_set:
+            c = item["code"].upper()
+            if c in ticker_set and c not in exclude_set:
                 it = dict(item)
                 it["rank"] = rank_idx
                 matched.append(it)
                 rank_idx += 1
         return matched
 
-    # 구간 슬라이싱: items[rank_start - 1 : rank_end]
-    start_idx = rank_start - 1
-    end_idx = rank_end
-    sliced = master_items[start_idx:end_idx]
-    
-    # 각 종목의 순위(rank)는 마스터 리스트의 원래 순위 유지
-    return [dict(x) for x in sliced]
+    # 구간 슬라이싱: exclude_set이 없으면 단순 슬라이싱
+    if not exclude_set:
+        start_idx = rank_start - 1
+        end_idx = rank_end
+        sliced = master_items[start_idx:end_idx]
+        return [dict(x) for x in sliced]
+
+    # exclude_set이 있으면 rank_start 이상인 종목 중 제외 대상을 스킵하고 target_count개 수집 (차순위 편입)
+    matched = []
+    for item in master_items:
+        if item.get("rank", 0) < rank_start:
+            continue
+        c = item["code"].upper()
+        if c in exclude_set:
+            continue
+        matched.append(dict(item))
+        if len(matched) >= target_count:
+            break
+
+    return matched

@@ -29,6 +29,99 @@ _HALT_CACHE_TTL_SECONDS = 5
 _halt_cache = None
 _halt_cache_ts = 0.0
 
+# 전략 패밀리 매핑 (동일 종목 복수 전략 충돌 방지용)
+_STRATEGY_FAMILIES = {
+    "rsitrade": "rsi",
+    "rsitrade_sell": "rsi",
+    "gridrsi": "rsi",
+    "grid": "grid",
+    "sgrid": "grid",
+    "sgridrsi": "sgridrsi",
+    "dca": "dca",
+    "sdca": "dca",
+    "kospi_top": "kospi_top",
+}
+
+# KOSPI 대표 시총 상위 TOP 10 대형주 (유니버스 분리 정책 전담 종목)
+DEFAULT_TOP_UNIVERSE_TICKERS = {
+    "005930",  # 삼성전자
+    "000660",  # SK하이닉스
+    "373220",  # LG에너지솔루션
+    "207940",  # 삼성바이오로직스
+    "005380",  # 현대차
+    "000270",  # 기아
+    "068270",  # 셀트리온
+    "105560",  # KB금융
+    "055550",  # 신한지주
+    "012450",  # 한화에어로스페이스
+}
+
+
+def is_top_universe_ticker(ticker: str, custom_top_tickers: set = None) -> bool:
+    """해당 종목이 TOP N 전략 전담 대형주 유니버스에 속하는지 판별한다."""
+    if not ticker:
+        return False
+    t = str(ticker).strip().upper()
+    top_set = custom_top_tickers if custom_top_tickers is not None else DEFAULT_TOP_UNIVERSE_TICKERS
+    return t in top_set
+
+
+def get_strategy_family(strategy: str) -> str:
+    """전략 이름을 전략 패밀리 그룹명으로 정규화한다."""
+    if not strategy:
+        return "manual"
+    return _STRATEGY_FAMILIES.get(strategy.lower(), strategy.lower())
+
+
+def assert_single_strategy_per_ticker(
+    open_orders,
+    ticker: str,
+    strategy: str = "manual",
+    dca_schedules=None,
+    top_universe_tickers=None,
+    enforce_universe_partition: bool = True,
+):
+    """종목 독점 및 유니버스 분리 원칙(Universe Partitioning) 검증.
+
+    동일 종목(ticker)에 대해 이미 다른 전략 패밀리의 활성 주문이나 DCA 스케줄이 운용 중인 경우 차단한다.
+    또한 유니버스 분리 정책에 따라 TOP N 대형주 전담 종목에 대해 개별 전략(RSI, Grid 등) 신규 등록을 차단한다.
+    - manual(수동), stoploss(손절)는 검사에서 완전 면제되어 항상 허용.
+    - 동일 전략 패밀리 내(예: rsitrade 매수와 rsitrade_sell 익절 매도)는 동일 전략으로 취급하여 허용.
+    (ok: bool, message: str | None) 반환.
+    """
+    if not ticker or strategy in ("manual", "stoploss"):
+        return True, None
+
+    new_family = get_strategy_family(strategy)
+
+    # 1. 유니버스 분리 검증: TOP N 대형주 전담 종목에 개별 전략 진입 차단
+    if enforce_universe_partition and new_family != "kospi_top":
+        if is_top_universe_ticker(ticker, custom_top_tickers=top_universe_tickers):
+            return False, (
+                f"🛑 [{ticker}] 해당 종목은 'TOP N 모으기 전략' 전담 종목입니다. "
+                f"유니버스 분리 정책에 따라 개별 전략(RSI/그리드)으로 등록할 수 없습니다. "
+                f"(시총 11위 이하 종목이나 코스닥/코인을 선택해주세요)"
+            )
+
+    # 2. 오픈 주문(order_manager) 검사
+    for o in open_orders or []:
+        if o.get("ticker") == ticker:
+            o_strat = o.get("strategy")
+            if not o_strat or o_strat in ("manual", "stoploss"):
+                continue
+            o_family = get_strategy_family(o_strat)
+            if o_family != new_family:
+                return False, f"🛑 [{ticker}] 이미 '{o_strat}' 전략이 운용 중입니다. 포지션 충돌을 방지하기 위해 동일 종목의 복수 전략 동시 운용은 제한됩니다."
+
+    # 3. 활성 DCA 스케줄 검사
+    if dca_schedules:
+        for sched in dca_schedules:
+            if sched.get("ticker") == ticker:
+                if new_family != "dca":
+                    return False, f"🛑 [{ticker}] 이미 정기적립(DCA) 전략이 운용 중입니다. 동일 종목의 복수 전략 동시 운용은 제한됩니다."
+
+    return True, None
+
 
 def is_trading_halted() -> bool:
     """현재 거래 중지 상태를 반환한다. TTL 캐시 → DB → 파일 → 인메모리 캐시 순."""
@@ -146,6 +239,11 @@ def check_can_place_order(user, open_orders, new_order_krw, is_usd=False, ticker
     )
     if not risk_ok:
         return risk_ok, risk_msg
+
+    # 종목 독점 원칙 (Single Strategy per Ticker) 검증
+    strat_ok, strat_msg = assert_single_strategy_per_ticker(open_orders, ticker=ticker, strategy=strategy)
+    if not strat_ok:
+        return strat_ok, strat_msg
 
     from core.parsers import compute_open_exposure_krw, validate_total_exposure
     return validate_total_exposure(

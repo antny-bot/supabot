@@ -280,6 +280,7 @@ async def grid_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TY
         if not user:
             await query.edit_message_text("❌ 사용자 설정을 찾을 수 없어 주문을 중단합니다.")
             return
+        strat = "sgrid" if is_sell else "grid"
         if not is_sell:
             ok, error_msg = validate_max_order(user, val / ct, is_usd=is_us_stock_ticker(ex, tk))
             if not ok:
@@ -288,12 +289,21 @@ async def grid_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TY
             gate_ok, gate_msg = trading_gate.check_can_place_order(
                 user, main.order_manager.get_user_orders(user_id), val,
                 is_usd=is_us_stock_ticker(ex, tk),
+                ticker=tk,
+                side="bid",
+                strategy=strat,
             )
             if not gate_ok:
                 await query.edit_message_text(gate_msg)
                 return
         else:
-            gate_ok, gate_msg = trading_gate.assert_can_trade()
+            gate_ok, gate_msg = trading_gate.check_can_place_order(
+                user, main.order_manager.get_user_orders(user_id), 0,
+                is_usd=is_us_stock_ticker(ex, tk),
+                ticker=tk,
+                side="ask",
+                strategy=strat,
+            )
             if not gate_ok:
                 await query.edit_message_text(gate_msg)
                 return
@@ -482,7 +492,11 @@ async def rsitrade_confirm_callback(update: Update, context: ContextTypes.DEFAUL
         await query.edit_message_text(error_msg)
         return
     gate_ok, gate_msg = trading_gate.check_can_place_order(
-        user, main.order_manager.get_user_orders(user_id), bg, is_usd=is_us_stock_ticker(ex, tk),
+        user, main.order_manager.get_user_orders(user_id), bg,
+        is_usd=is_us_stock_ticker(ex, tk),
+        ticker=tk,
+        side="bid",
+        strategy="rsitrade",
     )
     if not gate_ok:
         await query.edit_message_text(gate_msg)
@@ -623,7 +637,13 @@ async def sgridrsi_confirm_callback(update: Update, context: ContextTypes.DEFAUL
     if not ok:
         await query.edit_message_text(error_msg)
         return
-    gate_ok, gate_msg = trading_gate.assert_can_trade()
+    gate_ok, gate_msg = trading_gate.check_can_place_order(
+        user, main.order_manager.get_user_orders(user_id), 0,
+        is_usd=is_us_stock_ticker(ex, tk),
+        ticker=tk,
+        side="ask",
+        strategy="sgridrsi",
+    )
     if not gate_ok:
         await query.edit_message_text(gate_msg)
         return
@@ -998,6 +1018,14 @@ async def dca_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     om = getattr(main, "order_manager", None)
+    open_orders = om.get_user_orders(user_id) if om else []
+    dca_scheds = dca_mgr.get_schedules(user_id) if dca_mgr else []
+    strat_ok, strat_msg = trading_gate.assert_single_strategy_per_ticker(
+        open_orders, ticker=payload["ticker"], strategy="dca", dca_schedules=dca_scheds,
+    )
+    if not strat_ok:
+        await query.edit_message_text(strat_msg)
+        return
     group_no = dca_mgr.get_next_group_no(user_id, order_manager=om)
     sched = dca_mgr.add_schedule(
         user_id=user_id,
