@@ -106,11 +106,24 @@ stateDiagram-v2
 - 간격: `signal_analysis_interval` (300초). `system_config` 테이블 값 우선 사용.
 
 ### sync_orders 핵심 처리 흐름
-1. **KIS 장외 세션**: `market_closed` / `pending_reorder` 판정 시 `next_check_at` 대기 시각 설정.
-2. **KIS 재주문**: `pending_reorder` 상태 잔량에 대해 재주문 시도 (`replace_order_uuid`).
-3. **일반 주문**: `get_order_status` 실시간 조회, 체결 발생 시 `filled_volume` 갱신.
-4. **연동 주문**: rsitrade/gridrsi 매수 체결 완료 및 `linked_to` 존재 시 목표 익절가 계산 후 즉시 매도 주문 전송 (`rsitrade_sell`).
-5. **종료 판정**: `done`/`cancel` 도달 시 추적 리스트에서 제외 (KIS 전략 등은 제외).
+1. **취소 요청 주문 우선 처리 (`status == "cancel_requested"`, `_handle_cancel_requested`)**:
+   - **미제출 가상 주문 (`reserved:`)**: 거래소에 주문이 나가지 않은 상태이므로 `order_manager.remove_order(uuid)`로 즉시 메모리/DB에서 삭제.
+   - **거래소 제출 주문 선조회**: 실거래소 취소 호출 전 `exchange_adapter.get_order_status`를 호출하여 현재 체결 상태를 조회.
+     - **이미 전량 체결 (`state == "done"`)**: `_process_order_fill`로 전환하여 즉시 정상 체결 처리(체결 알림, trade_logs 기록, linked_to 매도 생성 등).
+     - **부분 체결 감지 (`executed_volume > 0`)**: 실거래소 취소 성공(`cancel_and_remove_order`) 후 `append_trade`를 호출하여 부분 체결된 수량과 수수료(`fee_amount`), `group_no`, `template_id`를 `trade_logs`에 기록. 이를 통해 매니저 백엔드의 예산 대사(Reconciliation) 시 체결분이 정확히 인식되도록 보장.
+     - **거래소 취소 실패 시**: 주문을 삭제하지 않고 `cancel_requested` 상태를 그대로 유지하여 다음 sync 주기에서 재시도.
+2. **장외 예약 주문 정규장 제출 (`status == "reserved"`)**:
+   - `supports_reserved_orders=True` 거래소(KIS/Toss) 주문이 정규장에 도달하면 실제 거래소에 주문 제출 후 `replace_order_uuid(old_uuid, new_uuid)`로 실 UUID 교체.
+3. **KIS 장외 세션 판정**:
+   - `market_closed` / `pending_reorder` 판정 시 `next_check_at` 대기 시각 설정.
+4. **KIS 재주문 (`pending_reorder`)**:
+   - `pending_reorder` 상태 잔량에 대해 정규장에 재주문 시도 (`replace_order_uuid`).
+5. **일반 주문 체결 조회**:
+   - `get_order_status` 실시간 조회, 부분 체결 발생 시 `filled_volume` 갱신.
+6. **연동 주문 익절 매도**:
+   - rsitrade/gridrsi 매수 체결 완료 및 `linked_to` 존재 시 목표 익절가 계산 후 즉시 매도 주문 전송 (`rsitrade_sell`).
+7. **종료 판정**:
+   - `done`/`cancel` 도달 시 추적 리스트에서 제외 (KIS 전략 등은 제외).
 
 ## KIS 시간 헬퍼
 - `is_kis_regular_session(now=None)` -> bool (평일 09:00–15:35 KST 판정).
@@ -120,6 +133,7 @@ stateDiagram-v2
 ---
 
 ## 🔗 연관 명세 문서
+- **주문 관리자 및 상태 기계**: [202_order_manager.md](file:///E:/apps/supabot/docs/202_order_manager.md)
 - **자연어 처리 및 인텐트 흐름**: [205a_natural_language.md](file:///E:/apps/supabot/docs/205a_natural_language.md)
 - **보안 설정 및 일회용 토큰, 안전장치**: [205b_security_logging.md](file:///E:/apps/supabot/docs/205b_security_logging.md)
 - **유틸리티 파서 및 포맷터 함수**: [205c_utility_parsers.md](file:///E:/apps/supabot/docs/205c_utility_parsers.md)

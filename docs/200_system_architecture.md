@@ -72,7 +72,7 @@ FastAPI 백엔드 + React/TypeScript(Vite+Tailwind) SPA. Synology Docker 배포 
   "strategy": "manual|grid|rsitrade",
   "target_rsi": null,          // rsitrade 전략 전용
   "linked_to": null,           // 매수-매도 쌍 연결
-  "status": "wait|partial|done|cancel|pending_reorder",
+  "status": "wait|partial|done|cancel|pending_reorder|cancel_requested",
   "created_at": 1700000000.0,
   "next_check_at": 0.0,
   "reorder_of": null,          // 재주문 시 이전 uuid

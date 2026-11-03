@@ -22,15 +22,23 @@ stateDiagram-v2
     wait --> done: exchange state=done
     wait --> cancel: exchange state=cancel<br/>(KIS 전략 주문만)
 
+    wait --> cancel_requested: Manager 취소 요청
+    reserved --> cancel_requested: Manager 취소 요청
+    cancel_requested --> cancel: 거래소 취소 확정 /<br/>reserved 주문 즉시 제거
+    cancel_requested --> done: 취소 전 조회 시<br/>전량 체결 확인 (_process_order_fill)
+
     cancel --> pending_reorder: 장외/상태 미확인<br/>mark_reorder_pending
     pending_reorder --> wait: 다음 정규장<br/>(replace_order_uuid로 UUID 교체)
 
     done --> [*]
 ```
 
-`market_closed`: `sync_orders` KIS 장외 임시 보류 상태 (다이어그램 미포함, `wait`/`reserved` 덧씌움 가능). 재주문 전 유지.
-
-`reserved` ≠ `pending_reorder`. `pending_reorder`: **제출 후** 마감 취소된 주문. `reserved`: **미제출 장외** 주문 (가짜 uuid `reserved:<hex>` 등록). 둘 다 `sync_orders`(`src/main.py`)가 `supports_reserved_orders=True` 거래소(KIS/Toss) 다음 정규장 제출 처리. `add_order(..., status="reserved")`: `grid`/`rsitrade`/`sgridrsi`/`manual` 전략 호출부가 `getattr(ex, "supports_reserved_orders", False) and not ex.is_market_open(ticker)` 체크 후 직접 설정 — `order_manager` 무관 (호출부 책임).
+- `market_closed`: `sync_orders` KIS 장외 임시 보류 상태 (다이어그램 미포함, `wait`/`reserved` 덧씌움 가능). 재주문 전 유지.
+- `reserved` ≠ `pending_reorder`. `pending_reorder`: **제출 후** 마감 취소된 주문. `reserved`: **미제출 장외** 주문 (가짜 uuid `reserved:<hex>` 등록). 둘 다 `sync_orders`(`src/main.py`)가 `supports_reserved_orders=True` 거래소(KIS/Toss) 다음 정규장 제출 처리. `add_order(..., status="reserved")`: `grid`/`rsitrade`/`sgridrsi`/`manual` 전략 호출부가 `getattr(ex, "supports_reserved_orders", False) and not ex.is_market_open(ticker)` 체크 후 직접 설정 — `order_manager` 무관 (호출부 책임).
+- `cancel_requested`: 웹 매니저/백엔드가 비동기로 취소를 요청한 상태.
+  - 거래소 미제출(`reserved:`) 주문은 즉시 메모리/DB에서 제거.
+  - 거래소 제출 주문은 취소 전 실거래소 체결 여부를 먼저 확인하여 이미 완료(`done`)된 경우 체결 처리(`_process_order_fill`), 부분 체결(`executed_volume > 0`)이 있을 경우 취소 성공 후 `trade_logs`에 부분 체결분을 기록하여 정산 무결성을 유지.
+  - 거래소 취소 요청 실패 시 `cancel_requested` 상태를 유지하여 다음 sync 주기에서 재시도.
 
 ## 주요 메서드
 
@@ -74,12 +82,21 @@ manager.clear_user_orders(user_id)  # 해당 유저의 모든 주문을 DB+메�
 - 파일 폴백: DB 미사용/실패 시 `data/orders.json` (인자 변경 가능), 쓰기 후 `chmod 0600` 적용.
 - asyncio 단일 이벤트 루프 → 잠금 불필요.
 
-## 웹 매니저 오픈 주문 조회 정책
+## 웹 매니저 주문 조회 및 상태 정책
 
-매니저 백엔드(`manager/backend/routers/orders.py`)의 오픈 주문(`status=open`) 목록 조회 및 일괄 취소 시 대상 상태:
-- `_OPEN_STATUSES = ("wait", "partial", "pending_reorder", "reserved")`
-- PostgREST 조회 시 `q.in_("status", list(_OPEN_STATUSES))`를 사용하여 `status=in.(wait,partial,pending_reorder,reserved)`로 쿼리합니다.
+매니저 백엔드(`manager/backend/routers/orders.py`) 및 대시보드(`dashboard.py`)의 상태 정책:
+- **오픈 주문 기본 정의 (`_OPEN_STATUSES`)**:
+  - `_OPEN_STATUSES = ("wait", "partial", "pending_reorder", "reserved")`
+  - 취소 API(`POST /api/orders/cancel`, `POST /api/orders/cancel-all`)는 대상 주문을 `_OPEN_STATUSES`로 한정하여 중복 취소 요청을 방지합니다.
+- **오픈 주문 목록 조회 및 대시보드 집계 (`_LISTED_OPEN_STATUSES`)**:
+  - `_LISTED_OPEN_STATUSES = _OPEN_STATUSES + ("cancel_requested",)`
+  - 열린 주문 목록(`?status=open`) 및 대시보드 활성 주문 수(`orders_open`)에는 봇이 거래소 취소를 확정하기 전까지 `cancel_requested` 상태를 포함해 화면에 노출합니다.
+- **상태 라벨 및 UI 표시**:
+  - `_STATUS_LABELS`: `"cancel_requested": "취소중"` (프론트엔드 Badge 컴포넌트: `cancel_requested` 로즈 배지 매핑).
+- **전략 정산(Reconciliation)과의 연동**:
+  - `progression_manager.py`는 `cancel_requested` 상태인 주문을 즉시 환불하지 않고 `deferred_pending_buys`로 보류하여 다음 배치의 `pending_buy_orders`로 이월합니다. 봇이 거래소 취소를 확정(또는 체결 완료)한 이후 주기에서 안전하게 정산 및 환불을 진행합니다.
 
 ## 참조
 - KIS pending_reorder 상세 흐름: `docs/302_kis_market_policy.md`
+- 메인 핸들러 및 sync_orders 상세 흐름: `docs/205_main_handlers.md`
 - 유저 전체 리셋 (`/resetuser`, 거래소 취소 + `clear_user_orders` + `trade_log.clear_user_trades`): `docs/205_main_handlers.md`
