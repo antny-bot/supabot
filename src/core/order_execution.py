@@ -39,7 +39,7 @@ async def _send_result_message(bot, notify_chat_id, text, log):
 
 async def _execute_order_batch(
     *, exchange_adapter, order_manager, user_id, exchange, ticker,
-    group_no, count, leg_fn, is_reserved, log,
+    group_no, count, leg_fn, is_reserved, log, template_id=None,
 ):
     """grid/rsitrade/sgridrsi가 공유하는 주문 발행 루프.
 
@@ -78,11 +78,13 @@ async def _execute_order_batch(
         # 발행과 등록을 분리해, 등록 실패 시 uuid를 CRITICAL로 남겨 수동 복구를 가능하게 한다.
         if res and "uuid" in res:
             try:
+                extra_add_kw = {"template_id": template_id} if template_id is not None else {}
                 order_manager.add_order(
                     user_id, exchange, ticker, res["uuid"], leg["price"], leg["volume"],
                     side=leg["side"], strategy=leg["strategy"],
                     target_rsi=leg.get("target_rsi"), linked_to=leg.get("linked_to"),
                     group_no=group_no, status="reserved" if is_reserved else "wait",
+                    **extra_add_kw,
                 )
                 success += 1
             except Exception as e:
@@ -128,6 +130,7 @@ async def execute_grid_orders(
     notify_chat_id: str,
     trigger_sync_fn=None,
     log=None,
+    template_id: int | None = None,
 ) -> dict:
     """가격 범위 분할 매수(grid)/매도(sgrid) 주문 발행 루프.
 
@@ -167,6 +170,7 @@ async def execute_grid_orders(
         exchange_adapter=exchange_adapter, order_manager=order_manager,
         user_id=user_id, exchange=exchange, ticker=ticker,
         group_no=group_no, count=count, leg_fn=leg_fn, is_reserved=is_reserved, log=log,
+        template_id=template_id,
     )
 
     action_name = "매도" if is_sell else "매수"
@@ -203,6 +207,7 @@ async def execute_rsitrade_orders(
     notify_chat_id: str,
     trigger_sync_fn=None,
     log=None,
+    template_id: int | None = None,
 ) -> dict:
     """RSI 역산 기반 분할 매수(rsitrade) 주문 발행 루프.
 
@@ -254,6 +259,7 @@ async def execute_rsitrade_orders(
         exchange_adapter=exchange_adapter, order_manager=order_manager,
         user_id=user_id, exchange=exchange, ticker=ticker,
         group_no=group_no, count=count, leg_fn=leg_fn, is_reserved=is_reserved, log=log,
+        template_id=template_id,
     )
 
     if is_reserved:
@@ -288,6 +294,7 @@ async def execute_sgridrsi_orders(
     notify_chat_id: str,
     trigger_sync_fn=None,
     log=None,
+    template_id: int | None = None,
 ) -> dict:
     """RSI 역산 기반 분할 매도(sgridrsi) 주문 발행 루프 (보유 코인 직접 매도).
 
@@ -334,6 +341,7 @@ async def execute_sgridrsi_orders(
         exchange_adapter=exchange_adapter, order_manager=order_manager,
         user_id=user_id, exchange=exchange, ticker=ticker,
         group_no=group_no, count=count, leg_fn=leg_fn, is_reserved=is_reserved, log=log,
+        template_id=template_id,
     )
 
     if is_reserved:
