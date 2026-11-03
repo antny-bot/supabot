@@ -184,6 +184,7 @@ async def _internal_execute_grid_handler(request: _web.Request) -> _web.Response
 
         app = request.app["bot_application"]
         group_no = _order_manager.get_next_group_no(user_id)
+        template_id = data.get("template_id")
 
         async def run_grid():
             await execute_grid_orders(
@@ -193,6 +194,7 @@ async def _internal_execute_grid_handler(request: _web.Request) -> _web.Response
                 is_sell=False, group_no=group_no,
                 bot=app.bot, notify_chat_id=user_id,
                 trigger_sync_fn=trigger_realtime_sync,
+                template_id=template_id,
             )
 
         _spawn_bg(run_grid())
@@ -237,6 +239,7 @@ async def _internal_execute_rsitrade_handler(request: _web.Request) -> _web.Resp
 
         app = request.app["bot_application"]
         group_no = _order_manager.get_next_group_no(user_id)
+        template_id = data.get("template_id")
 
         async def run_rsitrade():
             await execute_rsitrade_orders(
@@ -246,6 +249,7 @@ async def _internal_execute_rsitrade_handler(request: _web.Request) -> _web.Resp
                 count=ct, per_order_budgets=per_order_budgets,
                 user=user, group_no=group_no, bot=app.bot, notify_chat_id=user_id,
                 trigger_sync_fn=trigger_realtime_sync,
+                template_id=template_id,
             )
 
         _spawn_bg(run_rsitrade())
@@ -278,6 +282,7 @@ async def _internal_execute_sgrid_handler(request: _web.Request) -> _web.Respons
 
         app = request.app["bot_application"]
         group_no = _order_manager.get_next_group_no(user_id)
+        template_id = data.get("template_id")
 
         async def run_sgrid():
             await execute_grid_orders(
@@ -287,6 +292,7 @@ async def _internal_execute_sgrid_handler(request: _web.Request) -> _web.Respons
                 is_sell=True, group_no=group_no,
                 bot=app.bot, notify_chat_id=user_id,
                 trigger_sync_fn=trigger_realtime_sync,
+                template_id=template_id,
             )
 
         _spawn_bg(run_sgrid())
