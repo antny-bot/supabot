@@ -657,3 +657,49 @@ def test_run_strategy_progression_recycles_sell_proceeds():
     res_params = res["params"]
     assert "tr-sell-1" in res_params.get("recycled_sell_uuids", [])
     assert res_params.get("pending_sell_orders") == []
+
+
+def test_reconciliation_defers_refund_for_cancel_requested_orders():
+    """봇이 거래소 취소를 확정하기 전(cancel_requested)에는 환불하지 않고 보류한다."""
+    from manager.backend.services import progression_manager as pm
+    from manager.backend.services import budget_manager as bm
+    from manager.backend.services import universe_resolver
+
+    today = "2026-11-03"
+    tpl_params = {
+        "market": "KOSPI",
+        "pending_buy_orders": [
+            {"uuid": "ord-cr-1", "code": "005930", "price": 50000.0, "volume": 2.0, "group_no": 1, "budget_epoch": 1}
+        ],
+        "current_cycle_bought": ["005930"],
+        "carryover_budget": 0.0,
+        "monthly_spent": 100000.0,
+        "monthly_budget": 3000000.0,
+        "budget_epoch": 1,
+        "plan_revision_no": 1,
+        "budget_mode": "monthly",
+        "allowance_credited_date": today,
+        "rank_start": 1,
+        "rank_end": 2,
+    }
+    template = {"id": 1, "user_id": "u", "budget": 3000000.0, "params": copy.deepcopy(tpl_params)}
+    db = _FakeDB({
+        ("strategy_templates", "select"): [template],
+        ("orders", "select"): [{"uuid": "ord-cr-1", "status": "cancel_requested", "filled_volume": 0.0}],
+        ("trade_logs", "select"): [],
+    })
+    targets = [
+        {"rank": 1, "code": "005930", "name": "삼성전자", "price": 50000.0},
+        {"rank": 2, "code": "000660", "name": "SK하이닉스", "price": 100000.0},
+    ]
+
+    with patch.object(pm, "get_db", return_value=db), \
+         patch.object(pm, "get_template_holdings", new=AsyncMock(return_value={})), \
+         patch.object(universe_resolver, "freeze_or_get_master_top", new=AsyncMock(return_value=targets)), \
+         patch.object(universe_resolver, "resolve_strategy_targets", new=AsyncMock(return_value=targets)), \
+         patch.object(bm, "record_ledger_entry", new=AsyncMock()) as mock_ledger:
+        res = _sync_run(pm.run_strategy_progression(1, is_dry_run=True, force_today=today))
+
+    assert res is not None
+    refund_calls = [c for c in mock_ledger.call_args_list if c.kwargs.get("entry_type") == "ORDER_CANCEL_REFUND"]
+    assert refund_calls == []

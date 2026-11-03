@@ -368,6 +368,8 @@ async def run_strategy_progression(
 
         # 4. 직전 배치 미체결 취소 주문 정산 (Reconciliation)
         pending_buys = params.get("pending_buy_orders", [])
+        # 봇이 아직 거래소 취소를 확정하지 않은(cancel_requested) 주문: 환불을 보류하고 다음 배치로 이월
+        deferred_pending_buys: list[dict] = []
         if pending_buys:
             # orders 테이블에서 실제 상태 확인 (uuid 및 reorder_of 양방향 매칭)
             order_uuids = [o["uuid"] for o in pending_buys if "uuid" in o]
@@ -417,8 +419,12 @@ async def run_strategy_progression(
                     pb_vol = float(pb.get("volume", 0.0))
                     if s_info:
                         st = s_info.get("status")
-                        # cancel, failed, rejected, market_closed(장마감 실효), cancel_requested 등 미체결 상태
-                        if st in ("cancel", "failed", "rejected", "market_closed", "cancel_requested"):
+                        if st == "cancel_requested":
+                            # 봇의 거래소 취소 확정 전에는 체결 가능성이 있으므로 환불하지 않고 이월
+                            deferred_pending_buys.append(pb)
+                            continue
+                        # cancel, failed, rejected, market_closed(장마감 실효) 등 미체결 상태
+                        if st in ("cancel", "failed", "rejected", "market_closed"):
                             pb["filled_volume"] = float(s_info.get("filled_volume", 0.0))
                             cancelled.append(pb)
                             if st == "market_closed":
@@ -595,7 +601,7 @@ async def run_strategy_progression(
         new_params["pending_buy_orders"] = [
             {"uuid": b["uuid"], "code": b["code"], "price": b["price"], "volume": b["volume"], "group_no": group_no, "budget_epoch": cur_epoch}
             for b in buy_orders
-        ]
+        ] + deferred_pending_buys
         new_params["pending_sell_orders"] = [
             {"uuid": s["uuid"], "code": s["code"], "price": s["price"], "volume": s["volume"], "group_no": group_no, "budget_epoch": cur_epoch}
             for s in sell_orders
