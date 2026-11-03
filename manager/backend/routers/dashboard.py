@@ -87,7 +87,7 @@ async def _build_stats(db):
     stats["users_active"] = (await db.table("users").select("*", count="exact").eq("status", "active").execute()).count or 0
     stats["users_pending"] = (await db.table("users").select("*", count="exact").eq("status", "pending").execute()).count or 0
 
-    open_statuses = ["wait", "partial", "pending_reorder", "reserved"]
+    open_statuses = ["wait", "partial", "pending_reorder", "reserved", "cancel_requested"]
     stats["orders_open"] = (await db.table("orders").select("*", count="exact").in_("status", open_statuses).execute()).count or 0
 
     cutoff = time.time() - 86400
@@ -114,7 +114,7 @@ async def _build_user_stats(db, user_id: str) -> dict:
         "bot_status": "offline",
     }
 
-    open_statuses = ["wait", "partial", "pending_reorder", "reserved"]
+    open_statuses = ["wait", "partial", "pending_reorder", "reserved", "cancel_requested"]
     stats["orders_open"] = (
         await db.table("orders").select("*", count="exact")
         .eq("user_id", user_id)

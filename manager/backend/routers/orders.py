@@ -18,11 +18,14 @@ _STATUS_LABELS = {
     "done": "체결완료",
     "cancel": "취소",
     "pending_reorder": "재주문대기",
+    "cancel_requested": "취소중",
     "reserved": "예약",
     "stoploss": "손절",
 }
 
 _OPEN_STATUSES = ("wait", "partial", "pending_reorder", "reserved")
+# 목록/집계 표시용: 봇이 거래소 취소를 확정하기 전의 cancel_requested 포함 (취소/일괄취소 API는 _OPEN_STATUSES 유지)
+_LISTED_OPEN_STATUSES = _OPEN_STATUSES + ("cancel_requested",)
 _HISTORY_STATUSES = ("done", "cancel", "error", "expired", "stoploss")
 
 
@@ -71,7 +74,7 @@ async def api_list_orders(
         db = get_db()
         q = db.table("orders").select("*", count="exact").order("created_at", desc=True)
         if status == "open":
-            q.in_("status", list(_OPEN_STATUSES))
+            q.in_("status", list(_LISTED_OPEN_STATUSES))
         elif status == "history":
             q.in_("status", list(_HISTORY_STATUSES))
         elif status:
