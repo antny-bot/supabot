@@ -1,6 +1,27 @@
 import os
 import sys
+import inspect
 from unittest.mock import AsyncMock, MagicMock
+
+def _sync_run(coro):
+    """Windows 샌드박스 Proactor loopback 소켓 블로킹 방지용 경량 동기 코루틴 러너."""
+    stack = [coro]
+    val = None
+    while stack:
+        top = stack[-1]
+        try:
+            nxt = top.send(val)
+            val = None
+            if inspect.iscoroutine(nxt) or hasattr(nxt, "__await__"):
+                if hasattr(nxt, "__await__"):
+                    nxt = nxt.__await__()
+                stack.append(nxt)
+            else:
+                val = nxt
+        except StopIteration as e:
+            stack.pop()
+            val = e.value
+    return val
 
 import pytest
 
@@ -984,3 +1005,23 @@ async def test_sync_orders_limits_notification_to_once_per_order(tmp_path, monke
 
 
 
+
+
+# T30: cancel_requested 상태 주문 감지 -> 거래소 취소 실행 및 주문 제거
+def test_sync_orders_executes_cancel_requested(tmp_path, monkeypatch):
+    om = _make_order_manager(tmp_path)
+    om.add_order("123", "upbit", "KRW-BTC", "uuid-cancel-req", 50_000_000, 0.01, side="bid", status="cancel_requested")
+    monkeypatch.setattr(main, "order_manager", om)
+
+    mock_adapter = MagicMock()
+    mock_adapter.cancel_order = AsyncMock(return_value=True)
+    mock_adapter.get_exchange = lambda exchange: MagicMock(
+        is_market_open=lambda ticker=None: True,
+    )
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+
+    app = _make_app()
+    _sync_run(main.sync_orders(app))
+
+    assert not om.has_order("uuid-cancel-req")
+    mock_adapter.cancel_order.assert_called_once_with("123", "upbit", "uuid-cancel-req", "KRW-BTC")
