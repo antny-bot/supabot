@@ -932,6 +932,60 @@ async def _process_order_fill(application, ord: dict, res: dict, ex_obj) -> None
     await asyncio.sleep(0.2)
 
 
+async def _handle_cancel_requested(application, ord: dict, ex_obj) -> None:
+    """Manager가 요청한 취소를 수행한다.
+
+    - 거래소 미제출(reserved:) 주문은 즉시 제거한다.
+    - 제출된 주문은 취소 전에 상태를 조회하여 이미 전량 체결(done)이면 체결 처리하고,
+      부분 체결분이 있으면 취소 성공 후 trade_logs에 기록해 Manager의 환불 대조가 정확하도록 한다.
+    """
+    uuid = ord["uuid"]
+    if str(uuid).startswith("reserved:"):
+        order_manager.remove_order(uuid)
+        return
+
+    user_id = ord["user_id"]
+    exchange = ord["exchange"]
+    ticker = ord["ticker"]
+
+    exec_vol = float(ord.get("filled_volume") or 0.0)
+    fee_amount = 0.0
+    try:
+        res = await exchange_adapter.get_order_status(user_id, exchange, uuid, ticker)
+    except Exception as e:
+        _log.warning(f"Failed to query status before cancel for {uuid}", exc_info=e)
+        res = None
+
+    if res:
+        if res.get("state") == "done":
+            await _process_order_fill(application, ord, res, ex_obj)
+            return
+        exec_vol = max(exec_vol, float(res.get("executed_volume") or 0.0))
+        fee_amount = float(res.get("fee_amount") or 0.0)
+
+    if not await cancel_and_remove_order(user_id, ord):
+        return  # 취소 미확정: cancel_requested 상태를 유지하여 다음 sync에서 재시도
+
+    if exec_vol > 0:
+        extra_kw = {}
+        if ord.get("group_no") is not None:
+            extra_kw["group_no"] = ord["group_no"]
+        if ord.get("template_id") is not None:
+            extra_kw["template_id"] = ord["template_id"]
+        append_trade(
+            user_id=user_id,
+            exchange=exchange,
+            ticker=ticker,
+            side=ord["side"],
+            price=ord["price"],
+            volume=exec_vol,
+            strategy=ord.get("strategy", "manual"),
+            uuid=uuid,
+            fee_amount=fee_amount,
+            **extra_kw,
+        )
+
+
 async def sync_orders(application):
     """현재 추적 중인 주문들의 상태를 거래소와 동기화하고 자동 대응 수행 (Q1 단계별 분해 + P2 상태 조회 병렬화)."""
     active_uuids = {o["uuid"] for o in order_manager.orders}
@@ -957,10 +1011,7 @@ async def sync_orders(application):
 
         # 0. 백엔드(Manager)로부터 취소 요청(cancel_requested)된 주문 처리
         if ord.get("status") == "cancel_requested":
-            if str(ord.get("uuid", "")).startswith("reserved:"):
-                order_manager.remove_order(ord["uuid"])
-            else:
-                await cancel_and_remove_order(user_id, ord)
+            await _handle_cancel_requested(application, ord, ex_obj)
             continue
 
         if exchange == "toss" and str(ticker).isdigit():

@@ -1025,3 +1025,43 @@ def test_sync_orders_executes_cancel_requested(tmp_path, monkeypatch):
 
     assert not om.has_order("uuid-cancel-req")
     mock_adapter.cancel_order.assert_called_once_with("123", "upbit", "uuid-cancel-req", "KRW-BTC")
+
+
+# T31: cancel_requested 주문에 부분 체결분이 있으면 취소 후 trade_logs에 기록
+def test_sync_orders_cancel_requested_records_partial_fill(tmp_path, monkeypatch):
+    om = _make_order_manager(tmp_path)
+    om.add_order("123", "upbit", "KRW-BTC", "uuid-cancel-part", 50_000_000, 0.01, side="bid", status="cancel_requested")
+    monkeypatch.setattr(main, "order_manager", om)
+
+    mock_adapter = MagicMock()
+    mock_adapter.cancel_order = AsyncMock(return_value=True)
+    mock_adapter.get_order_status = AsyncMock(return_value={"state": "wait", "executed_volume": 0.004, "fee_amount": 10})
+    mock_adapter.get_exchange = lambda exchange: MagicMock(is_market_open=lambda ticker=None: True)
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+    trades = []
+    monkeypatch.setattr(main, "append_trade", lambda **kw: trades.append(kw))
+
+    _sync_run(main.sync_orders(_make_app()))
+
+    assert not om.has_order("uuid-cancel-part")
+    assert len(trades) == 1 and trades[0]["volume"] == 0.004 and trades[0]["uuid"] == "uuid-cancel-part"
+
+
+# T32: cancel 실패 시 cancel_requested 유지(재시도), 체결 기록 없음
+def test_sync_orders_cancel_requested_retains_when_cancel_fails(tmp_path, monkeypatch):
+    om = _make_order_manager(tmp_path)
+    om.add_order("123", "upbit", "KRW-BTC", "uuid-cancel-fail", 50_000_000, 0.01, side="bid", status="cancel_requested")
+    monkeypatch.setattr(main, "order_manager", om)
+
+    mock_adapter = MagicMock()
+    mock_adapter.cancel_order = AsyncMock(return_value=False)
+    mock_adapter.get_order_status = AsyncMock(return_value={"state": "wait", "executed_volume": 0.004})
+    mock_adapter.get_exchange = lambda exchange: MagicMock(is_market_open=lambda ticker=None: True)
+    monkeypatch.setattr(main, "exchange_adapter", mock_adapter)
+    trades = []
+    monkeypatch.setattr(main, "append_trade", lambda **kw: trades.append(kw))
+
+    _sync_run(main.sync_orders(_make_app()))
+
+    assert om.has_order("uuid-cancel-fail")
+    assert trades == []
