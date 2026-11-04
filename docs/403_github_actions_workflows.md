@@ -11,7 +11,7 @@
 
 | Workflow | 파일 | 역할 |
 | --- | --- | --- |
-| Build Bot | `.github/workflows/build-bot.yml` | bot Docker 이미지 빌드 및 GHCR 푸시, `bot-*` release 시 Oracle VM 자동 배포 (또는 수동 실행) |
+| Build Bot | `.github/workflows/build-bot.yml` | bot Docker 이미지 빌드 및 GHCR 푸시 (`bot-*` release 또는 수동 실행) |
 | Build Manager | `.github/workflows/build-manager.yml` | manager Docker 이미지 빌드 및 GHCR 푸시 (`manager-*` release 또는 수동 실행) |
 | Test | `.github/workflows/ci-test.yml` | Python 테스트 실행 (main/claude push, main PR) |
 | Cleanup Registry and Cache | `.github/workflows/cleanup-registry-and-cache.yml` | GHCR 오래된 이미지 정리, 필요 시 수동 cache 삭제 |
@@ -36,26 +36,15 @@
 3. Docker Buildx 설정
 4. 이미지 태그 결정
 5. Docker 이미지 빌드 및 GHCR 푸시
-6. release tag가 `bot-...` 이면 Oracle VM SSH 접속 배포
 
 이미지 태그:
 
 - 기본: `ghcr.io/antny-bot/supabot:latest`
 - release: `latest` + `ghcr.io/antny-bot/supabot:<release-tag>`
 
-배포 단계:
-
-```bash
-cd "${OCI_DEPLOY_PATH}"
-docker compose pull
-docker compose up -d
-docker image prune -f
-```
-
 주의:
 
-- `bot-*` release publish 시 Oracle VM 자동 배포.
-- 사용 secret: `OCI_HOST`, `OCI_USER`, `OCI_SSH_PRIVATE_KEY`, `OCI_SSH_PORT`, `OCI_DEPLOY_PATH`
+- bot 워크플로는 이미지 빌드 및 GHCR 푸시만 담당하며, Oracle Cloud VM에서 수동 `docker compose pull`을 통해 배포합니다.
 
 ## Build Manager
 
