@@ -38,7 +38,7 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
   const [selectedGroupNo, setSelectedGroupNo] = useState<number | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [exchangeFilter, setExchangeFilter] = useState<string>('all')
-  const [expandedDailyDates, setExpandedDailyDates] = useState<Set<string>>(new Set())
+  const [expandedDailyKeys, setExpandedDailyKeys] = useState<Set<string>>(new Set())
   const [flowFilter, setFlowFilter] = useState<'all' | 'buys' | 'sells'>('all')
 
   // 수동 충전 모달 상태
@@ -105,19 +105,21 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
         setReport(res)
         // 가장 최근 일자 2개 자동 펼침
         if (res.daily_execution_flow && res.daily_execution_flow.length > 0) {
-          const recentDates = res.daily_execution_flow.slice(0, 2).map((d) => d.date)
-          setExpandedDailyDates(new Set(recentDates))
+          const recentKeys = res.daily_execution_flow
+            .slice(0, 2)
+            .map((d, idx) => `${d.date}_${d.group_no ?? idx}_${idx}`)
+          setExpandedDailyKeys(new Set(recentKeys))
         }
       })
       .catch((e) => setError(e instanceof Error ? e.message : '리포트 데이터 로드 실패'))
       .finally(() => setLoading(false))
   }, [selectedTemplateId, selectedGroupNo])
 
-  const toggleDailyDate = (date: string) => {
-    setExpandedDailyDates((prev) => {
+  const toggleDailyFlow = (key: string) => {
+    setExpandedDailyKeys((prev) => {
       const next = new Set(prev)
-      if (next.has(date)) next.delete(date)
-      else next.add(date)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
       return next
     })
   }
@@ -578,19 +580,20 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
                 if (flowFilter === 'sells') return flow.sells && flow.sells.length > 0
                 return true
               })
-              .map((flow) => {
-              const isExpanded = expandedDailyDates.has(flow.date)
+              .map((flow, idx) => {
+              const flowKey = `${flow.date}_${flow.group_no ?? idx}_${idx}`
+              const isExpanded = expandedDailyKeys.has(flowKey)
               const hasBuys = flow.buys && flow.buys.length > 0
               const hasSells = flow.sells && flow.sells.length > 0
 
               return (
                 <div
-                  key={`${flow.date}_${flow.group_no}`}
+                  key={flowKey}
                   className="rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/60 overflow-hidden transition-all shadow-xs"
                 >
                   {/* 일단위 카드 헤더 요약 */}
                   <div
-                    onClick={() => toggleDailyDate(flow.date)}
+                    onClick={() => toggleDailyFlow(flowKey)}
                     className="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors"
                   >
                     <div className="flex items-center gap-2.5 flex-wrap">
