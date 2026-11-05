@@ -8,10 +8,11 @@ AI 에이전트(Claude Code, Codex, Antigravity) 공통 진입점. 작업 전 �
 
 ## 🗂️ 개발 문서 인덱스 (넘버링 가이드)
 
-### 1. 프로젝트 개요 & 로드맵
-- **[[101] 유저 온보딩 가이드](file:///E:/apps/supabot/docs/101_user_onboarding.md)**: 신규 유저 세팅
+### 1. 프로젝트 개요 & 온보딩
+- **[[101] 유저 온보딩 가이드](file:///E:/apps/supabot/docs/101_user_onboarding.md)**: 신규 유저 세팅 및 등록 절차
 - **[[102] 로드맵 V3](file:///E:/apps/supabot/docs/102_roadmap_v3.md)**: 기능 개선, 향후 계획 요약
   - **[로드맵 상세계획](file:///E:/apps/supabot/docs/102a_roadmap_future.md)**: 미래 페이즈 계획, 의존성 메모
+- **[[103] 거래소 API 키 발급 및 설정 가이드](file:///E:/apps/supabot/docs/103_exchange_api_setup.md)**: 업비트, 빗썸, KIS, 토스, Gemini 키 발급/등록 매뉴얼
 
 ### 2. 아키텍처 & 핵심 모듈 구현
 - **[[200] 시스템 아키텍처 및 데이터 스키마](file:///E:/apps/supabot/docs/200_system_architecture.md)**: 봇/UI 맵, DB 스키마, 거래소 인증·제약
