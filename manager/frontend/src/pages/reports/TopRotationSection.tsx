@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   RotateCw,
   TrendingUp,
@@ -453,6 +454,9 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
               {pipeline.pipeline.map((item) => {
                 const isBought = item.status === 'bought'
                 const isNext = item.status === 'next'
+                const isHeld = (report?.holdings_status || []).some(
+                  (h) => h.ticker === item.code && h.qty > 0,
+                )
 
                 return (
                   <div
@@ -461,7 +465,9 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
                       isNext
                         ? 'border-indigo-500 bg-indigo-50/40 ring-2 ring-indigo-500/20 shadow-xs dark:bg-indigo-950/30'
                         : isBought
-                        ? 'border-emerald-200 bg-emerald-50/30 dark:border-emerald-900/40 dark:bg-emerald-950/10'
+                        ? isHeld
+                          ? 'border-emerald-200 bg-emerald-50/30 dark:border-emerald-900/40 dark:bg-emerald-950/10'
+                          : 'border-violet-200 bg-violet-50/30 dark:border-violet-900/40 dark:bg-violet-950/10'
                         : 'border-slate-200 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-800/30 opacity-70'
                     }`}
                   >
@@ -470,9 +476,18 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
                         {item.rank}위
                       </span>
                       {isBought ? (
-                        <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
-                          <Check size={11} /> 매수완료
-                        </span>
+                        isHeld ? (
+                          <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                            <Check size={11} /> 매수체결
+                          </span>
+                        ) : (
+                          <span
+                            className="inline-flex items-center gap-0.5 text-[10px] font-bold text-violet-600 dark:text-violet-400"
+                            title="주문이 발주되어 예약 대기 중입니다. 정규장 개장 후 체결되면 포지션에 반영됩니다."
+                          >
+                            <Clock size={11} /> 예약대기
+                          </span>
+                        )
                       ) : isNext ? (
                         <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-indigo-600 dark:text-indigo-400 animate-pulse">
                           🎯 내일 타겟
@@ -732,6 +747,22 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
           </span>
         </div>
 
+        {/* 미체결 예약/대기 주문 안내 배너 */}
+        {(() => {
+          const pendingCount = (report?.orders || []).filter(
+            (o) => o.side === 'bid' && ['reserved', 'wait', 'pending_reorder'].includes(o.status),
+          ).length
+          if (pendingCount === 0) return null
+          return (
+            <div className="mx-4 mt-3 flex items-center gap-2 rounded-xl border border-violet-200/80 bg-violet-50/70 px-3.5 py-2 text-xs text-violet-700 dark:border-violet-900/60 dark:bg-violet-950/40 dark:text-violet-300">
+              <Clock size={14} className="shrink-0 text-violet-600 dark:text-violet-400" />
+              <span>
+                현재 <strong>체결 대기(예약) 중인 매수 주문이 {pendingCount}건</strong> 있습니다. 정규장 개장 시 거래소에서 실제 체결이 완료되면 이 테이블에 보유 포지션으로 자동 등록됩니다.
+              </span>
+            </div>
+          )
+        })()}
+
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead>
@@ -856,76 +887,78 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
         </div>
       </div>
       {/* 부족액 수동 충전 모달 */}
-      {topupOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs"
-            onClick={() => !topupLoading && setTopupOpen(false)}
-          />
-          <div className="relative z-10 w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5">
-              <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                <DollarSign size={16} className="text-emerald-500" />
-                <span>가용 예산 즉시 추가 충전</span>
-              </h4>
-              <button
-                type="button"
-                onClick={() => setTopupOpen(false)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-              >
-                <X size={15} />
-              </button>
-            </div>
+      {topupOpen &&
+        createPortal(
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div
+              className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs"
+              onClick={() => !topupLoading && setTopupOpen(false)}
+            />
+            <div className="relative z-10 w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5">
+                <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <DollarSign size={16} className="text-emerald-500" />
+                  <span>가용 예산 즉시 추가 충전</span>
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => setTopupOpen(false)}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                >
+                  <X size={15} />
+                </button>
+              </div>
 
-            <div>
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                충전 금액 (원 단위)
-              </label>
-              <input
-                type="number"
-                step="10000"
-                min="10000"
-                value={topupAmount}
-                onChange={(e) => setTopupAmount(Number(e.target.value))}
-                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm font-mono font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                  충전 금액 (원 단위)
+                </label>
+                <input
+                  type="number"
+                  step="10000"
+                  min="10000"
+                  value={topupAmount}
+                  onChange={(e) => setTopupAmount(Number(e.target.value))}
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm font-mono font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
 
-            <div>
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                충전 사유 / 메모
-              </label>
-              <input
-                type="text"
-                placeholder="예: 다음 타겟 종목 매수용 충전"
-                value={topupMemo}
-                onChange={(e) => setTopupMemo(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-xs text-slate-900 dark:text-white"
-              />
-            </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                  충전 사유 / 메모
+                </label>
+                <input
+                  type="text"
+                  placeholder="예: 다음 타겟 종목 매수용 충전"
+                  value={topupMemo}
+                  onChange={(e) => setTopupMemo(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-xs text-slate-900 dark:text-white"
+                />
+              </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-              <button
-                type="button"
-                disabled={topupLoading}
-                onClick={() => setTopupOpen(false)}
-                className="px-3.5 py-1.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50"
-              >
-                취소
-              </button>
-              <button
-                type="button"
-                disabled={topupLoading || topupAmount <= 0}
-                onClick={handleTopup}
-                className="flex items-center gap-1 px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
-              >
-                {topupLoading && <Loader2 size={12} className="animate-spin" />}
-                <span>{krwFmt(topupAmount)} 충전</span>
-              </button>
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  disabled={topupLoading}
+                  onClick={() => setTopupOpen(false)}
+                  className="px-3.5 py-1.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  disabled={topupLoading || topupAmount <= 0}
+                  onClick={handleTopup}
+                  className="flex items-center gap-1 px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {topupLoading && <Loader2 size={12} className="animate-spin" />}
+                  <span>{krwFmt(topupAmount)} 충전</span>
+                </button>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }

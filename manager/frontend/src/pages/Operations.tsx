@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import {
   Activity,
@@ -673,117 +674,120 @@ export default function Operations() {
       {/* =========================================================================
           [모달 1] 수동 예산 추가 충전 (Manual Top-up) 모달
           ========================================================================= */}
-      {topupTargetTpl && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs"
-            onClick={() => !topupLoading && setTopupTargetTpl(null)}
-          />
-          <div className="relative z-10 w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-              <div className="flex items-center gap-2">
-                <DollarSign size={18} className="text-emerald-500" />
-                <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                  가용 예산 수동 추가 충전 (+추경)
-                </h3>
+      {topupTargetTpl &&
+        createPortal(
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div
+              className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs"
+              onClick={() => !topupLoading && setTopupTargetTpl(null)}
+            />
+            <div className="relative z-10 w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <DollarSign size={18} className="text-emerald-500" />
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    가용 예산 수동 추가 충전 (+추경)
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTopupTargetTpl(null)}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                >
+                  <X size={16} />
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => setTopupTargetTpl(null)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-              >
-                <X size={16} />
-              </button>
-            </div>
 
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              전략 <strong>#{topupTargetTpl.id} {topupTargetTpl.name}</strong>의 이월 가용 예산(carryover_budget)을 즉시 충전합니다. 감사원장에 <code>MANUAL_TOPUP</code> 내역으로 안전하게 영구 기록됩니다.
-            </p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                전략 <strong>#{topupTargetTpl.id} {topupTargetTpl.name}</strong>의 이월 가용 예산(carryover_budget)을 즉시 충전합니다. 감사원장에 <code>MANUAL_TOPUP</code> 내역으로 안전하게 영구 기록됩니다.
+              </p>
 
-            {/* 빠른 금액 선택 칩 */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                충전 금액 선택
-              </label>
-              <div className="grid grid-cols-4 gap-2">
-                {[100000, 300000, 500000, 1000000].map((amt) => (
-                  <button
-                    key={amt}
-                    type="button"
-                    onClick={() => setTopupAmount(amt)}
-                    className={`py-1.5 text-xs rounded-xl font-mono font-semibold border transition-all ${
-                      topupAmount === amt
-                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
-                        : 'border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300'
-                    }`}
-                  >
-                    +{krwFmt(amt)}
-                  </button>
-                ))}
+              {/* 빠른 금액 선택 칩 */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  충전 금액 선택
+                </label>
+                <div className="grid grid-cols-4 gap-2">
+                  {[100000, 300000, 500000, 1000000].map((amt) => (
+                    <button
+                      key={amt}
+                      type="button"
+                      onClick={() => setTopupAmount(amt)}
+                      className={`py-1.5 text-xs rounded-xl font-mono font-semibold border transition-all ${
+                        topupAmount === amt
+                          ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
+                          : 'border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300'
+                      }`}
+                    >
+                      +{krwFmt(amt)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 직접 입력 인풋 */}
+              <div>
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                  직접 입력 (원 단위)
+                </label>
+                <input
+                  type="number"
+                  step="10000"
+                  min="10000"
+                  value={topupAmount}
+                  onChange={(e) => setTopupAmount(Number(e.target.value))}
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2 text-sm font-mono font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                  충전 사유 / 메모
+                </label>
+                <input
+                  type="text"
+                  placeholder="예: 다음 타겟 종목 부족액 긴급 보충"
+                  value={topupMemo}
+                  onChange={(e) => setTopupMemo(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2 text-xs text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  disabled={topupLoading}
+                  onClick={() => setTopupTargetTpl(null)}
+                  className="px-4 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  disabled={topupLoading || topupAmount <= 0}
+                  onClick={handleTopupSubmit}
+                  className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {topupLoading && <Loader2 size={13} className="animate-spin" />}
+                  <span>{krwFmt(topupAmount)} 즉시 충전</span>
+                </button>
               </div>
             </div>
-
-            {/* 직접 입력 인풋 */}
-            <div>
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                직접 입력 (원 단위)
-              </label>
-              <input
-                type="number"
-                step="10000"
-                min="10000"
-                value={topupAmount}
-                onChange={(e) => setTopupAmount(Number(e.target.value))}
-                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2 text-sm font-mono font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                충전 사유 / 메모
-              </label>
-              <input
-                type="text"
-                placeholder="예: 다음 타겟 종목 부족액 긴급 보충"
-                value={topupMemo}
-                onChange={(e) => setTopupMemo(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2 text-xs text-slate-900 dark:text-white"
-              />
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-              <button
-                type="button"
-                disabled={topupLoading}
-                onClick={() => setTopupTargetTpl(null)}
-                className="px-4 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50"
-              >
-                취소
-              </button>
-              <button
-                type="button"
-                disabled={topupLoading || topupAmount <= 0}
-                onClick={handleTopupSubmit}
-                className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
-              >
-                {topupLoading && <Loader2 size={13} className="animate-spin" />}
-                <span>{krwFmt(topupAmount)} 즉시 충전</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
 
       {/* =========================================================================
           [모달 2] 전략 3단계 긴급 정지 및 청산 제어 모달
           ========================================================================= */}
-      {stopTargetTpl && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs"
-            onClick={() => !stopLoading && setStopTargetTpl(null)}
-          />
-          <div className="relative z-10 w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4">
+      {stopTargetTpl &&
+        createPortal(
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div
+              className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs"
+              onClick={() => !stopLoading && setStopTargetTpl(null)}
+            />
+            <div className="relative z-10 w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400">
                 <ShieldAlert size={20} />
@@ -937,7 +941,8 @@ export default function Operations() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )
