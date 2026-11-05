@@ -16,7 +16,7 @@ import type { OrderBatchItem } from '../../types'
 import { krwFmt } from '../../utils/formatters'
 
 interface Props {
-  onSelectGroupNo: (groupNo: number) => void
+  onSelectGroupNo: (groupNo: number, batch: OrderBatchItem) => void
   initialGroupNo?: number
   templateId?: number
 }
@@ -158,6 +158,11 @@ export default function OrderBatchesSection({ onSelectGroupNo, initialGroupNo, t
                       <span className="rounded-lg bg-indigo-100 px-2.5 py-1 text-xs font-extrabold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
                         배치 #{batch.group_no}
                       </span>
+                      {batch.template_id && (
+                        <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300 font-mono">
+                          전략 #{batch.template_id}
+                        </span>
+                      )}
                       <h4 className="text-sm font-bold text-slate-900 dark:text-white">
                         {batch.template_name}
                       </h4>
@@ -169,11 +174,34 @@ export default function OrderBatchesSection({ onSelectGroupNo, initialGroupNo, t
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => onSelectGroupNo(batch.group_no)}
+                        onClick={() => {
+                          const activeCount =
+                            (batch.wait_count || 0) +
+                            (batch.reserved_count || 0) +
+                            (batch.partial_count || 0)
+                          if (activeCount === 0 && !isExpanded) {
+                            toggleExpand(batchKey)
+                          }
+                          onSelectGroupNo(batch.group_no, batch)
+                        }}
                         className="flex items-center gap-1 rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition-colors"
-                        title="이 배치의 개별 주문 목록으로 전환하여 조회/관리"
+                        title={
+                          (batch.wait_count || 0) +
+                            (batch.reserved_count || 0) +
+                            (batch.partial_count || 0) >
+                          0
+                            ? '이 배치의 미체결 개별 주문 목록으로 전환하여 조회/관리'
+                            : '이 배치는 전량 체결/종료되었습니다. 주문 이력으로 전환하거나 아래 상세 목록을 확인합니다.'
+                        }
                       >
-                        <span>개별 주문 보기</span>
+                        <span>
+                          {(batch.wait_count || 0) +
+                            (batch.reserved_count || 0) +
+                            (batch.partial_count || 0) >
+                          0
+                            ? '미체결 주문 관리'
+                            : '개별 주문 보기'}
+                        </span>
                         <ExternalLink size={12} />
                       </button>
 

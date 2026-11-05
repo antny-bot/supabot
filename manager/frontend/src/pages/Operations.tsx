@@ -651,7 +651,13 @@ export default function Operations() {
                         ? Number((selectedTemplate?.params as any)?.last_group_no)
                         : undefined
                     }
-                    onSelectGroupNo={(g) => navigate(`/orders?group_no=${g}`)}
+                    onSelectGroupNo={(g, batch) => {
+                      const params = new URLSearchParams()
+                      params.set('group_no', String(g))
+                      if (batch?.template_id) params.set('template_id', String(batch.template_id))
+                      if (batch?.exchange) params.set('exchange', batch.exchange)
+                      navigate(`/orders?${params.toString()}`)
+                    }}
                   />
                 ) : (
                   <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-xs text-slate-400 dark:border-slate-700">

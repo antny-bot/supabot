@@ -18,15 +18,19 @@ import {
   AlertCircle,
   Sparkles,
   ShieldCheck,
+  Archive,
+  RotateCcw,
 } from 'lucide-react'
 import { ApiError } from '../api/client'
 import { fetchStockCache, type StockCacheRow } from '../api/stockCache'
 import {
+  archiveTemplate,
   createTemplate,
   deleteTemplate,
   duplicateTemplate,
   executeTemplate,
   fetchTemplates,
+  restoreTemplate,
   toggleTemplateHolding,
   type Template,
   type TemplateParams,
@@ -537,6 +541,16 @@ export default function Templates() {
   }
 
   const handleDelete = async (template: Template) => {
+    const p = (template.params || {}) as Record<string, any>
+    const isActive =
+      p.strategy_status === 'active' ||
+      (p.strategy_status === undefined && p.schedule_enabled !== false)
+
+    if (isActive) {
+      toast.error('실행 중인 전략은 삭제할 수 없습니다. 전략을 먼저 중지(OFF)해주세요.')
+      return
+    }
+
     if (!confirm(`'${template.name}' 템플릿을 삭제하시겠습니까?`)) return
     try {
       await deleteTemplate(template.id)
@@ -745,6 +759,9 @@ export default function Templates() {
                 ? stockNameByCode[tpl.ticker.toUpperCase()]
                 : undefined
             const p = (tpl.params || {}) as any
+            const isActive =
+              p.strategy_status === 'active' ||
+              (p.strategy_status === undefined && p.schedule_enabled !== false)
 
             return (
               <div
@@ -754,7 +771,6 @@ export default function Templates() {
                 <div>
                   {/* 상단: 거래소, 종목, 전략 유형 및 ON/OFF 토글 */}
                   {(() => {
-                    const isActive = p.strategy_status === 'active' || (p.strategy_status === undefined && p.schedule_enabled !== false)
                     return (
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1.5 flex-wrap">
@@ -904,8 +920,17 @@ export default function Templates() {
                     </button>
                     <button
                       onClick={() => handleDelete(tpl)}
-                      className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40 dark:hover:text-rose-400"
-                      title="삭제"
+                      disabled={isActive}
+                      className={`rounded-lg p-1.5 transition-colors ${
+                        isActive
+                          ? 'cursor-not-allowed opacity-30 text-slate-400 dark:text-slate-600'
+                          : 'text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40 dark:hover:text-rose-400'
+                      }`}
+                      title={
+                        isActive
+                          ? '실행 중인 전략은 삭제할 수 없습니다. 먼저 중지(OFF)하세요.'
+                          : '삭제'
+                      }
                     >
                       <Trash2 size={14} />
                     </button>

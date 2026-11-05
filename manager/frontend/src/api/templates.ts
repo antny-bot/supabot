@@ -9,6 +9,7 @@ export interface TemplateParams {
   amount_type?: 'budget' | 'volume'
   max_runs?: number | null
   side?: 'bid' | 'ask'
+  is_archived?: boolean
   [key: string]: any
 }
 
@@ -66,6 +67,8 @@ export const updateTemplate = async (id: number, payload: TemplatePayload): Prom
 }
 
 export const deleteTemplate = (id: number) => api.delete<Record<string, never>>(`/api/templates/${id}`)
+export const archiveTemplate = (id: number) => api.post<{ ok: boolean; message: string }>(`/api/templates/${id}/archive`, {})
+export const restoreTemplate = (id: number) => api.post<{ ok: boolean; message: string }>(`/api/templates/${id}/restore`, {})
 export const duplicateTemplate = (id: number) => api.post<Record<string, never>>(`/api/templates/${id}/duplicate`, {})
 export const executeTemplate = (id: number) => api.post<TemplateActionResponse>(`/api/templates/${id}/execute`, {})
 

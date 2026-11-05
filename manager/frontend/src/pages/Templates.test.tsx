@@ -380,4 +380,40 @@ describe('Templates stock cache combobox', () => {
       })
     )
   })
+
+  it('disables delete button and prevents delete when strategy is active', async () => {
+    const { fetchTemplates } = await import('../api/templates')
+    ;(fetchTemplates as any).mockResolvedValueOnce([
+      {
+        id: 88,
+        user_id: 'test_user',
+        name: '실행중인 전략',
+        exchange: 'kis',
+        ticker: '005930',
+        start_price: 50000,
+        end_price: 70000,
+        count: 10,
+        budget: 1000000,
+        strategy_type: 'grid',
+        created_at: '2026-01-01T00:00:00',
+        params: {
+          strategy_status: 'active',
+          schedule_enabled: true,
+        },
+      },
+    ])
+
+    render(
+      <MemoryRouter>
+        <ToastProvider>
+          <Templates />
+        </ToastProvider>
+      </MemoryRouter>,
+    )
+
+    // 실행 중인 전략 카드의 삭제 버튼은 disabled 상태이며 적절한 title을 가짐
+    const deleteBtn = await screen.findByTitle('실행 중인 전략은 삭제할 수 없습니다. 먼저 중지(OFF)하세요.')
+    expect(deleteBtn).toBeInTheDocument()
+    expect(deleteBtn).toBeDisabled()
+  })
 })

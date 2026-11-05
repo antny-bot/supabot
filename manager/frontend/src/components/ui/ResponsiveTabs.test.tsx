@@ -27,6 +27,19 @@ describe('ResponsiveTabs', () => {
 
     expect(handleChange).toHaveBeenCalledWith('security')
   })
+
+  it('renders all tab buttons with correct labels and attributes', () => {
+    const tabs = [
+      { id: 'tab1', label: 'Tab 1' },
+      { id: 'tab2', label: 'Tab 2' },
+      { id: 'tab3', label: '다중 시나리오 백테스트' },
+    ]
+    render(<ResponsiveTabs tabs={tabs} activeTab="tab3" onChange={() => {}} />)
+
+    const tabElements = screen.getAllByRole('tab', { name: '다중 시나리오 백테스트' })
+    expect(tabElements.length).toBeGreaterThanOrEqual(1)
+    expect(tabElements[0]).toHaveAttribute('aria-selected', 'true')
+  })
 })
 
 describe('SectionCard', () => {

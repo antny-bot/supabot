@@ -55,6 +55,7 @@ export default function Orders() {
   const [searchParams] = useSearchParams()
   const tabParam = searchParams.get('tab')
   const groupNoParam = searchParams.get('group_no')
+  const templateIdParam = searchParams.get('template_id')
 
   // 뷰 모드: 'open' (활성 주문) | 'history' (체결/취소 이력) | 'batches' (전략 배치 묶음)
   const [viewMode, setViewMode] = usePersistedState<'open' | 'history' | 'batches'>(
@@ -75,6 +76,14 @@ export default function Orders() {
   const initialGroupNo = groupNoParam ? Number(groupNoParam) : undefined
   const [groupNoFilter, setGroupNoFilter] = useState<number | undefined>(initialGroupNo)
   const [groupNoInput, setGroupNoInput] = useState('')
+  const initialTemplateId = templateIdParam ? Number(templateIdParam) : undefined
+  const [templateIdFilter, setTemplateIdFilter] = useState<number | undefined>(initialTemplateId)
+  const [batchMetaFilter, setBatchMetaFilter] = useState<{
+    groupNo?: number
+    templateId?: number
+    templateName?: string
+    exchange?: string
+  } | null>(null)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = usePersistedState('filter:orders:pageSize', 50)
 
@@ -101,7 +110,17 @@ export default function Orders() {
   const loadData = useCallback(
     (showSpinner = false, targetPage = page, targetPageSize = pageSize) => {
       if (showSpinner) setLoading(true)
-      fetchOrders(queryStatus, exchange, side, dateFrom, dateTo, targetPage, targetPageSize, groupNoFilter)
+      fetchOrders(
+        queryStatus,
+        exchange,
+        side,
+        dateFrom,
+        dateTo,
+        targetPage,
+        targetPageSize,
+        groupNoFilter,
+        templateIdFilter,
+      )
         .then((res) => {
           setData(res)
           setLastUpdated(new Date())
@@ -112,7 +131,7 @@ export default function Orders() {
           if (showSpinner) setLoading(false)
         })
     },
-    [queryStatus, exchange, side, dateFrom, dateTo, groupNoFilter, page, pageSize],
+    [queryStatus, exchange, side, dateFrom, dateTo, groupNoFilter, templateIdFilter, page, pageSize],
   )
 
   useEffect(() => {
@@ -269,11 +288,17 @@ export default function Orders() {
     setDateRange(DEFAULT_RANGE)
     setGroupNoFilter(undefined)
     setGroupNoInput('')
+    setTemplateIdFilter(undefined)
+    setBatchMetaFilter(null)
     setPage(1)
   }
 
   const activeFiltersCount =
-    (exchange ? 1 : 0) + (side ? 1 : 0) + (dateRange.mode !== 'all' ? 1 : 0) + (groupNoFilter !== undefined ? 1 : 0)
+    (exchange ? 1 : 0) +
+    (side ? 1 : 0) +
+    (dateRange.mode !== 'all' ? 1 : 0) +
+    (groupNoFilter !== undefined ? 1 : 0) +
+    (templateIdFilter !== undefined ? 1 : 0)
 
   return (
     <div className="space-y-4 pb-8">
@@ -427,6 +452,44 @@ export default function Orders() {
         )}
       </div>
 
+      {/* 특정 배치/전략 개별 주문 필터링 안내 바 */}
+      {viewMode !== 'batches' && (groupNoFilter !== undefined || templateIdFilter !== undefined) && (
+        <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-xl border border-indigo-200 bg-indigo-50/80 px-4 py-2.5 text-xs text-indigo-950 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-200 animate-fade-in">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-bold text-indigo-700 dark:text-indigo-300">필터 적용:</span>
+            {batchMetaFilter?.exchange && (
+              <span className="rounded-md bg-white px-2 py-0.5 font-bold uppercase shadow-2xs dark:bg-slate-800">
+                {batchMetaFilter.exchange}
+              </span>
+            )}
+            {batchMetaFilter?.templateName && (
+              <span className="font-semibold text-slate-800 dark:text-slate-100">
+                {batchMetaFilter.templateName}
+              </span>
+            )}
+            {templateIdFilter && (
+              <span className="rounded-md bg-indigo-100 px-1.5 py-0.5 font-mono text-[11px] font-bold text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200">
+                전략 #{templateIdFilter}
+              </span>
+            )}
+            {groupNoFilter && (
+              <span className="rounded-md bg-indigo-600 px-2 py-0.5 font-bold text-white">
+                배치 #{groupNoFilter}
+              </span>
+            )}
+            <span className="text-slate-500 dark:text-slate-400">주문 목록을 조회 중입니다.</span>
+          </div>
+          <button
+            type="button"
+            onClick={handleResetFilters}
+            className="flex items-center gap-1 rounded-lg bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition-colors"
+          >
+            <RotateCcw size={12} />
+            <span>전체 주문 보기 (필터 해제)</span>
+          </button>
+        </div>
+      )}
+
       {viewMode === 'history' && (
         <div className="flex items-center gap-2 rounded-xl border border-blue-200/80 bg-blue-50/70 px-4 py-2.5 text-xs text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/40 dark:text-blue-300">
           <CheckCircle2 size={15} className="shrink-0 text-blue-600 dark:text-blue-400" />
@@ -438,10 +501,37 @@ export default function Orders() {
 
       {viewMode === 'batches' ? (
         <OrderBatchesSection
-          onSelectGroupNo={(gNo) => {
+          onSelectGroupNo={(gNo, batch) => {
             setGroupNoFilter(gNo)
             setGroupNoInput(String(gNo))
-            setViewMode('open')
+            if (batch?.exchange) {
+              setExchange(batch.exchange.toLowerCase())
+            }
+            if (batch?.template_id) {
+              setTemplateIdFilter(batch.template_id)
+            } else {
+              setTemplateIdFilter(undefined)
+            }
+            setBatchMetaFilter({
+              groupNo: gNo,
+              templateId: batch?.template_id,
+              templateName: batch?.template_name,
+              exchange: batch?.exchange,
+            })
+
+            const activeCount =
+              (batch?.wait_count || 0) +
+              (batch?.reserved_count || 0) +
+              (batch?.partial_count || 0)
+
+            if (activeCount > 0) {
+              setViewMode('open')
+            } else {
+              setViewMode('history')
+              toast.info(
+                `배치 #${gNo}는 전량 체결/종료되었습니다. 취소·만료 내역 또는 [체결 내역] 메뉴에서 확인하실 수 있습니다.`
+              )
+            }
             setPage(1)
           }}
           initialGroupNo={initialGroupNo}

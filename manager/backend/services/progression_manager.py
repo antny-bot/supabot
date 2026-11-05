@@ -335,6 +335,24 @@ def step_single_day(
     return state, buy_orders, sell_orders
 
 
+async def _get_next_global_group_no(user_id: str | int | None, fallback: int = 1) -> int:
+    """전체 유저 주문 및 체결 내역의 최대 group_no + 1을 계산하여 다른 전략과의 배치 번호 충돌을 방지한다."""
+    if not user_id:
+        return fallback
+    try:
+        db = get_db()
+        uid = str(user_id)
+        o_res = await db.table("orders").select("group_no").eq("user_id", uid).order("group_no", desc=True).limit(1).execute()
+        o_max = int(o_res.data[0]["group_no"]) if (o_res.data and o_res.data[0].get("group_no") is not None) else 0
+
+        t_res = await db.table("trade_logs").select("group_no").eq("user_id", uid).order("group_no", desc=True).limit(1).execute()
+        t_max = int(t_res.data[0]["group_no"]) if (t_res.data and t_res.data[0].get("group_no") is not None) else 0
+
+        return max(fallback, o_max + 1, t_max + 1)
+    except Exception:
+        return fallback
+
+
 async def run_strategy_progression(
     template_id: int,
     is_dry_run: bool = False,
@@ -489,7 +507,10 @@ async def run_strategy_progression(
         # 5. 일일 예산 충전 (1일 1회 불변식 2 보장)
         carryover_before_credit = float(params.get("carryover_budget", 0.0))
         rem_days = budget_manager.calculate_remaining_trading_days(today_str)
-        group_no = int(params.get("last_group_no", 0)) + 1
+        local_next_group = int(params.get("last_group_no", 0)) + 1
+        global_next_group = await _get_next_global_group_no(template.get("user_id"), local_next_group)
+        group_no = max(local_next_group, global_next_group)
+        params["last_group_no"] = group_no - 1
         daily_allowance, params = await budget_manager.credit_daily_allowance(
             template=template,
             date_str=today_str,
