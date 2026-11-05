@@ -33,13 +33,26 @@ class OrderManager:
         self._uuid_set = set(self._orders_by_uuid.keys())
         self.on_order_added = None
 
+    def _get_order_by_uuid(self, uuid: str) -> dict | None:
+        o = self._orders_by_uuid.get(uuid)
+        if o is not None:
+            return o
+        for item in self.orders:
+            if item.get("uuid") == uuid:
+                self._orders_by_uuid[uuid] = item
+                self._uuid_set.add(uuid)
+                return item
+        return None
+
     def get_order(self, uuid: str) -> dict | None:
-        """O(1) 단일 주문 조회."""
-        return self._orders_by_uuid.get(uuid)
+        """단일 주문 조회 (인덱스 O(1), fallback 동기화 지원)."""
+        return self._get_order_by_uuid(uuid)
 
     def has_order(self, uuid) -> bool:
-        """O(1) 멤버십 조회. sync_orders 등 핫 경로의 O(N) 재스캔을 대체한다."""
-        return uuid in self._uuid_set
+        """멤버십 조회. sync_orders 등 핫 경로의 O(N) 재스캔을 대체한다."""
+        if uuid in self._uuid_set:
+            return True
+        return self._get_order_by_uuid(uuid) is not None
 
     @staticmethod
     def _fetch_all_orders() -> list:
@@ -153,7 +166,9 @@ class OrderManager:
         self._save_orders_to_file()
 
     def _save_orders_to_file(self):
-        os.makedirs(os.path.dirname(self.file_path), exist_ok=True)
+        dir_path = os.path.dirname(self.file_path)
+        if dir_path:
+            os.makedirs(dir_path, exist_ok=True)
         try:
             with open(self.file_path, "w", encoding="utf-8") as f:
                 json.dump(self.orders, f, indent=2, ensure_ascii=False)
@@ -248,7 +263,7 @@ class OrderManager:
 
     def update_order(self, uuid: str, **fields) -> bool:
         """O(1) 단일 주문 속성 갱신 및 DB 저장."""
-        o = self._orders_by_uuid.get(uuid)
+        o = self._get_order_by_uuid(uuid)
         if not o:
             return False
         o.update(fields)
@@ -319,7 +334,7 @@ class OrderManager:
                 self._save_orders_to_file()
 
     def replace_order_uuid(self, old_uuid, new_uuid):
-        o = self._orders_by_uuid.get(old_uuid)
+        o = self._get_order_by_uuid(old_uuid)
         if o:
             self._uuid_set.discard(old_uuid)
             self._orders_by_uuid.pop(old_uuid, None)

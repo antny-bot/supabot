@@ -38,6 +38,39 @@ _exchange_status_semaphores: dict[str, asyncio.Semaphore] = defaultdict(lambda: 
 _exchange_user_semaphores: dict[str, asyncio.Semaphore] = defaultdict(lambda: asyncio.Semaphore(1))
 
 
+def _get_limit_warned_orders() -> dict:
+    import main
+    return getattr(main, "_limit_warned_orders", _limit_warned_orders)
+
+
+def _get_status_check_failures() -> dict:
+    import main
+    return getattr(main, "_status_check_failures", _status_check_failures)
+
+
+def _get_reorder_failures() -> dict:
+    import main
+    return getattr(main, "_reorder_failures", _reorder_failures)
+
+
+def _call_append_trade(**kwargs):
+    import main
+    fn = getattr(main, "append_trade", append_trade)
+    return fn(**kwargs)
+
+
+def _call_append_operational_event(level, source, message, details=None):
+    import main
+    fn = getattr(main, "append_operational_event", append_operational_event)
+    return fn(level, source, message, details)
+
+
+async def _call_cancel_and_remove_order(user_id: str, ord_dict: dict) -> bool:
+    import main
+    fn = getattr(main, "cancel_and_remove_order", cancel_and_remove_order)
+    return await fn(user_id, ord_dict)
+
+
 def _get_app_context():
     """main 모듈의 전역 싱글턴 인스턴스에 접근한다."""
     import main
@@ -221,20 +254,17 @@ async def reconcile_external_sells_fifo(application, user_id: str, exchange: str
         if remaining_balance >= ord_rem_vol:
             remaining_balance -= ord_rem_vol
         else:
-            await cancel_and_remove_order(user_id, ord_item)
+            await _call_cancel_and_remove_order(user_id, ord_item)
             canceled_orders.append(ord_item)
 
     if canceled_orders:
-        shortfall = total_ask_volume - current_balance
-        msg = (
-            f"⚠️ [{exchange_display_name(exchange)}] {ticker} 잔고 불일치 감지\n"
-            f"• 거래소 실제 보유량({current_balance:g})이 봇 매도 예약 총량({total_ask_volume:g})보다 적어 "
-            f"부족분({shortfall:g})에 해당하는 최근 매도 주문 {len(canceled_orders)}건을 자동 정리(취소)했습니다."
+        strat_names = ", ".join(f"[{o.get('strategy', '전략')}]" for o in canceled_orders)
+        await application.bot.send_message(
+            chat_id=user_id,
+            text=f"⚠️ [{exchange.upper()}] {ticker} 외부 매도 감지\n"
+                 f"실제 잔고({current_balance:g}개)가 매도 주문 수량({total_ask_volume:g}개)보다 적어 "
+                 f"FIFO 원칙에 따라 최근 주문 {strat_names}이 자동 정리되었습니다.",
         )
-        try:
-            await application.bot.send_message(chat_id=user_id, text=msg)
-        except Exception as e:
-            _log.warning(f"Failed to send reconcile notification to {user_id}: {e}")
 
 
 async def cancel_and_remove_order(user_id: str, ord_dict: dict) -> bool:
@@ -265,15 +295,18 @@ async def cancel_and_remove_order(user_id: str, ord_dict: dict) -> bool:
 
 def _cleanup_stale_caches(active_uuids: set):
     """현재 추적 중이지 않은 주문의 limit warning 및 재시도 실패 캐시 정리 (메모리 누수 방지)."""
-    for uid in list(_limit_warned_orders.keys()):
+    lwo = _get_limit_warned_orders()
+    for uid in list(lwo.keys()):
         if uid not in active_uuids:
-            _limit_warned_orders.pop(uid, None)
-    for uid in list(_reorder_failures.keys()):
+            lwo.pop(uid, None)
+    rf = _get_reorder_failures()
+    for uid in list(rf.keys()):
         if uid not in active_uuids:
-            _reorder_failures.pop(uid, None)
-    for uid in list(_status_check_failures.keys()):
+            rf.pop(uid, None)
+    scf = _get_status_check_failures()
+    for uid in list(scf.keys()):
         if uid not in active_uuids:
-            _status_check_failures.pop(uid, None)
+            scf.pop(uid, None)
 
 
 async def _handle_market_closed(ord: dict, ex_obj) -> bool:
@@ -339,25 +372,29 @@ async def _submit_reserved_or_reorder(application, ord: dict, ex_obj, ticker_cac
                     is_limit_exceeded = True
                     limit_reason = f"주문가격이 하한가({float(lower_limit):,.0f}원) 미만입니다."
 
+                lwo = _get_limit_warned_orders()
+                rf = _get_reorder_failures()
                 if is_limit_exceeded:
                     order_manager.update_next_check_at(ord["uuid"], ex_obj.next_check_timestamp(ticker))
-                    if ord["uuid"] not in _limit_warned_orders:
+                    if ord["uuid"] not in lwo:
                         action = "재주문" if ord.get("status") == "pending_reorder" else "예약주문 실행"
                         order_kind = "전략" if is_strategy_order(ord) else "자동 재주문 설정"
                         label = exchange_display_name(exchange)
 
-                        append_operational_event("warning", "sync_orders", f"{exchange} {action} postponed: {limit_reason}", ticker)
+                        _call_append_operational_event("warning", "sync_orders", f"{exchange} {action} postponed: {limit_reason}", ticker)
                         await application.bot.send_message(
                             chat_id=user_id,
                             text=f"⚠️ [{label}] {ticker} {order_kind} 주문 {action} 실패 (상하한가 제한)\n"
                                  f"• 사유: {limit_reason}\n"
                                  f"다음 정규장 체크 때 다시 시도합니다.",
                         )
-                        _limit_warned_orders[ord["uuid"]] = True
+                        lwo[ord["uuid"]] = True
                     return True
         except Exception as e:
             _log.warning(f"Error checking price limits for {exchange} {ticker} during sync: {e}")
 
+    lwo = _get_limit_warned_orders()
+    rf = _get_reorder_failures()
     dup = await _find_duplicate_open_order(exchange_adapter, user_id, exchange, ticker, side, price, vol)
     res = dup if dup else await exchange_adapter.create_order(user_id, exchange, ticker, side, price, vol)
     action = "재주문" if ord.get("status") == "pending_reorder" else "예약주문 실행"
@@ -365,8 +402,8 @@ async def _submit_reserved_or_reorder(application, ord: dict, ex_obj, ticker_cac
     label = exchange_display_name(exchange)
     if res and "uuid" in res:
         old_uuid = ord["uuid"]
-        _reorder_failures.pop(old_uuid, None)
-        _limit_warned_orders.pop(old_uuid, None)
+        rf.pop(old_uuid, None)
+        lwo.pop(old_uuid, None)
         order_manager.replace_order_uuid(old_uuid, res["uuid"])
         await application.bot.send_message(
             chat_id=user_id,
@@ -378,13 +415,13 @@ async def _submit_reserved_or_reorder(application, ord: dict, ex_obj, ticker_cac
     else:
         reason = _extract_order_submit_failure_reason(res)
         error_detail = f"\n• 사유: {reason}" if reason else ""
-        fails = _reorder_failures.get(ord["uuid"], 0) + 1
-        _reorder_failures[ord["uuid"]] = fails
+        fails = rf.get(ord["uuid"], 0) + 1
+        rf[ord["uuid"]] = fails
         if fails >= _REORDER_FAIL_LIMIT:
-            _reorder_failures.pop(ord["uuid"], None)
-            _limit_warned_orders.pop(ord["uuid"], None)
+            rf.pop(ord["uuid"], None)
+            lwo.pop(ord["uuid"], None)
             order_manager.remove_order(ord["uuid"])
-            append_operational_event(
+            _call_append_operational_event(
                 "warning",
                 "sync_orders",
                 f"{exchange} {action} failed {fails}x, giving up: {reason or ''}",
@@ -397,7 +434,7 @@ async def _submit_reserved_or_reorder(application, ord: dict, ex_obj, ticker_cac
             )
         else:
             order_manager.update_next_check_at(ord["uuid"], ex_obj.next_check_timestamp(ticker))
-            append_operational_event(
+            _call_append_operational_event(
                 "warning",
                 "sync_orders",
                 f"{exchange} strategy {action} failed ({fails}/{_REORDER_FAIL_LIMIT}): {reason or ''}",
@@ -467,7 +504,7 @@ async def _apply_stop_loss(application, ord: dict, state: str, price_cache: dict
                          f"• 손절 주문이 제출되었습니다.",
                 )
             else:
-                append_operational_event(
+                _call_append_operational_event(
                     "error", "sync_orders",
                     f"{exchange} stop-loss order placement failed after retries (position unprotected)",
                     ticker,
@@ -537,7 +574,7 @@ async def _process_order_fill(application, ord: dict, res: dict, ex_obj) -> None
                 extra_kw["group_no"] = ord["group_no"]
             if ord.get("template_id") is not None:
                 extra_kw["template_id"] = ord["template_id"]
-            append_trade(
+            _call_append_trade(
                 user_id=user_id,
                 exchange=exchange,
                 ticker=ticker,
@@ -581,7 +618,7 @@ async def _handle_cancel_requested(application, ord: dict, ex_obj) -> None:
         exec_vol = max(exec_vol, float(res.get("executed_volume") or 0.0))
         fee_amount = float(res.get("fee_amount") or 0.0)
 
-    if not await cancel_and_remove_order(user_id, ord):
+    if not await _call_cancel_and_remove_order(user_id, ord):
         return
 
     if exec_vol > 0:
@@ -590,7 +627,7 @@ async def _handle_cancel_requested(application, ord: dict, ex_obj) -> None:
             extra_kw["group_no"] = ord["group_no"]
         if ord.get("template_id") is not None:
             extra_kw["template_id"] = ord["template_id"]
-        append_trade(
+        _call_append_trade(
             user_id=user_id,
             exchange=exchange,
             ticker=ticker,
@@ -678,26 +715,27 @@ async def sync_orders(application):
                     text=f"⏳ [{exchange_display_name(exchange)}] {ticker} {order_kind} 주문 확인이 불가하여 다음 정규장 재주문 대기로 전환합니다.",
                 )
             elif getattr(ex_obj, "supports_reserved_orders", False):
-                fails = _status_check_failures.get(ord["uuid"], 0) + 1
+                scf = _get_status_check_failures()
+                fails = scf.get(ord["uuid"], 0) + 1
                 if fails < _STATUS_CHECK_FAIL_LIMIT:
-                    _status_check_failures[ord["uuid"]] = fails
-                    append_operational_event(
+                    scf[ord["uuid"]] = fails
+                    _call_append_operational_event(
                         "warning", "sync_orders",
                         f"{exchange} manual order status check failed ({fails}/{_STATUS_CHECK_FAIL_LIMIT}), retrying",
                         ticker,
                     )
                 else:
-                    _status_check_failures.pop(ord["uuid"], None)
+                    scf.pop(ord["uuid"], None)
                     order_manager.remove_order(ord["uuid"])
                     await application.bot.send_message(
                         chat_id=user_id,
                         text=f"🛑 [{exchange_display_name(exchange)}] {ticker} 수동 주문 확인이 불가하여 추적을 종료합니다.\n자동 재주문은 하지 않습니다.",
                     )
             else:
-                append_operational_event("warning", "sync_orders", f"{exchange} get_order_status returned no result", ticker)
+                _call_append_operational_event("warning", "sync_orders", f"{exchange} get_order_status returned no result", ticker)
             continue
 
-        _status_check_failures.pop(ord["uuid"], None)
+        _get_status_check_failures().pop(ord["uuid"], None)
         state = res['state']
 
         if await _apply_stop_loss(application, ord, state, price_cache):
