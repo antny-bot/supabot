@@ -10,6 +10,8 @@ vi.mock('../api/templates', () => ({
   createTemplate: vi.fn().mockResolvedValue({}),
   updateTemplate: vi.fn().mockResolvedValue({}),
   deleteTemplate: vi.fn().mockResolvedValue({}),
+  archiveTemplate: vi.fn().mockResolvedValue({ ok: true, message: '보관되었습니다.' }),
+  restoreTemplate: vi.fn().mockResolvedValue({ ok: true, message: '복원되었습니다.' }),
   duplicateTemplate: vi.fn().mockResolvedValue({}),
   executeTemplate: vi.fn().mockResolvedValue({}),
 }))
@@ -379,5 +381,70 @@ describe('Templates stock cache combobox', () => {
         }),
       })
     )
+  })
+
+  it('disables archive button when strategy is active, and provides restore/delete in archived tab', async () => {
+    const user = userEvent.setup()
+    const { fetchTemplates } = await import('../api/templates')
+    ;(fetchTemplates as any).mockResolvedValueOnce([
+      {
+        id: 88,
+        user_id: 'test_user',
+        name: '실행중인 전략',
+        exchange: 'kis',
+        ticker: '005930',
+        start_price: 50000,
+        end_price: 70000,
+        count: 10,
+        budget: 1000000,
+        strategy_type: 'grid',
+        created_at: '2026-01-01T00:00:00',
+        params: {
+          strategy_status: 'active',
+          schedule_enabled: true,
+        },
+      },
+      {
+        id: 99,
+        user_id: 'test_user',
+        name: '보관된 전략',
+        exchange: 'kis',
+        ticker: '000660',
+        start_price: 150000,
+        end_price: 200000,
+        count: 10,
+        budget: 2000000,
+        strategy_type: 'grid',
+        created_at: '2026-01-01T00:00:00',
+        params: {
+          is_archived: true,
+          strategy_status: 'paused',
+        },
+      },
+    ])
+
+    render(
+      <MemoryRouter>
+        <ToastProvider>
+          <Templates />
+        </ToastProvider>
+      </MemoryRouter>,
+    )
+
+    // 1. 운용 전략 탭: 실행 중인 전략 카드의 보관 버튼은 disabled
+    const archiveBtn = await screen.findByTitle('실행 중인 전략은 보관할 수 없습니다. 먼저 중지(OFF)하세요.')
+    expect(archiveBtn).toBeInTheDocument()
+    expect(archiveBtn).toBeDisabled()
+
+    // 2. 보관함 탭으로 전환
+    const archiveTabBtn = screen.getByRole('button', { name: /보관함/i })
+    await user.click(archiveTabBtn)
+
+    // 3. 보관함 탭에서는 '보관된 전략'이 렌더링되고 복원 및 영구 삭제 버튼이 제공됨
+    expect(await screen.findByText('보관된 전략')).toBeInTheDocument()
+    const restoreBtn = screen.getByRole('button', { name: /복원/i })
+    const permanentDeleteBtn = screen.getByRole('button', { name: /영구 삭제/i })
+    expect(restoreBtn).toBeInTheDocument()
+    expect(permanentDeleteBtn).toBeInTheDocument()
   })
 })

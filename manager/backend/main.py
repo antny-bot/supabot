@@ -56,7 +56,7 @@ async def _top_strategy_scheduler_loop():
 
             for tpl in templates:
                 params = tpl.get("params") or {}
-                if params.get("strategy_status") != "active" or not params.get("schedule_enabled", True):
+                if params.get("is_archived") or params.get("strategy_status") != "active" or not params.get("schedule_enabled", True):
                     continue
 
                 sched_time = params.get("schedule_time", "09:10")

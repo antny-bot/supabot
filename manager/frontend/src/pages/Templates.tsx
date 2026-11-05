@@ -18,15 +18,19 @@ import {
   AlertCircle,
   Sparkles,
   ShieldCheck,
+  Archive,
+  RotateCcw,
 } from 'lucide-react'
 import { ApiError } from '../api/client'
 import { fetchStockCache, type StockCacheRow } from '../api/stockCache'
 import {
+  archiveTemplate,
   createTemplate,
   deleteTemplate,
   duplicateTemplate,
   executeTemplate,
   fetchTemplates,
+  restoreTemplate,
   toggleTemplateHolding,
   type Template,
   type TemplateParams,
@@ -267,7 +271,18 @@ export default function Templates() {
   const toast = useToast()
   const navigate = useNavigate()
   const [templates, setTemplates] = useState<Template[]>([])
+  const [viewTab, setViewTab] = useState<'active' | 'archived'>('active')
   const [togglingId, setTogglingId] = useState<number | null>(null)
+
+  const activeTemplates = useMemo(
+    () => templates.filter((t) => !(t.params as any)?.is_archived),
+    [templates]
+  )
+  const archivedTemplates = useMemo(
+    () => templates.filter((t) => (t.params as any)?.is_archived === true),
+    [templates]
+  )
+  const displayedTemplates = viewTab === 'active' ? activeTemplates : archivedTemplates
 
   const handleToggleHolding = async (tpl: Template) => {
     const p = (tpl.params || {}) as any
@@ -536,11 +551,58 @@ export default function Templates() {
     }
   }
 
+  const handleArchive = async (template: Template) => {
+    const p = (template.params || {}) as Record<string, any>
+    const isActive =
+      p.strategy_status === 'active' ||
+      (p.strategy_status === undefined && p.schedule_enabled !== false)
+
+    if (isActive) {
+      toast.error('실행 중(Active)인 전략은 보관할 수 없습니다. 전략을 먼저 중지(OFF)해주세요.')
+      return
+    }
+
+    if (
+      !confirm(
+        `'${template.name}' 전략을 보관함으로 이동하시겠습니까?\n보관된 전략은 자동 실행이 중지되며 보관함에서 언제든 복원하거나 삭제할 수 있습니다.`
+      )
+    )
+      return
+    try {
+      await archiveTemplate(template.id)
+      toast.success('전략이 보관함으로 이동되었습니다.')
+      loadTemplates()
+    } catch (e) {
+      toast.error('보관 실패: ' + (e instanceof Error ? e.message : String(e)))
+    }
+  }
+
+  const handleRestore = async (template: Template) => {
+    try {
+      await restoreTemplate(template.id)
+      toast.success(`'${template.name}' 전략이 운용 목록으로 복원되었습니다.`)
+      loadTemplates()
+    } catch (e) {
+      toast.error('복원 실패: ' + (e instanceof Error ? e.message : String(e)))
+    }
+  }
+
   const handleDelete = async (template: Template) => {
-    if (!confirm(`'${template.name}' 템플릿을 삭제하시겠습니까?`)) return
+    const p = (template.params || {}) as Record<string, any>
+    if (!p.is_archived) {
+      toast.error('일반 운용 상태의 전략은 즉시 삭제할 수 없습니다. 먼저 보관함으로 이동해주세요.')
+      return
+    }
+
+    if (
+      !confirm(
+        `'${template.name}' 전략을 영구 삭제하시겠습니까?\n이 작업은 되돌릴 수 없으며, 모든 설정이 완전히 삭제됩니다.`
+      )
+    )
+      return
     try {
       await deleteTemplate(template.id)
-      toast.success('템플릿이 삭제되었습니다.')
+      toast.success('전략이 영구 삭제되었습니다.')
       loadTemplates()
     } catch (e) {
       toast.error('삭제 실패: ' + (e instanceof Error ? e.message : String(e)))
@@ -667,6 +729,55 @@ export default function Templates() {
         }
       />
 
+      {/* 탭 네비게이션: 운용 전략 vs 보관함 */}
+      <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800">
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setViewTab('active')}
+            className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-xs font-semibold transition-colors ${
+              viewTab === 'active'
+                ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+            }`}
+          >
+            <span>운용 전략</span>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                viewTab === 'active'
+                  ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300'
+                  : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+              }`}
+            >
+              {activeTemplates.length}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewTab('archived')}
+            className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-xs font-semibold transition-colors ${
+              viewTab === 'archived'
+                ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+            }`}
+          >
+            <Archive size={13} />
+            <span>보관함</span>
+            {archivedTemplates.length > 0 && (
+              <span
+                className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                  viewTab === 'archived'
+                    ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300'
+                    : 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300'
+                }`}
+              >
+                {archivedTemplates.length}
+              </span>
+            )}
+          </button>
+        </div>
+      </div>
+
       {error && (
         <div className="flex items-center gap-2 rounded-xl bg-rose-50 p-4 text-xs font-medium text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
           <AlertCircle size={16} />
@@ -709,33 +820,39 @@ export default function Templates() {
             </div>
           ))}
         </div>
-      ) : templates.length === 0 ? (
+      ) : displayedTemplates.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-300 p-12 text-center dark:border-slate-800">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400">
-            <Layers size={24} />
+            {viewTab === 'archived' ? <Archive size={24} /> : <Layers size={24} />}
           </div>
           <h3 className="mt-3 text-sm font-semibold text-slate-800 dark:text-slate-200">
-            등록된 전략 템플릿이 없습니다
+            {viewTab === 'archived' ? '보관된 전략이 없습니다' : '등록된 운용 전략 템플릿이 없습니다'}
           </h3>
-          <p className="mt-1 text-xs text-slate-500">자주 사용하는 매매 전략 설정을 템플릿으로 저장해 원클릭으로 실행하세요.</p>
-          <div className="mt-4 flex flex-wrap items-center justify-center gap-2.5">
-            <button
-              onClick={handleOpenSingleCreate}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700 transition-colors"
-            >
-              <Plus size={14} /> 단일 종목 템플릿
-            </button>
-            <button
-              onClick={handleOpenMultiCreate}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-violet-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-violet-700 transition-colors"
-            >
-              <Layers size={14} /> 복수 종목 (TOP N) 템플릿
-            </button>
-          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            {viewTab === 'archived'
+              ? '더 이상 사용하지 않거나 완료된 전략을 보관함으로 이동해 보관하거나 영구 삭제할 수 있습니다.'
+              : '자주 사용하는 매매 전략 설정을 템플릿으로 저장해 원클릭으로 실행하세요.'}
+          </p>
+          {viewTab === 'active' && (
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2.5">
+              <button
+                onClick={handleOpenSingleCreate}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700 transition-colors"
+              >
+                <Plus size={14} /> 단일 종목 템플릿
+              </button>
+              <button
+                onClick={handleOpenMultiCreate}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-violet-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-violet-700 transition-colors"
+              >
+                <Layers size={14} /> 복수 종목 (TOP N) 템플릿
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {templates.map((tpl) => {
+          {displayedTemplates.map((tpl) => {
             const stype = normalizeStrategyType(tpl.strategy_type)
             const isDca = stype === 'dca' || stype === 'sdca'
             const isTopDca = stype === 'kospi_top_dca'
@@ -745,6 +862,9 @@ export default function Templates() {
                 ? stockNameByCode[tpl.ticker.toUpperCase()]
                 : undefined
             const p = (tpl.params || {}) as any
+            const isActive =
+              p.strategy_status === 'active' ||
+              (p.strategy_status === undefined && p.schedule_enabled !== false)
 
             return (
               <div
@@ -754,7 +874,6 @@ export default function Templates() {
                 <div>
                   {/* 상단: 거래소, 종목, 전략 유형 및 ON/OFF 토글 */}
                   {(() => {
-                    const isActive = p.strategy_status === 'active' || (p.strategy_status === undefined && p.schedule_enabled !== false)
                     return (
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1.5 flex-wrap">
@@ -770,33 +889,40 @@ export default function Templates() {
                           <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                             {STRATEGY_BADGE_LABELS[stype] || stype.toUpperCase()}
                           </span>
+                          {viewTab === 'archived' && (
+                            <span className="rounded-md bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
+                              보관됨
+                            </span>
+                          )}
                         </div>
 
-                        {/* On / Off 토글 스위치 */}
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            disabled={togglingId === tpl.id}
-                            onClick={() => handleToggleHolding(tpl)}
-                            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                              isActive ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'
-                            } ${togglingId === tpl.id ? 'opacity-50' : ''}`}
-                            title={isActive ? '전략 가동 중 (클릭 시 일시정지 OFF)' : '전략 일시정지됨 (클릭 시 가동 ON)'}
-                          >
+                        {/* On / Off 토글 스위치 (운용 탭에서만 활성) */}
+                        {viewTab === 'active' && (
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              disabled={togglingId === tpl.id}
+                              onClick={() => handleToggleHolding(tpl)}
+                              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                isActive ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'
+                              } ${togglingId === tpl.id ? 'opacity-50' : ''}`}
+                              title={isActive ? '전략 가동 중 (클릭 시 일시정지 OFF)' : '전략 일시정지됨 (클릭 시 가동 ON)'}
+                            >
+                              <span
+                                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                                  isActive ? 'translate-x-5' : 'translate-x-0'
+                                }`}
+                              />
+                            </button>
                             <span
-                              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                                isActive ? 'translate-x-5' : 'translate-x-0'
+                              className={`text-[11px] font-extrabold font-mono w-7 text-center ${
+                                isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'
                               }`}
-                            />
-                          </button>
-                          <span
-                            className={`text-[11px] font-extrabold font-mono w-7 text-center ${
-                              isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'
-                            }`}
-                          >
-                            {isActive ? 'ON' : 'OFF'}
-                          </span>
-                        </div>
+                            >
+                              {isActive ? 'ON' : 'OFF'}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     )
                   })()}
@@ -887,50 +1013,87 @@ export default function Templates() {
 
                 {/* 하단 액션 버튼 그룹 */}
                 <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 dark:border-slate-800">
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => handleOpenEdit(tpl)}
-                      className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-                      title="수정"
-                    >
-                      <Pencil size={14} />
-                    </button>
-                    <button
-                      onClick={() => handleDuplicate(tpl)}
-                      className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-                      title="복제"
-                    >
-                      <Copy size={14} />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(tpl)}
-                      className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40 dark:hover:text-rose-400"
-                      title="삭제"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
+                  {viewTab === 'active' ? (
+                    <>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleOpenEdit(tpl)}
+                          className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                          title="수정"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <button
+                          onClick={() => handleDuplicate(tpl)}
+                          className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                          title="복제"
+                        >
+                          <Copy size={14} />
+                        </button>
+                        <button
+                          onClick={() => handleArchive(tpl)}
+                          disabled={isActive}
+                          className={`rounded-lg p-1.5 transition-colors ${
+                            isActive
+                              ? 'cursor-not-allowed opacity-30 text-slate-400 dark:text-slate-600'
+                              : 'text-slate-400 hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-amber-950/40 dark:hover:text-amber-400'
+                          }`}
+                          title={
+                            isActive
+                              ? '실행 중인 전략은 보관할 수 없습니다. 먼저 중지(OFF)하세요.'
+                              : '보관함으로 이동'
+                          }
+                        >
+                          <Archive size={14} />
+                        </button>
+                      </div>
 
-                  <div className="flex items-center gap-2">
-                    {isTopDca && (
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/operations?template_id=${tpl.id}&tab=rotation`)}
-                        className="flex items-center gap-1 rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
-                        title="전략 전용 포지션, 회전 현황 및 예산 감사원장 조회"
-                      >
-                        <Activity size={13} className="text-indigo-500" />
-                        <span>모니터링</span>
-                      </button>
-                    )}
-                    <button
-                      onClick={() => setExecutingTemplate(tpl)}
-                      className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700 transition-colors"
-                    >
-                      <Play size={13} />
-                      <span>즉시 실행</span>
-                    </button>
-                  </div>
+                      <div className="flex items-center gap-2">
+                        {isTopDca && (
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/operations?template_id=${tpl.id}&tab=rotation`)}
+                            className="flex items-center gap-1 rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
+                            title="전략 전용 포지션, 회전 현황 및 예산 감사원장 조회"
+                          >
+                            <Activity size={13} className="text-indigo-500" />
+                            <span>모니터링</span>
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setExecutingTemplate(tpl)}
+                          className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700 transition-colors"
+                        >
+                          <Play size={13} />
+                          <span>즉시 실행</span>
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleRestore(tpl)}
+                          className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 transition-colors"
+                          title="운용 목록으로 복원"
+                        >
+                          <RotateCcw size={13} className="text-indigo-500" />
+                          <span>복원</span>
+                        </button>
+                        <button
+                          onClick={() => handleDelete(tpl)}
+                          className="flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50/50 px-2.5 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-100 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-400 dark:hover:bg-rose-900/50 transition-colors"
+                          title="영구 삭제"
+                        >
+                          <Trash2 size={13} />
+                          <span>영구 삭제</span>
+                        </button>
+                      </div>
+                      <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500">
+                        보관 중 (복원 후 실행 가능)
+                      </span>
+                    </>
+                  )}
                 </div>
               </div>
             )

@@ -3,8 +3,9 @@ import { krwFmt } from '../../utils/formatters'
 
 export interface BudgetHealthData {
   exchange?: string
-  actual_cash_krw?: number
-  health_grade?: 'HEALTHY' | 'WARNING' | 'SHORTAGE' | string
+  actual_cash_krw?: number | null
+  balance_available?: boolean
+  health_grade?: 'HEALTHY' | 'WARNING' | 'SHORTAGE' | 'UNKNOWN' | string
   health_message?: string
   daily_required_krw?: number
   monthly_remaining_required_krw?: number
@@ -56,6 +57,7 @@ export default function BudgetHealthCard({
   const healthGrade = healthData.health_grade || 'HEALTHY'
   const isHealthy = healthGrade === 'HEALTHY'
   const isWarning = healthGrade === 'WARNING'
+  const isUnknown = healthGrade === 'UNKNOWN'
 
   return (
     <div
@@ -70,6 +72,8 @@ export default function BudgetHealthCard({
           ? 'border-emerald-200 bg-emerald-50/70 hover:border-emerald-300 dark:border-emerald-800/50 dark:bg-emerald-950/20 dark:hover:border-emerald-700/60'
           : isWarning
           ? 'border-amber-200 bg-amber-50/70 hover:border-amber-300 dark:border-amber-800/50 dark:bg-amber-950/20 dark:hover:border-amber-700/60'
+          : isUnknown
+          ? 'border-slate-300 bg-slate-50/80 hover:border-slate-400 dark:border-slate-700 dark:bg-slate-900/60 dark:hover:border-slate-600'
           : 'border-red-200 bg-red-50/70 hover:border-red-300 dark:border-red-800/50 dark:bg-red-950/20 dark:hover:border-red-700/60'
       } ${className}`}
     >
@@ -79,7 +83,7 @@ export default function BudgetHealthCard({
           <ShieldCheck
             size={20}
             className={`shrink-0 ${
-              isHealthy ? 'text-emerald-600 dark:text-emerald-400' : isWarning ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'
+              isHealthy ? 'text-emerald-600 dark:text-emerald-400' : isWarning ? 'text-amber-600 dark:text-amber-400' : isUnknown ? 'text-slate-500 dark:text-slate-400' : 'text-red-600 dark:text-red-400'
             }`}
           />
           <div>
@@ -93,6 +97,8 @@ export default function BudgetHealthCard({
                     ? 'bg-emerald-200 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200'
                     : isWarning
                     ? 'bg-amber-200 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200'
+                    : isUnknown
+                    ? 'bg-slate-200 text-slate-800 dark:bg-slate-800 dark:text-slate-300'
                     : 'bg-red-200 text-red-800 dark:bg-red-900/60 dark:text-red-200'
                 }`}
               >
@@ -112,9 +118,9 @@ export default function BudgetHealthCard({
               <span className="text-slate-500 block text-[10px] sm:text-[11px] truncate">예수금</span>
               <span
                 className="font-bold text-slate-800 dark:text-slate-100 text-xs sm:text-sm truncate block"
-                title={`${Number(healthData.actual_cash_krw || 0).toLocaleString()}원`}
+                title={isUnknown || healthData.actual_cash_krw == null ? '조회 불가' : `${Number(healthData.actual_cash_krw || 0).toLocaleString()}원`}
               >
-                {krwFmt(healthData.actual_cash_krw || 0)}
+                {isUnknown || healthData.actual_cash_krw == null ? '-' : krwFmt(healthData.actual_cash_krw || 0)}
               </span>
             </div>
             <div className="min-w-0">
