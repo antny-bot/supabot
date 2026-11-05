@@ -1,6 +1,6 @@
 # 200_system_architecture.md — 시스템 아키텍처 및 데이터 스키마
 
-supabot 봇 백엔드·관리 UI 모듈 구성, 핵심 데이터 스키마(PostgreSQL/JSON 폴백), 인증, 연동 제약사항 설명.
+supabot 봇 백엔드·관리 UI 모듈 구성, 핵심 데이터 스키마(PostgreSQL/JSON 폴백), 인증, 연동 제약사항 설명입니다.
 
 ---
 
@@ -8,32 +8,42 @@ supabot 봇 백엔드·관리 UI 모듈 구성, 핵심 데이터 스키마(Postg
 
 | 파일 | 책임 | 관련 개발 문서 |
 |------|------|-----------------|
-| `src/main.py` (~765줄) | 텔레그램 핸들러 등록, 폴링 루프(`sync_orders`), `/internal/notify` 서버, 공통 헬퍼 | [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md) |
-| `src/handlers/*.py` | 명령어 핸들러 기능별 분리 — `strategy_handlers`(grid/rsitrade), `query_handlers`, `manual_order_handlers`, `nl_intent_handlers` 등 | [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md) |
-| `src/internal_api.py` (269줄) | 매니저 백엔드 연동 webhook API (HMAC 인증) | — |
-| `src/core/db.py` (106줄) | Supabase REST 클라이언트 (requests 기반, httpx ALPN 회피) | — |
-| `src/core/exchange_adapter.py` (201줄) | 거래소 레지스트리/파사드 | [201_exchange_adapter.md](file:///E:/apps/supabot/docs/201_exchange_adapter.md) |
-| `src/core/exchanges/base.py` (96줄) | `BaseExchange` — 거래소 capability 기본값 정의 | [201_exchange_adapter.md](file:///E:/apps/supabot/docs/201_exchange_adapter.md) |
+| `src/main.py` | 텔레그램 핸들러 등록, 스케줄러 등록 및 봇 실행 루프 진입점 | [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md) |
+| `src/internal_api.py` | 매니저 백엔드 연동 webhook API (HMAC 인증, `/internal/notify`, `/internal/order-events`) | — |
+| `src/handlers/strategy_handlers.py` | 자동매매 전략 명령 처리 (`/rsitrade`, `/grid`, `/sgrid`, `/sgridrsi`) | [301_rsi_algorithm.md](file:///E:/apps/supabot/docs/301_rsi_algorithm.md) |
+| `src/handlers/dca_handlers.py` | 분할 적립식 매수 명령 처리 (`/dca`) | [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md) |
+| `src/handlers/manual_order_handlers.py` | 수동 주문 명령 처리 (`/buy`, `/sell`, `/cancel`) | [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md) |
+| `src/handlers/query_handlers.py` | 시세/자산/지표 및 도움말 조회 (`/asset`, `/price`, `/indicators`, `/help`) | [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md) |
+| `src/handlers/list_view_handlers.py` | 목록 및 페이징 핸들러 (`/orders`, `/history`, `/report`) | [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md) |
+| `src/handlers/status_handlers.py` | 통합 전략 대시보드 명령 처리 (`/status`) | [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md) |
+| `src/handlers/config_handlers.py` | API 키 및 환경설정 핸들러 (`/config`, `/whoami`) | [103_exchange_api_setup.md](file:///E:/apps/supabot/docs/103_exchange_api_setup.md) |
+| `src/handlers/watch_handlers.py` | 실시간 시그널 감시 핸들러 (`/watch`, `/unwatch`) | [204_signal_engine.md](file:///E:/apps/supabot/docs/204_signal_engine.md) |
+| `src/handlers/system_handlers.py` | 시스템 관리 명령 처리 (`/start`, `/halt`, `/resume`, `/dbsync`, `/resetuser`) | [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md) |
+| `src/handlers/nl_intent_handlers.py` | Gemini 자연어 인텐트 실행 및 콜백 핸들러 | [304_gemini_intent.md](file:///E:/apps/supabot/docs/304_gemini_intent.md) |
+| `src/core/order_sync.py` | 거래소 실시간 주문 동기화 엔진 (체결/취소/만료 감지, 사후 액션 유발) | [202_order_manager.md](file:///E:/apps/supabot/docs/202_order_manager.md) |
+| `src/core/order_execution.py` | 주문 생성 및 체결 사후 연동 처리 | [202_order_manager.md](file:///E:/apps/supabot/docs/202_order_manager.md) |
+| `src/core/order_manager.py` | 주문 상태 관리 (DB 우선 + 파일 폴백) | [202_order_manager.md](file:///E:/apps/supabot/docs/202_order_manager.md) |
+| `src/core/dca_manager.py` | DCA 적립식 매수 스케줄 및 실행 관리 | — |
+| `src/core/exchange_adapter.py` | 거래소 레지스트리/파사드 | [201_exchange_adapter.md](file:///E:/apps/supabot/docs/201_exchange_adapter.md) |
+| `src/core/exchanges/base.py` | `BaseExchange` — 거래소 capability 기본값 정의 | [201_exchange_adapter.md](file:///E:/apps/supabot/docs/201_exchange_adapter.md) |
 | `src/core/exchanges/{upbit,bithumb,kis,toss}.py` | 거래소별 HTTP/인증 구현 및 capability 오버라이드 | [201_exchange_adapter.md](file:///E:/apps/supabot/docs/201_exchange_adapter.md) |
-| `src/core/exchanges/common.py` (70줄) | `CommonMixin` — 틱사이즈 static 유틸 | — |
-| `src/core/formatters.py` (761줄) | Telegram 메시지 포매팅 | — |
-| `src/core/user_manager.py` (~390줄) | 유저 설정·권한 (DB 우선 + 파일 폴백) | [203_user_manager.md](file:///E:/apps/supabot/docs/203_user_manager.md) |
-| `src/core/natural_language.py` (414줄) | NL 전처리 + `nl_logs` 기록 | [304_gemini_intent.md](file:///E:/apps/supabot/docs/304_gemini_intent.md) |
-| `src/core/parsers.py` (275줄) | 거래소명·숫자(억/만)·RSI 파싱, KIS 세션 판정 | — |
-| `src/core/signal_engine.py` (207줄) | RSI 계산 + 목표가 역산 | [204_signal_engine.md](file:///E:/apps/supabot/docs/204_signal_engine.md) |
-| `src/core/order_manager.py` (162줄) | 주문 상태 기계 (DB 우선 + 파일 폴백) | [202_order_manager.md](file:///E:/apps/supabot/docs/202_order_manager.md) |
+| `src/core/exchanges/common.py` | `CommonMixin` — 틱사이즈 static 유틸 | — |
+| `src/core/signal_engine.py` | RSI 계산 + 목표가 역산 알고리즘 | [204_signal_engine.md](file:///E:/apps/supabot/docs/204_signal_engine.md) |
+| `src/core/indicators.py` | RSI/MACD/볼린저/스토캐스틱 계산 (`ta`) | — |
+| `src/core/user_manager.py` | 유저 설정·권한 (DB 우선 + 파일 폴백) | [203_user_manager.md](file:///E:/apps/supabot/docs/203_user_manager.md) |
 | `src/core/trading_gate.py` | 글로벌 거래 중지(kill-switch) + 총 노출 한도 게이트 | [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md) |
-| `src/core/strategy_tokens.py` | 전략 confirm 버튼용 토큰 (멱등성·중복방지) | [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md) |
-| `src/core/list_view_tokens.py` | 인라인 버튼 펼치기·페이지네이션용 토큰 | [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md) |
-| `src/core/indicators.py` (154줄) | RSI/MACD/볼린저/스토캐스틱 계산 (`ta`) | — |
-| `src/core/stock_resolver.py` | 한국 주식 종목명→코드 해석 | — |
-| `src/core/trade_log.py` (94줄) | 체결 로그 (DB + 파일 이중기록) | — |
-| `src/core/command_log.py` (22줄) | 명령어 사용 로그 | — |
-| `src/core/metrics.py` (85줄) | 인메모리 운영 메트릭 | — |
-| `src/core/operational_events.py` (85줄) | 운영 이벤트 (DB + 파일 이중기록, 마스킹) | — |
-| `src/core/secret_crypto.py` (52줄) | 사용자 키 Fernet 암복호화 (`enc:v1:`) | — |
-| `src/core/bot_logger.py` (33줄) | 구조화 JSON 로깅 (stdout) | — |
-| `data/orders.json` · `users.json` | DB 폴백/캐시 (0600) | — |
+| `src/core/db.py` & `db_sync.py` | Supabase REST 클라이언트 (requests 기반, ALPN 회피) 및 동기화 | — |
+| `src/core/secret_crypto.py` | 사용자 키 Fernet 암복호화 (`enc:v1:`) | [205b_security_logging.md](file:///E:/apps/supabot/docs/205b_security_logging.md) |
+| `src/core/natural_language.py` | NL 전처리 + Gemini 인텐트 처리 + `nl_logs` 기록 | [304_gemini_intent.md](file:///E:/apps/supabot/docs/304_gemini_intent.md) |
+| `src/core/formatters.py` | Telegram 메시지 포매팅 | — |
+| `src/core/parsers.py` | 거래소명·숫자(억/만)·RSI 파싱, KIS 세션 판정 | [205c_utility_parsers.md](file:///E:/apps/supabot/docs/205c_utility_parsers.md) |
+| `src/core/stock_resolver.py` | 한국 주식 종목명→코드 해석 (DB 캐시 연동) | — |
+| `src/core/trade_log.py` | 체결 로그 (DB + 파일 이중기록) | — |
+| `src/core/command_log.py` | 명령어 사용 로그 | — |
+| `src/core/metrics.py` | 인메모리 운영 메트릭 | — |
+| `src/core/operational_events.py` | 운영 이벤트 (DB + 파일 이중기록, 마스킹) | [205b_security_logging.md](file:///E:/apps/supabot/docs/205b_security_logging.md) |
+| `src/core/bot_logger.py` | 구조화 JSON 로깅 (stdout) | — |
+| `data/orders.json` · `users.json` | DB 폴백/로컬 캐시 (0600) | — |
 | `config/.env` | BOT_TOKEN, ADMIN_CHAT_ID, SUPABASE_*, MANAGER_API_KEY | — |
 
 ---
@@ -69,7 +79,7 @@ FastAPI 백엔드 + React/TypeScript(Vite+Tailwind) SPA. Synology Docker 배포 
   "volume": 0.001,
   "filled_volume": 0.0,
   "side": "bid|ask",
-  "strategy": "manual|grid|rsitrade",
+  "strategy": "manual|grid|rsitrade|dca",
   "target_rsi": null,          // rsitrade 전략 전용
   "linked_to": null,           // 매수-매도 쌍 연결
   "status": "wait|partial|done|cancel|pending_reorder|cancel_requested",
