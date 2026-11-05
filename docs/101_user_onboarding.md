@@ -1,144 +1,89 @@
-# 사용자 온보딩 가이드
+# 101_user_onboarding.md — 사용자 온보딩 가이드
 
-`supabot` 신규 사용자 등록 및 `supabot-manager` 연동 절차 가이드.
+`supabot` 신규 사용자 등록, 거래소 API 키 연동 및 `supabot-manager` 웹 대시보드 연결 절차 가이드입니다.
+
+---
 
 ## 한눈에 보는 흐름
 
-1. 사용자 텔레그램 봇에 `/start` 전송.
-2. 봇 사용자 `pending` 등록, 관리자 승인 알림.
-3. 관리자 `supabot-manager` 화면에서 `active` 승인.
-4. 사용자 텔레그램 봇 기능 사용.
-5. 웹 대시보드 필요 시 `manager_email` 연결 및 Supabase Auth 계정 생성.
-6. 사용자 `supabot-manager` 로그인.
+```mermaid
+flowchart TD
+    Step1["1. 사용자: Telegram 봇에 /start 전송"] --> Step2["2. 봇: pending 상태 등록 및 관리자에게 승인 알림"]
+    Step2 --> Step3["3. 관리자: supabot-manager에서 active 승인"]
+    Step3 --> Step4["4. 사용자: Telegram /config로 거래소/Gemini API 키 등록"]
+    Step4 --> Step5["5. 사용자: 매매 전략 및 시세/자산 기능 이용"]
+    Step5 -.->|대시보드 필요 시| Step6["6. 관리자: manager_email 연결 및 초대 메일 발송"]
+    Step6 -.-> Step7["7. 사용자: supabot-manager 웹 대시보드 로그인"]
+```
+
+---
 
 ## 1. 사전 준비
 
-사전 준비 사항:
+- `supabot` 봇 컨테이너 실행 중 (Oracle Cloud VM)
+- `supabot-manager` 웹 대시보드 가동 중 (Synology NAS Docker)
+- 봇과 manager가 동일한 Supabase 프로젝트를 참조 중
+- 최고 관리자 권한 (`ADMIN_CHAT_ID`) 보유
 
-- `supabot` 봇 실행 필수.
-- `supabot-manager` 사용 시 manager 배포 필수.
-- 봇과 manager 동일 Supabase 프로젝트 참조 필수.
-- 관리자 승인 권한 필요.
+---
 
-배포 참고 문서:
-
-- 봇/전체 구조: [README.md](/E:/apps/supabot/README.md)
-- manager 배포: [manager/README.md](/E:/apps/supabot/manager/README.md)
-
-## 2. 텔레그램 봇 사용자 등록
+## 2. 텔레그램 봇 사용자 등록 및 승인
 
 ### 사용자가 할 일
-
-1. 텔레그램 봇 실행.
-2. `/start` 전송.
-3. 승인 대기 안내 확인 후 대기.
-
-첫 `/start` 전송 시 사용자 자동 생성되나 상태 `pending`. 승인 전 기능 사용 불가.
+1. Telegram 앱에서 본인의 봇 계정 검색 후 대화 시작
+2. `/start` 입력 전송
+3. "관리자 승인 대기 중" 메시지 확인 후 대기
 
 ### 관리자가 할 일
+1. `supabot-manager` 웹 대시보드 접속 (`/users` 메뉴)
+2. `pending` 상태인 신규 사용자 확인
+3. `Approve` 버튼 클릭하여 `active` 상태로 승인
+4. 승인 즉시 사용자에게 승인 완료 텔레그램 알림이 자동 전송됩니다.
 
-1. `supabot-manager` 사용자 목록 이동.
-2. 신규 `pending` 사용자 검색.
-3. `Approve` 또는 활성화로 상태 `active` 변경.
+---
 
-승인 시 manager 텔레그램 알림 전송. 사용자 봇 정상 사용 가능.
+## 3. 거래소 및 Gemini API 키 등록
 
-## 3. manager까지 열어줘야 하는 경우
+승인된 사용자는 매매 및 시세 조회를 위해 거래소 API 키를 등록합니다. 키는 절대로 `.env`에 넣지 않고 Telegram 대화창에서 안전하게 등록합니다.
 
-웹 대시보드 `supabot-manager` 필요 시 추가 절차 진행.
+- **지원 거래소**: 업비트, 빗썸, 한국투자증권(KIS), 토스증권(Toss)
+- **자연어 처리**: Google Gemini API
+- **상세 발급 및 등록 절차**: [103_exchange_api_setup.md](file:///E:/apps/supabot/docs/103_exchange_api_setup.md) 참조
 
-### 3-1. 관리자: 로그인 이메일 연결
+등록된 키는 `USER_SECRET_KEY` 마스터키를 통해 Fernet 암호화되어 Supabase DB에 보관됩니다.
 
-1. `supabot-manager` 사용자 화면 대상 선택.
-2. `manager_email`에 로그인 이메일 저장.
+---
 
-이메일은 봇-manager 연결 키. 로그인 후 `users.manager_email` 일치 사용자 세션 오픈.
+## 4. 웹 대시보드(supabot-manager) 연동
 
-### 3-2. 관리자: Supabase Auth 계정 생성
+웹 대시보드 접근이 필요한 사용자에게 대시보드 계정을 부여합니다.
 
-**권장: manager 화면에서 초대 메일 발송**
+### 4-1. 관리자: 이메일 연결 및 초대
+1. `supabot-manager` 사용자 목록에서 대상 사용자 선택
+2. `manager_email` 항목에 로그인에 사용할 이메일 입력 후 저장
+3. `초대 메일 발송` 버튼 클릭 (Supabase Auth 사용자 자동 생성 및 비밀번호 설정 링크 메일 발송)
 
-1. `supabot-manager` 사용자 화면 대상 선택.
-2. `manager_email` 존재 시 `초대 메일 발송` 버튼 표시.
-3. 클릭 시 Supabase Auth 계정 생성 및 비밀번호 설정 링크 메일 발송.
-4. 메일 링크 접속해 비밀번호 설정 시 계정 활성화.
-5. 메일 발송 완료(`manager_invited_at` 기록) 시 버튼 `초대 메일 발송` -> `비밀번호 재설정` 변경 (중복 방지).
+> **대안 (수동 생성)**:
+> Supabase 대시보드 > `Authentication` > `Users`에서 동일한 이메일로 수동 생성 가능합니다. (반드시 `users.manager_email`과 일치해야 함)
 
-> Supabase `Authentication > Email Templates` 및 SMTP 설정 필요. 메일 미도착 시 설정 확인.
+### 4-2. 사용자: 비밀번호 설정 및 로그인
+1. 수신된 초대 메일의 링크를 통해 비밀번호 설정
+2. `supabot-manager` 웹 대시보드 URL에 접속하여 이메일/비밀번호로 로그인
+3. 필요 시 2단계 인증(MFA OTP) 활성화
 
-**대안: Supabase 대시보드 수동 생성**
+---
 
-SMTP 미설정 등 시 수동 생성:
+## 5. 자주 발생하는 문제 및 해결
 
-1. Supabase 대시보드 이동.
-2. `Authentication > Users` 새 사용자 생성.
-3. 동일 이메일 주소 사용.
-4. 초기 비밀번호 설정.
-5. 필요 시 `Auto Confirm` 활성화.
+- **`/start` 전송 후 계속 대기 상태인 경우**: 관리자가 대시보드에서 `Approve`를 눌렀는지 확인하세요.
+- **manager 로그인 실패**: Supabase Auth 계정의 이메일과 `users.manager_email`이 완전히 일치하는지 확인하세요.
+- **MFA 분실로 로그인 불가 시**: 대시보드 관리자 계정 또는 Supabase 대시보드에서 해당 사용자의 MFA 설정을 초기화할 수 있습니다.
 
-중요사항:
+---
 
-- `manager_email`과 Supabase Auth 계정 이메일 동일 필수.
-- 불일치 시 manager 로그인 성공해도 봇 사용자 미연결.
+## 6. 관련 개발 문서
 
-### 3-3. 사용자: manager 로그인
-
-1. 이메일/비밀번호로 `supabot-manager` 로그인.
-2. 로그인 성공 시 봇 사용자 권한으로 대시보드 사용.
-
-MFA 활성화 시 OTP 2차 인증 추가 필요.
-
-## 4. 권장 운영 순서
-
-신규 사용자 추가 권장 순서:
-
-1. 사용자 텔레그램 `/start`
-2. 관리자 확인 및 `active` 승인
-3. 텔레그램 기능 확인
-4. manager 필요 시 `manager_email` 설정
-5. Supabase Auth 계정 생성
-6. manager 로그인 확인
-7. 필요 시 MFA 설정
-
-텔레그램 사용자 식별자(`user_id`) 사전 생성되어야 manager 계정 연결 명확.
-
-## 5. 자주 막히는 지점
-
-### 텔레그램에서 `/start` 했는데 계속 대기 상태인 경우
-
-- 사용자 `pending` 상태일 가능성 높음.
-- manager 사용자 화면에서 `active` 상태 확인.
-
-### manager 로그인이 안 되는 경우
-
-확인 순서:
-
-1. Supabase Auth 계정 생성 여부.
-2. 로그인 이메일과 `manager_email` 값 동일 여부.
-3. 비밀번호 일치 여부.
-4. manager의 Supabase 프로젝트 참조 여부.
-
-### manager는 로그인되는데 원하는 사용자 데이터가 안 보이는 경우
-
-- `manager_email` 오연결 가능성 높음.
-- 타 사용자에 동일 이메일 중복 연결 확인.
-
-### MFA 때문에 로그인 진행이 안 되는 경우
-
-- MFA 설정/비활성화 UI 대시보드 내 위치.
-- OTP 앱 코드 필요 여부 확인.
-- 관리자 MFA 운영 정책 별도 안내.
-
-## 6. 운영 체크리스트
-
-- 텔레그램 `/start` 사용자 사전 생성 완료
-- 사용자 상태 `active` 확인
-- 거래소 키 등록 전 승인 정책 결정
-- manager 필요 시 `manager_email` 설정 완료
-- 동일 이메일 Supabase Auth 계정 생성 완료
-- 로그인 및 MFA 동작 실증 완료
-
-## 7. 문서 위치
-
-- 전체 소개/배포: [README.md](/E:/apps/supabot/README.md)
-- manager 배포/운영: [manager/README.md](/E:/apps/supabot/manager/README.md)
+- **전체 시스템 개요**: [README.md](file:///E:/apps/supabot/README.md)
+- **거래소 API 키 발급 가이드**: [103_exchange_api_setup.md](file:///E:/apps/supabot/docs/103_exchange_api_setup.md)
+- **사용자 관리자 모듈**: [203_user_manager.md](file:///E:/apps/supabot/docs/203_user_manager.md)
+- **웹 대시보드 매뉴얼**: [manager/README.md](file:///E:/apps/supabot/manager/README.md)
