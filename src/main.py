@@ -458,37 +458,46 @@ def _extract_order_submit_failure_reason(res):
     return None
 
 
-def _find_linked_sell_order(buy_uuid):
-    """주어진 rsitrade 매수 주문에 연동된 익절매도 주문(reorder_of==buy_uuid)을 찾는다.
+def _find_linked_sell_orders(buy_uuid: str) -> list[dict]:
+    """주어진 rsitrade 매수 주문에 연동된 모든 익절매도 주문(reorder_of==buy_uuid) 목록을 반환한다."""
+    return [o for o in order_manager.orders if o.get("strategy") == "rsitrade_sell" and o.get("reorder_of") == buy_uuid]
 
-    add_order(매도 생성)와 update_order_fill(매수 체결 기록)은 둘 다 fire-and-forget DB
-    쓰기라 그 사이 크래시 시 DB엔 매도 주문만 남고 매수의 filled_volume은 갱신되지 않을 수
-    있다(M4). 재시작/재폴링 시 같은 체결을 다시 감지해도 이미 매도 주문이 존재하면 중복
-    발행하지 않도록 reorder_of를 매수-매도 연결 키로 사용한다.
-    """
-    for o in order_manager.orders:
-        if o.get("strategy") == "rsitrade_sell" and o.get("reorder_of") == buy_uuid:
-            return o
-    return None
+
+def _find_linked_sell_order(buy_uuid: str) -> dict | None:
+    """하위 호환성을 위한 단수형 조회 함수."""
+    sells = _find_linked_sell_orders(buy_uuid)
+    return sells[0] if sells else None
 
 
 async def _create_linked_sell_order(application, ord, exec_vol, state):
     """rsitrade 매수 체결 시 연동된 익절매도 주문을 생성한다.
 
     sync_orders의 정상 처리 경로와 startup_recovery의 크래시 복구 경로가 동일 로직을
-    공유한다. 생성 전 _find_linked_sell_order로 멱등성을 확인해, 직전 실행이 매도 주문
-    생성까지는 마쳤으나 매수 체결 기록(filled_volume) 갱신 전에 죽은 경우에도 매도를
-    중복 발행하지 않고 매수의 filled_volume만 동기화한다.
+    공유한다. 부분 체결이 여러 번에 걸쳐 일어나는 경우에도 이미 발행된 매도 주문 수량 합계를
+    계산해 아직 매도가 발행되지 않은 추가 체결분에 대해 익절 주문을 정상 발행한다.
+    크래시 복구 시에는 이미 체결량만큼 매도 주문이 발행되어 있으면 중복 발행 없이
+    매수의 filled_volume만 동기화한다 (멱등성 보장).
 
-    Returns: "created" | "exists" | "no_price" | "zero_volume" | "failed"
+    Returns: "created" | "exists" | "no_price" | "zero_volume" | "failed" | "external_sold"
     """
     user_id = ord["user_id"]
     exchange = ord["exchange"]
     ticker = ord["ticker"]
-    newly_filled = exec_vol - ord["filled_volume"]
+    exec_vol_float = float(exec_vol)
 
-    if _find_linked_sell_order(ord["uuid"]):
-        order_manager.update_order_fill(ord["uuid"], exec_vol, state)
+    # 1. 이미 해당 매수 주문에 연동되어 발행된 매도 주문들의 수량 합산
+    linked_sells = _find_linked_sell_orders(ord["uuid"])
+    existing_sell_vol = sum(float(s.get("volume", 0.0)) for s in linked_sells)
+
+    # 이미 전체 체결량 이상의 매도 주문이 발행되어 있다면 (직전 크래시 후 재동기화 등) 중복 발행 방지
+    if existing_sell_vol >= exec_vol_float:
+        order_manager.update_order_fill(ord["uuid"], exec_vol_float, state)
+        return "exists"
+
+    # 아직 매도 주문이 발행되지 않은 잔여 체결 수량 계산
+    needed_sell_vol = exec_vol_float - existing_sell_vol
+    if needed_sell_vol <= 0:
+        order_manager.update_order_fill(ord["uuid"], exec_vol_float, state)
         return "exists"
 
     target_rsi = resolve_linked_rsi_target(ord["linked_to"])
@@ -505,7 +514,7 @@ async def _create_linked_sell_order(application, ord, exec_vol, state):
         return "no_price"
 
     ex = exchange_adapter.get_exchange(exchange)
-    sell_volume = ex.round_volume(newly_filled)
+    sell_volume = ex.round_volume(needed_sell_vol)
     if ex.requires_integer_volume() and sell_volume <= 0:
         return "zero_volume"
 
@@ -527,7 +536,7 @@ async def _create_linked_sell_order(application, ord, exec_vol, state):
                         avail_vol = float(b.get("balance", 0.0) or 0.0)
                         break
             if avail_vol < sell_volume:
-                order_manager.update_order_fill(ord["uuid"], exec_vol, state)
+                order_manager.update_order_fill(ord["uuid"], exec_vol_float, state)
                 await application.bot.send_message(
                     chat_id=user_id,
                     text=f"⚠️ [{exchange.upper()}] {ticker} 잔고 부족 (보유: {avail_vol:g}개 / 필요: {sell_volume:g}개)\n"
@@ -547,11 +556,11 @@ async def _create_linked_sell_order(application, ord, exec_vol, state):
                              side="ask", strategy="rsitrade_sell", target_rsi=target_rsi,
                              stop_price=stop_price, group_no=ord.get("group_no"),
                              reorder_of=ord["uuid"])
-    order_manager.update_order_fill(ord["uuid"], exec_vol, state)
+    order_manager.update_order_fill(ord["uuid"], exec_vol_float, state)
     await application.bot.send_message(
         chat_id=user_id,
         text=f"✅ [{ticker}] 매수 체결 및 익절 예약 완료\n"
-             f"• 체결: {newly_filled:.4f}개\n"
+             f"• 체결: {needed_sell_vol:.4f}개\n"
              f"• 익절가: {sell_price:,.0f}원 (RSI {target_rsi} 목표)",
     )
     return "created"
@@ -656,7 +665,7 @@ async def _handle_market_closed(ord: dict, ex_obj) -> bool:
     return False
 
 
-async def _submit_reserved_or_reorder(application, ord: dict, ex_obj) -> bool:
+async def _submit_reserved_or_reorder(application, ord: dict, ex_obj, ticker_cache: dict = None) -> bool:
     """예약/재주문 상태의 주문을 거래소에 제출. 처리된 경우 True를 반환."""
     if not (getattr(ex_obj, "supports_reserved_orders", False) and ord.get("status") in ("pending_reorder", "reserved")):
         return False
@@ -688,7 +697,12 @@ async def _submit_reserved_or_reorder(application, ord: dict, ex_obj) -> bool:
     is_kr_stock = (exchange == "kis") or (exchange == "toss" and not getattr(ex_obj, "is_us_stock", lambda t: False)(ticker))
     if is_kr_stock:
         try:
-            ticker_info = await ex_obj.get_ticker(ticker, user_id=user_id)
+            cache_key = f"{exchange}:{ticker}:{user_id}"
+            ticker_info = ticker_cache.get(cache_key) if ticker_cache is not None else None
+            if ticker_info is None:
+                ticker_info = await ex_obj.get_ticker(ticker, user_id=user_id)
+                if ticker_cache is not None and ticker_info:
+                    ticker_cache[cache_key] = ticker_info
             if ticker_info:
                 upper_limit = ticker_info.get("upper_limit_price")
                 lower_limit = ticker_info.get("lower_limit_price")
@@ -929,8 +943,6 @@ async def _process_order_fill(application, ord: dict, res: dict, ex_obj) -> None
     elif state != ord.get("status"):
         order_manager.update_order_status(ord['uuid'], state)
 
-    await asyncio.sleep(0.2)
-
 
 async def _handle_cancel_requested(application, ord: dict, ex_obj) -> None:
     """Manager가 요청한 취소를 수행한다.
@@ -994,6 +1006,7 @@ async def sync_orders(application):
     initial_state = [(o['uuid'], o.get('status'), o.get('filled_volume'), o.get('stop_price')) for o in order_manager.orders]
     all_orders = list(order_manager.orders)
     price_cache = {}
+    ticker_cache = {}
     now_ts = time.time()
 
     # 1. 1차 필터링: 유효하지 않거나 예약/재주문 제출 대상 선별
@@ -1020,7 +1033,7 @@ async def sync_orders(application):
         if await _handle_market_closed(ord, ex_obj):
             continue
 
-        if await _submit_reserved_or_reorder(application, ord, ex_obj):
+        if await _submit_reserved_or_reorder(application, ord, ex_obj, ticker_cache=ticker_cache):
             continue
 
         orders_to_query.append((ord, ex_obj))

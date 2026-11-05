@@ -29,8 +29,13 @@ class OrderManager:
     def __init__(self, file_path="data/orders.json"):
         self.file_path = file_path
         self.orders = self._load_orders()
-        self._uuid_set = {o["uuid"] for o in self.orders}
+        self._orders_by_uuid = {o["uuid"]: o for o in self.orders}
+        self._uuid_set = set(self._orders_by_uuid.keys())
         self.on_order_added = None
+
+    def get_order(self, uuid: str) -> dict | None:
+        """O(1) 단일 주문 조회."""
+        return self._orders_by_uuid.get(uuid)
 
     def has_order(self, uuid) -> bool:
         """O(1) 멤버십 조회. sync_orders 등 핫 경로의 O(N) 재스캔을 대체한다."""
@@ -89,7 +94,8 @@ class OrderManager:
             return False
         try:
             self.orders = self._fetch_all_orders()
-            self._uuid_set = {o["uuid"] for o in self.orders}
+            self._orders_by_uuid = {o["uuid"]: o for o in self.orders}
+            self._uuid_set = set(self._orders_by_uuid.keys())
             _log.info("Reloaded orders from DB", extra={"event": "orders_reloaded_db", "count": len(self.orders)})
             return True
         except Exception as e:
@@ -128,7 +134,8 @@ class OrderManager:
             async with self.lock:
                 new_orders = await self._fetch_all_orders_async()
                 self.orders = new_orders
-                self._uuid_set = {o["uuid"] for o in self.orders}
+                self._orders_by_uuid = {o["uuid"]: o for o in self.orders}
+                self._uuid_set = set(self._orders_by_uuid.keys())
             _log.info("Reloaded orders from DB (async)", extra={"event": "orders_reloaded_db_async", "count": len(self.orders)})
             return True
         except Exception as e:
@@ -233,52 +240,36 @@ class OrderManager:
             "auto_reorder": bool(auto_reorder),
         }
         self.orders.append(order)
+        self._orders_by_uuid[order["uuid"]] = order
         self._uuid_set.add(order["uuid"])
         self._db_upsert(order)
         if self.on_order_added:
             self.on_order_added()
 
+    def update_order(self, uuid: str, **fields) -> bool:
+        """O(1) 단일 주문 속성 갱신 및 DB 저장."""
+        o = self._orders_by_uuid.get(uuid)
+        if not o:
+            return False
+        o.update(fields)
+        self._db_upsert(o)
+        return True
+
     def update_order_fill(self, uuid, filled_volume, status):
-        for o in self.orders:
-            if o["uuid"] == uuid:
-                o["filled_volume"] = float(filled_volume)
-                o["status"] = status
-                self._db_upsert(o)
-                return True
-        return False
+        return self.update_order(uuid, filled_volume=float(filled_volume), status=status)
 
     def update_order_status(self, uuid, status):
-        for o in self.orders:
-            if o["uuid"] == uuid:
-                o["status"] = status
-                self._db_upsert(o)
-                return True
-        return False
+        return self.update_order(uuid, status=status)
 
     def update_order_stop_price(self, uuid, stop_price):
-        for o in self.orders:
-            if o["uuid"] == uuid:
-                o["stop_price"] = float(stop_price) if stop_price is not None else None
-                self._db_upsert(o)
-                return True
-        return False
+        sp = float(stop_price) if stop_price is not None else None
+        return self.update_order(uuid, stop_price=sp)
 
     def mark_reorder_pending(self, uuid, next_check_at):
-        for o in self.orders:
-            if o["uuid"] == uuid:
-                o["status"] = "pending_reorder"
-                o["next_check_at"] = float(next_check_at)
-                self._db_upsert(o)
-                return True
-        return False
+        return self.update_order(uuid, status="pending_reorder", next_check_at=float(next_check_at))
 
     def update_next_check_at(self, uuid, next_check_at):
-        for o in self.orders:
-            if o["uuid"] == uuid:
-                o["next_check_at"] = float(next_check_at)
-                self._db_upsert(o)
-                return True
-        return False
+        return self.update_order(uuid, next_check_at=float(next_check_at))
 
     def _db_replace(self, order: dict, old_uuid: str):
         if not is_db_available():
@@ -328,17 +319,19 @@ class OrderManager:
                 self._save_orders_to_file()
 
     def replace_order_uuid(self, old_uuid, new_uuid):
-        for o in self.orders:
-            if o["uuid"] == old_uuid:
-                self._uuid_set.discard(old_uuid)
-                self._uuid_set.add(new_uuid)
-                o["reorder_of"] = old_uuid
-                o["uuid"] = new_uuid
-                o["status"] = "wait"
-                o["next_check_at"] = 0.0
-                o["created_at"] = time.time()
-                self._db_replace(o, old_uuid)
-                return True
+        o = self._orders_by_uuid.get(old_uuid)
+        if o:
+            self._uuid_set.discard(old_uuid)
+            self._orders_by_uuid.pop(old_uuid, None)
+            self._uuid_set.add(new_uuid)
+            self._orders_by_uuid[new_uuid] = o
+            o["reorder_of"] = old_uuid
+            o["uuid"] = new_uuid
+            o["status"] = "wait"
+            o["next_check_at"] = 0.0
+            o["created_at"] = time.time()
+            self._db_replace(o, old_uuid)
+            return True
         return False
 
     def remove_order(self, uuid, save=True):
@@ -346,6 +339,7 @@ class OrderManager:
         self.orders = [o for o in self.orders if o["uuid"] != uuid]
         removed = len(self.orders) != before
         self._uuid_set.discard(uuid)
+        self._orders_by_uuid.pop(uuid, None)
         if removed and save:
             self._db_delete(uuid)
         return removed
@@ -387,6 +381,7 @@ class OrderManager:
         self.orders = [o for o in self.orders if o["user_id"] != user_id]
         for u in uuids:
             self._uuid_set.discard(u)
+            self._orders_by_uuid.pop(u, None)
         if not is_db_available():
             self._save_orders_to_file()
         return len(uuids)
