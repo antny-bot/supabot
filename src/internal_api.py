@@ -576,6 +576,12 @@ async def _internal_get_balances_handler(request: _web.Request) -> _web.Response
             return _web.Response(status=400, text="user_id and exchange required")
 
         balances = await _exchange_adapter.get_balances(user_id, exchange)
+        if balances is None:
+            return _web.Response(
+                text=_json.dumps({"ok": False, "exchange": exchange, "error": "Failed to fetch balances from exchange"}),
+                content_type="application/json",
+                status=502,
+            )
         cash_krw = 0.0
         if balances:
             if exchange in ("kis", "toss"):

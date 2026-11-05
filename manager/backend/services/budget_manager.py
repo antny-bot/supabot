@@ -546,7 +546,8 @@ async def reset_budget_plan(
 def check_exchange_budget_health(
     exchange: str,
     templates: list[dict],
-    actual_cash_krw: float,
+    actual_cash_krw: Optional[float] = None,
+    balance_available: bool = True,
 ) -> dict:
     """거래소별 Active 멀티 전략 통합 필요 예산 집계 및 실계좌 순수 현금 예수금 대조."""
     ex_upper = exchange.upper()
@@ -619,24 +620,33 @@ def check_exchange_budget_health(
             "carryover_budget": c_budget,
         })
 
-    # 부동소수점 미세 오차(1원 미만)로 인한 잘못된 SHORTAGE 판정 방지 (정수 단위 비교)
-    daily_shortfall = max(0.0, round(daily_req_total) - round(actual_cash_krw))
-    monthly_shortfall = max(0.0, round(monthly_rem_req_total) - round(actual_cash_krw))
-
-    if daily_shortfall >= 1.0:
-        health_grade = "SHORTAGE"
-        health_message = f"🚨 당일 실행 위해 최소 +{int(daily_shortfall):,}원 즉시 입금 필요"
-    elif monthly_shortfall >= 1.0:
-        health_grade = "WARNING"
-        health_message = f"당일 가능 · 월말 완주 위해 +{int(monthly_shortfall):,}원 추가 입금 필요"
+    # 거래소 잔고 조회 실패(통신 에러/점검) 시 0원으로 오판하지 않고 UNKNOWN 상태 안내
+    if not balance_available or actual_cash_krw is None:
+        health_grade = "UNKNOWN"
+        health_message = "⚠️ 거래소 잔고 조회 실패 (네트워크 연결/API 점검 확인 필요)"
+        daily_shortfall = 0.0
+        monthly_shortfall = 0.0
+        effective_cash = 0.0
     else:
-        health_grade = "HEALTHY"
-        surplus = max(0.0, round(actual_cash_krw) - round(monthly_rem_req_total))
-        health_message = f"충분 (여유 +{int(surplus):,}원)"
+        effective_cash = actual_cash_krw
+        daily_shortfall = max(0.0, round(daily_req_total) - round(effective_cash))
+        monthly_shortfall = max(0.0, round(monthly_rem_req_total) - round(effective_cash))
+
+        if daily_shortfall >= 1.0:
+            health_grade = "SHORTAGE"
+            health_message = f"🚨 당일 실행 위해 최소 +{int(daily_shortfall):,}원 즉시 입금 필요"
+        elif monthly_shortfall >= 1.0:
+            health_grade = "WARNING"
+            health_message = f"당일 가능 · 월말 완주 위해 +{int(monthly_shortfall):,}원 추가 입금 필요"
+        else:
+            health_grade = "HEALTHY"
+            surplus = max(0.0, round(effective_cash) - round(monthly_rem_req_total))
+            health_message = f"충분 (여유 +{int(surplus):,}원)"
 
     return {
         "exchange": ex_upper,
         "actual_cash_krw": actual_cash_krw,
+        "balance_available": balance_available and (actual_cash_krw is not None),
         "health_grade": health_grade,
         "health_message": health_message,
         "daily_required_krw": daily_req_total,

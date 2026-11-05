@@ -321,7 +321,7 @@ class TossExchange(RegularSessionExchange):
 
     async def get_balances(self, user_id, client):
         res = await self.adapter._request_toss(user_id, "GET", "/api/v1/holdings")
-        if not isinstance(res, dict):
+        if not isinstance(res, dict) or "result" not in res:
             return None
         result = res.get("result", {})
         items = result.get("items", [])
@@ -329,9 +329,9 @@ class TossExchange(RegularSessionExchange):
         market_value_krw = float(mv.get("krw") or 0)
 
         bp_res = await self.adapter._request_toss(user_id, "GET", "/api/v1/buying-power", params={"currency": "KRW"})
-        cash_krw = 0.0
-        if isinstance(bp_res, dict):
-            cash_krw = float((bp_res.get("result") or {}).get("cashBuyingPower") or 0)
+        if not isinstance(bp_res, dict) or "result" not in bp_res:
+            return None
+        cash_krw = float((bp_res.get("result") or {}).get("cashBuyingPower") or 0)
 
         stocks = []
         for item in items:

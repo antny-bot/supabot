@@ -90,7 +90,8 @@ async def api_get_budget_health(
 
         # 실계좌 예수금 조회 (미수 제외 순수 현금)
         # 봇의 /internal/get_balances 웹훅을 통해 실계좌 잔고 조회
-        actual_cash_krw = 0.0
+        actual_cash_krw = None
+        balance_available = False
         try:
             from ..bot_client import get_exchange_balances
             target_uid = bot_user_id
@@ -104,6 +105,7 @@ async def api_get_budget_health(
                 res = await get_exchange_balances(str(target_uid), exchange.lower())
                 if res and res.get("ok"):
                     actual_cash_krw = float(res.get("cash", 0.0) or 0.0)
+                    balance_available = True
         except Exception:
             pass
 
@@ -111,6 +113,7 @@ async def api_get_budget_health(
             exchange=exchange,
             templates=templates,
             actual_cash_krw=actual_cash_krw,
+            balance_available=balance_available,
         )
         return JSONResponse({"ok": True, "data": health})
     except Exception as e:
