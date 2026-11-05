@@ -5,6 +5,7 @@
 import logging
 import math
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 from ..db import get_db
 
