@@ -162,13 +162,15 @@ class SignalEngine:
         return RSIIndicator(period=period).compute_with_next(close_series, next_close)
 
     def _search_price_for_target_rsi(self, close_series, current_price, current_rsi, target_rsi, side, period):
-        # 1. 고속 대수적 역산 (Wilder's Smoothing Inverse) 시도
-        try:
-            if side == "bid" and target_rsi >= current_rsi:
-                return current_price
-            if side == "ask" and target_rsi <= current_rsi:
-                return current_price
+        if side == "bid" and target_rsi >= current_rsi:
+            return current_price
+        if side == "ask" and target_rsi <= current_rsi:
+            return current_price
 
+        # 1. 고속 대수적 역산으로 초기 추정치(Initial Guess) 도출
+        est_price = None
+        check_rsi = None
+        try:
             diffs = close_series.diff().dropna()
             gains = diffs.clip(lower=0)
             losses = (-diffs.clip(upper=0))
@@ -181,39 +183,49 @@ class SignalEngine:
             if side == "bid":
                 req_loss = ((period - 1) * avg_gain) / target_rs - (period - 1) * avg_loss
                 if req_loss > 0:
-                    est_price = current_price - req_loss
-                    if 0 < est_price <= current_price:
+                    cand = current_price - req_loss
+                    if 0 < cand <= current_price:
+                        est_price = cand
                         check_rsi = self._calculate_rsi_for_next_close(close_series, est_price, period)
-                        if abs(check_rsi - target_rsi) <= 1.0:
+                        if abs(check_rsi - target_rsi) <= 0.2:
                             return est_price
             else:
                 req_gain = target_rs * (period - 1) * avg_loss - (period - 1) * avg_gain
                 if req_gain > 0:
-                    est_price = current_price + req_gain
-                    if est_price >= current_price:
+                    cand = current_price + req_gain
+                    if cand >= current_price:
+                        est_price = cand
                         check_rsi = self._calculate_rsi_for_next_close(close_series, est_price, period)
-                        if abs(check_rsi - target_rsi) <= 1.0:
+                        if abs(check_rsi - target_rsi) <= 0.2:
                             return est_price
         except Exception as e:
             _log.debug("RSI algebraic inverse failed: %s", e)
 
-        # 2. 안전 폴백: 이분 탐색 (무한 루프 방지 및 경계 한도)
+        # 2. 고속 수렴 이분 탐색 (초기 추정치가 있으면 그 범위를 바운드로 삼아 즉각 수렴)
         if side == "bid":
-            if target_rsi >= current_rsi:
-                return current_price
-            high = current_price
-            low = current_price * 0.98
             low_limit = max(current_price * 1e-4, 1e-8)
+            if est_price is not None and check_rsi is not None:
+                if check_rsi <= target_rsi:
+                    low = max(est_price * 0.9, low_limit)
+                    high = current_price
+                else:
+                    low = max(est_price * 0.5, low_limit)
+                    high = est_price
+            else:
+                low = current_price * 0.5
+                high = current_price
+
             low_rsi = self._calculate_rsi_for_next_close(close_series, low, period)
             iterations = 0
-            while low > low_limit and low_rsi > target_rsi and iterations < 200:
-                low *= 0.98
+            while low > low_limit and low_rsi > target_rsi and iterations < 15:
+                low *= 0.5
                 low_rsi = self._calculate_rsi_for_next_close(close_series, low, period)
                 iterations += 1
             if low_rsi > target_rsi:
                 _log.debug("Target RSI %s unreachable for bid within bounds", target_rsi)
                 return None
-            for _ in range(24):
+
+            for _ in range(16):
                 mid = (low + high) / 2
                 mid_rsi = self._calculate_rsi_for_next_close(close_series, mid, period)
                 if mid_rsi <= target_rsi:
@@ -222,21 +234,29 @@ class SignalEngine:
                     high = mid
             return low
 
-        if target_rsi <= current_rsi:
-            return current_price
-        low = current_price
-        high = current_price * 1.02
         high_limit = current_price * 10.0
+        if est_price is not None and check_rsi is not None:
+            if check_rsi >= target_rsi:
+                low = current_price
+                high = min(est_price * 1.1, high_limit)
+            else:
+                low = est_price
+                high = min(est_price * 1.5, high_limit)
+        else:
+            low = current_price
+            high = current_price * 1.5
+
         high_rsi = self._calculate_rsi_for_next_close(close_series, high, period)
         iterations = 0
-        while high < high_limit and high_rsi < target_rsi and iterations < 200:
-            high *= 1.02
+        while high < high_limit and high_rsi < target_rsi and iterations < 15:
+            high *= 1.5
             high_rsi = self._calculate_rsi_for_next_close(close_series, high, period)
             iterations += 1
         if high_rsi < target_rsi:
             _log.debug("Target RSI %s unreachable for ask within bounds", target_rsi)
             return None
-        for _ in range(24):
+
+        for _ in range(16):
             mid = (low + high) / 2
             mid_rsi = self._calculate_rsi_for_next_close(close_series, mid, period)
             if mid_rsi >= target_rsi:
@@ -245,15 +265,18 @@ class SignalEngine:
                 low = mid
         return high
 
-    async def get_prices_by_rsi(self, exchange, ticker, target_rsis: list[float], side="bid", interval="day", period=14, user_id=None) -> list[float | None]:
+    async def get_prices_by_rsi(self, exchange, ticker, target_rsis: list[float], side="bid", interval="day", period=14, user_id=None, _precomputed=None) -> list[float | None]:
         """Estimate prices for multiple RSI targets by fetching candles once (P1 batch)."""
-        current_rsi, df = await self.get_rsi(
-            exchange,
-            ticker,
-            interval=interval,
-            period=period,
-            user_id=user_id,
-        )
+        if _precomputed is not None:
+            current_rsi, df = _precomputed
+        else:
+            current_rsi, df = await self.get_rsi(
+                exchange,
+                ticker,
+                interval=interval,
+                period=period,
+                user_id=user_id,
+            )
         if current_rsi is None or df is None or len(df) < period:
             return [None] * len(target_rsis)
 
@@ -285,40 +308,13 @@ class SignalEngine:
         return prices
 
     async def get_price_by_rsi(self, exchange, ticker, target_rsi, side="bid", interval="day", period=14, user_id=None, _precomputed=None):
-        """Estimate the next-close price that would place RSI near the target."""
-        if _precomputed is not None:
-            current_rsi, df = _precomputed
-        else:
-            current_rsi, df = await self.get_rsi(
-                exchange,
-                ticker,
-                interval=interval,
-                period=period,
-                user_id=user_id,
-            )
-        if current_rsi is None or df is None or len(df) < period:
-            return None
-
-        close_series = df["close"].astype(float).reset_index(drop=True)
-        current_price = float(close_series.iloc[-1])
-        target_price = self._search_price_for_target_rsi(
-            close_series,
-            current_price,
-            float(current_rsi),
-            float(target_rsi),
-            side,
-            period,
+        """Estimate the next-close price that would place RSI near the target (delegates to get_prices_by_rsi)."""
+        prices = await self.get_prices_by_rsi(
+            exchange, ticker, [target_rsi],
+            side=side, interval=interval, period=period,
+            user_id=user_id, _precomputed=_precomputed,
         )
-        if target_price is None:
-            return None
-
-        buffer = 0.001
-        if side == "bid":
-            target_price *= 1 - buffer
-        else:
-            target_price *= 1 + buffer
-
-        return self.exchange_adapter.get_exchange(exchange).adjust_price_to_tick(target_price, ticker)
+        return prices[0] if prices else None
 
     async def analyze_watchlist(self, application):
         """Scan watchlists and send alerts based on RSI and (optionally) Bollinger Bands."""

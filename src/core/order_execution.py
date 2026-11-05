@@ -10,6 +10,7 @@ _internal_execute_rsitrade_handler / sgridrsi_confirm_callback 에
 """
 import inspect
 import asyncio
+import os
 import uuid as _uuid
 
 from core.parsers import interpolate_range, parse_rsi_range, get_user_rsi_interval
@@ -17,7 +18,7 @@ from core.bot_logger import get_logger
 
 _log = get_logger("order_execution")
 
-ORDER_PLACEMENT_SLEEP_SECONDS = 0.2
+ORDER_PLACEMENT_SLEEP_SECONDS = float(os.getenv("ORDER_PLACEMENT_SLEEP_SECONDS", "0.2"))
 
 # fire-and-forget 태스크 강한 참조 보관 (asyncio weak-ref GC로 유실 방지).
 _bg_tasks: set = set()
@@ -40,6 +41,7 @@ async def _send_result_message(bot, notify_chat_id, text, log):
 async def _execute_order_batch(
     *, exchange_adapter, order_manager, user_id, exchange, ticker,
     group_no, count, leg_fn, is_reserved, log, template_id=None,
+    bot=None, notify_chat_id=None,
 ):
     """grid/rsitrade/sgridrsi가 공유하는 주문 발행 루프.
 
@@ -55,11 +57,13 @@ async def _execute_order_batch(
     for i in range(count):
         leg = await leg_fn(i)
         if leg is None:
-            await asyncio.sleep(ORDER_PLACEMENT_SLEEP_SECONDS)
+            if ORDER_PLACEMENT_SLEEP_SECONDS > 0:
+                await asyncio.sleep(ORDER_PLACEMENT_SLEEP_SECONDS)
             continue
         if leg.get("skip"):
             skipped += 1
-            await asyncio.sleep(ORDER_PLACEMENT_SLEEP_SECONDS)
+            if ORDER_PLACEMENT_SLEEP_SECONDS > 0:
+                await asyncio.sleep(ORDER_PLACEMENT_SLEEP_SECONDS)
             continue
 
         try:
@@ -105,10 +109,25 @@ async def _execute_order_batch(
                             log.info("ORPHAN ORDER ROLLBACK: 거래소 고아 주문 취소 성공", extra={"uuid": res["uuid"]})
                         else:
                             log.error("ORPHAN ORDER ROLLBACK FAILED: 거래소 고아 주문 취소 실패 — 수동 확인 필요", extra={"uuid": res["uuid"]})
+                            if bot and notify_chat_id:
+                                await _send_result_message(
+                                    bot, notify_chat_id,
+                                    f"🚨 [고아 주문 발생] {ticker} {leg['side']} 주문({res['uuid']})이 거래소에 접수되었으나 "
+                                    f"봇 추적 등록 및 취소 롤백에 실패했습니다. 즉시 거래소에서 확인 후 수동 조치해 주세요.",
+                                    log,
+                                )
                     except Exception as cancel_err:
                         log.error("ORPHAN ORDER ROLLBACK EXCEPTION: 취소 시도 중 예외 발생", exc_info=cancel_err, extra={"uuid": res["uuid"]})
+                        if bot and notify_chat_id:
+                            await _send_result_message(
+                                bot, notify_chat_id,
+                                f"🚨 [고아 주문 발생] {ticker} {leg['side']} 주문({res['uuid']}) 취소 시도 중 예외가 발생했습니다. "
+                                f"즉시 거래소에서 확인 후 수동 조치해 주세요.",
+                                log,
+                            )
 
-        await asyncio.sleep(ORDER_PLACEMENT_SLEEP_SECONDS)
+        if ORDER_PLACEMENT_SLEEP_SECONDS > 0:
+            await asyncio.sleep(ORDER_PLACEMENT_SLEEP_SECONDS)
 
     return success, skipped
 
@@ -170,7 +189,7 @@ async def execute_grid_orders(
         exchange_adapter=exchange_adapter, order_manager=order_manager,
         user_id=user_id, exchange=exchange, ticker=ticker,
         group_no=group_no, count=count, leg_fn=leg_fn, is_reserved=is_reserved, log=log,
-        template_id=template_id,
+        template_id=template_id, bot=bot, notify_chat_id=notify_chat_id,
     )
 
     action_name = "매도" if is_sell else "매수"
@@ -259,7 +278,7 @@ async def execute_rsitrade_orders(
         exchange_adapter=exchange_adapter, order_manager=order_manager,
         user_id=user_id, exchange=exchange, ticker=ticker,
         group_no=group_no, count=count, leg_fn=leg_fn, is_reserved=is_reserved, log=log,
-        template_id=template_id,
+        template_id=template_id, bot=bot, notify_chat_id=notify_chat_id,
     )
 
     if is_reserved:
@@ -341,7 +360,7 @@ async def execute_sgridrsi_orders(
         exchange_adapter=exchange_adapter, order_manager=order_manager,
         user_id=user_id, exchange=exchange, ticker=ticker,
         group_no=group_no, count=count, leg_fn=leg_fn, is_reserved=is_reserved, log=log,
-        template_id=template_id,
+        template_id=template_id, bot=bot, notify_chat_id=notify_chat_id,
     )
 
     if is_reserved:
