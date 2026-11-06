@@ -122,6 +122,7 @@ def is_strategy_order(order):
         or strategy.startswith("grid")
         or strategy.startswith("sgrid")
         or strategy.startswith("dca")
+        or strategy.startswith("kospi_top")
     )
 
 

@@ -441,15 +441,15 @@ async def run_strategy_progression(
                             # 봇의 거래소 취소 확정 전에는 체결 가능성이 있으므로 환불하지 않고 이월
                             deferred_pending_buys.append(pb)
                             continue
-                        # cancel, failed, rejected, market_closed(장마감 실효) 등 미체결 상태
-                        if st in ("cancel", "failed", "rejected", "market_closed"):
+                        # cancel, failed, rejected, market_closed(장마감 실효), pending_reorder/reserved(전일 미체결 잔류) 등 미체결 상태
+                        if st in ("cancel", "failed", "rejected", "market_closed", "pending_reorder", "reserved"):
                             pb["filled_volume"] = float(s_info.get("filled_volume", 0.0))
                             cancelled.append(pb)
-                            if st == "market_closed":
+                            if st in ("market_closed", "pending_reorder", "reserved"):
                                 try:
-                                    await db.table("orders").update({"status": "cancel"}).eq("uuid", s_info["uuid"]).execute()
+                                    await db.table("orders").delete().eq("uuid", s_info["uuid"]).execute()
                                 except Exception as e:
-                                    logger.warning(f"Failed to mark market_closed order as cancel: {e}")
+                                    logger.warning(f"Failed to clean up stale order ({st}): {e}")
                     else:
                         # orders 테이블에 행이 없는 경우: trade_logs에 체결 내역이 있는지 대조
                         key = (pb.get("group_no"), c_code)

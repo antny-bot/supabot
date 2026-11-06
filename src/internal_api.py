@@ -339,6 +339,38 @@ async def _internal_sync_order_handler(request: _web.Request) -> _web.Response:
         exchange = data["exchange"]
         uuid = data["uuid"]
         ticker = data["ticker"]
+
+        await _order_manager.reload_from_db_async()
+        ord_obj = None
+        for o in _order_manager.orders:
+            if o["uuid"] == uuid:
+                ord_obj = o
+                break
+
+        if ord_obj and ord_obj.get("status") in ("reserved", "pending_reorder"):
+            ex_obj = _exchange_adapter.get_exchange(exchange)
+            if exchange == "toss" and str(ticker).isdigit():
+                await _exchange_adapter.ensure_toss_kr_calendar(user_id)
+            if ex_obj and ex_obj.is_market_open(ticker) and getattr(ex_obj, "is_order_placement_allowed", lambda t: True)(ticker):
+                import main
+                from core.order_sync import _submit_reserved_or_reorder
+                bot_app = request.app.get("bot_application")
+                if bot_app:
+                    await _submit_reserved_or_reorder(bot_app, ord_obj, ex_obj)
+                    await trigger_realtime_sync()
+                    return _web.Response(
+                        text=_json.dumps({"ok": True, "source": "reserved_submit", "state": "wait", "executed": 0.0}),
+                        content_type="application/json"
+                    )
+            _order_manager.update_next_check_at(uuid, 0)
+            return _web.Response(
+                text=_json.dumps({
+                    "ok": False,
+                    "error": "아직 거래소에 발주되지 않은 예약 대기 주문입니다. 정규장 시간에 자동으로 발주됩니다.",
+                }),
+                content_type="application/json"
+            )
+
         status_info = await _exchange_adapter.get_order_status(user_id, exchange, uuid, ticker)
         if status_info:
             state = status_info["state"]
@@ -348,11 +380,11 @@ async def _internal_sync_order_handler(request: _web.Request) -> _web.Response:
                 if state == "done":
                     from core.trade_log import is_trade_logged
                     if not is_trade_logged(uuid):
-                        ord_obj = None
-                        for o in _order_manager.orders:
-                            if o["uuid"] == uuid:
-                                ord_obj = o
-                                break
+                        if not ord_obj:
+                            for o in _order_manager.orders:
+                                if o["uuid"] == uuid:
+                                    ord_obj = o
+                                    break
                         if ord_obj:
                             fee_amount = float(status_info.get("fee_amount") or 0.0)
                             extra_kw = {}

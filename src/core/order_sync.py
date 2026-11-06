@@ -433,7 +433,13 @@ async def _submit_reserved_or_reorder(application, ord: dict, ex_obj, ticker_cac
                      f"필요 시 수동으로 다시 주문해 주세요.",
             )
         else:
-            order_manager.update_next_check_at(ord["uuid"], ex_obj.next_check_timestamp(ticker))
+            if ex_obj.is_market_open(ticker):
+                retry_ts = time.time() + 60.0
+                retry_msg = "잠시 후 다시 시도합니다."
+            else:
+                retry_ts = ex_obj.next_check_timestamp(ticker)
+                retry_msg = "다음 정규장 체크 때 다시 시도합니다."
+            order_manager.update_next_check_at(ord["uuid"], retry_ts)
             _call_append_operational_event(
                 "warning",
                 "sync_orders",
@@ -442,7 +448,7 @@ async def _submit_reserved_or_reorder(application, ord: dict, ex_obj, ticker_cac
             )
             await application.bot.send_message(
                 chat_id=user_id,
-                text=f"⚠️ [{label}] {ticker} {order_kind} 주문 {action} 실패 ({fails}/{_REORDER_FAIL_LIMIT}){error_detail}\n다음 정규장 체크 때 다시 시도합니다.",
+                text=f"⚠️ [{label}] {ticker} {order_kind} 주문 {action} 실패 ({fails}/{_REORDER_FAIL_LIMIT}){error_detail}\n{retry_msg}",
             )
     return True
 
@@ -554,7 +560,12 @@ async def _process_order_fill(application, ord: dict, res: dict, ex_obj) -> None
 
     if state in ["done", "cancel"] and not keep_order_for_retry:
         if state == "cancel":
-            if getattr(ex_obj, "supports_reserved_orders", False) and (is_strategy_order(ord) or ord.get("auto_reorder")):
+            strategy_name = str(ord.get("strategy", ""))
+            if (
+                getattr(ex_obj, "supports_reserved_orders", False)
+                and (is_strategy_order(ord) or ord.get("auto_reorder"))
+                and not strategy_name.startswith("kospi_top")
+            ):
                 next_check = ex_obj.next_check_timestamp(ticker)
                 order_manager.mark_reorder_pending(ord['uuid'], next_check)
                 order_kind = "전략" if is_strategy_order(ord) else "자동 재주문 설정"
@@ -707,30 +718,32 @@ async def sync_orders(application):
         ticker = ord['ticker']
 
         if not res:
-            if getattr(ex_obj, "supports_reserved_orders", False) and (is_strategy_order(ord) or ord.get("auto_reorder")):
-                order_manager.mark_reorder_pending(ord["uuid"], ex_obj.next_check_timestamp(ticker))
-                order_kind = "전략" if is_strategy_order(ord) else "자동 재주문 설정"
-                await application.bot.send_message(
-                    chat_id=user_id,
-                    text=f"⏳ [{exchange_display_name(exchange)}] {ticker} {order_kind} 주문 확인이 불가하여 다음 정규장 재주문 대기로 전환합니다.",
-                )
-            elif getattr(ex_obj, "supports_reserved_orders", False):
+            if getattr(ex_obj, "supports_reserved_orders", False):
                 scf = _get_status_check_failures()
                 fails = scf.get(ord["uuid"], 0) + 1
                 if fails < _STATUS_CHECK_FAIL_LIMIT:
                     scf[ord["uuid"]] = fails
                     _call_append_operational_event(
                         "warning", "sync_orders",
-                        f"{exchange} manual order status check failed ({fails}/{_STATUS_CHECK_FAIL_LIMIT}), retrying",
+                        f"{exchange} order status check failed ({fails}/{_STATUS_CHECK_FAIL_LIMIT}), retrying",
                         ticker,
                     )
                 else:
                     scf.pop(ord["uuid"], None)
-                    order_manager.remove_order(ord["uuid"])
-                    await application.bot.send_message(
-                        chat_id=user_id,
-                        text=f"🛑 [{exchange_display_name(exchange)}] {ticker} 수동 주문 확인이 불가하여 추적을 종료합니다.\n자동 재주문은 하지 않습니다.",
-                    )
+                    strategy_name = str(ord.get("strategy", ""))
+                    if (is_strategy_order(ord) or ord.get("auto_reorder")) and not strategy_name.startswith("kospi_top"):
+                        order_manager.mark_reorder_pending(ord["uuid"], ex_obj.next_check_timestamp(ticker))
+                        order_kind = "전략" if is_strategy_order(ord) else "자동 재주문 설정"
+                        await application.bot.send_message(
+                            chat_id=user_id,
+                            text=f"⏳ [{exchange_display_name(exchange)}] {ticker} {order_kind} 주문 확인이 불가하여 다음 정규장 재주문 대기로 전환합니다.",
+                        )
+                    else:
+                        order_manager.remove_order(ord["uuid"])
+                        await application.bot.send_message(
+                            chat_id=user_id,
+                            text=f"🛑 [{exchange_display_name(exchange)}] {ticker} 주문 확인이 불가하여 추적을 종료합니다.\n자동 재주문은 하지 않습니다.",
+                        )
             else:
                 _call_append_operational_event("warning", "sync_orders", f"{exchange} get_order_status returned no result", ticker)
             continue

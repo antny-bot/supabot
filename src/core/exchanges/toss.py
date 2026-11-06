@@ -365,7 +365,8 @@ class TossExchange(RegularSessionExchange):
             "quantity": str(quantity),
         }
         if toss_order_type == "LIMIT":
-            body["price"] = str(price)
+            adj_price = self.adjust_price_to_tick(float(price), ticker)
+            body["price"] = str(adj_price) if self.is_us_stock(ticker) else str(int(adj_price))
         res = await self.adapter._request_toss(user_id, "POST", "/api/v1/orders", body=body)
         if isinstance(res, dict) and res.get("result", {}).get("orderId"):
             order_id = res["result"]["orderId"]

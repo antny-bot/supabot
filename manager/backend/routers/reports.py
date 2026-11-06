@@ -1528,9 +1528,9 @@ async def api_reports_top_rotation(
             dt = h_item.get("date", "")
             g_no = h_item.get("group_no")
             c_no = h_item.get("cycle_no", cycle_no)
-            buys = h_item.get("buy_orders", [])
-            sells = h_item.get("sell_orders", [])
-            snap = h_item.get("snapshot", [])
+            buys = h_item.get("buy_orders") or h_item.get("buys", [])
+            sells = h_item.get("sell_orders") or h_item.get("sells", [])
+            snap = h_item.get("snapshot") or h_item.get("top_list", [])
             w_next = h_item.get("waiting_next")
             cob = h_item.get("carryover_budget", 0.0)
 
