@@ -43,8 +43,8 @@ export const PAGE_META: Record<PageMetaKey, PageMeta> = {
     Icon: LayoutDashboard,
   },
   operations: {
-    title: '전략 운용 모니터링',
-    subtitle: '실행 중인 전략 On/Off 제어, 포지션 회전, 당일 체결 및 감사원장을 통합 모니터링합니다.',
+    title: '전략 운용',
+    subtitle: '자동매매 전략 생성·수정, 실시간 가동 제어 및 감사원장을 통합 관리합니다.',
     Icon: Activity,
   },
   orders: {
@@ -89,7 +89,6 @@ export const APP_NAV_ITEMS: NavItem[] = [
   { key: 'operations', to: '/operations', label: '전략 운용', compactLabel: '전략운용', adminOnly: false, Icon: Activity },
   { key: 'orders', to: '/orders', label: '주문 관리', compactLabel: '주문', adminOnly: false, Icon: ClipboardList },
   { key: 'trades', to: '/trades', label: '체결 내역', compactLabel: '체결', adminOnly: false, Icon: ArrowLeftRight },
-  { key: 'templates', to: '/templates', label: '전략 템플릿', compactLabel: '템플릿', adminOnly: false, Icon: LayoutTemplate },
   { key: 'reports', to: '/reports', label: '리포트', compactLabel: '리포트', adminOnly: false, Icon: BarChart2 },
   { key: 'admin', to: '/admin', label: '관리자', compactLabel: '관리', adminOnly: true, Icon: ShieldCheck },
   { key: 'config', to: '/config', label: '설정', compactLabel: '설정', adminOnly: false, Icon: Settings },
