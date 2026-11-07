@@ -7,6 +7,9 @@ import { ToastProvider } from './contexts/ToastContext'
 import { readDefaultPage } from './lib/navPreferences'
 
 const Login = lazy(() => import('./pages/Login'))
+const Home = lazy(() => import('./pages/Home'))
+const Privacy = lazy(() => import('./pages/Privacy'))
+const Terms = lazy(() => import('./pages/Terms'))
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Operations = lazy(() => import('./pages/Operations'))
 const Orders = lazy(() => import('./pages/Orders'))
@@ -45,6 +48,11 @@ export default function App() {
     <ToastProvider>
       <BrowserRouter>
         <Routes>
+          <Route path="/home" element={withRouteFallback(<Home />)} />
+          <Route path="/privacy" element={withRouteFallback(<Privacy />)} />
+          <Route path="/privacy-policy" element={<Navigate to="/privacy" replace />} />
+          <Route path="/terms" element={withRouteFallback(<Terms />)} />
+          <Route path="/terms-of-service" element={<Navigate to="/terms" replace />} />
           <Route path="/login" element={withRouteFallback(<Login />)} />
           <Route element={<AppLayout />}>
             <Route index element={<DefaultRedirect />} />

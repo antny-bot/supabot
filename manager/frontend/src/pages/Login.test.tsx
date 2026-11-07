@@ -1,4 +1,5 @@
 import { fireEvent, render } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Login from './Login'
 
@@ -35,7 +36,11 @@ describe('Login', () => {
   it('submits credentials through the auth API module', async () => {
     loginWithPasswordMock.mockResolvedValue({ mfa_required: false })
 
-    const { container } = render(<Login />)
+    const { container } = render(
+      <MemoryRouter>
+        <Login />
+      </MemoryRouter>
+    )
     const emailInput = container.querySelector('input[type="email"]') as HTMLInputElement
     const passwordInput = container.querySelector('input[type="password"]') as HTMLInputElement
     const form = container.querySelector('form') as HTMLFormElement
