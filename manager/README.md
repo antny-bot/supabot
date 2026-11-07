@@ -14,14 +14,34 @@ Synology Docker에 배포한다. 봇과 직접 의존하지 않으며, Telegram 
 
 | 디렉터리 | 내용 |
 |---|---|
-| `pages/` | 11개 페이지: Dashboard, Orders, Trades, Templates, Reports, Events, Users, Admin, Config, Login, Analytics |
-| `components/layout/` | AppLayout, Sidebar, TopBar, BottomNav, AllMenuDrawer — 데스크톱/모바일 레이아웃 전환 |
+| `pages/` | 공개 페이지(Home, Terms, Privacy, Login) 및 대시보드 페이지(Dashboard, Operations, Orders, Trades, Templates, Reports, Admin, Config) |
+| `components/layout/` | AppLayout(인증), PublicLayout(공개 헤더/푸터), Sidebar, TopBar, BottomNav, AllMenuDrawer — 공개/인증 및 데스크톱/모바일 레이아웃 전환 |
 | `components/settings/` | DisplaySettingsCard, MfaSettingsCard, ProfileSettingsCard |
 | `components/ui/` | 공통 UI 빌딩블록: Button, Badge, Spinner, StatCard, PageHeader, ErrorBanner, FilterBar 등 |
 | `api/` | 라우터별 REST 클라이언트 — 아래 백엔드 라우터 표와 1:1 대응 (예: `api/orders.ts` ↔ `routers/orders.py`) |
 | `hooks/`, `contexts/` | useAuth, useTheme, usePersistedState, useRealtime / AuthContext |
 | `lib/`, `config/` | displayPreferences·navPreferences (localStorage 동기화), `pageMeta.ts` (네비게이션·아이콘 단일 소스) |
 | `types/`, `utils/` | 공유 TypeScript 타입, 포매터 |
+
+### 프론트엔드 라우트 구성
+
+#### 공개 페이지 (Public Pages — `PublicLayout`)
+로그인 여부와 무관하게 접근 가능한 공개 페이지:
+- **랜딩페이지 (`/home`)**: 서비스 소개, 핵심 기능(차세대 퀀트 & 스마트 트레이딩, 리스크 제어, Google Drive 클라우드 백업 등) 안내 및 시작하기 링크
+- **이용약관 (`/terms`)**: 서비스 이용 조건 및 권리·의무, 투자 위험 고지 및 금융 면책 조항(Investment Risk Disclaimer) 명시 (`/terms-of-service` 리다이렉트 지원)
+- **개인정보처리방침 (`/privacy`)**: 개인정보 수집/이용/보관 방침 및 Google API 서비스 사용자 데이터 정책(Limited Use 요건 준수) 명시 (`/privacy-policy` 리다이렉트 지원)
+- **로그인 (`/login`)**: Supabase 이메일/비밀번호 로그인, Google OAuth 소셜 로그인, 2단계 인증(MFA) 지원
+
+#### 보호된 페이지 (Protected Pages — `AppLayout`)
+로그인 인증(Supabase Auth)이 필요한 대시보드 및 운영 페이지:
+- `/dashboard`: 종합 자산 및 포트폴리오 요약
+- `/operations`: 운용 현황 및 전략 실시간 모니터링 (`/strategy-monitor` 리다이렉트 지원)
+- `/orders`: 주문 목록 조회 및 취소/동기화 관리
+- `/trades`: 체결 내역 조회 및 통계
+- `/templates`: 매매 전략 템플릿 관리(생성/복제/실행)
+- `/reports`: 손익(PnL), 승률, 보유 자산 등 정밀 분석 보고서
+- `/admin`: 관리자 전용 대시보드 (사용자 관리, 시스템 이벤트 로그, 명령어 사용 통계/Analytics 통합)
+- `/config`: 사용자 설정(프로필, 화면 모드, 네비게이션 커스텀, MFA 설정 등)
 
 ## 라우터 / 라우트
 
