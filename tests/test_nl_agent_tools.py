@@ -375,3 +375,122 @@ async def test_full_telegram_handler_flow_with_confirmation():
     mock_cb_query.edit_message_text.assert_called_once()
     result_text = mock_cb_query.edit_message_text.call_args[0][0]
     assert "성공 (ID: real-exchange-uuid-999)" in result_text
+
+
+# ==============================================================================
+# 4. Phase 6 검증: 관리자 > NL 로그 리포트 API 멀티턴 도구 체인 및 통계 검증
+# ==============================================================================
+
+
+@pytest.mark.asyncio
+async def test_api_reports_nl_logs_multiturn_and_stats():
+    """관리자 NL 로그 리포트 API가 멀티턴 도구 체인과 통계를 정확히 계산하여 반환하는지 검증."""
+    from manager.backend.routers.reports import api_reports_nl_logs
+
+    mock_req = MagicMock()
+    mock_req.session = {"user_email": "admin@supabot.local", "is_admin": True}
+
+    mock_db = MagicMock()
+    mock_rows = [
+        {
+            "id": "nl-1",
+            "user_id": "111",
+            "raw_text": "내 잔고랑 비트 시세 알려줘",
+            "llm_action": "get_account_balances, get_ticker_price",
+            "final_action": "answer",
+            "confirm_status": "auto",
+            "logged_at": time.time(),
+        },
+        {
+            "id": "nl-2",
+            "user_id": "222",
+            "raw_text": "비트코인 100만원어치 사줘",
+            "llm_action": "propose_manual_order",
+            "final_action": "multi_action",
+            "confirm_status": "confirmed",
+            "logged_at": time.time() - 100,
+        },
+    ]
+
+    mock_query = MagicMock()
+    mock_res = MagicMock()
+    mock_res.data = mock_rows
+    mock_query.order.return_value.limit.return_value = mock_query
+    mock_query.execute = AsyncMock(return_value=mock_res)
+    mock_query._params = {}
+
+    count_res = MagicMock()
+    count_res.count = 2
+    count_query = MagicMock()
+    count_query.execute = AsyncMock(return_value=count_res)
+
+    def table_side_effect(name):
+        t = MagicMock()
+        t.select.side_effect = lambda *args, **kwargs: count_query if kwargs.get("count") == "exact" else mock_query
+        return t
+
+    mock_db.table.side_effect = table_side_effect
+
+    with patch("manager.backend.routers.reports.is_db_available", return_value=True):
+        with patch("manager.backend.routers.reports.get_db", return_value=mock_db):
+            response = await api_reports_nl_logs(mock_req)
+
+    import json
+    data = json.loads(response.body)
+    assert response.status_code == 200
+    assert len(data["rows"]) == 2
+
+    # 멀티턴 도구 체인 검증
+    first_row = data["rows"][0]
+    assert first_row["tool_chain"] == ["get_account_balances", "get_ticker_price"]
+    assert first_row["tool_count"] == 2
+    assert first_row["is_multi_turn"] is True
+
+    # 통계 검증
+    stats = data["stats"]
+    assert stats["total_queries"] == 2
+    assert stats["tool_call_count"] == 2
+    assert stats["multi_turn_count"] == 1
+    assert stats["confirmed_count"] == 1
+    assert stats["approval_rate"] == 100.0  # 결정된 1건 중 1건 승인
+    top_tool_names = [t["tool"] for t in stats["top_tools"]]
+    assert "get_account_balances" in top_tool_names
+
+
+@pytest.mark.asyncio
+async def test_api_reports_nl_logs_file_fallback(tmp_path):
+    """DB 미사용 환경에서 data/nl_unmatched.jsonl 로컬 파일로부터 멀티턴 로그를 안전하게 읽어오는지 검증."""
+    from manager.backend.routers.reports import api_reports_nl_logs
+    import json
+
+    mock_file = tmp_path / "nl_unmatched.jsonl"
+    sample_records = [
+        {
+            "id": "nl_local_1",
+            "ts": "2026-11-08T00:00:00+09:00",
+            "text_norm": "미체결 취소해줘",
+            "llm_action": "get_open_orders, propose_cancel_orders",
+            "final_action": "multi_action",
+            "confirm_status": "rejected",
+            "logged_at": time.time(),
+        }
+    ]
+    with open(mock_file, "w", encoding="utf-8") as f:
+        for r in sample_records:
+            f.write(json.dumps(r) + "\n")
+
+    mock_req = MagicMock()
+    mock_req.session = {"user_email": "admin@supabot.local", "is_admin": True}
+
+    with patch.dict(os.environ, {"NL_UNMATCHED_LOG_PATH": str(mock_file)}):
+        with patch("manager.backend.routers.reports.is_db_available", return_value=False):
+            response = await api_reports_nl_logs(mock_req)
+
+    data = json.loads(response.body)
+    assert response.status_code == 200
+    assert len(data["rows"]) == 1
+    assert data["rows"][0]["id"] == "nl_local_1"
+    assert data["rows"][0]["is_multi_turn"] is True
+    assert data["rows"][0]["tool_chain"] == ["get_open_orders", "propose_cancel_orders"]
+    assert data["stats"]["rejected_count"] == 1
+

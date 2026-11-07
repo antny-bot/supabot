@@ -310,14 +310,30 @@ def _trim_jsonl_file(path, max_lines):
         print(f"NL log trim error: {e}")
 
 
-def append_natural_language_log(text, llm_intent, final_intent, path=NL_UNMATCHED_LOG_PATH, user_id=None, confirm_status=None):
+def append_natural_language_log(
+    text,
+    llm_intent,
+    final_intent,
+    path=NL_UNMATCHED_LOG_PATH,
+    user_id=None,
+    confirm_status=None,
+    tool_trace=None,
+    proposed_actions=None,
+):
     """nl_logs에 기록하고, DB 사용 시 삽입된 행의 id를 반환한다(추후 accept/reject 상태 갱신용)."""
     ts = time.time()
+    generated_id = f"nl_{int(ts * 1000)}"
     row = {
+        "id": generated_id,
         "ts": datetime.now(KST).isoformat(timespec="seconds"),
+        "user_id": str(user_id) if user_id else None,
         "text_norm": sanitize_natural_language_log_text(text),
-        "llm_action": (llm_intent or {}).get("action"),
-        "final_action": (final_intent or {}).get("action"),
+        "llm_action": (llm_intent or {}).get("action") if isinstance(llm_intent, dict) else str(llm_intent or ""),
+        "final_action": (final_intent or {}).get("action") if isinstance(final_intent, dict) else str(final_intent or ""),
+        "confirm_status": confirm_status,
+        "tool_trace": tool_trace or [],
+        "proposed_actions": proposed_actions or [],
+        "logged_at": ts,
     }
     log_id = None
     if is_db_available():
@@ -344,17 +360,39 @@ def append_natural_language_log(text, llm_intent, final_intent, path=NL_UNMATCHE
         _trim_jsonl_file(path, NL_UNMATCHED_LOG_MAX_LINES)
     except Exception as e:
         print(f"NL log append error: {e}")
-    return log_id
+    return log_id or generated_id
 
 
-def update_natural_language_log_outcome(log_id, confirm_status):
+def update_natural_language_log_outcome(log_id, confirm_status, path=NL_UNMATCHED_LOG_PATH):
     """확인 버튼(✅실행/❌취소) 결과를 nl_logs.confirm_status에 반영한다."""
-    if not log_id or not is_db_available():
+    if not log_id:
         return
-    try:
-        get_db().table("nl_logs").update({"confirm_status": confirm_status}).eq("id", log_id).execute()
-    except Exception:
-        pass
+    if is_db_available():
+        try:
+            get_db().table("nl_logs").update({"confirm_status": confirm_status}).eq("id", log_id).execute()
+        except Exception:
+            pass
+    # 로컬 JSONL 파일도 상태 업데이트
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                lines = [line.strip() for line in f if line.strip()]
+            updated = False
+            new_lines = []
+            for line in lines:
+                try:
+                    item = json.loads(line)
+                    if item.get("id") == str(log_id) or str(item.get("id")) == str(log_id):
+                        item["confirm_status"] = confirm_status
+                        updated = True
+                    new_lines.append(json.dumps(item, ensure_ascii=False))
+                except Exception:
+                    new_lines.append(line)
+            if updated:
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write("\n".join(new_lines) + "\n")
+        except Exception:
+            pass
 
 
 def append_preprocess_hit(intent, path=NL_PREPROCESS_HIT_PATH):

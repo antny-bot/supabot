@@ -335,21 +335,47 @@ export interface WinStatsReport {
   stats: WinStats
 }
 
+export interface NlLogToolTraceItem {
+  step: number
+  tool: string
+  args: Record<string, unknown>
+  result: Record<string, unknown>
+}
+
 export interface NlLogRow {
-  id: number
+  id: number | string
   user_id: string | null
   raw_text: string
   preprocessed: string | null
   llm_action: string | null
   final_action: string | null
   confirm_status: string | null
-  logged_at: number
+  tool_chain?: string[]
+  tool_count?: number
+  is_multi_turn?: boolean
+  tool_trace?: NlLogToolTraceItem[]
+  proposed_actions?: Array<Record<string, unknown>>
+  logged_at: number | string
   logged_at_fmt: string
+}
+
+export interface NlLogsStats {
+  total_queries: number
+  tool_call_count: number
+  tool_call_rate: number
+  multi_turn_count: number
+  confirmed_count: number
+  rejected_count: number
+  pending_count: number
+  approval_rate: number
+  top_tools: Array<{ tool: string; count: number }>
+  final_actions: Array<{ action: string; count: number }>
 }
 
 export interface NlLogsReport {
   rows: NlLogRow[]
   total: number
+  stats?: NlLogsStats
 }
 
 

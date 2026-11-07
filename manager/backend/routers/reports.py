@@ -1,4 +1,6 @@
 import asyncio
+import json
+import os
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -9,7 +11,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from .. import bot_client
-from ..db import get_db, get_stock_name_map
+from ..db import get_db, get_stock_name_map, is_db_available
 from ._auth import _require_login, get_session_user
 from ..services import backtest_engine, budget_manager, progression_manager, universe_resolver
 
@@ -850,6 +852,37 @@ async def api_reports_win_stats(request: Request, period: str = "30d",
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
+def _read_local_nl_logs(limit: int = 200) -> list[dict]:
+    """Supabase DB가 비어있거나 연결 불가 시 data/nl_unmatched.jsonl에서 최근 로그를 폴백으로 읽어온다."""
+    path = os.getenv("NL_UNMATCHED_LOG_PATH", "data/nl_unmatched.jsonl")
+    if not os.path.exists(path):
+        return []
+    try:
+        rows = []
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    item = json.loads(line)
+                    rows.append(item)
+                except Exception:
+                    continue
+        rows.reverse()
+        return rows[:limit]
+    except Exception:
+        return []
+
+
+def _parse_tool_chain(llm_action: str | None) -> list[str]:
+    if not llm_action:
+        return []
+    cleaned = llm_action.replace("->", ",").replace("→", ",")
+    tools = [t.strip() for t in cleaned.split(",") if t.strip()]
+    return tools
+
+
 @router.get("/api/reports/nl-logs")
 async def api_reports_nl_logs(request: Request, limit: int = 100, offset: int = 0):
     if not _require_login(request):
@@ -858,40 +891,129 @@ async def api_reports_nl_logs(request: Request, limit: int = 100, offset: int = 
     if not session_user.get("is_admin"):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
-        db = get_db()
-        q = (
-            db.table("nl_logs")
-            .select("*")
-            .order("logged_at", desc=True)
-            .limit(limit)
-        )
-        if offset:
-            q._params["offset"] = offset
-        rows = (await q.execute()).data or []
-        result = []
-        for row in rows:
-            ts = row.get("logged_at")
+        rows = []
+        total = 0
+
+        if is_db_available():
             try:
-                fmt = datetime.fromtimestamp(float(ts)).strftime("%m-%d %H:%M") if ts else "??"
+                db = get_db()
+                q = (
+                    db.table("nl_logs")
+                    .select("*")
+                    .order("logged_at", desc=True)
+                    .limit(limit)
+                )
+                if offset:
+                    q._params["offset"] = offset
+                res = await q.execute()
+                rows = res.data or []
+                total_res = await db.table("nl_logs").select("id", count="exact").execute()
+                total = total_res.count if hasattr(total_res, "count") and total_res.count is not None else len(rows)
             except Exception:
-                fmt = "??"
+                rows = []
+
+        if not rows:
+            local_all = _read_local_nl_logs(limit=max(limit * 2, 200))
+            total = len(local_all)
+            rows = local_all[offset:offset + limit]
+
+        result = []
+        tool_counts: dict[str, int] = {}
+        final_counts: dict[str, int] = {}
+        tool_call_queries = 0
+        multi_turn_queries = 0
+        confirmed_cnt = 0
+        rejected_cnt = 0
+        pending_cnt = 0
+
+        for row in rows:
+            ts = row.get("logged_at") or row.get("ts")
+            raw_text = row.get("raw_text") or row.get("text_norm") or ""
+            llm_action = row.get("llm_action") or ""
+            final_action = row.get("final_action") or ""
+            confirm_status = row.get("confirm_status") or ""
+
+            fmt = "??"
+            if ts:
+                try:
+                    if isinstance(ts, (int, float)):
+                        fmt = datetime.fromtimestamp(float(ts)).strftime("%m-%d %H:%M")
+                    elif isinstance(ts, str) and "T" in ts:
+                        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                        fmt = dt.strftime("%m-%d %H:%M")
+                    else:
+                        fmt = str(ts)[:16]
+                except Exception:
+                    fmt = str(ts)[:16]
+
+            tools = _parse_tool_chain(llm_action)
+            tool_count = len(tools)
+            is_multi = tool_count > 1
+
+            if tool_count > 0 and llm_action not in ("chat", "unmatched"):
+                tool_call_queries += 1
+                for t in tools:
+                    tool_counts[t] = tool_counts.get(t, 0) + 1
+            if is_multi:
+                multi_turn_queries += 1
+
+            if final_action:
+                final_counts[final_action] = final_counts.get(final_action, 0) + 1
+
+            if confirm_status == "confirmed":
+                confirmed_cnt += 1
+            elif confirm_status == "rejected":
+                rejected_cnt += 1
+            elif confirm_status == "pending":
+                pending_cnt += 1
+
             result.append({
                 "id": row.get("id"),
                 "user_id": row.get("user_id"),
-                "raw_text": row.get("raw_text", ""),
+                "raw_text": raw_text,
                 "preprocessed": row.get("preprocessed"),
-                "llm_action": row.get("llm_action"),
-                "final_action": row.get("final_action"),
-                "confirm_status": row.get("confirm_status"),
+                "llm_action": llm_action,
+                "final_action": final_action,
+                "confirm_status": confirm_status,
+                "tool_chain": tools,
+                "tool_count": tool_count,
+                "is_multi_turn": is_multi,
+                "tool_trace": row.get("tool_trace") or [],
+                "proposed_actions": row.get("proposed_actions") or [],
                 "logged_at": ts,
                 "logged_at_fmt": fmt,
             })
-        total_res = await db.table("nl_logs").select("id", count="exact").execute()
-        total = total_res.count if hasattr(total_res, "count") and total_res.count is not None else len(result)
-        return JSONResponse({"rows": result, "total": total})
+
+        total_valid = len(rows)
+        tool_call_rate = round((tool_call_queries / total_valid * 100), 1) if total_valid > 0 else 0.0
+        decided_actions = confirmed_cnt + rejected_cnt
+        approval_rate = round((confirmed_cnt / decided_actions * 100), 1) if decided_actions > 0 else 0.0
+
+        top_tools = [
+            {"tool": k, "count": v}
+            for k, v in sorted(tool_counts.items(), key=lambda x: -x[1])[:5]
+        ]
+        action_breakdown = [
+            {"action": k, "count": v}
+            for k, v in sorted(final_counts.items(), key=lambda x: -x[1])
+        ]
+
+        stats = {
+            "total_queries": total,
+            "tool_call_count": tool_call_queries,
+            "tool_call_rate": tool_call_rate,
+            "multi_turn_count": multi_turn_queries,
+            "confirmed_count": confirmed_cnt,
+            "rejected_count": rejected_cnt,
+            "pending_count": pending_cnt,
+            "approval_rate": approval_rate,
+            "top_tools": top_tools,
+            "final_actions": action_breakdown,
+        }
+
+        return JSONResponse({"rows": result, "total": total, "stats": stats})
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
-
 
 
 def _build_drawdown_stats(realized_events):

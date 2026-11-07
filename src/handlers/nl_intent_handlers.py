@@ -658,6 +658,8 @@ async def natural_language_command(update: Update, context: ContextTypes.DEFAULT
             {"action": "answer"},
             user_id=user_id,
             confirm_status="auto",
+            tool_trace=agent_result.tool_trace,
+            proposed_actions=[],
         )
         await status_msg.edit_text(agent_result.reply_text or "요청을 처리했습니다.")
         return
@@ -669,6 +671,8 @@ async def natural_language_command(update: Update, context: ContextTypes.DEFAULT
         {"action": "multi_action"},
         user_id=user_id,
         confirm_status="pending",
+        tool_trace=agent_result.tool_trace,
+        proposed_actions=agent_result.proposed_actions,
     )
 
     action_summaries = [_format_action_summary(a) for a in agent_result.proposed_actions]

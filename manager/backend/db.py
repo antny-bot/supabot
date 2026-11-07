@@ -217,3 +217,8 @@ async def get_supabase_health_stats(db=None) -> dict | None:
         "source": source,
         "table_counts": table_counts,
     }
+
+
+def is_db_available() -> bool:
+    return bool(os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_SERVICE_KEY"))
+
