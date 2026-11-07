@@ -121,3 +121,22 @@ def test_delete_file_from_gdrive():
         req = mock_urlopen.call_args[0][0]
         assert req.get_method() == "DELETE"
         assert "file_to_del" in req.full_url
+
+
+def test_fetch_google_user_email():
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = json.dumps({"email": "test-user@gmail.com"}).encode("utf-8")
+    mock_resp.__enter__.return_value = mock_resp
+
+    with patch("urllib.request.urlopen", return_value=mock_resp):
+        email = gdrive_client.fetch_google_user_email("valid_access_token")
+        assert email == "test-user@gmail.com"
+
+
+def test_get_google_auth_url():
+    url = gdrive_client.get_google_auth_url("my_client_id", "postmessage")
+    assert "https://accounts.google.com/o/oauth2/v2/auth" in url
+    assert "client_id=my_client_id" in url
+    assert "redirect_uri=postmessage" in url
+    assert "response_type=code" in url
+    assert "access_type=offline" in url

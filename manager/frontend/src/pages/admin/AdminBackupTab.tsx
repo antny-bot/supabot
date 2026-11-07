@@ -1,27 +1,33 @@
 import { FormEvent, useEffect, useState } from 'react'
 import {
-  AlertCircle,
   Archive,
   CheckCircle,
   Clock,
   Cloud,
   Download,
   HardDrive,
+  KeyRound,
+  Link,
   Play,
   RefreshCw,
   Save,
   ShieldCheck,
+  Unlink,
 } from 'lucide-react'
 import {
   BackupConfig,
   BackupLocalFile,
   BackupState,
+  connectGDrive,
+  disconnectGDrive,
   fetchBackupConfig,
   fetchBackupStatus,
   getBackupDownloadUrl,
   saveBackupConfig,
+  saveGDriveSettings,
   triggerBackup,
 } from '../../api/backup'
+import { requestGoogleDriveAuthCode } from '../../utils/googleAuth'
 import Badge from '../../components/ui/Badge'
 import ErrorBanner from '../../components/ui/ErrorBanner'
 
@@ -42,6 +48,13 @@ export default function AdminBackupTab() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [triggering, setTriggering] = useState(false)
+  const [connectingGDrive, setConnectingGDrive] = useState(false)
+  const [disconnectingGDrive, setDisconnectingGDrive] = useState(false)
+  const [showGDriveSettings, setShowGDriveSettings] = useState(false)
+  const [gdriveClientIdInput, setGdriveClientIdInput] = useState('')
+  const [gdriveClientSecretInput, setGdriveClientSecretInput] = useState('')
+  const [gdriveFolderInput, setGdriveFolderInput] = useState('')
+  const [savingGDriveSettings, setSavingGDriveSettings] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
 
@@ -54,6 +67,12 @@ export default function AdminBackupTab() {
         fetchBackupStatus(),
       ])
       setConfig(cfgRes)
+      if (cfgRes.gdrive_client_id) {
+        setGdriveClientIdInput(cfgRes.gdrive_client_id)
+      }
+      if (cfgRes.gdrive_folder) {
+        setGdriveFolderInput(cfgRes.gdrive_folder)
+      }
       setState(statusRes.state)
       setLocalFiles(statusRes.local_files)
     } catch (err: any) {
@@ -66,6 +85,74 @@ export default function AdminBackupTab() {
   useEffect(() => {
     loadData()
   }, [])
+
+  const handleConnectGDrive = async () => {
+    try {
+      const clientId = (gdriveClientIdInput.trim() || config?.gdrive_client_id?.trim() || '')
+      if (!clientId) {
+        setShowGDriveSettings(true)
+        setError('Google Client ID가 설정되지 않았습니다. 아래 [Google OAuth 설정]에서 발급받은 Client ID와 Client Secret을 먼저 저장해 주세요.')
+        return
+      }
+
+      setConnectingGDrive(true)
+      setError(null)
+      setSuccessMsg(null)
+
+      // Google Identity Services 팝업 실행
+      const code = await requestGoogleDriveAuthCode(clientId)
+
+      // 백엔드로 code 전달하여 토큰 교환 및 DB 저장
+      const res = await connectGDrive({
+        code,
+        client_id: clientId,
+        client_secret: gdriveClientSecretInput.trim() || undefined,
+      })
+
+      setSuccessMsg(`Google Drive 연동 성공: ${res.user_email || 'Google 계정 연결됨'}`)
+      await loadData()
+    } catch (err: any) {
+      setError(err.message || 'Google Drive 연동 중 오류가 발생했습니다.')
+    } finally {
+      setConnectingGDrive(false)
+    }
+  }
+
+  const handleDisconnectGDrive = async () => {
+    if (!confirm('Google Drive 연동을 해제하시겠습니까?\n해제 시 정기 백업 시 클라우드 자동 업로드가 중단됩니다.')) return
+    try {
+      setDisconnectingGDrive(true)
+      setError(null)
+      setSuccessMsg(null)
+      await disconnectGDrive()
+      setSuccessMsg('Google Drive 연동이 해제되었습니다.')
+      await loadData()
+    } catch (err: any) {
+      setError(err.message || 'Google Drive 연동 해제 중 오류가 발생했습니다.')
+    } finally {
+      setDisconnectingGDrive(false)
+    }
+  }
+
+  const handleSaveGDriveSettings = async (e: FormEvent) => {
+    e.preventDefault()
+    try {
+      setSavingGDriveSettings(true)
+      setError(null)
+      setSuccessMsg(null)
+      await saveGDriveSettings({
+        client_id: gdriveClientIdInput.trim(),
+        client_secret: gdriveClientSecretInput.trim() || undefined,
+        folder: gdriveFolderInput.trim() || undefined,
+      })
+      setSuccessMsg('Google Drive 설정이 저장되었습니다. 이제 [Google 계정으로 연동하기]를 클릭하세요.')
+      await loadData()
+    } catch (err: any) {
+      setError(err.message || 'Google Drive 설정 저장 실패')
+    } finally {
+      setSavingGDriveSettings(false)
+    }
+  }
 
   const handleSaveConfig = async (e: FormEvent) => {
     e.preventDefault()
@@ -220,13 +307,20 @@ export default function AdminBackupTab() {
           </div>
           <div className="text-base font-semibold text-slate-900 dark:text-white flex items-center gap-2">
             {config?.gdrive_enabled ? (
-              <Badge value="active" label="연동 완료 (.env)" />
+              <Badge
+                value="active"
+                label={config.gdrive_source === 'db' ? '웹 연동 완료' : '연동 완료 (.env)'}
+              />
             ) : (
-              <Badge value="warning" label="미연동 (.env 필요)" />
+              <Badge value="warning" label="미연동" />
             )}
           </div>
-          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400 truncate">
-            폴더: {config?.gdrive_folder || 'supabot-backups'}
+          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400 truncate" title={config?.gdrive_user_email || config?.gdrive_folder}>
+            {config?.gdrive_user_email ? (
+              <span className="text-primary-600 dark:text-primary-400 font-medium truncate block">{config.gdrive_user_email}</span>
+            ) : (
+              `폴더: ${config?.gdrive_folder || 'supabot-backups'}`
+            )}
           </div>
         </div>
 
@@ -244,6 +338,183 @@ export default function AdminBackupTab() {
             최대 유지: {config?.local_max_keep || 7}개
           </div>
         </div>
+      </div>
+
+      {/* Google Drive 클라우드 연동 섹션 (웹 인증 관리) */}
+      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-950/40 flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0">
+              <Cloud className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-white whitespace-nowrap break-keep">
+                Google Drive 클라우드 백업 연동
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap break-keep">
+                웹에서 Google 계정을 1회 인증하면, 백업 생성 시 지정된 구글 드라이브 폴더에 암호화 보관됩니다.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowGDriveSettings(!showGDriveSettings)}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 flex items-center gap-1.5 whitespace-nowrap break-keep transition-colors"
+            >
+              <KeyRound className="w-3.5 h-3.5" />
+              <span>OAuth 키/폴더 설정</span>
+            </button>
+
+            {config?.gdrive_enabled ? (
+              <button
+                type="button"
+                onClick={handleDisconnectGDrive}
+                disabled={disconnectingGDrive}
+                className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100 disabled:opacity-50 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-400 dark:hover:bg-rose-900/40 flex items-center gap-1.5 whitespace-nowrap break-keep transition-colors"
+              >
+                {disconnectingGDrive ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Unlink className="w-3.5 h-3.5" />
+                )}
+                <span>연동 해제</span>
+              </button>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={handleConnectGDrive}
+              disabled={connectingGDrive}
+              className="rounded-lg bg-blue-600 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap break-keep transition-colors shadow-sm"
+            >
+              {connectingGDrive ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Link className="w-3.5 h-3.5" />
+              )}
+              <span>{config?.gdrive_enabled ? '계정 재인증 / 변경' : 'Google 계정으로 연동하기'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* 연동 상태 요약 바 */}
+        <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-slate-50 dark:bg-slate-800/40 rounded-lg text-xs">
+          <div className="flex items-center gap-3">
+            <span className="text-slate-500 dark:text-slate-400 whitespace-nowrap">연동 계정:</span>
+            {config?.gdrive_user_email ? (
+              <span className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                {config.gdrive_user_email}
+              </span>
+            ) : (
+              <span className="text-slate-400 italic">미연동 상태입니다.</span>
+            )}
+          </div>
+          <div className="flex items-center gap-4 text-slate-500 dark:text-slate-400">
+            <span>
+              보관 폴더: <code className="px-1 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-mono text-[11px]">{config?.gdrive_folder || 'supabot-backups'}</code>
+            </span>
+            <span>
+              인증 방식: <span className="font-medium text-slate-700 dark:text-slate-300">{config?.gdrive_source === 'db' ? '웹 DB 인증' : config?.gdrive_source === 'env' ? '서버 .env 인증' : '미연동'}</span>
+            </span>
+          </div>
+        </div>
+
+        {/* Google OAuth 키 및 폴더 설정 (접이식) */}
+        {showGDriveSettings && (
+          <form onSubmit={handleSaveGDriveSettings} className="p-4 bg-slate-50/70 dark:bg-slate-800/20 rounded-lg border border-slate-200 dark:border-slate-800 space-y-3 pt-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <KeyRound className="w-3.5 h-3.5 text-primary-500" />
+                Google Cloud Console OAuth 클라이언트 정보
+              </span>
+              <span className="text-[11px] text-slate-400">
+                .env에 등록되어 있으면 자동으로 불러옵니다.
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                  Google Client ID <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="예: xxxxx.apps.googleusercontent.com"
+                  value={gdriveClientIdInput}
+                  onChange={(e) => setGdriveClientIdInput(e.target.value)}
+                  className={`${inputCls} w-full font-mono text-xs`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                  Google Client Secret {config?.gdrive_has_secret && <span className="text-emerald-500 text-[10px] ml-1">(등록됨)</span>}
+                </label>
+                <input
+                  type="password"
+                  placeholder={config?.gdrive_has_secret ? '기존 Secret 유지 중 (변경 시에만 입력)' : '예: GOCSPX-xxxx...'}
+                  value={gdriveClientSecretInput}
+                  onChange={(e) => setGdriveClientSecretInput(e.target.value)}
+                  className={`${inputCls} w-full font-mono text-xs`}
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                  Google Drive 백업 저장 폴더명
+                </label>
+                <input
+                  type="text"
+                  placeholder="supabot-backups"
+                  value={gdriveFolderInput}
+                  onChange={(e) => setGdriveFolderInput(e.target.value)}
+                  className={`${inputCls} w-full text-xs`}
+                />
+                <p className="mt-1 text-[11px] text-slate-400">
+                  Google Drive 루트에 해당 이름의 폴더가 없을 경우 백업 시 자동으로 생성됩니다.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-blue-50/70 dark:bg-blue-950/20 rounded-lg text-[11px] text-blue-800 dark:text-blue-300 space-y-1">
+              <div className="font-semibold flex items-center gap-1">
+                <span>Google Cloud Console 설정 안내:</span>
+              </div>
+              <ul className="list-disc list-inside space-y-0.5 text-blue-700 dark:text-blue-400 pl-1">
+                <li>
+                  <strong>승인된 자바스크립트 원본(Origin):</strong>{' '}
+                  <code className="px-1 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 font-mono">
+                    {typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173'}
+                  </code>
+                </li>
+                <li>
+                  <strong>사용 API:</strong> Google Drive API v3 활성화 필수
+                </li>
+              </ul>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowGDriveSettings(false)}
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+              >
+                닫기
+              </button>
+              <button
+                type="submit"
+                disabled={savingGDriveSettings}
+                className="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-700 disabled:opacity-50 flex items-center gap-1"
+              >
+                {savingGDriveSettings ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                <span>설정 저장</span>
+              </button>
+            </div>
+          </form>
+        )}
       </div>
 
       {/* 액션 바: 즉시 백업 버튼 */}
@@ -424,10 +695,10 @@ export default function AdminBackupTab() {
                 </div>
               </div>
 
-              <div className="p-3 bg-amber-50 dark:bg-amber-950/30 rounded-lg text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2 whitespace-nowrap break-keep">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
+              <div className="p-3 bg-blue-50/70 dark:bg-blue-950/30 rounded-lg text-xs text-blue-800 dark:text-blue-300 flex items-start gap-2 whitespace-nowrap break-keep">
+                <Cloud className="w-4 h-4 shrink-0 mt-0.5 text-blue-500" />
                 <span>
-                  Google Drive 인증 정보(Client ID, Secret, Refresh Token)는 보안 정책에 따라 서버 <code>.env</code>에서 안전하게 관리됩니다.
+                  Google Drive 연동 시 상단의 <strong>[Google 계정으로 연동하기]</strong> 버튼을 통해 브라우저에서 원클릭으로 간편하게 인증하거나, 서버 <code>.env</code> 파일의 토큰을 사용할 수 있습니다.
                 </span>
               </div>
             </div>

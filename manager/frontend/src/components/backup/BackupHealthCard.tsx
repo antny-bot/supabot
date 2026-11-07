@@ -77,7 +77,7 @@ export default function BackupHealthCard({
         onClick ? 'cursor-pointer hover:shadow-md' : ''
       } ${
         isHealthy
-          ? 'border-indigo-200 bg-indigo-50/70 hover:border-indigo-300 dark:border-indigo-800/50 dark:bg-indigo-950/20 dark:hover:border-indigo-700/60'
+          ? 'border-emerald-200 bg-emerald-50/70 hover:border-emerald-300 dark:border-emerald-800/50 dark:bg-emerald-950/20 dark:hover:border-emerald-700/60'
           : isWarning
           ? 'border-amber-200 bg-amber-50/70 hover:border-amber-300 dark:border-amber-800/50 dark:bg-amber-950/20 dark:hover:border-amber-700/60'
           : isDisabled
@@ -92,7 +92,7 @@ export default function BackupHealthCard({
             size={20}
             className={`shrink-0 ${
               isHealthy
-                ? 'text-indigo-600 dark:text-indigo-400'
+                ? 'text-emerald-600 dark:text-emerald-400'
                 : isWarning
                 ? 'text-amber-600 dark:text-amber-400'
                 : isDisabled
@@ -103,12 +103,12 @@ export default function BackupHealthCard({
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-bold text-sm text-slate-800 dark:text-slate-100 break-keep">
-                Supabase 정기 백업 & Fallback Health Check
+                정기 백업 Health Check
               </span>
               <span
                 className={`px-2 py-0.5 rounded text-[11px] font-bold ${
                   isHealthy
-                    ? 'bg-indigo-200 text-indigo-800 dark:bg-indigo-900/60 dark:text-indigo-200'
+                    ? 'bg-emerald-200 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200'
                     : isWarning
                     ? 'bg-amber-200 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200'
                     : isDisabled
@@ -119,7 +119,10 @@ export default function BackupHealthCard({
                 {grade}
               </span>
             </div>
-            <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5 break-keep">
+            <p
+              className="text-xs text-slate-600 dark:text-slate-300 mt-0.5 break-keep truncate max-w-[280px] sm:max-w-md lg:max-w-lg"
+              title={healthData.health_message}
+            >
               {healthData.health_message}
             </p>
           </div>
@@ -127,7 +130,7 @@ export default function BackupHealthCard({
 
         {/* 우측 수치 지표 및 상세 연결 링크 */}
         <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2.5 sm:gap-4 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-200/60 dark:border-slate-800/60 min-w-0">
-          <div className="grid grid-cols-3 sm:flex items-center gap-2 sm:gap-4 text-xs font-mono min-w-0 flex-1 sm:flex-initial">
+          <div className="grid grid-cols-3 sm:flex items-center gap-2 sm:gap-4 text-xs min-w-0 flex-1 sm:flex-initial">
             <div className="min-w-0">
               <span className="text-slate-500 block text-[10px] sm:text-[11px] truncate">최근 성공</span>
               <span
@@ -168,9 +171,10 @@ export default function BackupHealthCard({
           </div>
 
           {showDetailLink && (
-            <div className="flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 group-hover:translate-x-0.5 transition-transform shrink-0">
-              <span>백업 관리</span>
-              <ChevronRight size={14} />
+            <div className="flex items-center gap-1 ml-auto sm:ml-0 pl-2 sm:pl-3 border-l border-slate-300/80 dark:border-slate-700/80 text-xs font-semibold text-slate-600 dark:text-slate-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 shrink-0 transition-colors">
+              <span className="hidden md:inline">백업 관리</span>
+              <span className="md:hidden">상세</span>
+              <ChevronRight size={14} className="transition-transform group-hover:translate-x-0.5" />
             </div>
           )}
         </div>

@@ -263,3 +263,48 @@ def test_execute_full_backup_sync_partial_error_on_gdrive_failure(temp_backup_en
     state = backup_manager.load_backup_state()
     assert state["last_status"] == "partial_error"
     assert "OAuth token expired" in state["last_error"]
+
+
+def test_resolve_gdrive_credentials_db_priority(monkeypatch):
+    monkeypatch.setenv("GDRIVE_CLIENT_ID", "env_cid")
+    monkeypatch.setenv("GDRIVE_CLIENT_SECRET", "env_sec")
+    monkeypatch.setenv("GDRIVE_REFRESH_TOKEN", "env_tok")
+    monkeypatch.setenv("GDRIVE_FOLDER", "env_folder")
+
+    # 1. DB에 아무것도 없으면 .env 사용
+    cid, sec, tok, email, folder = backup_manager._resolve_gdrive_credentials({})
+    assert cid == "env_cid"
+    assert sec == "env_sec"
+    assert tok == "env_tok"
+    assert folder == "env_folder"
+    assert email == ""
+
+    # 2. DB에 설정이 있으면 DB 값 우선
+    db_rows = {
+        "backup_gdrive_client_id": "db_cid",
+        "backup_gdrive_client_secret": "db_sec",
+        "backup_gdrive_refresh_token": "db_tok",
+        "backup_gdrive_user_email": "admin@gmail.com",
+        "backup_gdrive_folder": "my-supabot-backups",
+    }
+    cid, sec, tok, email, folder = backup_manager._resolve_gdrive_credentials(db_rows)
+    assert cid == "db_cid"
+    assert sec == "db_sec"
+    assert tok == "db_tok"
+    assert email == "admin@gmail.com"
+    assert folder == "my-supabot-backups"
+
+
+def test_resolve_gdrive_credentials_encrypted_token(monkeypatch):
+    monkeypatch.setenv("USER_SECRET_KEY", "uO_v_YqG23L_u-N2_O4zB_Jc0X0oK9_Hq_T_z123456=")
+    from core.secret_crypto import encrypt_secret
+    
+    raw_token = "secret_refresh_token_abc"
+    enc = encrypt_secret(raw_token)
+    assert enc.startswith("enc:v1:")
+
+    db_rows = {
+        "backup_gdrive_refresh_token": enc,
+    }
+    _, _, tok, _, _ = backup_manager._resolve_gdrive_credentials(db_rows)
+    assert tok == raw_token
