@@ -393,6 +393,8 @@ export default function Templates() {
                       <span className="text-[11px] text-slate-400">
                         {stype === 'sgrid'
                           ? '총 매도 수량'
+                          : isDca && isVolumeBased
+                          ? '정기 매수 설정'
                           : isDca
                           ? '1회 주문 규모'
                           : isTopDca
@@ -403,7 +405,9 @@ export default function Templates() {
                       </span>
                       <p className="font-mono font-bold text-slate-800 dark:text-slate-200">
                         {isVolumeBased
-                          ? `${tpl.budget} (수량)`
+                          ? isDca
+                            ? `${p.schedule || '매일'} ${tpl.budget}주씩`
+                            : `${tpl.budget} (수량)`
                           : isTopDca
                           ? `${krwFmt(p.budget_mode === 'daily' ? (p.daily_fixed_budget ?? tpl.budget) : (p.monthly_budget ?? tpl.budget))}`
                           : `${krwFmt(tpl.budget)}`}

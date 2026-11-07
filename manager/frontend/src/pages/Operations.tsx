@@ -634,6 +634,7 @@ export default function Operations() {
                 const isTop = tpl.strategy_type === 'kospi_top_dca'
                 const isVolume =
                   tpl.strategy_type === 'sgrid' || (isDca && p.amount_type === 'volume')
+                const supportsCarryover = isTop || isDca
 
                 return (
                   <div
@@ -710,10 +711,18 @@ export default function Operations() {
                       <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-slate-50 p-2.5 text-xs dark:bg-slate-800/50">
                         <div>
                           <span className="text-[10px] text-slate-400 block">
-                            {isTop ? '설정 총예산' : isVolume ? '설정 수량' : '설정 예산'}
+                            {isTop
+                              ? '설정 총예산'
+                              : isDca && p.amount_type === 'volume'
+                              ? '정기 매수 설정'
+                              : isVolume
+                              ? '설정 수량'
+                              : '설정 예산'}
                           </span>
                           <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                            {isVolume
+                            {isDca && p.amount_type === 'volume'
+                              ? `${p.schedule || '매일'} ${tpl.budget}주씩`
+                              : isVolume
                               ? `${tpl.budget} (수량)`
                               : krwFmt(isTop ? (p.monthly_budget ?? tpl.budget) : tpl.budget)}
                           </span>
@@ -721,7 +730,7 @@ export default function Operations() {
                         <div>
                           <div className="flex items-center justify-between text-[10px] text-slate-400">
                             <span>가용 이월예산</span>
-                            {subFilter === 'active' && (
+                            {subFilter === 'active' && supportsCarryover && (
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -738,7 +747,11 @@ export default function Operations() {
                             )}
                           </div>
                           <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                            {krwFmt(p.carryover_budget ?? 0)}
+                            {supportsCarryover ? (
+                              krwFmt(p.carryover_budget ?? 0)
+                            ) : (
+                              <span className="text-slate-400 font-normal text-[11px]">해당사항 없음</span>
+                            )}
                           </span>
                         </div>
                         <div className="col-span-2 pt-1 border-t border-slate-200/60 dark:border-slate-700/60 flex items-center justify-between text-[11px]">
@@ -942,20 +955,37 @@ export default function Operations() {
             {/* 우측: 인라인 예산 요약 & 빠른 제어 버튼 */}
             {selectedTemplate && (
               <div className="flex flex-wrap items-center gap-2 self-end lg:self-auto">
-                <div className="hidden sm:flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-1.5 text-xs dark:bg-slate-800/60 font-mono">
-                  <div>
-                    <span className="text-[10px] text-slate-400 block">이월 가용예산</span>
-                    <span className="font-bold text-slate-700 dark:text-slate-200">
-                      {krwFmt((selectedTemplate.params as any)?.carryover_budget ?? 0)}
-                    </span>
-                  </div>
-                  <div className="border-l border-slate-200 dark:border-slate-700 pl-3">
-                    <span className="text-[10px] text-slate-400 block">당월 소진</span>
-                    <span className="font-bold text-slate-700 dark:text-slate-200">
-                      {krwFmt((selectedTemplate.params as any)?.monthly_spent ?? 0)}
-                    </span>
-                  </div>
-                </div>
+                {(() => {
+                  const selStype = selectedTemplate.strategy_type
+                  const selIsTop = selStype === 'kospi_top_dca'
+                  const selIsDca = selStype === 'dca' || selStype === 'sdca'
+                  const selSupportsCarryover = selIsTop || selIsDca
+
+                  return (
+                    <div className="hidden sm:flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-1.5 text-xs dark:bg-slate-800/60 font-mono">
+                      <div>
+                        <span className="text-[10px] text-slate-400 block">이월 가용예산</span>
+                        <span className="font-bold text-slate-700 dark:text-slate-200">
+                          {selSupportsCarryover ? (
+                            krwFmt((selectedTemplate.params as any)?.carryover_budget ?? 0)
+                          ) : (
+                            <span className="text-slate-400 font-normal text-[11px]">해당사항 없음</span>
+                          )}
+                        </span>
+                      </div>
+                      <div className="border-l border-slate-200 dark:border-slate-700 pl-3">
+                        <span className="text-[10px] text-slate-400 block">
+                          {selSupportsCarryover ? '당월 소진' : '설정 예산'}
+                        </span>
+                        <span className="font-bold text-slate-700 dark:text-slate-200">
+                          {selSupportsCarryover
+                            ? krwFmt((selectedTemplate.params as any)?.monthly_spent ?? 0)
+                            : krwFmt(selectedTemplate.budget)}
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })()}
 
                 <button
                   type="button"
