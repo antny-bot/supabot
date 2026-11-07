@@ -528,7 +528,7 @@ export default function Operations() {
                     onClick={() => {
                       setSelectedTemplateId(tpl.id)
                     }}
-                    className={`relative flex flex-col justify-between rounded-2xl border p-4.5 transition-all ${
+                    className={`relative flex flex-col justify-between rounded-2xl border p-5 transition-all ${
                       isSelected
                         ? 'border-indigo-500 bg-indigo-50/20 shadow-md ring-2 ring-indigo-500/20 dark:border-indigo-500 dark:bg-indigo-950/20'
                         : 'border-slate-200 bg-white shadow-xs hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700'
