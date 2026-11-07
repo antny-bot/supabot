@@ -341,6 +341,16 @@ def test_template_execute_supports_rsi_and_dca(monkeypatch):
     monkeypatch.setattr(tpl_router, "execute_rsitrade", fake_execute_rsitrade)
     monkeypatch.setattr(tpl_router, "execute_dca", fake_execute_dca)
 
+    async def fake_sync_budget(tpl, **kwargs):
+        params = dict(tpl.get("params") or {})
+        params.setdefault("carryover_budget", float(tpl.get("budget") or 0.0))
+        params.setdefault("budget_mode", "total")
+        return params
+
+    from manager.backend.services import budget_manager
+    monkeypatch.setattr(budget_manager, "sync_single_strategy_budget_events", fake_sync_budget)
+    monkeypatch.setattr(budget_manager, "credit_daily_allowance", fake_sync_budget)
+
     # 1) 구버전 strategy_type="rsi" 및 신규 "rsitrade" 모두 호환되는지 확인
     rsi_row = {
         "id": 1,
