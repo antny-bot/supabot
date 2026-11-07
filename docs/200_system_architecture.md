@@ -20,10 +20,10 @@ supabot 봇 백엔드·관리 UI 모듈 구성, 핵심 데이터 스키마(Postg
 | `src/handlers/watch_handlers.py` | 실시간 시그널 감시 핸들러 (`/watch`, `/unwatch`) | [204_signal_engine.md](file:///E:/apps/supabot/docs/204_signal_engine.md) |
 | `src/handlers/system_handlers.py` | 시스템 관리 명령 처리 (`/start`, `/halt`, `/resume`, `/dbsync`, `/resetuser`) | [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md) |
 | `src/handlers/nl_intent_handlers.py` | Gemini 자연어 인텐트 실행 및 콜백 핸들러 | [304_gemini_intent.md](file:///E:/apps/supabot/docs/304_gemini_intent.md) |
-| `src/core/order_sync.py` | 거래소 실시간 주문 동기화 엔진 (체결/취소/만료 감지, 사후 액션 유발) | [202_order_manager.md](file:///E:/apps/supabot/docs/202_order_manager.md) |
+| `src/core/order_sync.py` | 거래소 실시간 주문 동기화 엔진 (체결/취소/만료 감지, 사후 액션 유발, KIS 재주문 및 예약주문 정규장 처리) | [202_order_manager.md](file:///E:/apps/supabot/docs/202_order_manager.md) |
 | `src/core/order_execution.py` | 주문 생성 및 체결 사후 연동 처리 | [202_order_manager.md](file:///E:/apps/supabot/docs/202_order_manager.md) |
 | `src/core/order_manager.py` | 주문 상태 관리 (DB 우선 + 파일 폴백) | [202_order_manager.md](file:///E:/apps/supabot/docs/202_order_manager.md) |
-| `src/core/dca_manager.py` | DCA 적립식 매수 스케줄 및 실행 관리 | — |
+| `src/core/dca_manager.py` | DCA 적립식/분할 매매 스케줄러 (시장가/지정가 주문, 휴장일/서킷브레이커 이월 관리) | [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md) |
 | `src/core/exchange_adapter.py` | 거래소 레지스트리/파사드 | [201_exchange_adapter.md](file:///E:/apps/supabot/docs/201_exchange_adapter.md) |
 | `src/core/exchanges/base.py` | `BaseExchange` — 거래소 capability 기본값 정의 | [201_exchange_adapter.md](file:///E:/apps/supabot/docs/201_exchange_adapter.md) |
 | `src/core/exchanges/{upbit,bithumb,kis,toss}.py` | 거래소별 HTTP/인증 구현 및 capability 오버라이드 | [201_exchange_adapter.md](file:///E:/apps/supabot/docs/201_exchange_adapter.md) |
@@ -57,8 +57,12 @@ FastAPI 백엔드 + React/TypeScript(Vite+Tailwind) SPA. Synology Docker 배포 
 | `manager/backend/main.py` | FastAPI 앱, 세션, 로그인/로그아웃 |
 | `manager/backend/db.py` | Supabase REST 클라이언트 (= `src/core/db.py`) |
 | `manager/backend/auth.py` | Supabase Auth 이메일/비번 로그인 |
-| `manager/backend/bot_client.py` | 봇 `/internal/notify` 단방향 호출 |
+| `manager/backend/bot_client.py` | 봇 `/internal/notify`, `/internal/execute_dca`, `/internal/order-events` 연동 |
 | `manager/backend/routers/` | dashboard, users, orders, trades, events, sysconfig, reports, templates, mfa, analytics, stock_cache (11개 라우터) |
+| `manager/backend/services/budget_manager.py` | 예산 플랜 관리, 감사 원장(budget_ledger) 및 예수금 Health Check 전담 엔진 |
+| `manager/backend/services/progression_manager.py` | 전략 일단위 실행 흐름, 진행 상태 및 대사(Reconciliation), 주문 취소/이월 처리 |
+| `manager/backend/services/order_planner.py` | 목표 비중/수량 기반 주문 생성 및 슬리피지/호가 플래너 |
+| `manager/backend/services/universe_resolver.py` | 시장 시가총액 TOP 50 동적 유니버스 및 일별 스냅샷 리졸버 |
 
 상세 구조: [manager/README.md](file:///E:/apps/supabot/manager/README.md), [manager/frontend/DESIGN.md](file:///E:/apps/supabot/manager/frontend/DESIGN.md) 참고.
 
@@ -86,7 +90,8 @@ FastAPI 백엔드 + React/TypeScript(Vite+Tailwind) SPA. Synology Docker 배포 
   "created_at": 1700000000.0,
   "next_check_at": 0.0,
   "reorder_of": null,          // 재주문 시 이전 uuid
-  "stop_price": null           // rsitrade_sell 전용: 손절 기준가 (stop_loss_pct로 계산)
+  "stop_price": null,          // rsitrade_sell 전용: 손절 기준가 (stop_loss_pct로 계산)
+  "template_id": null          // 전략 템플릿 ID (예산 플랜 및 감사 추적 연결)
 }
 ```
 
@@ -140,6 +145,11 @@ FastAPI 백엔드 + React/TypeScript(Vite+Tailwind) SPA. Synology Docker 배포 
 | `command_logs` | 명령어 사용 raw 로그 (매일 집계 후 삭제) |
 | `command_log_daily` | 명령어 사용 일별 요약 (Analytics 분석용) |
 | `kr_stock_cache` | 한국 주식 종목명→코드 DB 캐시 (TTL 90일) |
+| `strategy_templates` | 사용자별 전략 템플릿 (매개변수 params JSONB, 예산 플랜, 실행 설정) |
+| `dca_schedules` | 정기 분할/적립식 매매 스케줄러 (주기, 요일, 실행시각, 주문방식(market/limit), 이월모드) |
+| `budget_ledger` | 전략별 예산 감사 원장 (5대 불변식 보장, 일일충전/주문차감/환원/수수료정산 내역) |
+| `market_top_snapshots` | KOSPI/KOSDAQ/코인 시장별 마스터 시가총액 TOP 50 프리징 일별 스냅샷 |
+| `feedbacks` | 사용자 피드백 및 오류 보고 접수 |
 
 ---
 
@@ -162,3 +172,5 @@ FastAPI 백엔드 + React/TypeScript(Vite+Tailwind) SPA. Synology Docker 배포 
 * **실거래 경로**: 실제 네트워크 도달 시 실계좌 매매 발생. 테스트 시 mock 필수.
 * **재주문**: KIS 전략 주문 만료 시 미체결 잔량(`volume - filled_volume`)만 재주문.
 * **해외주식 통화 혼재**: `trade_logs` currency 컬럼 없음. KRW/USD 구분 `is_us_stock_ticker()` 패턴 검사로 추론.
+* **DCA 주문 방식 & 이월 모드**: DCA 주문은 지정가(`limit`, 현재가 기준 호가) 또는 시장가(`market`, 즉시 체결)를 지원하며, 업비트/빗썸 시장가 매수는 `ord_type="price"` 총액 매수로 발행. 휴장일/임시공휴일 또는 사이드카·서킷브레이커 발동 시 설정된 이월 정책(`next_day`: 다음 거래일 정규장 개장, `delay_20m`: 20분 후 재시도, `skip`: 건너뛰기)으로 안전하게 자동 처리.
+* **통합 예산 플랜 & 감사 원장(Budget Audit Ledger)**: 전략별 예산은 `strategy_templates`의 `budget_mode`(`total` | `monthly`)와 `budget_ledger`를 통해 관리되며, 일일 충전(`DAILY_CREDIT`), 주문 집행(`BUY_ORDER_SPEND`), 취소 환원(`ORDER_CANCEL_REFUND`), 매도 대금 재투입(`SELL_PROCEEDS_RECYCLE`)이 1원 단위 감사 원장으로 기록되어 원장-잔액 항등식 및 일일 충전 멱등성 보장.
