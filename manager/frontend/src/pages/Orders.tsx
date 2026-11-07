@@ -501,6 +501,10 @@ export default function Orders() {
 
       {viewMode === 'batches' ? (
         <OrderBatchesSection
+          templateId={templateIdFilter}
+          onSelectTemplateId={(tId) => {
+            setTemplateIdFilter(tId)
+          }}
           onSelectGroupNo={(gNo, batch) => {
             setGroupNoFilter(gNo)
             setGroupNoInput(String(gNo))

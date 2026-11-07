@@ -1522,7 +1522,38 @@ async def api_reports_top_rotation(
             }
 
         # 4. 일단위 실행 흐름 (일별 스냅샷 순위, 매수 성공 여부, 익일 타겟)
+        # 실제 체결(trades_data) 및 현재 진행중 주문(orders_data)과 대조하여 미체결 취소분을 걸러내고 실제 상태를 반영한다.
+        executed_buy_by_group_code: dict[tuple, dict] = {}
+        for tr in trades_data:
+            if tr.get("side") == "bid":
+                key = (tr.get("group_no"), str(tr.get("ticker") or ""))
+                prev = executed_buy_by_group_code.get(key)
+                vol = float(tr.get("volume") or 0)
+                price = float(tr.get("price") or 0)
+                if prev is None:
+                    executed_buy_by_group_code[key] = {"volume": vol, "price": price, "cost": price * vol}
+                else:
+                    tot_vol = prev["volume"] + vol
+                    tot_cost = prev["cost"] + (price * vol)
+                    executed_buy_by_group_code[key] = {
+                        "volume": tot_vol,
+                        "price": round(tot_cost / tot_vol) if tot_vol > 0 else price,
+                        "cost": tot_cost,
+                    }
+
+        open_order_by_group_code: dict[tuple, str] = {}
+        cancelled_order_by_group_code: set[tuple] = set()
+        for o in orders_data:
+            if o.get("side") == "bid":
+                key = (o.get("group_no"), str(o.get("ticker") or ""))
+                st = str(o.get("status") or "")
+                if st in ("wait", "reserved", "partial", "pending_reorder"):
+                    open_order_by_group_code[key] = st
+                elif st in ("cancel", "failed", "rejected", "market_closed", "expired"):
+                    cancelled_order_by_group_code.add(key)
+
         history = params.get("history", [])
+        latest_group_no = max((int(h.get("group_no") or 0) for h in history), default=0)
         daily_execution_flow = []
         for h_item in reversed(history[-14:]):
             dt = h_item.get("date", "")
@@ -1532,19 +1563,45 @@ async def api_reports_top_rotation(
             sells = h_item.get("sell_orders") or h_item.get("sells", [])
             snap = h_item.get("snapshot") or h_item.get("top_list", [])
             w_next = h_item.get("waiting_next")
-            cob = h_item.get("carryover_budget", 0.0)
+            cob = h_item.get("new_carryover")
+            if cob is None:
+                cob = h_item.get("end_carryover")
+            if cob is None:
+                cob = h_item.get("carryover_budget", 0.0)
 
             formatted_buys = []
             for b in buys:
-                b_code = b.get("code") or b.get("ticker", "")
+                b_code = str(b.get("code") or b.get("ticker") or "")
+                key = (g_no, b_code)
+                exec_info = executed_buy_by_group_code.get(key)
+                open_st = open_order_by_group_code.get(key)
+                if exec_info:
+                    b_price = exec_info["price"]
+                    b_vol = exec_info["volume"]
+                    b_cost = exec_info["cost"]
+                    b_status = "done"
+                elif open_st:
+                    b_price = b.get("price", 0)
+                    b_vol = b.get("volume", b.get("qty", 1))
+                    b_cost = b.get("cost", b_price * b_vol)
+                    b_status = open_st
+                elif key in cancelled_order_by_group_code or (g_no is not None and int(g_no) < latest_group_no and trades_data):
+                    # 과거 배치인데 체결 로그에도 없고 오픈 주문에도 없으면 미체결 취소된 주문이므로 체결 목록에서 제외
+                    continue
+                else:
+                    b_price = b.get("price", 0)
+                    b_vol = b.get("volume", b.get("qty", 1))
+                    b_cost = b.get("cost", b_price * b_vol)
+                    b_status = b.get("status", "done")
+
                 formatted_buys.append({
                     "code": b_code,
                     "name": stock_map.get(b_code, b.get("name", b_code)),
                     "rank": b.get("rank"),
-                    "price": b.get("price", 0),
-                    "volume": b.get("volume", b.get("qty", 1)),
-                    "cost": b.get("cost", 0),
-                    "status": "done",
+                    "price": b_price,
+                    "volume": b_vol,
+                    "cost": b_cost,
+                    "status": b_status,
                 })
 
             formatted_sells = []

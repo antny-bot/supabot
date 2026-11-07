@@ -468,6 +468,51 @@ async def run_strategy_progression(
                             current_cycle_bought.remove(c_code)
                     params["current_cycle_bought"] = current_cycle_bought
 
+                    # 미체결 취소된 주문은 기존 history의 buys 목록 및 집행액(spent)에서도 제거/보정하여 중복 체결 표시 방지
+                    cancelled_by_group: dict[int, set[str]] = {}
+                    cancelled_uuids: set[str] = set()
+                    for cb in cancelled:
+                        if float(cb.get("filled_volume", 0.0)) > 0:
+                            continue
+                        if cb.get("uuid"):
+                            cancelled_uuids.add(str(cb["uuid"]))
+                        c_code = cb.get("code") or cb.get("ticker")
+                        g_no = cb.get("group_no")
+                        if g_no is not None and c_code:
+                            cancelled_by_group.setdefault(int(g_no), set()).add(str(c_code))
+
+                    if cancelled_uuids or cancelled_by_group:
+                        prev_history = list(params.get("history", []))
+                        for h_entry in prev_history:
+                            h_gno = h_entry.get("group_no")
+                            h_buys = list(h_entry.get("buys") or h_entry.get("buy_orders") or [])
+                            if not h_buys:
+                                continue
+                            g_cancelled_codes = cancelled_by_group.get(int(h_gno), set()) if h_gno is not None else set()
+                            kept_buys = []
+                            refunded_in_hist = 0.0
+                            for b_item in h_buys:
+                                b_uuid = str(b_item.get("uuid") or "")
+                                b_code = str(b_item.get("code") or b_item.get("ticker") or "")
+                                if (b_uuid and b_uuid in cancelled_uuids) or (b_code and b_code in g_cancelled_codes):
+                                    refunded_in_hist += float(b_item.get("cost") or (float(b_item.get("price", 0)) * float(b_item.get("volume", 1))))
+                                else:
+                                    kept_buys.append(b_item)
+                            if len(kept_buys) != len(h_buys):
+                                h_entry["buys"] = kept_buys
+                                if "buy_orders" in h_entry:
+                                    h_entry["buy_orders"] = kept_buys
+                                new_spent = sum(float(x.get("cost") or (float(x.get("price", 0)) * float(x.get("volume", 1)))) for x in kept_buys)
+                                h_entry["spent"] = new_spent
+                                h_entry["spent_today"] = new_spent
+                                if "end_carryover" in h_entry:
+                                    h_entry["end_carryover"] = float(h_entry.get("end_carryover", 0.0)) + refunded_in_hist
+                                if "new_carryover" in h_entry:
+                                    h_entry["new_carryover"] = float(h_entry.get("new_carryover", 0.0)) + refunded_in_hist
+                                if "monthly_spent_after" in h_entry:
+                                    h_entry["monthly_spent_after"] = max(0.0, float(h_entry.get("monthly_spent_after", 0.0)) - refunded_in_hist)
+                        params["history"] = prev_history
+
         # 4-2. 직전 배치 매도 체결 대금 예산 재투입 (recycle_to_budget 모드)
         pending_sells = params.get("pending_sell_orders", [])
         if pending_sells and params.get("sell_proceeds_mode") == "recycle_to_budget":
