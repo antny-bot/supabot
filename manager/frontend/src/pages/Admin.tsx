@@ -37,6 +37,7 @@ import { EventsContent } from './Events'
 import { UsersContent } from './Users'
 import NlLogsSection from './reports/NlLogsSection'
 import AdminFeedbacksTab from './admin/AdminFeedbacksTab'
+import AdminBackupTab from './admin/AdminBackupTab'
 
 const Analytics = lazy(() => import('./Analytics'))
 
@@ -49,6 +50,7 @@ const ADMIN_TABS = [
   { id: 'monitoring',  label: '주문 및 신호 주기' },
   { id: 'stock-cache', label: '종목 캐시' },
   { id: 'nllogs',      label: 'NL 로그' },
+  { id: 'backup',      label: '데이터 백업' },
 ]
 
 const DASHBOARD_STAT_CONFIG: { key: keyof DashboardStats; label: string; Icon: React.ElementType; bg: string }[] = [
@@ -737,6 +739,7 @@ export default function Admin() {
         {activeTab === 'monitoring'  && <MonitoringTab />}
         {activeTab === 'stock-cache' && <StockCacheTab />}
         {activeTab === 'nllogs'      && <NlLogsSection />}
+        {activeTab === 'backup'      && <AdminBackupTab />}
       </div>
     </div>
   )

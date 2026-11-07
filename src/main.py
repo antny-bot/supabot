@@ -584,6 +584,10 @@ async def post_init(application):
     from core.db_sync import start_sync_loop
     start_sync_loop()
 
+    # 정기 데이터 백업 루프 기동
+    from core.backup_manager import start_backup_loop
+    start_backup_loop()
+
     # 실시간 시세 WebSocket 수집 엔진 기동
     from core.websocket_client import init_ticker_engine
     init_ticker_engine(user_manager)
@@ -604,6 +608,8 @@ async def post_init(application):
         notify_app.router.add_post("/internal/force_update_order", internal_api._internal_force_update_order_handler)
         notify_app.router.add_post("/internal/get_prices", internal_api._internal_get_prices_handler)
         notify_app.router.add_post("/internal/get_balances", internal_api._internal_get_balances_handler)
+        notify_app.router.add_post("/internal/backup/trigger", internal_api._internal_backup_trigger_handler)
+        notify_app.router.add_get("/internal/backup/status", internal_api._internal_backup_status_handler)
         _notify_runner = _web.AppRunner(notify_app)
         await _notify_runner.setup()
         port = int(os.environ.get("INTERNAL_PORT", 8765))
@@ -669,6 +675,7 @@ def main():
     application.add_handler(CommandHandler("help", system_handlers.help_command))
     application.add_handler(CommandHandler("commands", system_handlers.help_command))
     application.add_handler(CommandHandler("dbsync", system_handlers.dbsync_command))
+    application.add_handler(CommandHandler("backup", system_handlers.backup_command))
     application.add_handler(CommandHandler("halt", system_handlers.halt_command))
     application.add_handler(CommandHandler("resume", system_handlers.resume_command))
     application.add_handler(CommandHandler("resetuser", system_handlers.resetuser_command))

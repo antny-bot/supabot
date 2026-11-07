@@ -642,3 +642,38 @@ async def _internal_get_balances_handler(request: _web.Request) -> _web.Response
     except Exception as e:
         _log.warning("internal get_balances failed", exc_info=e)
         return _web.Response(status=500, text=str(e))
+
+
+
+async def _internal_backup_trigger_handler(request: _web.Request) -> _web.Response:
+    """매니저에서 요청하는 즉시 백업 트리거 webhook."""
+    if not await _verify_webhook_request(request):
+        return _web.Response(status=401)
+    try:
+        from core.backup_manager import trigger_backup
+        res = await trigger_backup()
+        return _web.Response(
+            text=_json.dumps(res, ensure_ascii=False),
+            content_type="application/json",
+            status=200 if res.get("status") == "success" else 500
+        )
+    except Exception as e:
+        _log.error("Internal backup trigger failed", exc_info=e)
+        return _web.Response(status=500, text=str(e))
+
+
+async def _internal_backup_status_handler(request: _web.Request) -> _web.Response:
+    """백업 상태 및 설정 정보 조회 webhook."""
+    if not await _verify_webhook_request(request):
+        return _web.Response(status=401)
+    try:
+        from core.backup_manager import load_backup_state, get_backup_config
+        state = load_backup_state()
+        config = get_backup_config()
+        return _web.Response(
+            text=_json.dumps({"state": state, "config": config}, ensure_ascii=False),
+            content_type="application/json",
+        )
+    except Exception as e:
+        _log.error("Internal backup status failed", exc_info=e)
+        return _web.Response(status=500, text=str(e))

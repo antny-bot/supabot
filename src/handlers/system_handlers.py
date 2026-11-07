@@ -240,3 +240,66 @@ async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "❓ 알 수 없는 명령어입니다.\n\n"
         "사용 가능한 명령어 목록은 /help 를 입력하여 확인해 주세요."
     )
+
+
+
+@check_auth
+async def backup_command(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
+    """관리자용 백업 상태 확인 및 즉시 백업 실행 명령어."""
+    if not user.get("is_admin"):
+        await update.message.reply_text("❌ 어드민 전용 명령어입니다.")
+        return
+
+    sub = (context.args[0].lower() if context.args else "status")
+    from core.backup_manager import trigger_backup, load_backup_state, get_backup_config
+
+    if sub == "now":
+        msg = await update.message.reply_text("📦 <b>Supabase 전체 백업을 시작합니다...</b>", parse_mode="HTML")
+        res = await trigger_backup()
+        if res.get("status") == "success":
+            size_kb = round(res.get("size", 0) / 1024, 1)
+            gdrive_txt = f"Google Drive 연동 (ID: {res['gdrive_id']})" if res.get("gdrive_id") else "로컬 전용"
+            await msg.edit_text(
+                f"✅ <b>백업 완료</b>\n\n"
+                f"• 파일: <code>{res.get('file')}</code>\n"
+                f"• 용량: {size_kb} KB\n"
+                f"• 저장소: {gdrive_txt}\n"
+                f"• 총 행 수: {res.get('total_rows')} rows\n"
+                f"• 소요 시간: {res.get('elapsed')}초",
+                parse_mode="HTML"
+            )
+        else:
+            await msg.edit_text(
+                f"❌ <b>백업 실패</b>\n\n사유: {_html.escape(str(res.get('error')))}",
+                parse_mode="HTML"
+            )
+    elif sub == "status":
+        cfg = get_backup_config()
+        st = load_backup_state()
+        last_success = st.get("last_success_at") or "없음"
+        last_file = st.get("last_backup_file") or "없음"
+        last_size = f"{round(st.get('last_backup_size', 0) / 1024, 1)} KB" if st.get("last_backup_size") else "-"
+        gdrive_status = "연동됨 (.env)" if cfg.get("gdrive_enabled") else "미연동 (.env 설정 필요)"
+
+        sched_info = (
+            f"{cfg.get('interval_hours')}시간마다"
+            if cfg.get("schedule_type") == "interval"
+            else f"요일 선택 매일 {cfg.get('time_of_day')} KST"
+        )
+
+        lines = [
+            "📦 <b>데이터 백업 상태</b>\n",
+            f"• 백업 활성화: {'예' if cfg.get('enabled') else '아니오'}",
+            f"• 스케줄: {sched_info}",
+            f"• 보존 정책: 로컬 {cfg.get('local_max_keep')}개 / Drive {cfg.get('gdrive_max_keep')}개",
+            f"• Google Drive: {gdrive_status}\n",
+            f"• 최근 상태: {st.get('last_status', 'none')}",
+            f"• 최근 성공 시각: {last_success}",
+            f"• 최근 백업 파일: <code>{last_file}</code> ({last_size})\n",
+            "💡 <i>즉시 백업 실행: <code>/backup now</code></i>"
+        ]
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+    else:
+        await update.message.reply_text(
+            "사용법:\n/backup status - 백업 상태 조회\n/backup now - 즉시 백업 실행"
+        )

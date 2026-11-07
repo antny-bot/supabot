@@ -252,3 +252,15 @@ async def get_exchange_balances(user_id: str, exchange: str) -> dict | None:
 async def get_bot_status() -> dict | None:
     """호환성 유지를 위한 helper."""
     return None
+
+
+
+async def trigger_bot_backup() -> tuple[bool, dict]:
+    """봇의 /internal/backup/trigger 엔드포인트를 호출하여 즉시 백업을 실행합니다."""
+    try:
+        resp = await _send_signed_request_async("/internal/backup/trigger", {})
+        if resp.is_success:
+            return True, resp.json()
+        return False, {"error": resp.text or f"HTTP 에러 {resp.status_code}"}
+    except Exception as e:
+        return False, {"error": str(e)}
