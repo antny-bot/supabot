@@ -723,10 +723,11 @@ async def natural_language_command(update: Update, context: ContextTypes.DEFAULT
     )
 
     action_summaries = [_format_action_summary(a) for a in agent_result.proposed_actions]
+    joined_summaries = "\n".join(action_summaries)
     confirm_text = (
         f"{agent_result.reply_text}\n\n"
         f"📋 **실행 계획 ({len(agent_result.proposed_actions)}건)**\n"
-        f"{'\n'.join(action_summaries)}\n\n"
+        f"{joined_summaries}\n\n"
         f"위 작업을 실행할까요?"
     )
 
