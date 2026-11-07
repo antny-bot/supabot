@@ -569,3 +569,138 @@ async def test_report_tools_manager_api():
     finally:
         current_nl_context.reset(token)
 
+
+@pytest.mark.asyncio
+async def test_bugfix_read_tools_and_propose_update_config():
+    """회귀 테스트: KIS/Toss 딕셔너리 잔고, SignalEngine.get_indicators NamedTuple 직렬화,
+    타 유저 미체결 격리, read_trades user_id 전달, propose_update_config 예외 처리를 검증."""
+    from typing import NamedTuple
+    from core.nl_tools import (
+        get_technical_indicators,
+        get_recent_trades,
+        propose_update_config,
+    )
+
+    class _DummyMACD(NamedTuple):
+        macd: float
+        signal: float
+        histogram: float
+
+    mock_adapter = MagicMock()
+    mock_adapter.resolve_ticker = AsyncMock(return_value="005930")
+    mock_adapter.get_balances = AsyncMock(return_value={
+        "cash": 1500000.0,
+        "total_eval": 2200000.0,
+        "stocks": [
+            {"code": "005930", "name": "삼성전자", "qty": 10, "avg_price": 70000.0, "current_price": 72000.0, "profit_rate": 2.85},
+        ],
+    })
+
+    mock_signal = MagicMock()
+    mock_signal.get_indicators = AsyncMock(return_value={
+        "rsi": 31.4,
+        "macd": _DummyMACD(10.5, 8.2, 2.3),
+    })
+
+    mock_order_mgr = MagicMock()
+    mock_order_mgr.orders = [
+        {"uuid": "my-open-1", "user_id": "12345", "exchange": "kis", "ticker": "005930", "side": "bid", "price": 70000, "volume": 5, "status": "reserved"},
+        {"uuid": "other-user-1", "user_id": "99999", "exchange": "kis", "ticker": "005930", "side": "bid", "price": 69000, "volume": 5, "status": "open"},
+    ]
+
+    ctx = NLToolContext(
+        user={"user_id": "12345", "preferences": {"rsi_interval": "day"}},
+        user_id="12345",
+        exchange_adapter=mock_adapter,
+        signal_engine=mock_signal,
+        order_manager=mock_order_mgr,
+    )
+    token = current_nl_context.set(ctx)
+    try:
+        # 1) KIS/Toss 딕셔너리 잔고 포맷
+        bal_res = await get_account_balances(exchange="kis")
+        assert bal_res["cash_krw"] == 1500000.0
+        assert len(bal_res["holdings"]) == 1
+        assert bal_res["holdings"][0]["ticker"] == "005930"
+
+        # 2) SignalEngine.get_indicators 호출 및 NamedTuple -> dict 직렬화
+        ind_res = await get_technical_indicators(exchange="kis", ticker="삼성전자")
+        assert ind_res["indicators"]["rsi"] == 31.4
+        assert ind_res["indicators"]["macd"] == {"macd": 10.5, "signal": 8.2, "histogram": 2.3}
+
+        # 3) 타 유저 미체결 격리 및 reserved 상태 포함
+        open_res = await get_open_orders(exchange="kis", ticker="005930")
+        assert open_res["count"] == 1
+        assert open_res["orders"][0]["uuid"] == "my-open-1"
+
+        # 4) read_trades(ctx.user_id, ...) 호출 검증
+        with patch("core.nl_tools.read_trades", return_value=[{"exchange": "kis", "ticker": "005930", "side": "bid"}]) as mock_read_trades:
+            trades_res = await get_recent_trades(exchange="kis", limit=5)
+            assert trades_res["count"] == 1
+            mock_read_trades.assert_called_once_with("12345", ticker=None)
+
+        # 5) propose_update_config 정상 값 및 잘못된 값/폴링 키 차단 검증
+        ok_cfg = await propose_update_config("max_order_krw", "500000")
+        assert ok_cfg["status"] == "staged_for_user_confirmation"
+        assert ok_cfg["action"]["config_value"] == 500000
+
+        bad_cfg = await propose_update_config("rsi_buy_range", "invalid-range")
+        assert bad_cfg["status"] == "error"
+
+        poll_cfg = await propose_update_config("order_poll_seconds", "10")
+        assert poll_cfg["status"] == "error"
+    finally:
+        current_nl_context.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_bugfix_execute_confirmed_actions_grid_and_template_endpoints():
+    """회귀 테스트: execute_confirmed_actions에서 strategy_grid 실행 및 template_control 실제 엔드포인트 호출 검증."""
+    import main
+
+    user = {
+        "user_id": "12345",
+        "is_admin": False,
+        "preferences": {"default_exchange": "upbit", "max_order_krw": 5000000},
+    }
+    mock_query = AsyncMock()
+    mock_query.from_user.id = "12345"
+    mock_context = MagicMock()
+
+    actions = [
+        {
+            "action_type": "strategy_grid",
+            "exchange": "upbit",
+            "ticker": "KRW-BTC",
+            "side": "buy",
+            "start_price": 90000000.0,
+            "end_price": 100000000.0,
+            "count": 5,
+            "amount_krw": 1000000.0,
+            "volume": None,
+        },
+        {"action_type": "template_control", "template_id": 7, "action": "run"},
+        {"action_type": "template_control", "template_id": 7, "action": "pause"},
+        {"action_type": "template_control", "template_id": 7, "action": "stop_and_cancel"},
+        {"action_type": "template_control", "template_id": 7, "action": "topup", "amount_krw": 250000.0},
+    ]
+
+    with patch("handlers.nl_intent_handlers.execute_grid_orders", new_callable=AsyncMock) as mock_grid:
+        with patch("handlers.nl_intent_handlers.request_manager_api", new_callable=AsyncMock) as mock_api:
+            mock_api.return_value = {"ok": True, "data": {}}
+            await execute_confirmed_actions(mock_query, mock_context, user, actions)
+
+            mock_grid.assert_called_once()
+            assert mock_api.call_count == 4
+            calls = [c.args[:3] + (c.kwargs.get("json_body"),) for c in mock_api.call_args_list]
+            assert calls[0] == ("POST", "/api/templates/7/execute", "12345", None)
+            assert calls[1] == ("POST", "/api/templates/7/stop", "12345", {"mode": "pause"})
+            assert calls[2] == ("POST", "/api/templates/7/stop", "12345", {"mode": "stop_and_cancel"})
+            assert calls[3] == (
+                "POST",
+                "/api/templates/7/topup",
+                "12345",
+                {"amount_krw": 250000.0, "memo": "텔레그램 AI 에이전트 충전"},
+            )
+
+

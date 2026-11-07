@@ -33,7 +33,7 @@ from core.formatters import build_config_view, format_config_value
 from core.nl_schema import TradeIntentModel
 from core.nl_agent import run_nl_agent_loop, AgentRunResult
 from core.manager_api_client import request_manager_api
-from core.order_execution import execute_rsitrade_orders, execute_sgridrsi_orders
+from core.order_execution import execute_grid_orders, execute_rsitrade_orders, execute_sgridrsi_orders
 from core.stock_resolver import find_kr_stock_candidates
 from core.ticker_disambiguation import (
     create_nl_disambiguation_token,
@@ -346,6 +346,8 @@ async def execute_confirmed_actions(query, context, user, actions: list[dict]):
                 cancelled_cnt = 0
                 for u in uuids:
                     order = main.order_manager.get_order(u)
+                    if order and str(order.get("user_id", user_id)) != user_id:
+                        order = None
                     if not order:
                         # user_orders에서 재탐색
                         for o in main.order_manager.get_user_orders(user_id, ex):
@@ -363,6 +365,14 @@ async def execute_confirmed_actions(query, context, user, actions: list[dict]):
                 sell_range = act.get("sell_rsi_range") or user.get("preferences", {}).get("rsi_sell_range", "65-75")
                 count = int(act.get("count") or user.get("preferences", {}).get("rsi_order_count", 5))
                 budget = float(act.get("amount_krw") or user.get("preferences", {}).get("rsi_budget_krw") or 0)
+                if budget <= 0:
+                    results.append(f"❌ {idx}. [{exchange_display_name(ex)}] {tk} RSI 전략 예산이 설정되지 않아 주문을 중단합니다.")
+                    continue
+                if main.exchange_adapter and get_user_rsi_interval(user) != "day":
+                    ex_inst = main.exchange_adapter.get_exchange(ex)
+                    if ex_inst and not ex_inst.supports_minute_candles():
+                        results.append(f"❌ {idx}. [{exchange_display_name(ex)}] 현재 일봉(day) 기준 RSI만 지원합니다.")
+                        continue
                 group_no = main.order_manager.get_next_group_no(user_id)
 
                 if strat == "rsitrade":
@@ -391,18 +401,55 @@ async def execute_confirmed_actions(query, context, user, actions: list[dict]):
                     )
                     results.append(f"✅ {idx}. [{exchange_display_name(ex)}] {tk} RSI 분할 매도 실행 완료")
 
+            elif act_type == "strategy_grid":
+                is_sell = act.get("side") == "sell"
+                start_price = float(act.get("start_price") or 0.0)
+                end_price = float(act.get("end_price") or 0.0)
+                count = int(act.get("count") or 5)
+                budget_or_vol = float(act.get("volume") or 0.0) if is_sell else float(act.get("amount_krw") or 0.0)
+                if start_price <= 0 or end_price <= 0 or budget_or_vol <= 0 or count <= 0:
+                    results.append(f"❌ {idx}. [{exchange_display_name(ex)}] {tk} 거미줄 주문 파라미터(가격/수량/예산)가 유효하지 않습니다.")
+                    continue
+                if not is_sell:
+                    ok, err = validate_max_order(user, budget_or_vol)
+                    if not ok:
+                        results.append(f"❌ {idx}. 거미줄 매수 실패: {err}")
+                        continue
+                group_no = main.order_manager.get_next_group_no(user_id)
+                await execute_grid_orders(
+                    exchange_adapter=main.exchange_adapter,
+                    order_manager=main.order_manager,
+                    user_id=user_id,
+                    exchange=ex,
+                    ticker=tk,
+                    start_price=start_price,
+                    end_price=end_price,
+                    count=count,
+                    budget_or_volume=budget_or_vol,
+                    is_sell=is_sell,
+                    group_no=group_no,
+                    bot=context.bot,
+                    notify_chat_id=user_id,
+                    trigger_sync_fn=main.trigger_realtime_sync,
+                )
+                side_kr = "매도" if is_sell else "매수"
+                results.append(f"✅ {idx}. [{exchange_display_name(ex)}] {tk} 거미줄 {side_kr} 실행 완료")
+
             elif act_type == "template_control":
                 t_id = act.get("template_id")
                 action = act.get("action")
-                path_map = {
-                    "run": f"/api/templates/{t_id}/run",
-                    "pause": f"/api/templates/{t_id}/pause",
-                    "stop_and_cancel": f"/api/templates/{t_id}/stop-cancel",
-                    "topup": f"/api/templates/{t_id}/topup",
+                endpoint_map = {
+                    "run": (f"/api/templates/{t_id}/execute", None),
+                    "pause": (f"/api/templates/{t_id}/stop", {"mode": "pause"}),
+                    "stop_and_cancel": (f"/api/templates/{t_id}/stop", {"mode": "stop_and_cancel"}),
+                    "topup": (
+                        f"/api/templates/{t_id}/topup",
+                        {"amount_krw": float(act.get("amount_krw") or 0), "memo": "텔레그램 AI 에이전트 충전"},
+                    ),
                 }
-                api_path = path_map.get(action)
-                if api_path:
-                    body = {"amount_krw": act.get("amount_krw")} if action == "topup" else None
+                route_info = endpoint_map.get(action)
+                if route_info:
+                    api_path, body = route_info
                     is_adm = bool(user.get("is_admin", False))
                     resp = await request_manager_api("POST", api_path, user_id, is_admin=is_adm, json_body=body)
                     if resp.get("ok"):

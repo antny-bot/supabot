@@ -14,8 +14,10 @@ from core.bot_logger import get_logger
 from core.formatters import exchange_display_name
 from core.manager_api_client import request_manager_api
 from core.parsers import (
+    POLL_INTERVAL_KEYS,
     normalize_exchange,
     parse_config_value,
+    parse_exchange_and_ticker,
     validate_config_update,
     validate_max_order,
 )
@@ -46,6 +48,29 @@ def _get_context() -> NLToolContext:
     return ctx
 
 
+async def _resolve_exchange_ticker(ctx: NLToolContext, exchange: str, ticker: str) -> tuple[str, str]:
+    norm_ex = normalize_exchange(exchange) or str(exchange or "upbit").lower()
+    raw_ticker = str(ticker or "").strip()
+    if ctx.exchange_adapter and raw_ticker:
+        resolved = await ctx.exchange_adapter.resolve_ticker(ctx.user_id, norm_ex, raw_ticker)
+        if resolved:
+            raw_ticker = resolved
+    _, norm_ticker = parse_exchange_and_ticker([norm_ex, raw_ticker] if raw_ticker else [norm_ex], norm_ex)
+    return norm_ex, (norm_ticker or raw_ticker)
+
+
+def _serialize_indicator_dict(raw: dict | None) -> dict:
+    if not raw or not isinstance(raw, dict):
+        return {}
+    out = {}
+    for k, v in raw.items():
+        if hasattr(v, "_asdict"):
+            out[k] = v._asdict()
+        else:
+            out[k] = v
+    return out
+
+
 # ==============================================================================
 # 1. 읽기 전용 도구 (Read Tools) - 즉시 실행되어 Gemini에 결과 반환
 # ==============================================================================
@@ -61,12 +86,13 @@ async def get_ticker_price(exchange: str, ticker: str) -> dict:
     ctx = _get_context()
     norm_ex = normalize_exchange(exchange) or exchange.lower()
     try:
-        resolved_ticker = ticker
+        norm_ex, resolved_ticker = await _resolve_exchange_ticker(ctx, exchange, ticker)
         if ctx.exchange_adapter:
-            resolved = await ctx.exchange_adapter.resolve_ticker(ctx.user_id, norm_ex, ticker)
-            if resolved:
-                resolved_ticker = resolved
-            price_info = await ctx.exchange_adapter.get_ticker(ctx.user_id, norm_ex, resolved_ticker)
+            try:
+                price_info = await ctx.exchange_adapter.get_ticker(norm_ex, resolved_ticker, user_id=ctx.user_id)
+            except TypeError:
+                # 하위 호환: 구형 mock이 (user_id, exchange, ticker) 3인자 위치 호출만 받는 경우
+                price_info = await ctx.exchange_adapter.get_ticker(ctx.user_id, norm_ex, resolved_ticker)
             if price_info:
                 return {
                     "exchange": norm_ex,
@@ -88,19 +114,29 @@ async def get_technical_indicators(exchange: str, ticker: str, interval: str = "
     Args:
         exchange: 거래소 이름 (upbit, bithumb, kis, toss)
         ticker: 종목 심볼 (예: BTC, 005930)
-        interval: 캔들 주기 ("day", "minute1", "minute5", "minute15", "minute60" 등, 기본값 "day")
+        interval: 캔들 주기 ("day", "1", "3", "5", "15", "60" 등, 기본값 "day")
     """
     ctx = _get_context()
     norm_ex = normalize_exchange(exchange) or exchange.lower()
+    norm_interval = str(interval or "day").lower().replace("minute", "")
     try:
         if ctx.exchange_adapter and ctx.signal_engine:
-            resolved_ticker = await ctx.exchange_adapter.resolve_ticker(ctx.user_id, norm_ex, ticker) or ticker
-            result = await ctx.signal_engine.analyze_ticker(ctx.user_id, norm_ex, resolved_ticker, interval=interval)
+            norm_ex, resolved_ticker = await _resolve_exchange_ticker(ctx, exchange, ticker)
+            if hasattr(ctx.signal_engine, "get_indicators"):
+                result = await ctx.signal_engine.get_indicators(
+                    norm_ex, resolved_ticker, interval=norm_interval, user_id=ctx.user_id
+                )
+            elif hasattr(ctx.signal_engine, "analyze_ticker"):
+                result = await ctx.signal_engine.analyze_ticker(
+                    ctx.user_id, norm_ex, resolved_ticker, interval=norm_interval
+                )
+            else:
+                result = None
             return {
                 "exchange": norm_ex,
                 "ticker": resolved_ticker,
-                "interval": interval,
-                "indicators": result or {},
+                "interval": norm_interval,
+                "indicators": _serialize_indicator_dict(result),
             }
         return {"exchange": norm_ex, "ticker": ticker, "error": "시그널 엔진을 사용할 수 없습니다."}
     except Exception as e:
@@ -119,29 +155,50 @@ async def get_account_balances(exchange: str) -> dict:
     try:
         if ctx.exchange_adapter:
             balances = await ctx.exchange_adapter.get_balances(ctx.user_id, norm_ex)
-            # 깔끔하게 요약 정리
             cash_krw = 0.0
             cash_usd = 0.0
             holdings = []
-            for b in balances or []:
-                cur = b.get("currency", "")
-                bal = float(b.get("balance", 0.0) or 0.0)
-                locked = float(b.get("locked", 0.0) or 0.0)
-                total = bal + locked
-                avg_price = float(b.get("avg_buy_price", 0.0) or 0.0)
 
-                if cur.upper() == "KRW":
-                    cash_krw = total
-                elif cur.upper() == "USD":
-                    cash_usd = total
-                elif total > 0:
+            if isinstance(balances, dict):
+                # KIS / Toss 응답 포맷: {"cash": float, "stocks": [...], "total_eval": float}
+                cash_krw = float(balances.get("cash", 0.0) or 0.0)
+                for s in balances.get("stocks", []) or []:
+                    qty = float(s.get("quantity") or s.get("qty") or 0.0)
+                    if qty <= 0:
+                        continue
                     holdings.append({
-                        "ticker": cur,
-                        "balance": bal,
-                        "locked": locked,
-                        "total": total,
-                        "avg_buy_price": avg_price,
+                        "ticker": s.get("code", ""),
+                        "name": s.get("name", ""),
+                        "balance": qty,
+                        "locked": 0.0,
+                        "total": qty,
+                        "current_price": float(s.get("price") or s.get("current_price") or 0.0),
+                        "eval_value": float(s.get("value") or 0.0),
+                        "currency": s.get("currency", "KRW"),
                     })
+            elif isinstance(balances, list):
+                # Upbit / Bithumb 응답 포맷: [{"currency": "KRW", "balance": "...", ...}, ...]
+                for b in balances:
+                    if not isinstance(b, dict):
+                        continue
+                    cur = b.get("currency", "")
+                    bal = float(b.get("balance", 0.0) or 0.0)
+                    locked = float(b.get("locked", 0.0) or 0.0)
+                    total = bal + locked
+                    avg_price = float(b.get("avg_buy_price", 0.0) or 0.0)
+
+                    if cur.upper() == "KRW":
+                        cash_krw = total
+                    elif cur.upper() == "USD":
+                        cash_usd = total
+                    elif total > 0:
+                        holdings.append({
+                            "ticker": cur,
+                            "balance": bal,
+                            "locked": locked,
+                            "total": total,
+                            "avg_buy_price": avg_price,
+                        })
 
             return {
                 "exchange": norm_ex,
@@ -161,7 +218,7 @@ async def get_open_orders(exchange: Optional[str] = None, ticker: Optional[str] 
 
     Args:
         exchange: 거래소 이름 필터 (upbit, bithumb, kis, toss 또는 null 시 전체)
-        ticker: 종목 심볼 필터 (BTC, 005930 등 또는 null 시 전체)
+        ticker: 종목 심볼 필터 (BTC, 삼성전자, 005930 등 또는 null 시 전체)
     """
     ctx = _get_context()
     try:
@@ -169,15 +226,27 @@ async def get_open_orders(exchange: Optional[str] = None, ticker: Optional[str] 
         if ctx.order_manager:
             raw_orders = getattr(ctx.order_manager, "orders", []) or []
             norm_ex = normalize_exchange(exchange) if exchange else None
-            resolved_ticker = ticker.upper() if ticker else None
+            resolved_ticker = None
+            if ticker:
+                resolved_ticker = ticker.upper()
+                if ctx.exchange_adapter and norm_ex:
+                    resolved = await ctx.exchange_adapter.resolve_ticker(ctx.user_id, norm_ex, ticker)
+                    if resolved:
+                        resolved_ticker = resolved.upper()
 
+            open_statuses = ("open", "wait", "partial", "pending", "pending_reorder", "reserved")
             for o in raw_orders:
-                if o.get("status") not in ("open", "wait", "pending"):
+                order_uid = o.get("user_id")
+                if order_uid is not None and str(order_uid) != str(ctx.user_id):
+                    continue
+                if o.get("status") not in open_statuses:
                     continue
                 if norm_ex and o.get("exchange") != norm_ex:
                     continue
-                if resolved_ticker and o.get("ticker", "").upper() != resolved_ticker:
-                    continue
+                if resolved_ticker:
+                    o_tk = str(o.get("ticker", "")).upper()
+                    if o_tk != resolved_ticker and o_tk.replace("KRW-", "") != resolved_ticker.replace("KRW-", ""):
+                        continue
 
                 orders.append({
                     "uuid": o.get("uuid"),
@@ -189,6 +258,7 @@ async def get_open_orders(exchange: Optional[str] = None, ticker: Optional[str] 
                     "filled_volume": o.get("filled_volume", 0.0),
                     "strategy": o.get("strategy"),
                     "status": o.get("status"),
+                    "group_no": o.get("group_no"),
                     "created_at": o.get("created_at"),
                 })
         return {"count": len(orders), "orders": orders}
@@ -209,13 +279,15 @@ async def get_recent_trades(exchange: Optional[str] = None, ticker: Optional[str
     norm_ex = normalize_exchange(exchange) if exchange else None
     resolved_ticker = ticker.upper() if ticker else None
     try:
-        trades = read_trades() or []
+        trades = read_trades(ctx.user_id, ticker=resolved_ticker) or []
         filtered = []
         for t in reversed(trades):
             if norm_ex and t.get("exchange") != norm_ex:
                 continue
-            if resolved_ticker and t.get("ticker", "").upper() != resolved_ticker:
-                continue
+            if resolved_ticker:
+                t_tk = str(t.get("ticker", "")).upper()
+                if t_tk != resolved_ticker and t_tk.replace("KRW-", "") != resolved_ticker.replace("KRW-", ""):
+                    continue
             filtered.append(t)
             if len(filtered) >= limit:
                 break
@@ -753,23 +825,24 @@ async def propose_update_config(config_key: str, config_value: str) -> dict:
         config_value: 변경할 값 문자열
     """
     ctx = _get_context()
-    parsed_val, err = parse_config_value(config_key, config_value)
-    if err:
-        return {"status": "error", "message": err}
-
-    valid_err = validate_config_update(ctx.user, config_key, parsed_val)
-    if valid_err:
-        return {"status": "error", "message": valid_err}
+    key_clean = (config_key or "").strip().lower()
+    if key_clean in POLL_INTERVAL_KEYS:
+        return {"status": "error", "message": "폴링 설정은 config/.env에서 직접 변경 후 재시작해주세요."}
+    try:
+        parsed_val = parse_config_value(key_clean, config_value)
+        validate_config_update(ctx.user, key_clean, parsed_val)
+    except ValueError as e:
+        return {"status": "error", "message": str(e)}
 
     action = {
         "action_type": "update_config",
-        "config_key": config_key,
+        "config_key": key_clean,
         "config_value": parsed_val,
         "raw_value": config_value,
     }
     ctx.proposed_actions.append(action)
 
-    summary = f"환경설정 변경: {config_key} = {config_value}"
+    summary = f"환경설정 변경: {key_clean} = {config_value}"
     return {
         "status": "staged_for_user_confirmation",
         "action": action,

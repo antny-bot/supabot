@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { Fragment, useEffect, useState, useMemo } from 'react'
 import { fetchReportNlLogs } from '../../api/reports'
 import type { NlLogRow, NlLogsStats } from '../../types'
 import Badge from '../../components/ui/Badge'
@@ -198,9 +198,8 @@ export default function NlLogsSection() {
                     const hasDetails = (row.tool_trace && row.tool_trace.length > 0) || (row.proposed_actions && row.proposed_actions.length > 0) || Boolean(row.raw_text)
 
                     return (
-                      <>
+                      <Fragment key={row.id}>
                         <tr
-                          key={row.id}
                           onClick={() => toggleExpand(row.id)}
                           className={`cursor-pointer transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40 ${
                             isExpanded ? 'bg-slate-50/80 dark:bg-slate-800/60' : ''
@@ -327,7 +326,7 @@ export default function NlLogsSection() {
                             </td>
                           </tr>
                         )}
-                      </>
+                      </Fragment>
                     )
                   })
                 })()}
