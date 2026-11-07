@@ -1,4 +1,5 @@
 import { FormEvent, Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   AlertTriangle, Check, CheckCircle, ChevronLeft, ChevronRight, Clock, Database,
   Download, RefreshCw, ShoppingCart, Trash2, TrendingUp, Upload, UserCheck, Users,
@@ -715,7 +716,25 @@ function StockCacheTab() {
 }
 
 export default function Admin() {
-  const [activeTab, setActiveTab] = useState('dashboard')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tabParam = searchParams.get('tab')
+  const validTab = ADMIN_TABS.some(t => t.id === tabParam) ? tabParam! : 'dashboard'
+  const [activeTab, setActiveTabState] = useState(validTab)
+
+  useEffect(() => {
+    if (tabParam && ADMIN_TABS.some(t => t.id === tabParam) && tabParam !== activeTab) {
+      setActiveTabState(tabParam)
+    }
+  }, [tabParam, activeTab])
+
+  const setActiveTab = (tab: string) => {
+    setActiveTabState(tab)
+    if (tab === 'dashboard') {
+      setSearchParams({}, { replace: true })
+    } else {
+      setSearchParams({ tab }, { replace: true })
+    }
+  }
 
   return (
     <div className="space-y-5">

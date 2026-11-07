@@ -234,10 +234,9 @@ async def api_dashboard(user: dict = Depends(get_current_user)):
             rows = (await db.table("users").select("mfa_enabled").eq("user_id", bot_user_id).execute()).data
             mfa_enabled = bool(rows and rows[0].get("mfa_enabled", False))
 
-        backup_health = await _build_backup_health(db)
-
         if is_admin:
             stats = await _build_stats(db)
+            backup_health = await _build_backup_health(db)
 
             events = (
                 await db.table("operational_events")
@@ -268,7 +267,6 @@ async def api_dashboard(user: dict = Depends(get_current_user)):
             "stats": stats,
             "recent_events": [],
             "mfa_enabled": mfa_enabled,
-            "backup_health": backup_health,
         })
     except Exception as e:
         return JSONResponse({"error": "Internal error"}, status_code=500)

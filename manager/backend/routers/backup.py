@@ -3,9 +3,9 @@ import json
 import os
 import re
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 
-from ..bot_client import get_bot_backup_status, trigger_bot_backup
+from ..bot_client import download_bot_backup_file, get_bot_backup_status, trigger_bot_backup
 from ..db import get_db
 from ._auth import get_admin_user, get_current_user
 
@@ -192,14 +192,23 @@ async def api_download_backup(filename: str, _=Depends(get_admin_user)):
         raise HTTPException(status_code=400, detail="Invalid filename")
 
     fpath = os.path.join(BACKUP_DIR, filename)
-    if not os.path.exists(fpath):
-        raise HTTPException(status_code=404, detail="File not found")
+    if os.path.exists(fpath):
+        return FileResponse(
+            path=fpath,
+            filename=filename,
+            media_type="application/zip",
+        )
 
-    return FileResponse(
-        path=fpath,
-        filename=filename,
-        media_type="application/zip",
-    )
+    # 분리 컨테이너 환경: 봇 컨테이너로부터 백업 파일 다운로드
+    ok, content = await download_bot_backup_file(filename)
+    if ok and isinstance(content, bytes):
+        return Response(
+            content=content,
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    raise HTTPException(status_code=404, detail="File not found")
 
 
 @router.get("/api/backup/health")

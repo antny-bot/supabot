@@ -275,3 +275,14 @@ async def get_bot_backup_status() -> tuple[bool, dict]:
         return False, {"error": resp.text or f"HTTP 에러 {resp.status_code}"}
     except Exception as e:
         return False, {"error": str(e)}
+
+
+async def download_bot_backup_file(filename: str) -> tuple[bool, bytes | str]:
+    """봇의 /internal/backup/download 엔드포인트를 호출하여 백업 ZIP 파일 바이너리를 가져옵니다."""
+    try:
+        resp = await _send_signed_request_async("/internal/backup/download", {"filename": filename}, timeout=60.0)
+        if resp.is_success:
+            return True, resp.content
+        return False, resp.text or f"HTTP 에러 {resp.status_code}"
+    except Exception as e:
+        return False, str(e)

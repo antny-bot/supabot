@@ -611,6 +611,7 @@ async def post_init(application):
         notify_app.router.add_post("/internal/backup/trigger", internal_api._internal_backup_trigger_handler)
         notify_app.router.add_post("/internal/backup/status", internal_api._internal_backup_status_handler)
         notify_app.router.add_get("/internal/backup/status", internal_api._internal_backup_status_handler)
+        notify_app.router.add_post("/internal/backup/download", internal_api._internal_backup_download_handler)
         _notify_runner = _web.AppRunner(notify_app)
         await _notify_runner.setup()
         port = int(os.environ.get("INTERNAL_PORT", 8765))
