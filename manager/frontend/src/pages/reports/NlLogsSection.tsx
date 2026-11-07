@@ -4,6 +4,7 @@ import type { NlLogRow } from '../../types'
 import Badge from '../../components/ui/Badge'
 import { TableRowSkeleton } from '../../components/ui/Skeleton'
 import ErrorBanner from '../../components/ui/ErrorBanner'
+import Pagination from '../../components/ui/Pagination'
 import { staggerDelay } from '../../utils/animation'
 
 export default function NlLogsSection() {
@@ -11,6 +12,8 @@ export default function NlLogsSection() {
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
 
   useEffect(() => {
     setLoading(true)
@@ -62,13 +65,18 @@ export default function NlLogsSection() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-10 text-center text-xs text-slate-400 dark:text-slate-500">
-                      데이터 없습니다.
-                    </td>
-                  </tr>
-                ) : rows.map((row, i) => (
+                {(() => {
+                  const pagedRows = rows.slice((page - 1) * pageSize, page * pageSize)
+                  if (rows.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan={7} className="px-4 py-10 text-center text-xs text-slate-400 dark:text-slate-500">
+                          데이터 없습니다.
+                        </td>
+                      </tr>
+                    )
+                  }
+                  return pagedRows.map((row, i) => (
                   <tr key={row.id} className="animate-fade-in transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40" style={staggerDelay(i)}>
                     <td className="px-4 py-2.5 whitespace-nowrap font-mono text-xs text-slate-500 dark:text-slate-400">{row.logged_at_fmt}</td>
                     <td className="px-4 py-2.5 whitespace-nowrap text-xs text-slate-500 dark:text-slate-400">{row.user_id ?? '—'}</td>
@@ -78,10 +86,27 @@ export default function NlLogsSection() {
                     <td className="px-4 py-2.5 whitespace-nowrap text-xs font-medium text-slate-800 dark:text-slate-200">{row.final_action ?? '—'}</td>
                     <td className="px-4 py-2.5 whitespace-nowrap">{row.confirm_status ? <Badge value={row.confirm_status} /> : '—'}</td>
                   </tr>
-                ))}
+                ))
+                })()}
               </tbody>
             </table>
           </div>
+        )}
+
+        {/* 자연어 로그 페이징 (기본 10건) */}
+        {!loading && rows.length > 0 && (
+          <Pagination
+            currentPage={page}
+            totalPages={Math.max(1, Math.ceil(rows.length / pageSize))}
+            pageSize={pageSize}
+            totalCount={rows.length}
+            onPageChange={setPage}
+            onPageSizeChange={(sz) => {
+              setPageSize(sz)
+              setPage(1)
+            }}
+            pageSizeOptions={[10, 20, 50, 100]}
+          />
         )}
       </div>
 

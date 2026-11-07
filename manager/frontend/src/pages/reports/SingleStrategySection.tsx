@@ -155,7 +155,7 @@ export default function SingleStrategySection({ templateId }: SingleStrategySect
           </div>
         </div>
 
-        {/* 전략 설정 총예산 / 정기 매수 설정 */}
+        {/* 전략 예산 플랜 (가용 예산 / 소진액) */}
         <div className={`${CARD} p-4`}>
           <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
             <span>
@@ -163,7 +163,7 @@ export default function SingleStrategySection({ templateId }: SingleStrategySect
                 ? '정기 매수 설정'
                 : stype === 'sgrid'
                 ? '총 매도 수량'
-                : '전략 설정 예산'}
+                : '가용 예산 / 예산 플랜'}
             </span>
             <DollarSign size={15} className="text-amber-500" />
           </div>
@@ -172,19 +172,15 @@ export default function SingleStrategySection({ templateId }: SingleStrategySect
               ? `${params.schedule || '매일'} ${template.budget}주씩`
               : stype === 'sgrid'
               ? `${template.budget.toLocaleString()}주`
-              : `${krwFmt(template.budget)}원`}
+              : `${krwFmt(params.carryover_budget ?? template.budget)}원`}
           </div>
           <div className="mt-1 text-[11px] text-slate-400">
             {isDca && params.amount_type === 'volume' ? (
-              params.carryover_budget !== undefined ? (
-                `이월 가용예산: ${krwFmt(params.carryover_budget)}원`
-              ) : (
-                `총 ${template.count > 0 ? `${template.count}회` : '무기한'} 예정`
-              )
+              `총 ${template.count > 0 ? `${template.count}회` : '무기한'} 예정`
             ) : stype === 'sgrid' ? (
               `진행률: ${template.budget > 0 ? `${((holding.qty / template.budget) * 100).toFixed(1)}%` : '0%'}`
             ) : (
-              `소진율: ${template.budget > 0 ? `${((holding.total_cost / template.budget) * 100).toFixed(1)}%` : '0%'}`
+              `총예산 ${krwFmt(params.monthly_budget ?? template.budget)}원 · 소진 ${krwFmt(params.monthly_spent ?? holding.total_cost)}원`
             )}
           </div>
         </div>

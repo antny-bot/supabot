@@ -23,6 +23,7 @@ import { fetchTemplates, type Template } from '../../api/templates'
 import { fetchTopRotationReport, type TopRotationReport } from '../../api/reports'
 import { manualTopupTemplate } from '../../api/templates'
 import ErrorBanner from '../../components/ui/ErrorBanner'
+import Pagination from '../../components/ui/Pagination'
 import { krwFmt, CARD, TH, TD } from './ReportsShared'
 
 interface TopRotationSectionProps {
@@ -40,6 +41,10 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
   const [exchangeFilter, setExchangeFilter] = useState<string>('all')
   const [expandedDailyKeys, setExpandedDailyKeys] = useState<Set<string>>(new Set())
   const [flowFilter, setFlowFilter] = useState<'all' | 'buys' | 'sells'>('all')
+  const [flowPage, setFlowPage] = useState(1)
+  const [flowPageSize, setFlowPageSize] = useState(10)
+  const [batchPage, setBatchPage] = useState(1)
+  const [batchPageSize, setBatchPageSize] = useState(10)
 
   // 수동 충전 모달 상태
   const [topupOpen, setTopupOpen] = useState(false)
@@ -103,11 +108,13 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
     fetchTopRotationReport(selectedTemplateId, selectedGroupNo)
       .then((res) => {
         setReport(res)
+        setFlowPage(1)
+        setBatchPage(1)
         // 가장 최근 일자 2개 자동 펼침
         if (res.daily_execution_flow && res.daily_execution_flow.length > 0) {
           const recentKeys = res.daily_execution_flow
             .slice(0, 2)
-            .map((d, idx) => `${d.date}_${d.group_no ?? idx}_${idx}`)
+            .map((d) => `${d.date}_${d.group_no ?? ''}_${d.cycle_no ?? ''}`)
           setExpandedDailyKeys(new Set(recentKeys))
         }
       })
@@ -148,6 +155,17 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
   const pipeline = report?.cycle_pipeline
   const nextTarget = pipeline?.next_target
   const dailyFlow = report?.daily_execution_flow || []
+  const filteredDailyFlow = dailyFlow.filter((flow) => {
+    if (flowFilter === 'buys') return flow.buys && flow.buys.length > 0
+    if (flowFilter === 'sells') return flow.sells && flow.sells.length > 0
+    return true
+  })
+  const totalFlowPages = Math.max(1, Math.ceil(filteredDailyFlow.length / flowPageSize))
+  const pagedDailyFlow = filteredDailyFlow.slice((flowPage - 1) * flowPageSize, flowPage * flowPageSize)
+
+  const reversedBatchLogs = (report?.batch_budget_logs || []).slice().reverse()
+  const totalBatchPages = Math.max(1, Math.ceil(reversedBatchLogs.length / batchPageSize))
+  const pagedBatchLogs = reversedBatchLogs.slice((batchPage - 1) * batchPageSize, batchPage * batchPageSize)
 
   return (
     <div className="space-y-5 break-keep">
@@ -492,7 +510,7 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
                         )
                       ) : isNext ? (
                         <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-indigo-600 dark:text-indigo-400 animate-pulse">
-                          🎯 내일 타겟
+                          🎯 다음 타겟
                         </span>
                       ) : (
                         <span className="text-[10px] text-slate-400 font-medium">대기</span>
@@ -530,41 +548,72 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
             </div>
           </div>
 
-          {/* 타임라인 필터 칩 */}
-          <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl text-xs self-end sm:self-auto">
-            <button
-              type="button"
-              onClick={() => setFlowFilter('all')}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-colors ${
-                flowFilter === 'all'
-                  ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 font-bold shadow-xs'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              전체 ({dailyFlow.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setFlowFilter('buys')}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-colors ${
-                flowFilter === 'buys'
-                  ? 'bg-white dark:bg-slate-700 text-rose-600 font-bold shadow-xs'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              매수 체결일 ({dailyFlow.filter((f) => f.buys && f.buys.length > 0).length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setFlowFilter('sells')}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-colors ${
-                flowFilter === 'sells'
-                  ? 'bg-white dark:bg-slate-700 text-blue-600 font-bold shadow-xs'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              이탈 매도일 ({dailyFlow.filter((f) => f.sells && f.sells.length > 0).length})
-            </button>
+          {/* 타임라인 컨트롤: 필터 칩 & 모두 펼치기/접기 */}
+          <div className="flex flex-wrap items-center gap-2 self-end sm:self-auto">
+            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setFlowFilter('all')
+                  setFlowPage(1)
+                }}
+                className={`px-2.5 py-1 rounded-lg font-medium transition-colors ${
+                  flowFilter === 'all'
+                    ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 font-bold shadow-xs'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                전체 ({dailyFlow.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFlowFilter('buys')
+                  setFlowPage(1)
+                }}
+                className={`px-2.5 py-1 rounded-lg font-medium transition-colors ${
+                  flowFilter === 'buys'
+                    ? 'bg-white dark:bg-slate-700 text-rose-600 font-bold shadow-xs'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                매수 체결일 ({dailyFlow.filter((f) => f.buys && f.buys.length > 0).length})
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFlowFilter('sells')
+                  setFlowPage(1)
+                }}
+                className={`px-2.5 py-1 rounded-lg font-medium transition-colors ${
+                  flowFilter === 'sells'
+                    ? 'bg-white dark:bg-slate-700 text-blue-600 font-bold shadow-xs'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                이탈 매도일 ({dailyFlow.filter((f) => f.sells && f.sells.length > 0).length})
+              </button>
+            </div>
+
+            <div className="flex items-center gap-1 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  const allKeys = pagedDailyFlow.map((flow) => `${flow.date}_${flow.group_no ?? ''}_${flow.cycle_no ?? ''}`)
+                  setExpandedDailyKeys(new Set(allKeys))
+                }}
+                className="px-2 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 text-[11px] transition-colors"
+              >
+                모두 펼치기
+              </button>
+              <button
+                type="button"
+                onClick={() => setExpandedDailyKeys(new Set())}
+                className="px-2 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 text-[11px] transition-colors"
+              >
+                모두 접기
+              </button>
+            </div>
           </div>
         </div>
 
@@ -574,14 +623,8 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
           </div>
         ) : (
           <div className="space-y-3">
-            {dailyFlow
-              .filter((flow) => {
-                if (flowFilter === 'buys') return flow.buys && flow.buys.length > 0
-                if (flowFilter === 'sells') return flow.sells && flow.sells.length > 0
-                return true
-              })
-              .map((flow, idx) => {
-              const flowKey = `${flow.date}_${flow.group_no ?? idx}_${idx}`
+            {pagedDailyFlow.map((flow) => {
+              const flowKey = `${flow.date}_${flow.group_no ?? ''}_${flow.cycle_no ?? ''}`
               const isExpanded = expandedDailyKeys.has(flowKey)
               const hasBuys = flow.buys && flow.buys.length > 0
               const hasSells = flow.sells && flow.sells.length > 0
@@ -730,7 +773,7 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
                         <div className="rounded-xl bg-indigo-50/70 dark:bg-indigo-950/30 p-2.5 border border-indigo-100 dark:border-indigo-900/40 flex items-center gap-2 text-indigo-700 dark:text-indigo-300 text-[11px]">
                           <ArrowRight size={13} className="shrink-0" />
                           <span>
-                            <strong>당일 배치 후 익일 매수 대기 종목:</strong> {flow.waiting_next.rank}위 {flow.waiting_next.name} (필요액: {krwFmt(flow.waiting_next.required_krw || 0)})
+                            <strong>당일 배치 후 다음 매수 대기 종목:</strong> {flow.waiting_next.rank}위 {flow.waiting_next.name} (필요액: {krwFmt(flow.waiting_next.required_krw || 0)})
                           </span>
                         </div>
                       )}
@@ -740,6 +783,22 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
               )
             })}
           </div>
+        )}
+
+        {/* 타임라인 페이징 컨트롤 (기본 10개) */}
+        {filteredDailyFlow.length > 0 && (
+          <Pagination
+            currentPage={flowPage}
+            totalPages={totalFlowPages}
+            pageSize={flowPageSize}
+            totalCount={filteredDailyFlow.length}
+            onPageChange={setFlowPage}
+            onPageSizeChange={(sz) => {
+              setFlowPageSize(sz)
+              setFlowPage(1)
+            }}
+            pageSizeOptions={[5, 10, 20, 50]}
+          />
         )}
       </div>
 
@@ -859,17 +918,14 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {(report?.batch_budget_logs || []).length === 0 ? (
+              {reversedBatchLogs.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-6 text-center text-slate-400">
                     배치 실행 이력이 없습니다.
                   </td>
                 </tr>
               ) : (
-                report?.batch_budget_logs
-                  .slice()
-                  .reverse()
-                  .map((b: any, idx: number) => (
+                pagedBatchLogs.map((b: any, idx: number) => (
                     <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
                       <td className={`${TD} font-mono`}>{b.date}</td>
                       <td className={`${TD} font-semibold`}>#{b.group_no}</td>
@@ -895,6 +951,22 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
             </tbody>
           </table>
         </div>
+      
+        {/* 배치별 예산 소진 테이블 페이징 (기본 10건) */}
+        {reversedBatchLogs.length > 0 && (
+          <Pagination
+            currentPage={batchPage}
+            totalPages={totalBatchPages}
+            pageSize={batchPageSize}
+            totalCount={reversedBatchLogs.length}
+            onPageChange={setBatchPage}
+            onPageSizeChange={(sz) => {
+              setBatchPageSize(sz)
+              setBatchPage(1)
+            }}
+            pageSizeOptions={[5, 10, 20, 50]}
+          />
+        )}
       </div>
       {/* 부족액 수동 충전 모달 */}
       {topupOpen &&

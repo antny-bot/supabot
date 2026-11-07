@@ -1286,6 +1286,8 @@ export default function StrategyFormModal({
                         strategyType: nextType,
                         count: nextType === 'dca' || nextType === 'sdca' ? '0' : form.count === '0' ? '10' : form.count,
                         dcaAmountType: nextType === 'sdca' ? 'volume' : form.dcaAmountType,
+                        budgetMode: 'total',
+                        sellProceedsMode: nextType === 'rsitrade' ? 'recycle_to_budget' : 'keep_cash',
                       })
                     }}
                     className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
@@ -1370,6 +1372,48 @@ export default function StrategyFormModal({
                         />
                       </div>
                     </div>
+                    {form.strategyType === 'dca' && form.dcaAmountType === 'budget' && (
+                      <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-3.5 space-y-2.5 dark:border-indigo-900/40 dark:bg-indigo-950/20">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                            통합 예산 플랜 설정 (가용 예산 차감/충전 추적)
+                          </span>
+                          <span className="rounded-sm bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300">
+                            예산 원장 연동
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">예산 운용 방식</label>
+                            <select
+                              aria-label="DCA 예산 운용 방식"
+                              value={form.budgetMode}
+                              onChange={(e) => setForm({ ...form, budgetMode: e.target.value as 'total' | 'monthly' | 'daily' })}
+                              className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                            >
+                              <option value="total">총예산 풀 차감 모드 (일시 배정)</option>
+                              <option value="monthly">월 예산 분할 충전 모드</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                              {form.budgetMode === 'monthly' ? '월 배정 총예산 (KRW)' : '전략 배정 총예산 (KRW)'}
+                            </label>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              aria-label="DCA 배정 총예산"
+                              value={formatWithCommas(form.dcaPlanBudget)}
+                              onChange={(e) => setForm({ ...form, dcaPlanBudget: stripCommas(e.target.value) })}
+                              className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                            />
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          매 회차 매수 시 가용 예산에서 차감되며, 소진 현황 확인 및 [+충전]이 가능합니다.
+                        </p>
+                      </div>
+                    )}
                   </>
                 ) : (
                   <div className="grid grid-cols-2 gap-3">
@@ -1488,6 +1532,33 @@ export default function StrategyFormModal({
                       />
                       <span>DCA 가중 매수 적용 (낮은 RSI 구간에 더 많은 예산 배정)</span>
                     </label>
+                    <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-3 space-y-2 dark:border-indigo-900/40 dark:bg-indigo-950/20">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          익절 매도 대금 처리 방식 (예산 플랜 연동)
+                        </label>
+                        <span className="rounded-sm bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300">
+                          총예산 풀 차감·환급
+                        </span>
+                      </div>
+                      <select
+                        aria-label="익절 매도 대금 처리 방식"
+                        value={form.sellProceedsMode}
+                        onChange={(e) =>
+                          setForm({
+                            ...form,
+                            sellProceedsMode: e.target.value as 'keep_cash' | 'recycle_to_budget',
+                          })
+                        }
+                        className="w-full rounded-xl border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                      >
+                        <option value="recycle_to_budget">전략 가용 예산 풀에 자동 재투입 (순환매매 추천)</option>
+                        <option value="keep_cash">예수금 보관 (가용 예산에 합산하지 않음)</option>
+                      </select>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        매수 주문 시 가용 예산에서 차감되고, 미체결 취소 시 환급되며, 익절 매도 체결 시 선택에 따라 가용 예산으로 자동 복원됩니다.
+                      </p>
+                    </div>
                   </div>
                 )}
               </>

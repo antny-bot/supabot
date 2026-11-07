@@ -17,6 +17,36 @@ def get_current_kst_date_str() -> str:
     return datetime.now(KST).strftime("%Y-%m-%d")
 
 
+def is_budget_managed_strategy(template: dict) -> bool:
+    """매수 예산 플랜 및 감사 원장 관리 대상 전략인지 판별한다."""
+    stype = str(template.get("strategy_type") or "grid").lower()
+    if stype in ("sgrid", "sdca"):
+        return False
+    params = template.get("params") or {}
+    if stype == "dca":
+        if str(params.get("side") or "bid").lower() in ("ask", "sell", "sdca"):
+            return False
+        if str(params.get("amount_type") or "budget").lower() == "volume":
+            return False
+    return True
+
+
+def default_budget_mode_for_strategy(strategy_type: str) -> str:
+    """전략 유형별 기본 예산 운용 모드."""
+    stype = str(strategy_type or "grid").lower()
+    if stype == "kospi_top_dca":
+        return "monthly"
+    return "total"
+
+
+def default_sell_proceeds_mode_for_strategy(strategy_type: str) -> str:
+    """전략 유형별 매도 체결 대금 처리 기본값."""
+    stype = str(strategy_type or "grid").lower()
+    if stype in ("rsitrade", "rsi"):
+        return "recycle_to_budget"
+    return "keep_cash"
+
+
 def compute_daily_allowance(
     budget_mode: str,
     monthly_budget: float,
@@ -26,6 +56,9 @@ def compute_daily_allowance(
     remaining_trading_days: int,
 ) -> float:
     """당일 충전액(daily_allowance) 산출 공식 (동적 재할당)."""
+    if budget_mode == "total":
+        return 0.0
+
     if budget_mode == "daily":
         allowance = max(0.0, float(daily_fixed_budget))
         # 월간 최대 상한(monthly_budget) 캡이 설정된 경우 검증
@@ -107,7 +140,9 @@ async def credit_daily_allowance(
     if remaining_trading_days is None:
         remaining_trading_days = calculate_remaining_trading_days(date_str)
 
-    budget_mode = params.get("budget_mode", "monthly")
+    budget_mode = params.get("budget_mode") or default_budget_mode_for_strategy(template.get("strategy_type", "grid"))
+    if budget_mode == "total":
+        return 0.0, params
     monthly_budget = float(params.get("monthly_budget", template.get("budget", 3000000.0)))
     daily_fixed = float(params.get("daily_fixed_budget", 150000.0))
     monthly_spent = float(params.get("monthly_spent", 0.0))
@@ -335,7 +370,7 @@ async def apply_plan_change(
     current_rev = int(params.get("plan_revision_no", 1))
     new_rev = current_rev + 1
 
-    old_budget_mode = params.get("budget_mode", "monthly")
+    old_budget_mode = params.get("budget_mode") or default_budget_mode_for_strategy(template.get("strategy_type", "grid"))
     new_budget_mode = new_plan_config.get("budget_mode", old_budget_mode)
 
     old_monthly_budget = float(params.get("monthly_budget", template.get("budget", 3000000.0)))
@@ -360,52 +395,111 @@ async def apply_plan_change(
         remaining_trading_days=rem_days,
     )
 
-    # 1. 당일 차액 즉시 반영 옵션
-    if apply_today_diff and params.get("allowance_credited_date") == today_str:
-        old_est = compute_daily_allowance(
-            budget_mode=old_budget_mode,
-            monthly_budget=old_monthly_budget,
-            daily_fixed_budget=old_daily_fixed,
-            monthly_spent=monthly_spent,
-            carryover_budget=carryover,
-            remaining_trading_days=rem_days,
-        )
-        diff = est_allowance - old_est
-        if diff != 0:
-            carryover = max(0.0, carryover + diff)
-            entry_type = "PLAN_CHANGE_DIFF" if diff > 0 else "PLAN_CAP_ADJUST"
-            desc = f"플랜 변경 당일 충전액 차액 즉시 보정 (v{current_rev}→v{new_rev}, {diff:+,.0f}원)"
-            await record_ledger_entry(
-                user_id=template["user_id"],
-                template_id=template["id"],
-                budget_epoch=budget_epoch,
-                plan_revision_no=new_rev,
-                entry_type=entry_type,
-                delta_krw=diff,
-                balance_after_krw=carryover,
-                monthly_spent_after_krw=monthly_spent,
-                monthly_remaining_after_krw=max(0.0, new_monthly_budget - monthly_spent),
-                description=desc,
+    # 1. 총예산 풀(total) 모드에서의 예산 증액/감액 또는 모드 전환 보정
+    if new_budget_mode == "total":
+        if old_budget_mode == "total":
+            diff = new_monthly_budget - old_monthly_budget
+            if diff > 0:
+                carryover += diff
+                desc = f"총예산 풀 증액 반영 (v{current_rev}→v{new_rev}, +{diff:,.0f}원)"
+                await record_ledger_entry(
+                    user_id=template["user_id"],
+                    template_id=template["id"],
+                    budget_epoch=budget_epoch,
+                    plan_revision_no=new_rev,
+                    entry_type="PLAN_CHANGE_DIFF",
+                    delta_krw=diff,
+                    balance_after_krw=carryover,
+                    monthly_spent_after_krw=monthly_spent,
+                    monthly_remaining_after_krw=max(0.0, new_monthly_budget - monthly_spent),
+                    description=desc,
+                )
+            elif diff < 0 and carryover > 0:
+                cut_amount = min(carryover, abs(diff))
+                carryover = max(0.0, carryover - cut_amount)
+                if cut_amount > 0:
+                    desc = f"총예산 풀 감액으로 인한 가용 예산 차감 (v{current_rev}→v{new_rev}, -{cut_amount:,.0f}원)"
+                    await record_ledger_entry(
+                        user_id=template["user_id"],
+                        template_id=template["id"],
+                        budget_epoch=budget_epoch,
+                        plan_revision_no=new_rev,
+                        entry_type="PLAN_CAP_ADJUST",
+                        delta_krw=-cut_amount,
+                        balance_after_krw=carryover,
+                        monthly_spent_after_krw=monthly_spent,
+                        monthly_remaining_after_krw=max(0.0, new_monthly_budget - monthly_spent),
+                        description=desc,
+                    )
+        elif apply_today_diff:
+            unallocated = max(0.0, new_monthly_budget - monthly_spent - carryover)
+            if unallocated > 0:
+                carryover += unallocated
+                desc = f"총예산 풀 모드 전환 잔여 예산 일괄 배정 (v{current_rev}→v{new_rev}, +{unallocated:,.0f}원)"
+                await record_ledger_entry(
+                    user_id=template["user_id"],
+                    template_id=template["id"],
+                    budget_epoch=budget_epoch,
+                    plan_revision_no=new_rev,
+                    entry_type="PLAN_CHANGE_DIFF",
+                    delta_krw=unallocated,
+                    balance_after_krw=carryover,
+                    monthly_spent_after_krw=monthly_spent,
+                    monthly_remaining_after_krw=max(0.0, new_monthly_budget - monthly_spent),
+                    description=desc,
+                )
+    else:
+        # 1-B. 월간/일일 모드: 당일 차액 즉시 반영 옵션
+        if apply_today_diff and params.get("allowance_credited_date") == today_str:
+            old_est = compute_daily_allowance(
+                budget_mode=old_budget_mode,
+                monthly_budget=old_monthly_budget,
+                daily_fixed_budget=old_daily_fixed,
+                monthly_spent=monthly_spent,
+                carryover_budget=carryover,
+                remaining_trading_days=rem_days,
             )
+            diff = est_allowance - old_est
+            if diff != 0:
+                carryover = max(0.0, carryover + diff)
+                entry_type = "PLAN_CHANGE_DIFF" if diff > 0 else "PLAN_CAP_ADJUST"
+                desc = f"플랜 변경 당일 충전액 차액 즉시 보정 (v{current_rev}→v{new_rev}, {diff:+,.0f}원)"
+                await record_ledger_entry(
+                    user_id=template["user_id"],
+                    template_id=template["id"],
+                    budget_epoch=budget_epoch,
+                    plan_revision_no=new_rev,
+                    entry_type=entry_type,
+                    delta_krw=diff,
+                    balance_after_krw=carryover,
+                    monthly_spent_after_krw=monthly_spent,
+                    monthly_remaining_after_krw=max(0.0, new_monthly_budget - monthly_spent),
+                    description=desc,
+                )
 
-    # 2. 월 예산 대폭 감액 캡 조정 (monthly_spent > new_monthly_budget)
-    if new_budget_mode == "monthly" and monthly_spent >= new_monthly_budget:
-        if carryover > 0:
-            cut_amount = carryover
-            carryover = 0.0
-            desc = f"월 예산 대폭 감액으로 인한 기소진 초과 이월금 전액 동결/차감 (-{cut_amount:,.0f}원)"
-            await record_ledger_entry(
-                user_id=template["user_id"],
-                template_id=template["id"],
-                budget_epoch=budget_epoch,
-                plan_revision_no=new_rev,
-                entry_type="PLAN_CAP_ADJUST",
-                delta_krw=-cut_amount,
-                balance_after_krw=carryover,
-                monthly_spent_after_krw=monthly_spent,
-                monthly_remaining_after_krw=0.0,
-                description=desc,
-            )
+        # 2. 월 예산 대폭 감액 캡 조정 (monthly_spent > new_monthly_budget)
+        if new_budget_mode == "monthly" and monthly_spent >= new_monthly_budget:
+            if carryover > 0:
+                cut_amount = carryover
+                carryover = 0.0
+                desc = f"월 예산 대폭 감액으로 인한 기소진 초과 이월금 전액 동결/차감 (-{cut_amount:,.0f}원)"
+                await record_ledger_entry(
+                    user_id=template["user_id"],
+                    template_id=template["id"],
+                    budget_epoch=budget_epoch,
+                    plan_revision_no=new_rev,
+                    entry_type="PLAN_CAP_ADJUST",
+                    delta_krw=-cut_amount,
+                    balance_after_krw=carryover,
+                    monthly_spent_after_krw=monthly_spent,
+                    monthly_remaining_after_krw=0.0,
+                    description=desc,
+                )
+
+    if "sell_proceeds_mode" in new_plan_config:
+        params["sell_proceeds_mode"] = new_plan_config["sell_proceeds_mode"]
+    if "per_order_budget" in new_plan_config:
+        params["per_order_budget"] = float(new_plan_config["per_order_budget"])
 
     # 3. 플랜 리비전 이력 기록
     revisions = params.get("budget_plan_revisions", [])
@@ -479,7 +573,8 @@ async def reset_budget_plan(
     cur_epoch = int(params.get("budget_epoch", 1))
     new_epoch = cur_epoch + 1
 
-    budget_mode = new_config.get("budget_mode", params.get("budget_mode", "monthly"))
+    default_mode = default_budget_mode_for_strategy(template.get("strategy_type", "grid"))
+    budget_mode = new_config.get("budget_mode", params.get("budget_mode", default_mode))
     monthly_budget = float(new_config.get("monthly_budget", params.get("monthly_budget", template.get("budget", 3000000.0))))
     daily_fixed = float(new_config.get("daily_fixed_budget", params.get("daily_fixed_budget", 150000.0)))
 
@@ -491,6 +586,10 @@ async def reset_budget_plan(
     params["carryover_budget"] = float(initial_carryover)
     params["monthly_spent"] = 0.0
     params["allowance_credited_date"] = None
+    params["accounted_buy_order_uuids"] = []
+    params["recycled_sell_uuids"] = []
+    params["pending_buy_orders"] = []
+    params["pending_sell_orders"] = []
 
     if reset_cycle:
         params["cycle_no"] = 1
@@ -544,13 +643,322 @@ async def reset_budget_plan(
     return params
 
 
+async def ensure_budget_plan_initialized(
+    template: dict,
+    persist: bool = True,
+    record_initial_ledger: bool = True,
+) -> tuple[dict, bool]:
+    """전략 템플릿에 예산 플랜 파라미터가 초기화되어 있지 않으면 표준값으로 초기화한다.
+
+    반환: (갱신된 params, 변경 발생 여부)
+    """
+    params = dict(template.get("params") or {})
+    if not is_budget_managed_strategy(template):
+        return params, False
+
+    stype = str(template.get("strategy_type") or "grid").lower()
+    changed = False
+
+    if "budget_epoch" not in params:
+        params["budget_epoch"] = 1
+        changed = True
+    if "plan_revision_no" not in params:
+        params["plan_revision_no"] = 1
+        changed = True
+
+    default_mode = default_budget_mode_for_strategy(stype)
+    if "budget_mode" not in params or not params["budget_mode"]:
+        params["budget_mode"] = default_mode
+        changed = True
+
+    budget_mode = params["budget_mode"]
+    raw_tpl_budget = float(template.get("budget") or 0.0)
+
+    if stype == "dca":
+        if "per_order_budget" not in params:
+            params["per_order_budget"] = raw_tpl_budget
+            changed = True
+        if "monthly_budget" not in params or float(params.get("monthly_budget") or 0) <= 0:
+            ct = int(template.get("count") or 0)
+            est_total = raw_tpl_budget * ct if ct > 0 else raw_tpl_budget * 20
+            params["monthly_budget"] = float(est_total if est_total > 0 else raw_tpl_budget)
+            changed = True
+    else:
+        if "monthly_budget" not in params or float(params.get("monthly_budget") or 0) <= 0:
+            params["monthly_budget"] = raw_tpl_budget if raw_tpl_budget > 0 else 3000000.0
+            changed = True
+
+    if "daily_fixed_budget" not in params:
+        params["daily_fixed_budget"] = float(params.get("per_order_budget") or 150000.0)
+        changed = True
+
+    if "sell_proceeds_mode" not in params:
+        params["sell_proceeds_mode"] = default_sell_proceeds_mode_for_strategy(stype)
+        changed = True
+
+    if "monthly_spent" not in params:
+        params["monthly_spent"] = 0.0
+        changed = True
+
+    initial_credited = False
+    if "carryover_budget" not in params:
+        if budget_mode == "total":
+            params["carryover_budget"] = float(params["monthly_budget"])
+            initial_credited = params["carryover_budget"] > 0
+        else:
+            params["carryover_budget"] = 0.0
+        changed = True
+
+    if "budget_plan_revisions" not in params:
+        params["budget_plan_revisions"] = [{
+            "revision_no": int(params["plan_revision_no"]),
+            "budget_epoch": int(params["budget_epoch"]),
+            "effective_from": datetime.now(KST).isoformat(),
+            "budget_mode": budget_mode,
+            "monthly_budget": float(params["monthly_budget"]),
+            "daily_fixed_budget": float(params["daily_fixed_budget"]),
+            "carryover_at_change": float(params["carryover_budget"]),
+            "monthly_spent_at_change": float(params["monthly_spent"]),
+            "memo": "전략 예산 플랜 초기 생성",
+        }]
+        changed = True
+
+    template["params"] = params
+
+    if initial_credited and record_initial_ledger and template.get("id") and template.get("user_id"):
+        init_amt = float(params["carryover_budget"])
+        await record_ledger_entry(
+            user_id=template["user_id"],
+            template_id=template["id"],
+            budget_epoch=int(params["budget_epoch"]),
+            plan_revision_no=int(params["plan_revision_no"]),
+            entry_type="INITIAL_CREDIT",
+            delta_krw=init_amt,
+            balance_after_krw=init_amt,
+            monthly_spent_after_krw=0.0,
+            monthly_remaining_after_krw=init_amt,
+            description=f"전략 초기 총예산 풀 배정 (+{init_amt:,.0f}원)",
+        )
+
+    if changed and persist and template.get("id"):
+        try:
+            db = get_db()
+            await db.table("strategy_templates").update({"params": params}).eq("id", template["id"]).execute()
+        except Exception as e:
+            logger.warning(f"Failed to persist initialized budget plan for template #{template.get('id')}: {e}")
+
+    return params, changed
+
+
+async def sync_single_strategy_budget_events(
+    template: dict,
+    persist: bool = True,
+) -> dict:
+    """단일 종목 전략(rsitrade, dca, grid)의 매수 주문 차감, 미체결 취소 환원, 매도 체결 재투입을
+    orders 및 trade_logs 테이블과 대조하여 멱등(idempotent)하게 budget_ledger 및 params에 동기화한다.
+    """
+    stype = str(template.get("strategy_type") or "grid").lower()
+    if stype == "kospi_top_dca" or not is_budget_managed_strategy(template):
+        return template.get("params") or {}
+
+    params, init_changed = await ensure_budget_plan_initialized(template, persist=False)
+    template_id = template.get("id")
+    if not template_id:
+        return params
+
+    db = get_db()
+    dirty = init_changed
+    cur_epoch = int(params.get("budget_epoch", 1))
+
+    accounted_buys_list = list(params.get("accounted_buy_order_uuids", []))
+    accounted_buys = set(accounted_buys_list)
+    pending_buys = list(params.get("pending_buy_orders", []))
+    pending_by_uuid = {str(pb.get("uuid")): pb for pb in pending_buys if pb.get("uuid")}
+
+    # 1. 현재 orders 및 trade_logs 조회
+    open_orders = []
+    try:
+        o_res = (
+            await db.table("orders")
+            .select("uuid,ticker,side,price,volume,filled_volume,status,group_no,reorder_of")
+            .eq("template_id", template_id)
+            .execute()
+        )
+        open_orders = o_res.data or []
+    except Exception as e:
+        logger.warning(f"sync_single_strategy_budget_events orders query error: {e}")
+
+    trades = []
+    try:
+        t_res = (
+            await db.table("trade_logs")
+            .select("uuid,ticker,side,price,volume,fee_amount,group_no")
+            .eq("template_id", template_id)
+            .execute()
+        )
+        trades = t_res.data or []
+    except Exception as e:
+        logger.warning(f"sync_single_strategy_budget_events trade_logs query error: {e}")
+
+    orders_by_uuid = {str(o["uuid"]): o for o in open_orders if o.get("uuid")}
+    reorder_map = {str(o["reorder_of"]): o for o in open_orders if o.get("reorder_of")}
+    bid_trades_by_uuid: dict[str, float] = {}
+    for tr in trades:
+        if tr.get("side") == "bid" and tr.get("uuid"):
+            u = str(tr["uuid"])
+            bid_trades_by_uuid[u] = bid_trades_by_uuid.get(u, 0.0) + float(tr.get("volume") or 0.0)
+
+    # 재주문(reorder_of) 체인 추적: 기존 accounted 주문을 승계한 재주문은 중복 차감 방지
+    for orig_uuid, new_ord in reorder_map.items():
+        new_uuid = str(new_ord["uuid"])
+        if orig_uuid in accounted_buys and new_uuid not in accounted_buys:
+            accounted_buys.add(new_uuid)
+            accounted_buys_list.append(new_uuid)
+            if orig_uuid in pending_by_uuid:
+                pb = pending_by_uuid.pop(orig_uuid)
+                pb["uuid"] = new_uuid
+                pending_by_uuid[new_uuid] = pb
+            dirty = True
+
+    # 2. 신규 매수 주문(orders 테이블 내 bid 주문) 예산 차감
+    for o in open_orders:
+        if o.get("side") != "bid":
+            continue
+        u = str(o.get("uuid") or "")
+        if not u or u in accounted_buys:
+            continue
+        st = str(o.get("status") or "wait")
+        if st in ("cancel", "failed", "rejected"):
+            continue
+        cost = round(float(o.get("price") or 0.0) * float(o.get("volume") or 0.0))
+        if cost <= 0:
+            continue
+        g_no = o.get("group_no") or int(params.get("last_group_no") or 1)
+        await spend_for_buy(
+            template=template,
+            cost_krw=cost,
+            ticker=o.get("ticker") or template.get("ticker", ""),
+            qty=float(o.get("volume") or 0.0),
+            group_no=int(g_no),
+            cycle_no=int(params.get("cycle_no", 1)),
+            order_uuid=u,
+            mutate_params=True,
+        )
+        accounted_buys.add(u)
+        accounted_buys_list.append(u)
+        pb_entry = {
+            "uuid": u,
+            "ticker": o.get("ticker") or template.get("ticker", ""),
+            "price": float(o.get("price") or 0.0),
+            "volume": float(o.get("volume") or 0.0),
+            "group_no": int(g_no),
+            "budget_epoch": cur_epoch,
+        }
+        pending_by_uuid[u] = pb_entry
+        if g_no and int(g_no) > int(params.get("last_group_no") or 0):
+            params["last_group_no"] = int(g_no)
+        dirty = True
+
+    # orders에서 이미 즉시 체결되어 삭제된 신규 매수 체결건(trade_logs 내 bid) 차감
+    for tr in trades:
+        if tr.get("side") != "bid":
+            continue
+        u = str(tr.get("uuid") or "")
+        if not u or u in accounted_buys:
+            continue
+        cost = round(float(tr.get("price") or 0.0) * float(tr.get("volume") or 0.0))
+        if cost <= 0:
+            continue
+        g_no = tr.get("group_no") or int(params.get("last_group_no") or 1)
+        await spend_for_buy(
+            template=template,
+            cost_krw=cost,
+            ticker=tr.get("ticker") or template.get("ticker", ""),
+            qty=float(tr.get("volume") or 0.0),
+            group_no=int(g_no),
+            cycle_no=int(params.get("cycle_no", 1)),
+            order_uuid=u,
+            mutate_params=True,
+        )
+        accounted_buys.add(u)
+        accounted_buys_list.append(u)
+        if g_no and int(g_no) > int(params.get("last_group_no") or 0):
+            params["last_group_no"] = int(g_no)
+        dirty = True
+
+    # 3. 기존 pending_buy_orders 중 취소/종료된 주문 환원 확인
+    next_pending_buys = []
+    cancelled_to_refund = []
+    for u, pb in list(pending_by_uuid.items()):
+        o_info = orders_by_uuid.get(u)
+        pb_vol = float(pb.get("volume") or 0.0)
+        if o_info:
+            st = str(o_info.get("status") or "wait")
+            if st in ("cancel", "failed", "rejected"):
+                pb["filled_volume"] = float(o_info.get("filled_volume") or bid_trades_by_uuid.get(u, 0.0))
+                cancelled_to_refund.append(pb)
+                dirty = True
+            else:
+                next_pending_buys.append(pb)
+        else:
+            # orders 테이블에서 제거된 경우: trade_logs 체결 수량 대조
+            exec_vol = bid_trades_by_uuid.get(u, 0.0)
+            if exec_vol < pb_vol - 1e-8:
+                pb["filled_volume"] = exec_vol
+                cancelled_to_refund.append(pb)
+            dirty = True
+
+    if cancelled_to_refund:
+        await refund_cancelled_orders(template, cancelled_to_refund)
+        dirty = True
+
+    # 4. 매도 체결 대금 재투입 (recycle_to_budget 모드 시)
+    if params.get("sell_proceeds_mode") == "recycle_to_budget":
+        recycled_list = list(params.get("recycled_sell_uuids", []))
+        recycled_set = set(recycled_list)
+        for tr in trades:
+            if tr.get("side") != "ask":
+                continue
+            tr_uuid = str(tr.get("uuid") or "")
+            if not tr_uuid or tr_uuid in recycled_set:
+                continue
+            proceeds = round(
+                float(tr.get("price") or 0.0) * float(tr.get("volume") or 0.0)
+                - float(tr.get("fee_amount") or 0.0)
+            )
+            if proceeds > 0:
+                await recycle_sell_proceeds(
+                    template=template,
+                    proceeds_krw=proceeds,
+                    ticker=tr.get("ticker") or template.get("ticker", ""),
+                    order_uuid=tr_uuid,
+                    group_no=tr.get("group_no"),
+                )
+                recycled_set.add(tr_uuid)
+                recycled_list.append(tr_uuid)
+                dirty = True
+        params["recycled_sell_uuids"] = recycled_list[-500:]
+
+    params["accounted_buy_order_uuids"] = accounted_buys_list[-500:]
+    params["pending_buy_orders"] = next_pending_buys
+    template["params"] = params
+
+    if dirty and persist and template_id:
+        try:
+            await db.table("strategy_templates").update({"params": params}).eq("id", template_id).execute()
+        except Exception as e:
+            logger.warning(f"Failed to persist synced budget events for template #{template_id}: {e}")
+
+    return params
+
+
 def check_exchange_budget_health(
     exchange: str,
     templates: list[dict],
     actual_cash_krw: Optional[float] = None,
     balance_available: bool = True,
 ) -> dict:
-    """거래소별 Active 멀티 전략 통합 필요 예산 집계 및 실계좌 순수 현금 예수금 대조."""
+    """거래소별 Active 멀티/단일 전략 통합 필요 예산 집계 및 실계좌 순수 현금 예수금 대조."""
     ex_upper = exchange.upper()
     active_templates = []
     holding_templates = []
@@ -560,6 +968,10 @@ def check_exchange_budget_health(
         if t_ex != ex_upper:
             continue
         params = t.get("params") or {}
+        if params.get("is_archived") is True:
+            continue
+        if not is_budget_managed_strategy(t):
+            continue
         status = params.get("strategy_status", "active")
         sched_enabled = params.get("schedule_enabled", True)
         if status == "active" and sched_enabled:
@@ -576,11 +988,12 @@ def check_exchange_budget_health(
 
     for t in active_templates:
         p = t.get("params") or {}
-        b_mode = p.get("budget_mode", "monthly")
+        stype = str(t.get("strategy_type") or "grid").lower()
+        b_mode = p.get("budget_mode") or default_budget_mode_for_strategy(stype)
         m_budget = float(p.get("monthly_budget", t.get("budget", 3000000.0)))
         d_fixed = float(p.get("daily_fixed_budget", 150000.0))
         m_spent = float(p.get("monthly_spent", 0.0))
-        c_budget = float(p.get("carryover_budget", 0.0))
+        c_budget = float(p.get("carryover_budget", m_budget if b_mode == "total" else 0.0))
 
         est_daily = compute_daily_allowance(
             budget_mode=b_mode,
@@ -592,7 +1005,7 @@ def check_exchange_budget_health(
         )
 
         daily_req = c_budget + est_daily
-        unallocated = max(0.0, m_budget - m_spent - c_budget)
+        unallocated = 0.0 if b_mode == "total" else max(0.0, m_budget - m_spent - c_budget)
         monthly_rem_req = c_budget + unallocated
 
         daily_req_total += daily_req
@@ -601,6 +1014,8 @@ def check_exchange_budget_health(
         active_details.append({
             "template_id": t["id"],
             "name": t.get("name", f"전략 #{t['id']}"),
+            "strategy_type": stype,
+            "budget_mode": b_mode,
             "status": "active",
             "carryover_budget": c_budget,
             "daily_allowance_est": est_daily,
@@ -612,11 +1027,16 @@ def check_exchange_budget_health(
     holding_daily_req_total = 0.0
     for t in holding_templates:
         p = t.get("params") or {}
-        c_budget = float(p.get("carryover_budget", 0.0))
+        stype = str(t.get("strategy_type") or "grid").lower()
+        b_mode = p.get("budget_mode") or default_budget_mode_for_strategy(stype)
+        m_budget = float(p.get("monthly_budget", t.get("budget", 3000000.0)))
+        c_budget = float(p.get("carryover_budget", m_budget if b_mode == "total" else 0.0))
         holding_daily_req_total += c_budget
         holding_details.append({
             "template_id": t["id"],
             "name": t.get("name", f"전략 #{t['id']}"),
+            "strategy_type": stype,
+            "budget_mode": b_mode,
             "status": "holding",
             "carryover_budget": c_budget,
         })

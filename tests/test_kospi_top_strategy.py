@@ -703,3 +703,125 @@ def test_reconciliation_defers_refund_for_cancel_requested_orders():
     assert res is not None
     refund_calls = [c for c in mock_ledger.call_args_list if c.kwargs.get("entry_type") == "ORDER_CANCEL_REFUND"]
     assert refund_calls == []
+
+
+def test_single_strategy_budget_plan_sync_and_total_mode():
+    """단일 종목 전략(rsitrade, dca)의 통합 예산 플랜(total 모드) 초기화, 매수 차감, 취소 환급, 익절 재투입 검증."""
+    from manager.backend.services import budget_manager as bm
+
+    template = {
+        "id": 77,
+        "user_id": "u1",
+        "exchange": "upbit",
+        "ticker": "KRW-BTC",
+        "strategy_type": "rsitrade",
+        "budget": 1000000.0,
+        "params": {
+            "buy_rsi_range": "25-30",
+            "sell_rsi_range": "65-75",
+        },
+    }
+
+    # 1단계: 주문 2건(각 200,000원)이 접수된 상태
+    orders_step1 = [
+        {
+            "uuid": "rsi-buy-1",
+            "template_id": 77,
+            "side": "bid",
+            "price": 100000.0,
+            "volume": 2.0,
+            "filled_volume": 0.0,
+            "status": "wait",
+            "group_no": 10,
+            "strategy": "rsitrade",
+        },
+        {
+            "uuid": "rsi-buy-2",
+            "template_id": 77,
+            "side": "bid",
+            "price": 100000.0,
+            "volume": 2.0,
+            "filled_volume": 0.0,
+            "status": "wait",
+            "group_no": 10,
+            "strategy": "rsitrade",
+        },
+    ]
+    db_step1 = _FakeDB({
+        ("orders", "select"): orders_step1,
+        ("trade_logs", "select"): [],
+    })
+
+    with patch.object(bm, "get_db", return_value=db_step1), \
+         patch.object(bm, "record_ledger_entry", new=AsyncMock()) as mock_ledger1:
+        params1 = _sync_run(bm.sync_single_strategy_budget_events(template, persist=True))
+
+    assert params1["budget_mode"] == "total"
+    assert params1["sell_proceeds_mode"] == "recycle_to_budget"
+    assert params1["carryover_budget"] == 600000.0  # 1,000,000 - 400,000
+    assert params1["monthly_spent"] == 400000.0
+    assert len(params1["pending_buy_orders"]) == 2
+    init_calls = [c for c in mock_ledger1.call_args_list if c.kwargs.get("entry_type") == "INITIAL_CREDIT"]
+    spend_calls = [c for c in mock_ledger1.call_args_list if c.kwargs.get("entry_type") == "BUY_ORDER_SPEND"]
+    assert len(init_calls) == 1
+    assert len(spend_calls) == 2
+
+    # 2단계: rsi-buy-1은 체결 후 익절 매도(rsitrade_sell, 220,000원, 수수료 100원)까지 완료, rsi-buy-2는 미체결 취소(orders에서 삭제됨)
+    trades_step2 = [
+        {
+            "uuid": "rsi-buy-1",
+            "template_id": 77,
+            "ticker": "KRW-BTC",
+            "side": "bid",
+            "price": 100000.0,
+            "volume": 2.0,
+            "fee_amount": 0.0,
+            "group_no": 10,
+            "strategy": "rsitrade",
+        },
+        {
+            "uuid": "rsi-sell-1",
+            "template_id": 77,
+            "ticker": "KRW-BTC",
+            "side": "ask",
+            "price": 110000.0,
+            "volume": 2.0,
+            "fee_amount": 100.0,
+            "group_no": 10,
+            "strategy": "rsitrade_sell",
+        },
+    ]
+    db_step2 = _FakeDB({
+        ("orders", "select"): [],  # 두 주문 모두 완료/취소되어 orders에서 삭제됨
+        ("trade_logs", "select"): trades_step2,
+    })
+
+    with patch.object(bm, "get_db", return_value=db_step2), \
+         patch.object(bm, "record_ledger_entry", new=AsyncMock()) as mock_ledger2:
+        params2 = _sync_run(bm.sync_single_strategy_budget_events(template, persist=True))
+
+    # rsi-buy-2 (200,000원) 환불 + rsi-sell-1 (219,900원) 익절 재투입 -> 600,000 + 200,000 + 219,900 = 1,019,900원
+    assert params2["carryover_budget"] == 1019900.0
+    assert params2["monthly_spent"] == 200000.0  # 400,000 - 200,000 환급
+    assert params2["pending_buy_orders"] == []
+    refund_calls = [c for c in mock_ledger2.call_args_list if c.kwargs.get("entry_type") == "ORDER_CANCEL_REFUND"]
+    recycle_calls = [c for c in mock_ledger2.call_args_list if c.kwargs.get("entry_type") == "SELL_PROCEEDS_RECYCLE"]
+    assert len(refund_calls) == 1
+    assert refund_calls[0].kwargs.get("delta_krw") == 200000.0
+    assert len(recycle_calls) == 1
+    assert recycle_calls[0].kwargs.get("delta_krw") == 219900.0
+
+    # 3단계: total 모드에서 총예산을 1,000,000 -> 1,500,000원으로 증액 시 차액 +500,000원 즉시 반영
+    with patch.object(bm, "record_ledger_entry", new=AsyncMock()) as mock_ledger3:
+        params3 = _sync_run(
+            bm.apply_plan_change(
+                template,
+                new_plan_config={"budget_mode": "total", "monthly_budget": 1500000.0},
+                apply_today_diff=True,
+                memo="RSI 예산 50만원 증액",
+            )
+        )
+    assert params3["carryover_budget"] == 1519900.0
+    diff_calls = [c for c in mock_ledger3.call_args_list if c.kwargs.get("entry_type") == "PLAN_CHANGE_DIFF"]
+    assert len(diff_calls) == 1
+    assert diff_calls[0].kwargs.get("delta_krw") == 500000.0

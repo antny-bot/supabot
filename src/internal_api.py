@@ -528,6 +528,8 @@ async def _internal_execute_dca_handler(request: _web.Request) -> _web.Response:
         amount = float(data.get("amount") or 0)
         raw_max_runs = data.get("max_runs")
         max_runs = int(raw_max_runs) if raw_max_runs and int(raw_max_runs) > 0 else None
+        raw_tpl_id = data.get("template_id")
+        template_id = int(raw_tpl_id) if raw_tpl_id is not None else None
 
         user = _user_manager.get_user(user_id)
         if not user:
@@ -563,6 +565,7 @@ async def _internal_execute_dca_handler(request: _web.Request) -> _web.Response:
             amount=amount,
             max_runs=max_runs,
             group_no=group_no,
+            template_id=template_id,
         )
 
         app = request.app.get("bot_application")

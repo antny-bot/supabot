@@ -344,7 +344,7 @@ class DcaManager:
         if not is_db_available() or not self._db_table_supported:
             return
 
-        sched_copy = dict(sched)
+        sched_copy = {k: v for k, v in sched.items() if k != "template_id"}
 
         async def _run():
             try:
@@ -433,6 +433,7 @@ class DcaManager:
         day_of_month: int | None = None,
         max_runs: int | None = None,
         group_no: int | None = None,
+        template_id: int | None = None,
         now: float | None = None,
     ) -> dict:
         now_ts = float(now if now is not None else time.time())
@@ -467,6 +468,8 @@ class DcaManager:
             "group_no": int(group_no),
             "created_at": now_ts,
         }
+        if template_id is not None:
+            sched["template_id"] = int(template_id)
         self.schedules.append(sched)
         self._db_upsert(sched)
         if self.on_schedule_changed:
@@ -684,14 +687,34 @@ async def execute_due_dca_schedules(
         price = _compute_dca_limit_price(ex_obj, exchange, ticker, side, current_price, ticker_info)
         amount_type = sched.get("amount_type", "budget")
         raw_amount = float(sched.get("amount") or 0)
+        template_id = sched.get("template_id")
+
+        # 템플릿 예산 플랜 가용 예산(carryover_budget) 한도 적용 (KRW 매수 DCA 한정)
+        is_usd = is_us_stock_ticker(exchange, ticker)
+        if side == "bid" and amount_type == "budget" and not is_usd and template_id is not None and is_db_available():
+            try:
+                tpl_res = await get_db().table("strategy_templates").select("params,budget").eq("id", int(template_id)).execute_async()
+                if tpl_res.data:
+                    tpl_params = tpl_res.data[0].get("params") or {}
+                    if "carryover_budget" in tpl_params:
+                        avail_cob = float(tpl_params.get("carryover_budget") or 0.0)
+                        if avail_cob <= 0:
+                            dca_manager.advance_schedule(sched_id, now_ts=now_val, increment_run=False)
+                            await _safe_notify(
+                                application, user_id,
+                                f"⚠️ [{ex_label}] {ticker} 정기 매수 보류\n"
+                                f"• 사유: 전략 가용 예산(이월금)이 0원입니다. 웹 매니저에서 [+충전] 또는 예산 플랜을 확인해 주세요.",
+                            )
+                            continue
+                        raw_amount = min(raw_amount, avail_cob)
+            except Exception as te:
+                _log.debug("Failed to check DCA template carryover budget: %s", te)
 
         if amount_type == "volume":
             volume = ex_obj.round_volume(raw_amount)
         else:
             effective_budget = raw_amount * 0.999 if side == "bid" else raw_amount
             volume = ex_obj.round_volume(effective_budget / price) if price > 0 else 0
-
-        is_usd = is_us_stock_ticker(exchange, ticker)
         if ex_obj.requires_integer_volume() and volume <= 0:
             dca_manager.advance_schedule(sched_id, now_ts=now_val, increment_run=False)
             price_str = f"${price:,.2f}" if is_usd else f"{price:,.0f}원"
@@ -746,6 +769,7 @@ async def execute_due_dca_schedules(
             order_manager.add_order(
                 user_id, exchange, ticker, res["uuid"], price, volume,
                 side=side, strategy="dca", status="wait", group_no=group_no,
+                template_id=template_id,
             )
             updated = dca_manager.advance_schedule(sched_id, now_ts=now_val, increment_run=True)
             executed_count += 1

@@ -8,6 +8,7 @@ import type { DailyReport } from '../../types'
 import type { DateRangeValue } from '../../components/ui/DateRangePicker'
 import { ChartSkeleton, TableRowSkeleton } from '../../components/ui/Skeleton'
 import ErrorBanner from '../../components/ui/ErrorBanner'
+import Pagination from '../../components/ui/Pagination'
 import { staggerDelay, staggerDelayMs } from '../../utils/animation'
 import { krwFmt, pctColor, PNL_UP_HEX, PNL_DOWN_HEX, CARD, TH, TD } from './ReportsShared'
 
@@ -15,10 +16,13 @@ export default function DailySection({ dateRange }: { dateRange: DateRangeValue 
   const [data, setData] = useState<DailyReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
 
   useEffect(() => {
     setLoading(true)
     setError(null)
+    setPage(1)
     fetchReportDaily(dateRange)
       .then(setData)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류 발생'))
@@ -135,9 +139,15 @@ export default function DailySection({ dateRange }: { dateRange: DateRangeValue 
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {data.rows.length === 0 ? (
-                <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-400 text-xs">데이터 없음</td></tr>
-              ) : [...data.rows].reverse().map((r, i) => (
+              {(() => {
+                const reversed = [...data.rows].reverse()
+                const paged = reversed.slice((page - 1) * pageSize, page * pageSize)
+                if (reversed.length === 0) {
+                  return (
+                    <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-400 text-xs">데이터 없음</td></tr>
+                  )
+                }
+                return paged.map((r, i) => (
                 <tr key={r.date} className="animate-fade-in hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors" style={staggerDelay(i)}>
                   <td className={`${TD} font-mono text-xs font-medium text-slate-700 dark:text-slate-300`}>{r.date}</td>
                   <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(r.bid_krw)}</td>
@@ -160,10 +170,27 @@ export default function DailySection({ dateRange }: { dateRange: DateRangeValue 
                     </div>
                   </td>
                 </tr>
-              ))}
+              ))
+              })()}
             </tbody>
           </table>
         </div>
+
+        {/* 일별 손익 페이징 (기본 10건) */}
+        {data.rows.length > 0 && (
+          <Pagination
+            currentPage={page}
+            totalPages={Math.max(1, Math.ceil(data.rows.length / pageSize))}
+            pageSize={pageSize}
+            totalCount={data.rows.length}
+            onPageChange={setPage}
+            onPageSizeChange={(sz) => {
+              setPageSize(sz)
+              setPage(1)
+            }}
+            pageSizeOptions={[10, 20, 50, 100]}
+          />
+        )}
       </div>
     </div>
   )

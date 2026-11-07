@@ -48,7 +48,7 @@ export function EventsContent() {
 
   // 페이징 및 일괄 작업 상태
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(50)
+  const [pageSize, setPageSize] = useState(10)
   const [totalCount, setTotalCount] = useState(0)
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [bulkPending, setBulkPending] = useState(false)
