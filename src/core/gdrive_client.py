@@ -53,6 +53,37 @@ def exchange_code_for_tokens(client_id: str, client_secret: str, code: str, redi
         raise ValueError("Google OAuth 토큰 교환에 실패했습니다.") from error
 
 
+def fetch_google_user_email(access_token: str) -> str:
+    """Access token을 사용하여 연동된 Google 사용자 이메일을 조회합니다."""
+    req = urllib.request.Request(
+        GOOGLE_USERINFO_URL,
+        headers={"Authorization": f"Bearer {access_token}"},
+        method="GET"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=DEFAULT_META_TIMEOUT) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return data.get("email", "")
+    except Exception as error:
+        logger.warning("Failed to fetch Google user email: %s", error)
+        return ""
+
+
+def get_google_auth_url(client_id: str, redirect_uri: str, scope: Optional[str] = None) -> str:
+    """Google OAuth2 인증 URL을 생성합니다."""
+    if not scope:
+        scope = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email"
+    params = {
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": scope,
+        "access_type": "offline",
+        "prompt": "consent",
+    }
+    return f"https://accounts.google.com/o/oauth2/v2/auth?{urllib.parse.urlencode(params)}"
+
+
 def refresh_access_token(client_id: str, client_secret: str, refresh_token: str) -> dict:
     """Refresh token을 사용하여 새 access_token을 발급받습니다."""
     payload = urllib.parse.urlencode({

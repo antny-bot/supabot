@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from core.bot_logger import get_logger
 from core.db import get_db, is_db_available
 from core import gdrive_client
+from core.secret_crypto import decrypt_secret, encrypt_secret
 
 logger = get_logger("backup_manager")
 
@@ -53,6 +54,35 @@ _backup_lock = asyncio.Lock()
 _loop_task: Optional[asyncio.Task] = None
 
 
+def _resolve_gdrive_credentials(rows: Optional[Dict[str, str]] = None) -> Tuple[str, str, str, str, str]:
+    """Google Drive 연동 정보(Client ID, Secret, Refresh Token, User Email, Folder)를 조회합니다.
+    
+    우선순위:
+    1. system_config DB 레코드 (웹 UI 인증)
+    2. .env 환경변수 (레거시/수동 설정)
+    """
+    rows = rows or {}
+    
+    cid = rows.get("backup_gdrive_client_id", "").strip() or os.environ.get("GDRIVE_CLIENT_ID", "").strip()
+    sec = rows.get("backup_gdrive_client_secret", "").strip() or os.environ.get("GDRIVE_CLIENT_SECRET", "").strip()
+    
+    # Refresh Token: DB 우선 (암호화되어 있으면 복호화), 없으면 .env 폴백
+    raw_token = rows.get("backup_gdrive_refresh_token", "").strip()
+    refresh_tok = ""
+    if raw_token:
+        try:
+            refresh_tok = decrypt_secret(raw_token).strip()
+        except Exception:
+            refresh_tok = raw_token.strip()
+    if not refresh_tok:
+        refresh_tok = os.environ.get("GDRIVE_REFRESH_TOKEN", "").strip()
+        
+    user_email = rows.get("backup_gdrive_user_email", "").strip()
+    folder = rows.get("backup_gdrive_folder", "").strip() or os.environ.get("GDRIVE_FOLDER", "supabot-backups").strip()
+    
+    return cid, sec, refresh_tok, user_email, folder
+
+
 def get_backup_config() -> Dict[str, Any]:
     """system_config 또는 환경변수에서 백업 설정을 조회합니다."""
     # 기본값
@@ -66,15 +96,10 @@ def get_backup_config() -> Dict[str, Any]:
         "gdrive_max_keep": 14,
         "gdrive_enabled": False,
         "gdrive_folder": os.environ.get("GDRIVE_FOLDER", "supabot-backups"),
+        "gdrive_user_email": "",
     }
 
-    # .env 기반 Google Drive 설정 확인
-    gdrive_cid = os.environ.get("GDRIVE_CLIENT_ID", "").strip()
-    gdrive_sec = os.environ.get("GDRIVE_CLIENT_SECRET", "").strip()
-    gdrive_tok = os.environ.get("GDRIVE_REFRESH_TOKEN", "").strip()
-    cfg["gdrive_enabled"] = bool(gdrive_cid and gdrive_sec and gdrive_tok)
-
-    # DB system_config 조회
+    rows: Dict[str, str] = {}
     if is_db_available():
         try:
             resp = get_db().table("system_config").select("key,value").execute()
@@ -105,6 +130,12 @@ def get_backup_config() -> Dict[str, Any]:
                 cfg["gdrive_folder"] = rows["backup_gdrive_folder"]
         except Exception as e:
             logger.warning("Failed to load backup config from system_config: %s", e)
+
+    cid, sec, tok, user_email, folder = _resolve_gdrive_credentials(rows)
+    cfg["gdrive_enabled"] = bool(cid and sec and tok)
+    cfg["gdrive_user_email"] = user_email
+    if folder:
+        cfg["gdrive_folder"] = folder
 
     return cfg
 
@@ -461,16 +492,23 @@ def execute_full_backup_sync() -> Dict[str, Any]:
         # 6. Google Drive 업로드 (설정되어 있는 경우)
         gdrive_file_id = None
         gdrive_error: Optional[str] = None
-        gdrive_cid = os.environ.get("GDRIVE_CLIENT_ID", "").strip()
-        gdrive_sec = os.environ.get("GDRIVE_CLIENT_SECRET", "").strip()
-        gdrive_tok = os.environ.get("GDRIVE_REFRESH_TOKEN", "").strip()
+        
+        db_rows: Dict[str, str] = {}
+        if is_db_available():
+            try:
+                resp = get_db().table("system_config").select("key,value").execute()
+                db_rows = {r["key"]: r["value"] for r in (resp.data or [])}
+            except Exception as e:
+                logger.warning("Failed to read system_config for gdrive credentials: %s", e)
+
+        gdrive_cid, gdrive_sec, gdrive_tok, _, resolved_folder = _resolve_gdrive_credentials(db_rows)
 
         if gdrive_cid and gdrive_sec and gdrive_tok:
             try:
                 logger.info("Refreshing Google Drive access token...")
                 token_res = gdrive_client.refresh_access_token(gdrive_cid, gdrive_sec, gdrive_tok)
                 access_token = token_res["access_token"]
-                folder_name = cfg.get("gdrive_folder", "supabot-backups")
+                folder_name = resolved_folder or cfg.get("gdrive_folder", "supabot-backups")
 
                 logger.info("Uploading backup to Google Drive folder '%s'...", folder_name)
                 upload_res = gdrive_client.upload_file_to_gdrive(

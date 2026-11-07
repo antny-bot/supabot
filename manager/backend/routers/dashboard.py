@@ -126,20 +126,20 @@ async def _build_backup_health(db) -> dict:
 
     if not enabled:
         health_grade = "DISABLED"
-        health_message = "정기 자동 백업 스케줄러가 비활성화되어 있습니다."
+        health_message = "정기 백업이 비활성화되어 있습니다."
     elif last_status == "error":
         health_grade = "CRITICAL"
-        health_message = f"최근 백업 실패: {last_error or '원인 불명 오류'}"
+        health_message = "최근 백업 실패 (관리자 확인 필요)"
     elif last_status == "partial_error":
         health_grade = "WARNING"
-        health_message = f"로컬 백업 완료, Google Drive 업로드 실패 ({last_error})"
+        health_message = "로컬 백업 완료 (Google Drive 업로드 실패)"
     elif last_status == "success":
         health_grade = "HEALTHY"
-        gdrive_desc = "Google Drive 클라우드 연동" if gdrive_enabled else "로컬 보관"
-        health_message = f"정기 백업 정상 가동 중 ({gdrive_desc}, 14개 테이블 {total_rows:,}행 백업)"
+        gdrive_desc = "Google Drive" if gdrive_enabled else "로컬"
+        health_message = f"정기 백업 정상 가동 중 ({gdrive_desc}, {total_rows:,}행 백업)"
     else:
         health_grade = "WARNING"
-        health_message = "아직 실행된 백업 이력이 없습니다. 첫 백업 대기 중입니다."
+        health_message = "백업 이력 없음 (첫 실행 대기 중)"
 
     return {
         "enabled": enabled,

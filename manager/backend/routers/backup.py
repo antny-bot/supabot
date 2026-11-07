@@ -2,17 +2,63 @@
 import json
 import os
 import re
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 
 from ..bot_client import download_bot_backup_file, get_bot_backup_status, trigger_bot_backup
 from ..db import get_db
+from ..gdrive import (
+    exchange_code_for_tokens,
+    fetch_google_user_email,
+    encrypt_token,
+    decrypt_token,
+)
 from ._auth import get_admin_user, get_current_user
 
 router = APIRouter()
 
 BACKUP_DIR = "data/backups"
 STATE_FILE = "data/backup_state.json"
+KST = timezone(timedelta(hours=9))
+
+
+def _resolve_gdrive_config(row_dict: dict) -> dict:
+    cid = row_dict.get("backup_gdrive_client_id", "").strip() or os.environ.get("GDRIVE_CLIENT_ID", "").strip()
+    sec = row_dict.get("backup_gdrive_client_secret", "").strip() or os.environ.get("GDRIVE_CLIENT_SECRET", "").strip()
+    raw_tok = row_dict.get("backup_gdrive_refresh_token", "").strip()
+    
+    source = "none"
+    refresh_tok = ""
+    if raw_tok:
+        try:
+            refresh_tok = decrypt_token(raw_tok)
+        except Exception:
+            refresh_tok = raw_tok
+        if refresh_tok:
+            source = "db"
+            
+    if not refresh_tok:
+        env_tok = os.environ.get("GDRIVE_REFRESH_TOKEN", "").strip()
+        if env_tok:
+            refresh_tok = env_tok
+            source = "env"
+
+    user_email = row_dict.get("backup_gdrive_user_email", "").strip()
+    folder = row_dict.get("backup_gdrive_folder", "").strip() or os.environ.get("GDRIVE_FOLDER", "supabot-backups").strip()
+    connected_at = row_dict.get("backup_gdrive_connected_at", "").strip()
+
+    is_enabled = bool(cid and sec and refresh_tok)
+    return {
+        "connected": is_enabled,
+        "client_id": cid,
+        "has_client_secret": bool(sec),
+        "refresh_token": refresh_tok,
+        "user_email": user_email,
+        "folder": folder,
+        "connected_at": connected_at,
+        "source": source,
+    }
 
 
 @router.get("/api/backup/config")
@@ -29,13 +75,11 @@ async def api_get_backup_config(_=Depends(get_admin_user)):
             "gdrive_max_keep": 14,
             "gdrive_enabled": False,
             "gdrive_folder": os.environ.get("GDRIVE_FOLDER", "supabot-backups"),
+            "gdrive_user_email": "",
+            "gdrive_client_id": "",
+            "gdrive_has_secret": False,
+            "gdrive_source": "none",
         }
-
-        # Google Drive 환경변수 확인 (로컬 폴백)
-        gdrive_cid = os.environ.get("GDRIVE_CLIENT_ID", "").strip()
-        gdrive_sec = os.environ.get("GDRIVE_CLIENT_SECRET", "").strip()
-        gdrive_tok = os.environ.get("GDRIVE_REFRESH_TOKEN", "").strip()
-        cfg["gdrive_enabled"] = bool(gdrive_cid and gdrive_sec and gdrive_tok)
 
         rows = (await get_db().table("system_config").select("key,value").execute()).data or []
         row_dict = {r["key"]: r["value"] for r in rows}
@@ -64,6 +108,16 @@ async def api_get_backup_config(_=Depends(get_admin_user)):
         if "backup_gdrive_folder" in row_dict:
             cfg["gdrive_folder"] = row_dict["backup_gdrive_folder"]
 
+        # Google Drive 연동 정보 해석
+        g_info = _resolve_gdrive_config(row_dict)
+        cfg["gdrive_enabled"] = g_info["connected"]
+        cfg["gdrive_user_email"] = g_info["user_email"]
+        cfg["gdrive_client_id"] = g_info["client_id"]
+        cfg["gdrive_has_secret"] = g_info["has_client_secret"]
+        cfg["gdrive_source"] = g_info["source"]
+        if g_info["folder"]:
+            cfg["gdrive_folder"] = g_info["folder"]
+
         # 봇 컨테이너의 Google Drive 연동 상태 및 폴더 설정 우선 반영
         ok, bot_res = await get_bot_backup_status()
         if ok and isinstance(bot_res, dict):
@@ -72,10 +126,129 @@ async def api_get_backup_config(_=Depends(get_admin_user)):
                 cfg["gdrive_enabled"] = bool(bot_cfg["gdrive_enabled"])
             if "backup_gdrive_folder" not in row_dict and bot_cfg.get("gdrive_folder"):
                 cfg["gdrive_folder"] = bot_cfg["gdrive_folder"]
+            if "gdrive_user_email" in bot_cfg and bot_cfg["gdrive_user_email"]:
+                cfg["gdrive_user_email"] = bot_cfg["gdrive_user_email"]
 
         return JSONResponse(cfg)
     except Exception as e:
         return JSONResponse({"error": f"Failed to get backup config: {str(e)}"}, status_code=500)
+
+
+@router.get("/api/backup/gdrive/status")
+async def api_get_gdrive_status(_=Depends(get_admin_user)):
+    """Google Drive 연동 세부 상태 및 웹 연동용 클라이언트 ID 조회."""
+    try:
+        rows = (await get_db().table("system_config").select("key,value").execute()).data or []
+        row_dict = {r["key"]: r["value"] for r in rows}
+        info = _resolve_gdrive_config(row_dict)
+        return JSONResponse({
+            "connected": info["connected"],
+            "user_email": info["user_email"],
+            "folder": info["folder"],
+            "client_id": info["client_id"],
+            "has_client_secret": info["has_client_secret"],
+            "connected_at": info["connected_at"],
+            "source": info["source"],
+        })
+    except Exception as e:
+        return JSONResponse({"error": f"Failed to get gdrive status: {str(e)}"}, status_code=500)
+
+
+@router.post("/api/backup/gdrive/connect")
+async def api_connect_gdrive(request: Request, _=Depends(get_admin_user)):
+    """Google OAuth authorization_code를 교환하여 Google Drive 연동을 활성화합니다."""
+    try:
+        body = await request.json()
+        code = str(body.get("code", "")).strip()
+        redirect_uri = str(body.get("redirect_uri", "postmessage")).strip() or "postmessage"
+        
+        if not code:
+            raise HTTPException(status_code=400, detail="인증 코드(code)가 제공되지 않았습니다.")
+
+        db = get_db()
+        rows = (await db.table("system_config").select("key,value").execute()).data or []
+        row_dict = {r["key"]: r["value"] for r in rows}
+        info = _resolve_gdrive_config(row_dict)
+
+        client_id = str(body.get("client_id", "")).strip() or info["client_id"]
+        client_secret = str(body.get("client_secret", "")).strip() or (
+            row_dict.get("backup_gdrive_client_secret", "").strip() or os.environ.get("GDRIVE_CLIENT_SECRET", "").strip()
+        )
+
+        if not client_id or not client_secret:
+            raise HTTPException(
+                status_code=400,
+                detail="Google Client ID 또는 Client Secret이 설정되지 않았습니다. .env 또는 설정에서 등록해주세요."
+            )
+
+        token_res = exchange_code_for_tokens(client_id, client_secret, code, redirect_uri)
+        refresh_token = token_res.get("refresh_token", "")
+        access_token = token_res.get("access_token", "")
+
+        if not refresh_token and not access_token:
+            raise HTTPException(status_code=400, detail="Google OAuth 토큰 발급에 실패했습니다.")
+
+        user_email = ""
+        if access_token:
+            user_email = fetch_google_user_email(access_token)
+
+        now_str = datetime.now(KST).isoformat()
+        
+        # DB 저장 (refresh_token이 새로 발급된 경우 암호화 저장)
+        if refresh_token:
+            enc_refresh = encrypt_token(refresh_token)
+            await db.table("system_config").upsert({"key": "backup_gdrive_refresh_token", "value": enc_refresh}).execute()
+        if user_email:
+            await db.table("system_config").upsert({"key": "backup_gdrive_user_email", "value": user_email}).execute()
+        await db.table("system_config").upsert({"key": "backup_gdrive_connected_at", "value": now_str}).execute()
+
+        # 만약 요청 본문에 client_id/secret이 명시적으로 전달되었다면 저장
+        if body.get("client_id"):
+            await db.table("system_config").upsert({"key": "backup_gdrive_client_id", "value": client_id}).execute()
+        if body.get("client_secret"):
+            await db.table("system_config").upsert({"key": "backup_gdrive_client_secret", "value": client_secret}).execute()
+
+        return JSONResponse({
+            "ok": True,
+            "status": "connected",
+            "user_email": user_email,
+            "connected_at": now_str,
+        })
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse({"error": f"Google Drive 연동 실패: {str(e)}"}, status_code=400)
+
+
+@router.post("/api/backup/gdrive/disconnect")
+async def api_disconnect_gdrive(_=Depends(get_admin_user)):
+    """Google Drive 연동 토큰을 삭제하여 연동을 해제합니다."""
+    try:
+        db = get_db()
+        for k in ["backup_gdrive_refresh_token", "backup_gdrive_user_email", "backup_gdrive_connected_at"]:
+            await db.table("system_config").upsert({"key": k, "value": ""}).execute()
+        return JSONResponse({"ok": True, "status": "disconnected"})
+    except Exception as e:
+        return JSONResponse({"error": f"Failed to disconnect: {str(e)}"}, status_code=500)
+
+
+@router.post("/api/backup/gdrive/settings")
+async def api_save_gdrive_settings(request: Request, _=Depends(get_admin_user)):
+    """Google Drive Client ID, Secret, 폴더명을 웹에서 저장합니다."""
+    try:
+        body = await request.json()
+        db = get_db()
+
+        if "client_id" in body:
+            await db.table("system_config").upsert({"key": "backup_gdrive_client_id", "value": str(body["client_id"]).strip()}).execute()
+        if "client_secret" in body:
+            await db.table("system_config").upsert({"key": "backup_gdrive_client_secret", "value": str(body["client_secret"]).strip()}).execute()
+        if "folder" in body:
+            await db.table("system_config").upsert({"key": "backup_gdrive_folder", "value": str(body["folder"]).strip()}).execute()
+
+        return JSONResponse({"ok": True})
+    except Exception as e:
+        return JSONResponse({"error": f"Failed to save settings: {str(e)}"}, status_code=500)
 
 
 @router.post("/api/backup/config")

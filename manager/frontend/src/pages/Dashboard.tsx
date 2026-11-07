@@ -310,7 +310,7 @@ export default function Dashboard() {
           />
         </div>
 
-        {/* Supabase 정기 백업 스케줄러 Health Check 카드 (클릭 시 관리자 백업 관리 직행) */}
+        {/* 정기 백업 Health Check 카드 (클릭 시 관리자 백업 관리 직행) */}
         {data?.backup_health && (
           <div className="col-span-12 xl:col-span-6">
             <BackupHealthCard

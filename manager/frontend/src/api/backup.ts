@@ -8,6 +8,20 @@ export interface BackupConfig {
   gdrive_max_keep: number
   gdrive_enabled: boolean
   gdrive_folder: string
+  gdrive_user_email?: string
+  gdrive_client_id?: string
+  gdrive_has_secret?: boolean
+  gdrive_source?: 'db' | 'env' | 'none'
+}
+
+export interface GDriveStatusResponse {
+  connected: boolean
+  user_email: string
+  folder: string
+  client_id: string
+  has_client_secret: boolean
+  connected_at: string | null
+  source: 'db' | 'env' | 'none'
 }
 
 export interface BackupState {
@@ -82,4 +96,57 @@ export async function fetchBackupHealth(): Promise<any> {
     throw new Error('백업 헬스 정보를 불러오는 데 실패했습니다.')
   }
   return res.json()
+}
+
+export async function fetchGDriveStatus(): Promise<GDriveStatusResponse> {
+  const res = await fetch('/api/backup/gdrive/status')
+  if (!res.ok) {
+    throw new Error('Google Drive 연동 상태를 불러오는 데 실패했습니다.')
+  }
+  return res.json()
+}
+
+export async function connectGDrive(params: {
+  code: string
+  redirect_uri?: string
+  client_id?: string
+  client_secret?: string
+}): Promise<{ ok: boolean; status: string; user_email: string }> {
+  const res = await fetch('/api/backup/gdrive/connect', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || err.error || 'Google Drive 연동에 실패했습니다.')
+  }
+  return res.json()
+}
+
+export async function disconnectGDrive(): Promise<{ ok: boolean; status: string }> {
+  const res = await fetch('/api/backup/gdrive/disconnect', {
+    method: 'POST',
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || err.error || 'Google Drive 연동 해제에 실패했습니다.')
+  }
+  return res.json()
+}
+
+export async function saveGDriveSettings(settings: {
+  client_id?: string
+  client_secret?: string
+  folder?: string
+}): Promise<void> {
+  const res = await fetch('/api/backup/gdrive/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || err.error || 'Google Drive 설정 저장에 실패했습니다.')
+  }
 }
