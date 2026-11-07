@@ -12,8 +12,8 @@
    - 효과: 단순 조회는 Gemini 호출 없이 0초대 즉시 응답, 비용 0, 최근 컨텍스트에 기록
 4. **2차 에이전트 루프 (Gemini Function Calling)**:
    - 전처리 미적중 및 복합/변경 요청 시 `run_nl_agent_loop` 진입 (최대 5 스텝)
-   - 읽기 도구 8종(`get_ticker_price`, `get_open_orders`, `get_account_balances` 등)을 필요 시 연속 자동 호출하여 실시간 데이터 수집
-   - 변경 도구 7종(`propose_manual_order`, `propose_cancel_orders`, `propose_template_action` 등) 호출 시 실제 즉시 실행하지 않고 `ProposedAction` 큐에 적재
+   - 읽기 도구 18종(실시간 시세/잔고/지표 8종 + Manager REST API 리포트 10종: 손익/승률/일별/월별/ROI랭킹/전략/거래소/MDD/자산배분/DCA배치)을 필요 시 연속 자동 호출하여 실시간 데이터 수집
+   - 변경 제안 도구 7종(`propose_manual_order`, `propose_cancel_orders`, `propose_template_action` 등) 호출 시 실제 즉시 실행하지 않고 `ProposedAction` 큐에 적재
 5. **실행 분기**:
    - **조회/분석만 수행된 경우**: 최종 브리핑 자연어 메시지로 상태 메시지 즉시 수정 (`reply_text`)
    - **변경 작업이 제안된 경우**:

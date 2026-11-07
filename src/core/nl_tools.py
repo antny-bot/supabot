@@ -279,6 +279,241 @@ async def get_user_settings() -> dict:
     }
 
 
+# ------------------------------------------------------------------------------
+# 1-1. Manager REST API 리포트 조회 도구 (백엔드 연동)
+# ------------------------------------------------------------------------------
+
+
+async def get_report_pnl(period: str = "30d") -> dict:
+    """기간별(1d, 7d, 30d, all) 총 실현손익, 미실현손익, 총 투자원금, 누적 수익률(ROI), 총 거래 횟수 등 종합 손익 리포트를 조회합니다.
+
+    Args:
+        period: 조회 기간 ('1d', '7d', '30d', 'all') - 기본값 '30d'
+    """
+    ctx = _get_context()
+    try:
+        is_admin = bool(ctx.user.get("is_admin", False))
+        res = await request_manager_api(
+            "GET",
+            "/api/reports/pnl",
+            ctx.user_id,
+            is_admin=is_admin,
+            params={"period": period},
+        )
+        if res.get("ok"):
+            return res.get("data", {})
+        return {"warning": res.get("error", "손익 리포트를 불러오지 못했습니다.")}
+    except Exception as e:
+        _log.warning("get_report_pnl failed: %s", e)
+        return {"error": str(e)}
+
+
+async def get_report_win_stats(period: str = "30d") -> dict:
+    """기간별(1d, 7d, 30d, all) 트레이딩 승률(Win Rate), 손익비(Profit Factor), 승/패 횟수, 평균 수익/손실액, 최대 연승/연패 기록을 조회합니다.
+
+    Args:
+        period: 조회 기간 ('1d', '7d', '30d', 'all') - 기본값 '30d'
+    """
+    ctx = _get_context()
+    try:
+        is_admin = bool(ctx.user.get("is_admin", False))
+        res = await request_manager_api(
+            "GET",
+            "/api/reports/win-stats",
+            ctx.user_id,
+            is_admin=is_admin,
+            params={"period": period},
+        )
+        if res.get("ok"):
+            return res.get("data", {})
+        return {"warning": res.get("error", "승률 통계 리포트를 불러오지 못했습니다.")}
+    except Exception as e:
+        _log.warning("get_report_win_stats failed: %s", e)
+        return {"error": str(e)}
+
+
+async def get_report_daily_profit(period: str = "30d") -> dict:
+    """최근 일자별 실현 손익 및 일간 수익률, 일일 거래 횟수 추이 목록을 조회합니다.
+
+    Args:
+        period: 조회 기간 ('7d', '30d', 'all') - 기본값 '30d'
+    """
+    ctx = _get_context()
+    try:
+        is_admin = bool(ctx.user.get("is_admin", False))
+        res = await request_manager_api(
+            "GET",
+            "/api/reports/daily",
+            ctx.user_id,
+            is_admin=is_admin,
+            params={"period": period},
+        )
+        if res.get("ok"):
+            return res.get("data", {})
+        return {"warning": res.get("error", "일별 손익 리포트를 불러오지 못했습니다.")}
+    except Exception as e:
+        _log.warning("get_report_daily_profit failed: %s", e)
+        return {"error": str(e)}
+
+
+async def get_report_monthly_profit() -> dict:
+    """월별 누적 실현 손익 및 월간 거래 실적 추이를 조회합니다."""
+    ctx = _get_context()
+    try:
+        is_admin = bool(ctx.user.get("is_admin", False))
+        res = await request_manager_api(
+            "GET",
+            "/api/reports/monthly",
+            ctx.user_id,
+            is_admin=is_admin,
+        )
+        if res.get("ok"):
+            return res.get("data", {})
+        return {"warning": res.get("error", "월별 손익 리포트를 불러오지 못했습니다.")}
+    except Exception as e:
+        _log.warning("get_report_monthly_profit failed: %s", e)
+        return {"error": str(e)}
+
+
+async def get_report_roi_ranking(period: str = "30d") -> dict:
+    """기간 내 거래된 종목별 실현 손익 및 수익률 랭킹(수익률 상위/하위 종목)을 조회합니다.
+
+    Args:
+        period: 조회 기간 ('7d', '30d', 'all') - 기본값 '30d'
+    """
+    ctx = _get_context()
+    try:
+        is_admin = bool(ctx.user.get("is_admin", False))
+        res = await request_manager_api(
+            "GET",
+            "/api/reports/roi-ranking",
+            ctx.user_id,
+            is_admin=is_admin,
+            params={"period": period},
+        )
+        if res.get("ok"):
+            return res.get("data", {})
+        return {"warning": res.get("error", "수익률 랭킹 리포트를 불러오지 못했습니다.")}
+    except Exception as e:
+        _log.warning("get_report_roi_ranking failed: %s", e)
+        return {"error": str(e)}
+
+
+async def get_report_strategy_performance(period: str = "30d") -> dict:
+    """매매 전략별(RSI, DCA, 그리드, 탑로테이션 등) 누적 손익, 승률, 거래 횟수 성과 비교 리포트를 조회합니다.
+
+    Args:
+        period: 조회 기간 ('7d', '30d', 'all') - 기본값 '30d'
+    """
+    ctx = _get_context()
+    try:
+        is_admin = bool(ctx.user.get("is_admin", False))
+        res = await request_manager_api(
+            "GET",
+            "/api/reports/strategy",
+            ctx.user_id,
+            is_admin=is_admin,
+            params={"period": period},
+        )
+        if res.get("ok"):
+            return res.get("data", {})
+        return {"warning": res.get("error", "전략별 성과 리포트를 불러오지 못했습니다.")}
+    except Exception as e:
+        _log.warning("get_report_strategy_performance failed: %s", e)
+        return {"error": str(e)}
+
+
+async def get_report_exchange_performance(period: str = "30d") -> dict:
+    """거래소별(업비트, 빗썸, KIS, 토스) 거래 비중, 누적 실현 손익, 승률 비교 리포트를 조회합니다.
+
+    Args:
+        period: 조회 기간 ('7d', '30d', 'all') - 기본값 '30d'
+    """
+    ctx = _get_context()
+    try:
+        is_admin = bool(ctx.user.get("is_admin", False))
+        res = await request_manager_api(
+            "GET",
+            "/api/reports/exchange",
+            ctx.user_id,
+            is_admin=is_admin,
+            params={"period": period},
+        )
+        if res.get("ok"):
+            return res.get("data", {})
+        return {"warning": res.get("error", "거래소별 성과 리포트를 불러오지 못했습니다.")}
+    except Exception as e:
+        _log.warning("get_report_exchange_performance failed: %s", e)
+        return {"error": str(e)}
+
+
+async def get_report_drawdown_risk(period: str = "30d") -> dict:
+    """포트폴리오의 최대 낙폭(MDD, Maximum Drawdown), 현재 낙폭(Current Drawdown), 과거 최대 하락 구간 분석 리포트를 조회합니다.
+
+    Args:
+        period: 조회 기간 ('30d', 'all') - 기본값 '30d'
+    """
+    ctx = _get_context()
+    try:
+        is_admin = bool(ctx.user.get("is_admin", False))
+        res = await request_manager_api(
+            "GET",
+            "/api/reports/drawdown",
+            ctx.user_id,
+            is_admin=is_admin,
+            params={"period": period},
+        )
+        if res.get("ok"):
+            return res.get("data", {})
+        return {"warning": res.get("error", "낙폭(MDD) 리스크 리포트를 불러오지 못했습니다.")}
+    except Exception as e:
+        _log.warning("get_report_drawdown_risk failed: %s", e)
+        return {"error": str(e)}
+
+
+async def get_report_asset_allocation() -> dict:
+    """현재 보유 자산 및 거래소별 포트폴리오 자산 배분 비중(현금 대비 코인/주식 비중) 리포트를 조회합니다."""
+    ctx = _get_context()
+    try:
+        is_admin = bool(ctx.user.get("is_admin", False))
+        res = await request_manager_api(
+            "GET",
+            "/api/reports/allocation",
+            ctx.user_id,
+            is_admin=is_admin,
+        )
+        if res.get("ok"):
+            return res.get("data", {})
+        return {"warning": res.get("error", "자산 배분 리포트를 불러오지 못했습니다.")}
+    except Exception as e:
+        _log.warning("get_report_asset_allocation failed: %s", e)
+        return {"error": str(e)}
+
+
+async def get_report_dca_batches(period: str = "30d") -> dict:
+    """DCA(분할 매수) 전략의 차수별 배치 실행 현황, 평균 매수가, 회차별 집행 상태를 조회합니다.
+
+    Args:
+        period: 조회 기간 ('7d', '30d', 'all') - 기본값 '30d'
+    """
+    ctx = _get_context()
+    try:
+        is_admin = bool(ctx.user.get("is_admin", False))
+        res = await request_manager_api(
+            "GET",
+            "/api/reports/batches",
+            ctx.user_id,
+            is_admin=is_admin,
+            params={"period": period},
+        )
+        if res.get("ok"):
+            return res.get("data", {})
+        return {"warning": res.get("error", "DCA 배치 리포트를 불러오지 못했습니다.")}
+    except Exception as e:
+        _log.warning("get_report_dca_batches failed: %s", e)
+        return {"error": str(e)}
+
+
 # ==============================================================================
 # 2. 변경 제안 도구 (Write Proposal Tools) - 실거래 안전장치: 보류 큐에 적재 후 사용자 승인 요청
 # ==============================================================================
@@ -578,7 +813,7 @@ async def propose_watchlist_change(exchange: str, ticker: str, action: str) -> d
 
 
 ALL_NL_TOOLS = [
-    # 읽기 도구 8종
+    # 기본 읽기 도구 8종
     get_ticker_price,
     get_technical_indicators,
     get_account_balances,
@@ -587,6 +822,17 @@ ALL_NL_TOOLS = [
     get_strategy_templates,
     get_budget_health,
     get_user_settings,
+    # 리포트 조회 도구 10종 (Manager REST API)
+    get_report_pnl,
+    get_report_win_stats,
+    get_report_daily_profit,
+    get_report_monthly_profit,
+    get_report_roi_ranking,
+    get_report_strategy_performance,
+    get_report_exchange_performance,
+    get_report_drawdown_risk,
+    get_report_asset_allocation,
+    get_report_dca_batches,
     # 쓰기 제안 도구 7종
     propose_manual_order,
     propose_cancel_orders,
@@ -606,6 +852,17 @@ READ_ONLY_TOOL_NAMES = {
     "get_strategy_templates",
     "get_budget_health",
     "get_user_settings",
+    # 리포트 도구
+    "get_report_pnl",
+    "get_report_win_stats",
+    "get_report_daily_profit",
+    "get_report_monthly_profit",
+    "get_report_roi_ranking",
+    "get_report_strategy_performance",
+    "get_report_exchange_performance",
+    "get_report_drawdown_risk",
+    "get_report_asset_allocation",
+    "get_report_dca_batches",
 }
 
 WRITE_PROPOSAL_TOOL_NAMES = {

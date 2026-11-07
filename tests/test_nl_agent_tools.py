@@ -494,3 +494,78 @@ async def test_api_reports_nl_logs_file_fallback(tmp_path):
     assert data["rows"][0]["tool_chain"] == ["get_open_orders", "propose_cancel_orders"]
     assert data["stats"]["rejected_count"] == 1
 
+
+@pytest.mark.asyncio
+async def test_report_tools_manager_api():
+    """Manager REST API 리포트 도구 10종이 정상적으로 호출되는지 검증."""
+    from core.nl_tools import (
+        get_report_pnl,
+        get_report_win_stats,
+        get_report_daily_profit,
+        get_report_monthly_profit,
+        get_report_roi_ranking,
+        get_report_strategy_performance,
+        get_report_exchange_performance,
+        get_report_drawdown_risk,
+        get_report_asset_allocation,
+        get_report_dca_batches,
+    )
+
+    ctx = NLToolContext(
+        user={"is_admin": False},
+        user_id="123456",
+    )
+    token = current_nl_context.set(ctx)
+
+    try:
+        with patch("core.nl_tools.request_manager_api", new_callable=AsyncMock) as mock_api:
+            mock_api.return_value = {"ok": True, "data": {"status": "success", "metric": 42}}
+
+            # 1. PnL 리포트
+            res = await get_report_pnl(period="7d")
+            assert res.get("status") == "success"
+            mock_api.assert_called_with("GET", "/api/reports/pnl", "123456", is_admin=False, params={"period": "7d"})
+
+            # 2. Win Stats 리포트
+            res = await get_report_win_stats(period="30d")
+            assert res.get("metric") == 42
+            mock_api.assert_called_with("GET", "/api/reports/win-stats", "123456", is_admin=False, params={"period": "30d"})
+
+            # 3. 일별 손익
+            res = await get_report_daily_profit(period="30d")
+            assert res.get("metric") == 42
+
+            # 4. 월별 손익
+            res = await get_report_monthly_profit()
+            assert res.get("metric") == 42
+            mock_api.assert_called_with("GET", "/api/reports/monthly", "123456", is_admin=False)
+
+            # 5. ROI 랭킹
+            res = await get_report_roi_ranking(period="30d")
+            assert res.get("metric") == 42
+
+            # 6. 전략별 성과
+            res = await get_report_strategy_performance(period="30d")
+            assert res.get("metric") == 42
+
+            # 7. 거래소별 성과
+            res = await get_report_exchange_performance(period="30d")
+            assert res.get("metric") == 42
+
+            # 8. MDD 리스크
+            res = await get_report_drawdown_risk(period="30d")
+            assert res.get("metric") == 42
+
+            # 9. 자산 배분 비중
+            res = await get_report_asset_allocation()
+            assert res.get("metric") == 42
+            mock_api.assert_called_with("GET", "/api/reports/allocation", "123456", is_admin=False)
+
+            # 10. DCA 배치 현황
+            res = await get_report_dca_batches(period="30d")
+            assert res.get("metric") == 42
+            mock_api.assert_called_with("GET", "/api/reports/batches", "123456", is_admin=False, params={"period": "30d"})
+
+    finally:
+        current_nl_context.reset(token)
+

@@ -41,6 +41,16 @@ flowchart TD
 6. `get_strategy_templates()`: Manager Backend 등록 전략 템플릿 목록 조회.
 7. `get_budget_health(exchange)`: 필요 예산 대비 실계좌 예수금 건전성 상태 조회.
 8. `get_user_settings()`: 사용자의 현재 봇 환경설정 조회.
+9. `get_report_pnl(period)`: Manager REST API 종합 손익(총 실현/미실현손익, ROI, 거래 수) 리포트 조회.
+10. `get_report_win_stats(period)`: Manager REST API 승률(Win Rate), 손익비(Profit Factor), 승/패 및 연승/연패 통계 조회.
+11. `get_report_daily_profit(period)`: 일별 실현 손익 및 거래 횟수 추이 조회.
+12. `get_report_monthly_profit()`: 월별 누적 실현 손익 및 월간 실적 추이 조회.
+13. `get_report_roi_ranking(period)`: 종목별 실현 손익 및 수익률 성과 랭킹(Top/Bottom) 조회.
+14. `get_report_strategy_performance(period)`: 전략별(RSI, DCA, 그리드 등) 실현 손익 및 승률 비교 조회.
+15. `get_report_exchange_performance(period)`: 거래소별(업비트, 빗썸, KIS, 토스) 거래 비중 및 손익 조회.
+16. `get_report_drawdown_risk(period)`: 포트폴리오 최대 낙폭(MDD) 및 고점 대비 하락 리스크 분석.
+17. `get_report_asset_allocation()`: 포트폴리오 자산 배분 비중(현금 대비 코인/주식) 조회.
+18. `get_report_dca_batches(period)`: DCA(분할 매수) 차수별 배치 실행 현황 및 평균 매수가 조회.
 
 ## 2. 변경 제안 도구 (Write Proposal Tools, 실행 보류 및 승인)
 
