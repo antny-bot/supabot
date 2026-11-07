@@ -219,7 +219,7 @@ async def _create_linked_sell_order(application, ord, exec_vol, state):
     order_manager.add_order(user_id, exchange, ticker, s_res["uuid"], sell_price, sell_volume,
                              side="ask", strategy="rsitrade_sell", target_rsi=target_rsi,
                              stop_price=stop_price, group_no=ord.get("group_no"),
-                             reorder_of=ord["uuid"])
+                             reorder_of=ord["uuid"], template_id=ord.get("template_id"))
     order_manager.update_order_fill(ord["uuid"], exec_vol_float, state)
     await application.bot.send_message(
         chat_id=user_id,
