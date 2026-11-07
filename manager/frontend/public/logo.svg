@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4F46E5" />
+      <stop offset="50%" stop-color="#7C3AED" />
+      <stop offset="100%" stop-color="#9333EA" />
+    </linearGradient>
+    <linearGradient id="boltGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="60%" stop-color="#EDE9FE" />
+      <stop offset="100%" stop-color="#C4B5FD" />
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8" />
+      <stop offset="100%" stop-color="#818CF8" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000000" flood-opacity="0.35" />
+    </filter>
+    <filter id="boltGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#312E81" flood-opacity="0.3" />
+    </filter>
+  </defs>
+
+  <!-- Background Squircle with Shadow -->
+  <rect x="24" y="24" width="464" height="464" rx="108" fill="url(#bgGrad)" filter="url(#glow)" />
+
+  <!-- Subtle Inner Border Highlight -->
+  <rect x="26" y="26" width="460" height="460" rx="106" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="3" />
+
+  <!-- Quant Trend Growth Path in Background -->
+  <path d="M 96 360 L 192 300 L 272 336 L 416 180" fill="none" stroke="url(#accentGrad)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" opacity="0.45" />
+  <circle cx="416" cy="180" r="10" fill="#38BDF8" opacity="0.6" />
+
+  <!-- Lightning Bolt Main Symbol -->
+  <path d="M 288 88 
+           L 164 272 
+           L 248 272 
+           L 224 424 
+           L 348 240 
+           L 264 240 
+           Z" 
+        fill="url(#boltGrad)" 
+        filter="url(#boltGlow)" 
+        stroke="#FFFFFF" 
+        stroke-width="4"
+        stroke-linejoin="round" />
+
+  <!-- Small sparkling accent dot -->
+  <circle cx="370" cy="120" r="8" fill="#FDE047" opacity="0.9" />
+</svg>

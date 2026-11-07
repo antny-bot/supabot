@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { AlertCircle, Monitor, Moon, Sun, Zap } from 'lucide-react'
 import { loginWithMfa, loginWithPassword } from '../api/auth'
 import { ApiError } from '../api/client'
@@ -289,6 +289,21 @@ export default function Login() {
               </button>
             </form>
           )}
+        </div>
+
+        {/* Footer links for GCP OAuth compliance */}
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-4 text-xs text-slate-500 dark:text-slate-400">
+          <Link to="/home" className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+            소개
+          </Link>
+          <span className="text-slate-300 dark:text-slate-700">•</span>
+          <Link to="/terms" className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+            이용약관
+          </Link>
+          <span className="text-slate-300 dark:text-slate-700">•</span>
+          <Link to="/privacy" className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+            개인정보처리방침
+          </Link>
         </div>
       </div>
     </div>
