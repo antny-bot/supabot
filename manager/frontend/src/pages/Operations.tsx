@@ -1097,6 +1097,7 @@ export default function Operations() {
                   <OrderBatchesSection
                     key={selectedTemplateId}
                     templateId={selectedTemplateId}
+                    hideTemplateTabs
                     initialGroupNo={
                       (selectedTemplate?.params as any)?.last_group_no
                         ? Number((selectedTemplate?.params as any)?.last_group_no)

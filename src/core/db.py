@@ -64,6 +64,12 @@ class _FilteredQuery(_Query):
         self._params[column] = f"ilike.{pattern}"
         return self
 
+    def order(self, column: str, desc: bool = False) -> "_FilteredQuery":
+        direction = "desc" if desc else "asc"
+        parts = [f"{c.strip()}.{direction}" for c in column.split(",") if c.strip()]
+        self._params["order"] = ",".join(parts)
+        return self
+
     def limit(self, n: int) -> "_FilteredQuery":
         self._params["limit"] = str(n)
         return self
@@ -134,3 +140,61 @@ def get_db() -> _SupabaseClient:
 
 def is_db_available() -> bool:
     return bool(os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_SERVICE_KEY"))
+
+
+_FALLBACK_DB_PATH = "data/fallback_latest.sqlite3"
+
+
+def is_fallback_available() -> bool:
+    """로컬 SQLite 백업 스냅샷(fallback_latest.sqlite3) 존재 여부를 확인합니다."""
+    return os.path.exists(_FALLBACK_DB_PATH) and os.path.getsize(_FALLBACK_DB_PATH) > 0
+
+
+def query_fallback(table_name: str, columns: str = "*", filters: dict = None) -> list:
+    """Supabase 조회 실패 시 data/fallback_latest.sqlite3 스냅샷에서 읽어옵니다 (읽기 전용)."""
+    import json
+    import sqlite3
+
+    if not is_fallback_available():
+        return []
+
+    try:
+        conn = sqlite3.connect(f"file:{_FALLBACK_DB_PATH}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        try:
+            cursor = conn.cursor()
+            cursor.execute(f'PRAGMA table_info("{table_name}")')
+            bool_cols = {
+                info[1]
+                for info in cursor.fetchall()
+                if str(info[2] or "").upper() == "BOOLEAN"
+            }
+
+            where_clauses = []
+            params = []
+            if filters:
+                for k, v in filters.items():
+                    where_clauses.append(f'"{k}" = ?')
+                    params.append(v)
+
+            where_sql = f" WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+            query_sql = f'SELECT {columns} FROM "{table_name}"{where_sql}'
+            cursor.execute(query_sql, params)
+            rows = cursor.fetchall()
+            result = []
+            for row in rows:
+                d = dict(row)
+                for k, v in d.items():
+                    if k in bool_cols and v in (0, 1):
+                        d[k] = bool(v)
+                    elif isinstance(v, str) and (v.startswith("{") or v.startswith("[")):
+                        try:
+                            d[k] = json.loads(v)
+                        except Exception:
+                            pass
+                result.append(d)
+            return result
+        finally:
+            conn.close()
+    except Exception:
+        return []

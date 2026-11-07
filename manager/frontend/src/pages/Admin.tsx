@@ -1,4 +1,5 @@
 import { FormEvent, Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   AlertTriangle, Check, CheckCircle, ChevronLeft, ChevronRight, Clock, Database,
   Download, RefreshCw, ShoppingCart, Trash2, TrendingUp, Upload, UserCheck, Users,
@@ -37,6 +38,8 @@ import { EventsContent } from './Events'
 import { UsersContent } from './Users'
 import NlLogsSection from './reports/NlLogsSection'
 import AdminFeedbacksTab from './admin/AdminFeedbacksTab'
+import AdminBackupTab from './admin/AdminBackupTab'
+import BackupHealthCard from '../components/backup/BackupHealthCard'
 
 const Analytics = lazy(() => import('./Analytics'))
 
@@ -49,6 +52,7 @@ const ADMIN_TABS = [
   { id: 'monitoring',  label: '주문 및 신호 주기' },
   { id: 'stock-cache', label: '종목 캐시' },
   { id: 'nllogs',      label: 'NL 로그' },
+  { id: 'backup',      label: '데이터 백업' },
 ]
 
 const DASHBOARD_STAT_CONFIG: { key: keyof DashboardStats; label: string; Icon: React.ElementType; bg: string }[] = [
@@ -153,7 +157,7 @@ function SupabaseHealthCard({ health }: { health?: SupabaseHealthStats }) {
   )
 }
 
-function DashboardTab() {
+function DashboardTab({ onSelectTab }: { onSelectTab?: (tab: string) => void } = {}) {
   const [data, setData] = useState<DashboardData | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pendingEventId, setPendingEventId] = useState<number | null>(null)
@@ -238,8 +242,15 @@ function DashboardTab() {
 
           {/* Bento Grid: 인프라 상태(4) + 최근 이벤트(8) */}
           <div className="grid gap-5 lg:grid-cols-12">
-            <div className="lg:col-span-4">
+            <div className="lg:col-span-4 flex flex-col gap-4">
               <SupabaseHealthCard health={data.db_health} />
+              {data.backup_health && (
+                <BackupHealthCard
+                  healthData={data.backup_health}
+                  showDetailLink
+                  onClick={() => onSelectTab?.('backup')}
+                />
+              )}
             </div>
 
             <div className="lg:col-span-8 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
@@ -705,7 +716,25 @@ function StockCacheTab() {
 }
 
 export default function Admin() {
-  const [activeTab, setActiveTab] = useState('dashboard')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tabParam = searchParams.get('tab')
+  const validTab = ADMIN_TABS.some(t => t.id === tabParam) ? tabParam! : 'dashboard'
+  const [activeTab, setActiveTabState] = useState(validTab)
+
+  useEffect(() => {
+    if (tabParam && ADMIN_TABS.some(t => t.id === tabParam) && tabParam !== activeTab) {
+      setActiveTabState(tabParam)
+    }
+  }, [tabParam, activeTab])
+
+  const setActiveTab = (tab: string) => {
+    setActiveTabState(tab)
+    if (tab === 'dashboard') {
+      setSearchParams({}, { replace: true })
+    } else {
+      setSearchParams({ tab }, { replace: true })
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -714,7 +743,7 @@ export default function Admin() {
       <ResponsiveTabs tabs={ADMIN_TABS} activeTab={activeTab} onChange={setActiveTab} />
 
       <div key={activeTab} className="animate-fade-in-up">
-        {activeTab === 'dashboard'   && <DashboardTab />}
+        {activeTab === 'dashboard'   && <DashboardTab onSelectTab={setActiveTab} />}
         {activeTab === 'analytics'   && (
           <Suspense
             fallback={
@@ -737,6 +766,7 @@ export default function Admin() {
         {activeTab === 'monitoring'  && <MonitoringTab />}
         {activeTab === 'stock-cache' && <StockCacheTab />}
         {activeTab === 'nllogs'      && <NlLogsSection />}
+        {activeTab === 'backup'      && <AdminBackupTab />}
       </div>
     </div>
   )

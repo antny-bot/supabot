@@ -18,7 +18,7 @@ def _build_signed_headers(api_key: str, payload_bytes: bytes) -> dict:
         "Content-Type": "application/json"
     }
 
-async def _send_signed_request_async(endpoint: str, payload: dict) -> httpx.Response:
+async def _send_signed_request_async(endpoint: str, payload: dict, timeout: float = 10.0) -> httpx.Response:
     bot_url = os.environ.get("BOT_NOTIFY_URL", "").rstrip("/")
     api_key = os.environ.get("MANAGER_API_KEY", "")
     if not bot_url or not api_key:
@@ -28,7 +28,7 @@ async def _send_signed_request_async(endpoint: str, payload: dict) -> httpx.Resp
     body_bytes = json.dumps(payload).encode("utf-8")
     headers = _build_signed_headers(api_key, body_bytes)
     
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=timeout) as client:
         return await client.post(url, content=body_bytes, headers=headers)
 
 def _send_signed_request(endpoint: str, payload: dict) -> requests.Response:
@@ -252,3 +252,37 @@ async def get_exchange_balances(user_id: str, exchange: str) -> dict | None:
 async def get_bot_status() -> dict | None:
     """호환성 유지를 위한 helper."""
     return None
+
+
+
+async def trigger_bot_backup() -> tuple[bool, dict]:
+    """봇의 /internal/backup/trigger 엔드포인트를 호출하여 즉시 백업을 실행합니다."""
+    try:
+        resp = await _send_signed_request_async("/internal/backup/trigger", {}, timeout=180.0)
+        if resp.is_success:
+            return True, resp.json()
+        return False, {"error": resp.text or f"HTTP 에러 {resp.status_code}"}
+    except Exception as e:
+        return False, {"error": str(e)}
+
+
+async def get_bot_backup_status() -> tuple[bool, dict]:
+    """봇의 /internal/backup/status 엔드포인트를 호출하여 백업 상태/설정/파일 목록을 조회합니다."""
+    try:
+        resp = await _send_signed_request_async("/internal/backup/status", {})
+        if resp.is_success:
+            return True, resp.json()
+        return False, {"error": resp.text or f"HTTP 에러 {resp.status_code}"}
+    except Exception as e:
+        return False, {"error": str(e)}
+
+
+async def download_bot_backup_file(filename: str) -> tuple[bool, bytes | str]:
+    """봇의 /internal/backup/download 엔드포인트를 호출하여 백업 ZIP 파일 바이너리를 가져옵니다."""
+    try:
+        resp = await _send_signed_request_async("/internal/backup/download", {"filename": filename}, timeout=60.0)
+        if resp.is_success:
+            return True, resp.content
+        return False, resp.text or f"HTTP 에러 {resp.status_code}"
+    except Exception as e:
+        return False, str(e)

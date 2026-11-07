@@ -1,9 +1,12 @@
+import json
+import os
 import time
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse, RedirectResponse
 
+from ..bot_client import get_bot_backup_status
 from ..db import get_db, get_supabase_health_stats
 from ._auth import get_current_user
 
@@ -69,6 +72,91 @@ async def _calc_24h_pnl_and_status(db, user_id: str | None = None) -> tuple[int,
         bot_status = "online"
 
     return pnl_24h, bot_status
+
+
+async def _build_backup_health(db) -> dict:
+    """백업 스케줄러 상태 및 Health 지표 계산."""
+    state = {}
+    cfg = {}
+    try:
+        ok, bot_res = await get_bot_backup_status()
+        if ok and isinstance(bot_res, dict):
+            state = bot_res.get("state") or {}
+            cfg = bot_res.get("config") or {}
+    except Exception:
+        pass
+
+    if not state or not cfg:
+        # 로컬 폴백
+        STATE_FILE = "data/backup_state.json"
+        if os.path.exists(STATE_FILE):
+            try:
+                with open(STATE_FILE, "r", encoding="utf-8") as f:
+                    state = json.load(f)
+            except Exception:
+                pass
+        try:
+            rows = (await db.table("system_config").select("key,value").execute()).data or []
+            row_dict = {r["key"]: r["value"] for r in rows}
+            if "backup_enabled" in row_dict:
+                cfg["enabled"] = row_dict["backup_enabled"].lower() in ("true", "1", "yes")
+            if "backup_schedule_type" in row_dict:
+                cfg["schedule_type"] = row_dict["backup_schedule_type"]
+            if "backup_interval_hours" in row_dict:
+                cfg["interval_hours"] = int(row_dict["backup_interval_hours"])
+            if "backup_days_of_week" in row_dict:
+                v = row_dict["backup_days_of_week"]
+                if isinstance(v, str):
+                    try:
+                        v = json.loads(v)
+                    except Exception:
+                        v = [int(x.strip()) for x in v.split(",") if x.strip().isdigit()]
+                cfg["days_of_week"] = v
+            if "backup_time_of_day" in row_dict:
+                cfg["time_of_day"] = row_dict["backup_time_of_day"]
+        except Exception:
+            pass
+
+    enabled = cfg.get("enabled", True)
+    last_status = state.get("last_status", "none")
+    last_success_at = state.get("last_success_at")
+    last_error = state.get("last_error")
+    gdrive_enabled = cfg.get("gdrive_enabled", False)
+    total_rows = state.get("total_rows", 0)
+
+    if not enabled:
+        health_grade = "DISABLED"
+        health_message = "정기 자동 백업 스케줄러가 비활성화되어 있습니다."
+    elif last_status == "error":
+        health_grade = "CRITICAL"
+        health_message = f"최근 백업 실패: {last_error or '원인 불명 오류'}"
+    elif last_status == "partial_error":
+        health_grade = "WARNING"
+        health_message = f"로컬 백업 완료, Google Drive 업로드 실패 ({last_error})"
+    elif last_status == "success":
+        health_grade = "HEALTHY"
+        gdrive_desc = "Google Drive 클라우드 연동" if gdrive_enabled else "로컬 보관"
+        health_message = f"정기 백업 정상 가동 중 ({gdrive_desc}, 14개 테이블 {total_rows:,}행 백업)"
+    else:
+        health_grade = "WARNING"
+        health_message = "아직 실행된 백업 이력이 없습니다. 첫 백업 대기 중입니다."
+
+    return {
+        "enabled": enabled,
+        "health_grade": health_grade,
+        "health_message": health_message,
+        "last_status": last_status,
+        "last_success_at": last_success_at,
+        "last_backup_file": state.get("last_backup_file"),
+        "last_backup_size": state.get("last_backup_size", 0),
+        "last_error": last_error,
+        "schedule_type": cfg.get("schedule_type", "interval"),
+        "interval_hours": cfg.get("interval_hours", 24),
+        "days_of_week": cfg.get("days_of_week", [0, 1, 2, 3, 4, 5, 6]),
+        "time_of_day": cfg.get("time_of_day", "04:00"),
+        "gdrive_enabled": gdrive_enabled,
+        "total_rows": total_rows,
+    }
 
 
 async def _build_stats(db):
@@ -147,8 +235,8 @@ async def api_dashboard(user: dict = Depends(get_current_user)):
             mfa_enabled = bool(rows and rows[0].get("mfa_enabled", False))
 
         if is_admin:
-
             stats = await _build_stats(db)
+            backup_health = await _build_backup_health(db)
 
             events = (
                 await db.table("operational_events")
@@ -168,13 +256,18 @@ async def api_dashboard(user: dict = Depends(get_current_user)):
                 "recent_events": events,
                 "mfa_enabled": mfa_enabled,
                 "db_health": db_health,
+                "backup_health": backup_health,
             })
 
         if not bot_user_id:
             return JSONResponse({"error": "Linked bot account not found."}, status_code=403)
 
         stats = await _build_user_stats(db, bot_user_id)
-        return JSONResponse({"stats": stats, "recent_events": [], "mfa_enabled": mfa_enabled})
+        return JSONResponse({
+            "stats": stats,
+            "recent_events": [],
+            "mfa_enabled": mfa_enabled,
+        })
     except Exception as e:
         return JSONResponse({"error": "Internal error"}, status_code=500)
 

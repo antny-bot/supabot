@@ -642,3 +642,61 @@ async def _internal_get_balances_handler(request: _web.Request) -> _web.Response
     except Exception as e:
         _log.warning("internal get_balances failed", exc_info=e)
         return _web.Response(status=500, text=str(e))
+
+
+
+async def _internal_backup_trigger_handler(request: _web.Request) -> _web.Response:
+    """매니저에서 요청하는 즉시 백업 트리거 webhook."""
+    if not await _verify_webhook_request(request):
+        return _web.Response(status=401)
+    try:
+        from core.backup_manager import trigger_backup
+        res = await trigger_backup()
+        return _web.Response(
+            text=_json.dumps(res, ensure_ascii=False),
+            content_type="application/json",
+            status=200 if res.get("status") in ("success", "partial_error") else 500
+        )
+    except Exception as e:
+        _log.error("Internal backup trigger failed", exc_info=e)
+        return _web.Response(status=500, text=str(e))
+
+
+async def _internal_backup_status_handler(request: _web.Request) -> _web.Response:
+    """백업 상태, 설정 정보, 로컬 백업 파일 목록 조회 webhook."""
+    if not await _verify_webhook_request(request):
+        return _web.Response(status=401)
+    try:
+        from core.backup_manager import load_backup_state, get_backup_config, list_local_backup_files
+        state = load_backup_state()
+        config = get_backup_config()
+        local_files = list_local_backup_files()
+        return _web.Response(
+            text=_json.dumps({"state": state, "config": config, "local_files": local_files}, ensure_ascii=False),
+            content_type="application/json",
+        )
+    except Exception as e:
+        _log.error("Internal backup status failed", exc_info=e)
+        return _web.Response(status=500, text=str(e))
+
+
+async def _internal_backup_download_handler(request: _web.Request) -> _web.Response:
+    """봇 컨테이너에 보관된 로컬 백업 ZIP 파일 바이너리 전송 webhook."""
+    if not await _verify_webhook_request(request):
+        return _web.Response(status=401)
+    try:
+        import re
+        from core.backup_manager import BACKUP_DIR
+        data = await request.json()
+        filename = str(data.get("filename") or "")
+        if not re.match(r"^supabot-backup-[\w\-]+\.zip$", filename):
+            return _web.Response(status=400, text="Invalid filename")
+        fpath = os.path.join(BACKUP_DIR, filename)
+        if not os.path.exists(fpath):
+            return _web.Response(status=404, text="File not found")
+        with open(fpath, "rb") as f:
+            body_bytes = f.read()
+        return _web.Response(body=body_bytes, content_type="application/zip")
+    except Exception as e:
+        _log.error("Internal backup download failed", exc_info=e)
+        return _web.Response(status=500, text=str(e))
