@@ -155,7 +155,7 @@ async def api_create_template(payload: TemplateCreate, user: dict = Depends(get_
         norm_ticker = _normalize_ticker(payload.exchange, payload.ticker)
         params = dict(payload.params)
         
-        # kospi_top_dca 초기 파라미터 세팅
+        # kospi_top_dca 및 예산 관리 대상 전략 초기 파라미터 세팅
         if payload.strategy_type == "kospi_top_dca":
             if "budget_epoch" not in params: params["budget_epoch"] = 1
             if "plan_revision_no" not in params: params["plan_revision_no"] = 1
@@ -167,6 +167,24 @@ async def api_create_template(payload: TemplateCreate, user: dict = Depends(get_
             if "budget_mode" not in params: params["budget_mode"] = "monthly"
             if "carryover_budget" not in params: params["carryover_budget"] = 0.0
             if "monthly_spent" not in params: params["monthly_spent"] = 0.0
+        elif budget_manager.is_budget_managed_strategy({"strategy_type": payload.strategy_type, "params": params}):
+            default_mode = budget_manager.default_budget_mode_for_strategy(payload.strategy_type)
+            default_sell_mode = budget_manager.default_sell_proceeds_mode_for_strategy(payload.strategy_type)
+            budget_mode = str(params.get("budget_mode") or default_mode).lower()
+            base_budget = float(payload.budget or 0.0)
+            if payload.strategy_type == "dca" and float(params.get("monthly_budget", 0) or 0) > 0:
+                base_budget = float(params["monthly_budget"])
+            if "budget_epoch" not in params: params["budget_epoch"] = 1
+            if "plan_revision_no" not in params: params["plan_revision_no"] = 1
+            if "budget_mode" not in params: params["budget_mode"] = budget_mode
+            if "monthly_budget" not in params: params["monthly_budget"] = base_budget
+            if "daily_fixed_budget" not in params: params["daily_fixed_budget"] = float(params.get("per_order_budget") or payload.budget or 0.0) if budget_mode == "daily" else 0.0
+            if "sell_proceeds_mode" not in params: params["sell_proceeds_mode"] = default_sell_mode
+            if "carryover_budget" not in params:
+                params["carryover_budget"] = base_budget if budget_mode == "total" else 0.0
+            if "monthly_spent" not in params: params["monthly_spent"] = 0.0
+            if payload.strategy_type == "dca" and "per_order_budget" not in params:
+                params["per_order_budget"] = float(payload.budget or 0.0)
 
         data = {
             "user_id": target_user_id,
@@ -181,6 +199,19 @@ async def api_create_template(payload: TemplateCreate, user: dict = Depends(get_
             "params": params,
         }
         res = await get_db().table("strategy_templates").insert(data).execute()
+        created_rows = res.data or []
+        if created_rows and isinstance(created_rows, list) and created_rows[0].get("id"):
+            created_tpl = created_rows[0]
+            c_params = created_tpl.get("params") or {}
+            if c_params.get("budget_mode") == "total" and float(c_params.get("carryover_budget", 0.0) or 0.0) > 0:
+                await budget_manager.record_ledger_entry(
+                    template_id=int(created_tpl["id"]),
+                    budget_epoch=int(c_params.get("budget_epoch", 1)),
+                    event_type="INITIAL_CREDIT",
+                    amount_delta_krw=float(c_params["carryover_budget"]),
+                    balance_after_krw=float(c_params["carryover_budget"]),
+                    memo=f"전략 초기 총예산 배정 ({float(c_params['carryover_budget']):,.0f}원)",
+                )
         return JSONResponse({"ok": True, "data": res.data})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -239,17 +270,82 @@ async def api_update_template(template_id: int, payload: TemplateUpdate, user: d
     if payload.budget is not None: update_data["budget"] = payload.budget
     if payload.strategy_type is not None: update_data["strategy_type"] = payload.strategy_type
 
-    if payload.params is not None:
+    if payload.params is not None or payload.budget is not None:
         target_strategy_type = payload.strategy_type or old_tpl.get("strategy_type")
+        incoming_params = dict(payload.params or {})
         if target_strategy_type == "kospi_top_dca":
             # [불변식 5 격리 병합] kospi_top_dca 전략은 오직 CONFIG_KEYS만 업데이트
-            for k, v in payload.params.items():
+            for k, v in incoming_params.items():
                 if k in progression_manager.CONFIG_KEYS:
                     old_params[k] = v
+            update_data["params"] = old_params
         else:
-            # 단일 종목 전략 (rsitrade, grid, dca 등)은 전달된 params를 정상 병합
-            old_params.update(payload.params)
-        update_data["params"] = old_params
+            # 단일 종목 전략 (rsitrade, grid, dca 등): 런타임 예산 원장 상태 키는 보호하고 플랜 변경 시 차액 반영
+            runtime_budget_keys = {
+                "budget_epoch",
+                "plan_revision_no",
+                "budget_plan_revisions",
+                "carryover_budget",
+                "monthly_spent",
+                "last_allowance_credited_date",
+                "last_credited_amount",
+                "last_executed_month",
+                "accounted_buy_order_uuids",
+                "recycled_sell_uuids",
+                "pending_buy_orders",
+                "pending_sell_orders",
+            }
+            # 먼저 초기 예산 플랜이 없는 구버전 템플릿이면 초기화
+            await budget_manager.ensure_budget_plan_initialized(old_tpl, persist=False, record_initial_ledger=True)
+            old_params = dict(old_tpl.get("params") or {})
+
+            is_managed = budget_manager.is_budget_managed_strategy(
+                {"strategy_type": target_strategy_type, "params": {**old_params, **incoming_params}}
+            )
+            if is_managed:
+                # 예산/모드/재투입 설정이 변경되었는지 확인
+                old_mode = str(old_params.get("budget_mode") or budget_manager.default_budget_mode_for_strategy(target_strategy_type)).lower()
+                new_mode = str(incoming_params.get("budget_mode") or old_mode).lower()
+                old_monthly = float(old_params.get("monthly_budget", old_tpl.get("budget", 0.0)) or 0.0)
+                if target_strategy_type == "dca" and "monthly_budget" in incoming_params:
+                    new_monthly = float(incoming_params["monthly_budget"] or 0.0)
+                elif payload.budget is not None and target_strategy_type in ("rsitrade", "rsi", "grid"):
+                    new_monthly = float(payload.budget)
+                else:
+                    new_monthly = float(incoming_params.get("monthly_budget", old_monthly) or 0.0)
+
+                new_daily = float(incoming_params.get("daily_fixed_budget", old_params.get("daily_fixed_budget", 0.0)) or 0.0)
+                new_sell_mode = str(incoming_params.get("sell_proceeds_mode") or old_params.get("sell_proceeds_mode") or budget_manager.default_sell_proceeds_mode_for_strategy(target_strategy_type))
+                new_per_order = incoming_params.get("per_order_budget", payload.budget if target_strategy_type == "dca" and payload.budget is not None else old_params.get("per_order_budget"))
+
+                plan_changed = (
+                    new_mode != old_mode
+                    or abs(new_monthly - old_monthly) > 0.01
+                    or abs(new_daily - float(old_params.get("daily_fixed_budget", 0.0) or 0.0)) > 0.01
+                    or new_sell_mode != old_params.get("sell_proceeds_mode")
+                )
+                if plan_changed:
+                    plan_cfg = {
+                        "budget_mode": new_mode,
+                        "monthly_budget": new_monthly,
+                        "daily_fixed_budget": new_daily,
+                        "sell_proceeds_mode": new_sell_mode,
+                    }
+                    if new_per_order is not None:
+                        plan_cfg["per_order_budget"] = float(new_per_order)
+                    old_params = await budget_manager.apply_plan_change(
+                        template={**old_tpl, "params": old_params},
+                        new_plan_config=plan_cfg,
+                        apply_today_diff=True,
+                        memo="전략 설정 모달에서 예산 플랜 변경",
+                    )
+
+            for k, v in incoming_params.items():
+                if k not in runtime_budget_keys and k not in ("budget_mode", "monthly_budget", "daily_fixed_budget", "sell_proceeds_mode"):
+                    old_params[k] = v
+            if target_strategy_type == "dca" and payload.budget is not None and "per_order_budget" not in incoming_params:
+                old_params["per_order_budget"] = float(payload.budget)
+            update_data["params"] = old_params
 
     if not update_data:
         return JSONResponse({"error": "변경할 내용이 없습니다."}, status_code=400)
@@ -499,6 +595,16 @@ async def api_execute_template(template_id: int, user: dict = Depends(get_curren
             })
         
         elif stype == "grid":
+            await budget_manager.sync_single_strategy_budget_events(tpl, persist=True)
+            params = dict(tpl.get("params") or {})
+            if params.get("budget_mode") in ("monthly", "daily"):
+                params = await budget_manager.credit_daily_allowance(tpl)
+                tpl["params"] = params
+                await get_db().table("strategy_templates").update({"params": params}).eq("id", template_id).execute()
+            avail_budget = float(params.get("carryover_budget", tpl.get("budget", 0.0)) or 0.0)
+            if avail_budget <= 0:
+                return JSONResponse({"error": "현재 가용 예산이 0원입니다. [+충전] 또는 예산 플랜 수정 후 실행해 주세요."}, status_code=400)
+            exec_budget = avail_budget if params.get("budget_mode", "total") == "total" else min(float(tpl["budget"]), avail_budget)
             res = execute_grid(
                 user_id=tpl["user_id"],
                 exchange=tpl["exchange"],
@@ -506,10 +612,12 @@ async def api_execute_template(template_id: int, user: dict = Depends(get_curren
                 start_price=tpl["start_price"],
                 end_price=tpl["end_price"],
                 count=tpl["count"],
-                budget=tpl["budget"],
+                budget=exec_budget,
                 template_id=template_id,
             )
             success, err_msg = (await res) if inspect.isawaitable(res) else res
+            if success:
+                await budget_manager.sync_single_strategy_budget_events(tpl, persist=True)
             msg = "거미줄 분할 매수 전략이 가동되었습니다."
         elif stype == "sgrid":
             res = execute_sgrid(
@@ -525,7 +633,16 @@ async def api_execute_template(template_id: int, user: dict = Depends(get_curren
             success, err_msg = (await res) if inspect.isawaitable(res) else res
             msg = "거미줄 분할 매도 전략이 가동되었습니다."
         elif stype in ("rsitrade", "rsi"):
-            params = tpl.get("params") or {}
+            await budget_manager.sync_single_strategy_budget_events(tpl, persist=True)
+            params = dict(tpl.get("params") or {})
+            if params.get("budget_mode") in ("monthly", "daily"):
+                params = await budget_manager.credit_daily_allowance(tpl)
+                tpl["params"] = params
+                await get_db().table("strategy_templates").update({"params": params}).eq("id", template_id).execute()
+            avail_budget = float(params.get("carryover_budget", tpl.get("budget", 0.0)) or 0.0)
+            if avail_budget <= 0:
+                return JSONResponse({"error": "현재 가용 예산이 0원입니다. [+충전] 또는 예산 플랜 수정 후 실행해 주세요."}, status_code=400)
+            exec_budget = avail_budget if params.get("budget_mode", "total") == "total" else min(float(tpl["budget"]), avail_budget)
             res = execute_rsitrade(
                 user_id=tpl["user_id"],
                 exchange=tpl["exchange"],
@@ -533,18 +650,28 @@ async def api_execute_template(template_id: int, user: dict = Depends(get_curren
                 buy_rsi_range=params.get("buy_rsi_range", "25-30"),
                 sell_rsi_range=params.get("sell_rsi_range", "65-75"),
                 count=tpl["count"],
-                budget=tpl["budget"],
+                budget=exec_budget,
                 weighted=params.get("weighted", False),
                 template_id=template_id,
             )
             success, err_msg = (await res) if inspect.isawaitable(res) else res
+            if success:
+                await budget_manager.sync_single_strategy_budget_events(tpl, persist=True)
             msg = "RSI 순환 매매 전략이 가동되었습니다."
         elif stype in ("dca", "sdca"):
-            params = tpl.get("params") or {}
+            params = dict(tpl.get("params") or {})
             side = "ask" if stype == "sdca" or params.get("side") == "ask" else "bid"
+            if side == "bid" and params.get("amount_type", "budget") == "budget":
+                await budget_manager.sync_single_strategy_budget_events(tpl, persist=True)
+                params = dict(tpl.get("params") or {})
             max_runs = params.get("max_runs")
             if max_runs is None and int(tpl.get("count") or 0) > 0:
                 max_runs = int(tpl["count"])
+            per_order_amount = float(params.get("per_order_budget") or tpl["budget"])
+            order_type = str(params.get("order_type") or params.get("order_price_mode") or "limit").lower()
+            if order_type not in ("market", "limit"):
+                order_type = "market" if "market" in order_type else "limit"
+            carryover_mode = str(params.get("carryover_mode") or "next_day").lower()
             res = execute_dca(
                 user_id=tpl["user_id"],
                 exchange=tpl["exchange"],
@@ -552,10 +679,12 @@ async def api_execute_template(template_id: int, user: dict = Depends(get_curren
                 side=side,
                 schedule=params.get("schedule", "매일"),
                 amount_type=params.get("amount_type", "budget"),
-                amount=float(tpl["budget"]),
+                amount=per_order_amount,
                 exec_time=params.get("exec_time", "09:05"),
                 max_runs=max_runs,
                 template_id=template_id,
+                order_type=order_type,
+                carryover_mode=carryover_mode,
             )
             success, err_msg = (await res) if inspect.isawaitable(res) else res
             msg = "정기 적립식 매수 전략이 등록되었습니다." if side == "bid" else "정기 분할 매도 전략이 등록되었습니다."
@@ -585,6 +714,11 @@ async def api_stop_strategy(template_id: int, payload: StopRequest, user: dict =
     """전략 중지 3단계 제어 (pause | stop_and_cancel | terminate_and_liquidate)."""
     try:
         res = await progression_manager.stop_strategy(template_id, payload.mode)
+        if payload.mode in ("stop_and_cancel", "terminate_and_liquidate"):
+            db = get_db()
+            t_res = await db.table("strategy_templates").select("*").eq("id", template_id).execute()
+            if t_res.data:
+                await budget_manager.sync_single_strategy_budget_events(t_res.data[0], persist=True)
         return JSONResponse({"ok": True, "data": res})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -603,6 +737,7 @@ async def api_topup_budget(template_id: int, payload: TopupRequest, user: dict =
 
     template = t_res.data[0]
     try:
+        await budget_manager.sync_single_strategy_budget_events(template, persist=False)
         new_params = await budget_manager.manual_topup(
             template=template,
             amount_krw=payload.amount_krw,
@@ -624,13 +759,17 @@ async def api_update_budget_plan(template_id: int, payload: BudgetPlanRequest, u
 
     template = t_res.data[0]
     try:
+        await budget_manager.sync_single_strategy_budget_events(template, persist=False)
         new_params = await budget_manager.apply_plan_change(
             template=template,
             new_plan_config=payload.new_plan_config,
             apply_today_diff=payload.apply_today_diff,
             memo=payload.memo,
         )
-        await db.table("strategy_templates").update({"params": new_params}).eq("id", template_id).execute()
+        update_fields: dict = {"params": new_params}
+        if template.get("strategy_type") in ("rsitrade", "rsi", "grid", "kospi_top_dca") and "monthly_budget" in payload.new_plan_config:
+            update_fields["budget"] = float(payload.new_plan_config["monthly_budget"])
+        await db.table("strategy_templates").update(update_fields).eq("id", template_id).execute()
         return JSONResponse({"ok": True, "data": new_params})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -669,11 +808,13 @@ async def api_get_budget_ledger(
     """Budget Plan 변경 이력 및 통장 거래내역 방식의 +/- 감사 원장 조회."""
     db = get_db()
     try:
-        t_res = await db.table("strategy_templates").select("params").eq("id", template_id).execute()
+        t_res = await db.table("strategy_templates").select("*").eq("id", template_id).execute()
         if not t_res.data:
             return JSONResponse({"error": "Template not found"}, status_code=404)
 
-        params = t_res.data[0].get("params") or {}
+        tpl = t_res.data[0]
+        await budget_manager.sync_single_strategy_budget_events(tpl, persist=True)
+        params = tpl.get("params") or {}
         revisions = params.get("budget_plan_revisions", [])
 
         q = db.table("budget_ledger").select("*").eq("template_id", template_id).order("id", desc=True)
@@ -685,6 +826,10 @@ async def api_get_budget_ledger(
             "ok": True,
             "template_id": template_id,
             "current_epoch": params.get("budget_epoch", 1),
+            "budget_mode": params.get("budget_mode", budget_manager.default_budget_mode_for_strategy(tpl.get("strategy_type", "grid"))),
+            "monthly_budget": params.get("monthly_budget", tpl.get("budget", 0.0)),
+            "daily_fixed_budget": params.get("daily_fixed_budget", 0.0),
+            "sell_proceeds_mode": params.get("sell_proceeds_mode", budget_manager.default_sell_proceeds_mode_for_strategy(tpl.get("strategy_type", "grid"))),
             "carryover_budget": params.get("carryover_budget", 0.0),
             "monthly_spent": params.get("monthly_spent", 0.0),
             "revisions": revisions,

@@ -415,16 +415,24 @@ export default function Templates() {
                     </div>
                     <div>
                       <span className="text-[11px] text-slate-400">
-                        {isDca ? '반복 횟수' : isTopDca ? '타겟 순위 구간' : '분할 주문 수'}
+                        {isVolumeBased
+                          ? isDca
+                            ? '반복 횟수'
+                            : '분할 주문 수'
+                          : isTopDca
+                          ? '타겟 순위 구간'
+                          : '가용 예산 (잔액)'}
                       </span>
                       <p className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                        {isDca
-                          ? tpl.count > 0
-                            ? `총 ${tpl.count}회`
-                            : '무기한 반복'
+                        {isVolumeBased
+                          ? isDca
+                            ? tpl.count > 0
+                              ? `총 ${tpl.count}회`
+                              : '무기한 반복'
+                            : `${tpl.count}분할`
                           : isTopDca
                           ? `${p.rank_start ?? 1}위 ~ ${p.rank_end ?? p.top_n ?? 10}위`
-                          : `${tpl.count}분할`}
+                          : `${krwFmt(p.carryover_budget ?? tpl.budget)}`}
                       </p>
                     </div>
                   </div>

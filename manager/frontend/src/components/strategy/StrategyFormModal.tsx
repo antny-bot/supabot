@@ -61,6 +61,7 @@ export default function StrategyFormModal({
 
   const isTopDcaForm = form.strategyType === 'kospi_top_dca'
   const isStockExchange = form.exchange === 'kis' || form.exchange === 'toss'
+  const isCrypto = form.exchange === 'upbit' || form.exchange === 'bithumb'
   const isDcaForm = form.strategyType === 'dca' || form.strategyType === 'sdca'
   const isSellGridForm = form.strategyType === 'sgrid'
 
@@ -1286,6 +1287,8 @@ export default function StrategyFormModal({
                         strategyType: nextType,
                         count: nextType === 'dca' || nextType === 'sdca' ? '0' : form.count === '0' ? '10' : form.count,
                         dcaAmountType: nextType === 'sdca' ? 'volume' : form.dcaAmountType,
+                        budgetMode: 'total',
+                        sellProceedsMode: nextType === 'rsitrade' ? 'recycle_to_budget' : 'keep_cash',
                       })
                     }}
                     className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
@@ -1300,28 +1303,191 @@ export default function StrategyFormModal({
 
                 {isDcaForm ? (
                   <>
+                    {/* 실행 요일 & 시각 설정 */}
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 space-y-3 dark:border-slate-700 dark:bg-slate-800/40">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          실행 요일 지정 ({isCrypto ? '월~일 매일 거래 가능' : '주식 월~금 평일 운영'})
+                        </label>
+                        <span className="text-[11px] font-mono text-indigo-600 dark:text-indigo-400 font-semibold">
+                          설정값: {form.dcaSchedule || '매일'}
+                        </span>
+                      </div>
+
+                      {/* 빠른 요일 프리셋 */}
+                      <div className="flex flex-wrap gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setForm({ ...form, dcaSchedule: '매일' })}
+                          className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                            form.dcaSchedule === '매일' || form.dcaSchedule === '월~일'
+                              ? 'bg-indigo-600 text-white font-semibold'
+                              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                          }`}
+                        >
+                          {isCrypto ? '매일 (월~일)' : '매일 (월~금)'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setForm({ ...form, dcaSchedule: '월~금' })}
+                          className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                            form.dcaSchedule === '월~금' || form.dcaSchedule === '평일'
+                              ? 'bg-indigo-600 text-white font-semibold'
+                              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                          }`}
+                        >
+                          평일 (월~금)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setForm({ ...form, dcaSchedule: '월,수,금' })}
+                          className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                            form.dcaSchedule === '월,수,금' || form.dcaSchedule === '월/수/금'
+                              ? 'bg-indigo-600 text-white font-semibold'
+                              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                          }`}
+                        >
+                          월 / 수 / 금
+                        </button>
+                        {isCrypto && (
+                          <button
+                            type="button"
+                            onClick={() => setForm({ ...form, dcaSchedule: '토,일' })}
+                            className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                              form.dcaSchedule === '토,일' || form.dcaSchedule === '주말'
+                                ? 'bg-indigo-600 text-white font-semibold'
+                                : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                            }`}
+                          >
+                            주말 (토·일)
+                          </button>
+                        )}
+                      </div>
+
+                      {/* 개별 요일 토글 버튼 그룹 */}
+                      <div className="flex items-center gap-1.5 pt-1">
+                        {(isCrypto
+                          ? ['월', '화', '수', '목', '금', '토', '일']
+                          : ['월', '화', '수', '목', '금']
+                        ).map((day) => {
+                          const sched = form.dcaSchedule.trim()
+                          const isAll = sched === '매일' || sched === '월~일'
+                          const isWeekdays = sched === '평일' || sched === '월~금'
+                          const isWeekend = sched === '주말' || sched === '토,일' || sched === '토~일'
+                          const isSelected =
+                            isAll ||
+                            (isWeekdays && ['월', '화', '수', '목', '금'].includes(day)) ||
+                            (isWeekend && ['토', '일'].includes(day)) ||
+                            sched.includes(day)
+
+                          return (
+                            <button
+                              key={day}
+                              type="button"
+                              onClick={() => {
+                                const allDays = isCrypto
+                                  ? ['월', '화', '수', '목', '금', '토', '일']
+                                  : ['월', '화', '수', '목', '금']
+                                let curSet = new Set<string>()
+                                if (isAll) {
+                                  curSet = new Set(allDays)
+                                } else if (isWeekdays) {
+                                  curSet = new Set(['월', '화', '수', '목', '금'])
+                                } else if (isWeekend) {
+                                  curSet = new Set(['토', '일'])
+                                } else {
+                                  for (const d of allDays) {
+                                    if (sched.includes(d)) curSet.add(d)
+                                  }
+                                }
+                                if (curSet.has(day)) {
+                                  if (curSet.size > 1) curSet.delete(day)
+                                } else {
+                                  curSet.add(day)
+                                }
+                                if (curSet.size === allDays.length) {
+                                  setForm({ ...form, dcaSchedule: '매일' })
+                                } else if (!isCrypto && curSet.size === 5) {
+                                  setForm({ ...form, dcaSchedule: '평일' })
+                                } else {
+                                  const sorted = allDays.filter((d) => curSet.has(d))
+                                  setForm({ ...form, dcaSchedule: sorted.join(',') })
+                                }
+                              }}
+                              className={`flex-1 rounded-lg py-1.5 text-center text-xs font-semibold transition-all ${
+                                isSelected
+                                  ? 'bg-indigo-600 text-white shadow-xs'
+                                  : 'border border-slate-200 bg-white text-slate-500 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400'
+                              }`}
+                            >
+                              {day}
+                            </button>
+                          )
+                        })}
+                      </div>
+
+                      {/* 실행 시각 */}
+                      <div className="grid grid-cols-2 gap-3 pt-1">
+                        <div>
+                          <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">실행 시각 (KST)</label>
+                          <input
+                            type="text"
+                            placeholder="09:05"
+                            value={form.dcaExecTime}
+                            onChange={(e) => setForm({ ...form, dcaExecTime: e.target.value })}
+                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">주기 직접 입력 (선택)</label>
+                          <input
+                            type="text"
+                            placeholder="예: 매일, 월수금, 금, 매월15일"
+                            value={form.dcaSchedule}
+                            onChange={(e) => setForm({ ...form, dcaSchedule: e.target.value })}
+                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 주문 유형 (시장가 vs 지정가) 및 이월(Carryover) 옵션 */}
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">실행 주기</label>
-                        <input
-                          type="text"
-                          placeholder="예: 매일, 매주월, 월수금, 평일, 매월15일"
-                          value={form.dcaSchedule}
-                          onChange={(e) => setForm({ ...form, dcaSchedule: e.target.value })}
-                          className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                          required
-                        />
+                        <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          주문 가격 방식
+                        </label>
+                        <select
+                          value={form.dcaOrderType}
+                          onChange={(e) => setForm({ ...form, dcaOrderType: e.target.value as 'limit' | 'market' })}
+                          className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-medium dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                        >
+                          <option value="market">⚡ 시장가 (즉시 체결 / 미체결 방지)</option>
+                          <option value="limit">🎯 지정가 (현재가 호가 버퍼)</option>
+                        </select>
+                        <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                          {form.dcaOrderType === 'market'
+                            ? '호가 밀림 없이 즉시 전량 체결되어 실패하지 않습니다.'
+                            : '현재가 기준으로 지정가 주문을 발행합니다.'}
+                        </p>
                       </div>
                       <div>
-                        <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">실행 시각 (KST)</label>
-                        <input
-                          type="text"
-                          placeholder="09:05"
-                          value={form.dcaExecTime}
-                          onChange={(e) => setForm({ ...form, dcaExecTime: e.target.value })}
-                          className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                          required
-                        />
+                        <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          휴장 / 사이드카 발생 시 이월 처리
+                        </label>
+                        <select
+                          value={form.dcaCarryoverMode}
+                          onChange={(e) => setForm({ ...form, dcaCarryoverMode: e.target.value as 'next_day' | 'delay_20m' | 'skip' })}
+                          className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-medium dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                        >
+                          <option value="next_day">📅 다음 거래일 이월 (공휴일/휴장일 권장)</option>
+                          <option value="delay_20m">⏱️ +20분 뒤 재시도 (사이드카/서킷 대기)</option>
+                          <option value="skip">⏭️ 이번 회차 건너뛰기 (다음 요일로)</option>
+                        </select>
+                        <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                          임시공휴일·휴장 또는 사이드카 발동 시 주문을 이월 발동합니다.
+                        </p>
                       </div>
                     </div>
                     <div className="grid grid-cols-3 gap-3">
@@ -1370,6 +1536,48 @@ export default function StrategyFormModal({
                         />
                       </div>
                     </div>
+                    {form.strategyType === 'dca' && form.dcaAmountType === 'budget' && (
+                      <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-3.5 space-y-2.5 dark:border-indigo-900/40 dark:bg-indigo-950/20">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                            통합 예산 플랜 설정 (가용 예산 차감/충전 추적)
+                          </span>
+                          <span className="rounded-sm bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300">
+                            예산 원장 연동
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">예산 운용 방식</label>
+                            <select
+                              aria-label="DCA 예산 운용 방식"
+                              value={form.budgetMode}
+                              onChange={(e) => setForm({ ...form, budgetMode: e.target.value as 'total' | 'monthly' | 'daily' })}
+                              className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                            >
+                              <option value="total">총예산 풀 차감 모드 (일시 배정)</option>
+                              <option value="monthly">월 예산 분할 충전 모드</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                              {form.budgetMode === 'monthly' ? '월 배정 총예산 (KRW)' : '전략 배정 총예산 (KRW)'}
+                            </label>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              aria-label="DCA 배정 총예산"
+                              value={formatWithCommas(form.dcaPlanBudget)}
+                              onChange={(e) => setForm({ ...form, dcaPlanBudget: stripCommas(e.target.value) })}
+                              className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                            />
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          매 회차 매수 시 가용 예산에서 차감되며, 소진 현황 확인 및 [+충전]이 가능합니다.
+                        </p>
+                      </div>
+                    )}
                   </>
                 ) : (
                   <div className="grid grid-cols-2 gap-3">
@@ -1488,6 +1696,33 @@ export default function StrategyFormModal({
                       />
                       <span>DCA 가중 매수 적용 (낮은 RSI 구간에 더 많은 예산 배정)</span>
                     </label>
+                    <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-3 space-y-2 dark:border-indigo-900/40 dark:bg-indigo-950/20">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          익절 매도 대금 처리 방식 (예산 플랜 연동)
+                        </label>
+                        <span className="rounded-sm bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300">
+                          총예산 풀 차감·환급
+                        </span>
+                      </div>
+                      <select
+                        aria-label="익절 매도 대금 처리 방식"
+                        value={form.sellProceedsMode}
+                        onChange={(e) =>
+                          setForm({
+                            ...form,
+                            sellProceedsMode: e.target.value as 'keep_cash' | 'recycle_to_budget',
+                          })
+                        }
+                        className="w-full rounded-xl border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                      >
+                        <option value="recycle_to_budget">전략 가용 예산 풀에 자동 재투입 (순환매매 추천)</option>
+                        <option value="keep_cash">예수금 보관 (가용 예산에 합산하지 않음)</option>
+                      </select>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        매수 주문 시 가용 예산에서 차감되고, 미체결 취소 시 환급되며, 익절 매도 체결 시 선택에 따라 가용 예산으로 자동 복원됩니다.
+                      </p>
+                    </div>
                   </div>
                 )}
               </>

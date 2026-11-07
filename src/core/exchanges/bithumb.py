@@ -93,6 +93,8 @@ class BithumbExchange(BaseExchange):
         return None
 
     async def create_order(self, user_id, client, ticker, side, price, volume, ord_type="limit"):
+        if ord_type == "market" and side in ("bid", "buy", "매수"):
+            ord_type = "price"
         body = {
             "market": ticker,
             "side": side,

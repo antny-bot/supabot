@@ -7,6 +7,7 @@ import { fetchReportBatches, type BatchesReport } from '../../api/reports'
 import type { DateRangeValue } from '../../components/ui/DateRangePicker'
 import { ChartSkeleton, CardSkeleton } from '../../components/ui/Skeleton'
 import ErrorBanner from '../../components/ui/ErrorBanner'
+import Pagination from '../../components/ui/Pagination'
 import { staggerDelay } from '../../utils/animation'
 import { krwFmt, pctColor, PNL_UP_HEX, PNL_DOWN_HEX, CARD, TH, TD } from './ReportsShared'
 
@@ -22,6 +23,10 @@ export default function BatchTimelineSection({
   const [error, setError] = useState<string | null>(null)
   const [selectedBatch, setSelectedBatch] = useState<number | null>(null)
   const [selectedTicker, setSelectedTicker] = useState<string>('')
+  const [batchPage, setBatchPage] = useState(1)
+  const [batchPageSize, setBatchPageSize] = useState(10)
+  const [timelinePage, setTimelinePage] = useState(1)
+  const [timelinePageSize, setTimelinePageSize] = useState(10)
 
   useEffect(() => {
     setSelectedBatch(null)
@@ -31,6 +36,8 @@ export default function BatchTimelineSection({
   useEffect(() => {
     setLoading(true)
     setError(null)
+    setBatchPage(1)
+    setTimelinePage(1)
     fetchReportBatches(dateRange, selectedBatch, selectedTicker, templateId)
       .then(setData)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류 발생'))
@@ -226,14 +233,18 @@ export default function BatchTimelineSection({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {data.batches.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-slate-400 text-xs">
-                    배치 번호(#N)가 기록된 거래 내역이 없습니다.
-                  </td>
-                </tr>
-              ) : (
-                data.batches.map((b) => {
+              {(() => {
+                const pagedBatches = data.batches.slice((batchPage - 1) * batchPageSize, batchPage * batchPageSize)
+                if (data.batches.length === 0) {
+                  return (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-8 text-center text-slate-400 text-xs">
+                        배치 번호(#N)가 기록된 거래 내역이 없습니다.
+                      </td>
+                    </tr>
+                  )
+                }
+                return pagedBatches.map((b) => {
                   const active = selectedBatch === b.group_no
                   return (
                     <tr
@@ -270,10 +281,26 @@ export default function BatchTimelineSection({
                     </tr>
                   )
                 })
-              )}
+              })()}
             </tbody>
           </table>
         </div>
+
+        {/* 배치 요약 페이징 (기본 10건) */}
+        {data.batches.length > 0 && (
+          <Pagination
+            currentPage={batchPage}
+            totalPages={Math.max(1, Math.ceil(data.batches.length / batchPageSize))}
+            pageSize={batchPageSize}
+            totalCount={data.batches.length}
+            onPageChange={setBatchPage}
+            onPageSizeChange={(sz) => {
+              setBatchPageSize(sz)
+              setBatchPage(1)
+            }}
+            pageSizeOptions={[10, 20, 50, 100]}
+          />
+        )}
       </div>
 
       {/* 6. 시간순 체결 타임라인 테이블 */}
@@ -298,14 +325,18 @@ export default function BatchTimelineSection({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {data.timeline.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-slate-400 text-xs">
-                    조건에 해당하는 체결 내역이 없습니다.
-                  </td>
-                </tr>
-              ) : (
-                data.timeline.map((ev) => (
+              {(() => {
+                const pagedTimeline = data.timeline.slice((timelinePage - 1) * timelinePageSize, timelinePage * timelinePageSize)
+                if (data.timeline.length === 0) {
+                  return (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-10 text-center text-slate-400 text-xs">
+                        조건에 해당하는 체결 내역이 없습니다.
+                      </td>
+                    </tr>
+                  )
+                }
+                return pagedTimeline.map((ev) => (
                   <tr key={ev.seq} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
                     <td className={`${TD} font-mono text-xs text-slate-500`}>
                       #{ev.seq} · {ev.date_fmt}
@@ -342,10 +373,26 @@ export default function BatchTimelineSection({
                     </td>
                   </tr>
                 ))
-              )}
+              })()}
             </tbody>
           </table>
         </div>
+
+        {/* 타임라인 페이징 (기본 10건) */}
+        {data.timeline.length > 0 && (
+          <Pagination
+            currentPage={timelinePage}
+            totalPages={Math.max(1, Math.ceil(data.timeline.length / timelinePageSize))}
+            pageSize={timelinePageSize}
+            totalCount={data.timeline.length}
+            onPageChange={setTimelinePage}
+            onPageSizeChange={(sz) => {
+              setTimelinePageSize(sz)
+              setTimelinePage(1)
+            }}
+            pageSizeOptions={[10, 20, 50, 100]}
+          />
+        )}
       </div>
     </div>
   )

@@ -85,7 +85,7 @@ export default function Orders() {
     exchange?: string
   } | null>(null)
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = usePersistedState('filter:orders:pageSize', 50)
+  const [pageSize, setPageSize] = usePersistedState('filter:orders:pageSize', 10)
 
   // 모바일 통합 필터 바텀시트
   const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false)

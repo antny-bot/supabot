@@ -9,6 +9,7 @@ import {
 } from '../../api/templates'
 import { StatCardSkeleton, TableRowSkeleton } from '../../components/ui/Skeleton'
 import ErrorBanner from '../../components/ui/ErrorBanner'
+import Pagination from '../../components/ui/Pagination'
 import BudgetHealthCard from '../../components/budget/BudgetHealthCard'
 import { krwFmt, CARD, TH, TD } from './ReportsShared'
 
@@ -27,6 +28,8 @@ export default function BudgetPlanSection({ templateId }: BudgetPlanSectionProps
     }
   }, [templateId])
   const [ledgerData, setLedgerData] = useState<any>(null)
+  const [ledgerPage, setLedgerPage] = useState(1)
+  const [ledgerPageSize, setLedgerPageSize] = useState(10)
   const [healthData, setHealthData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -36,9 +39,10 @@ export default function BudgetPlanSection({ templateId }: BudgetPlanSectionProps
   const [showResetModal, setShowResetModal] = useState(false)
 
   // 플랜 수정 폼
-  const [editMode, setEditMode] = useState<'monthly' | 'daily'>('monthly')
+  const [editMode, setEditMode] = useState<'total' | 'monthly' | 'daily'>('monthly')
   const [editMonthlyBudget, setEditMonthlyBudget] = useState(3000000)
   const [editDailyFixed, setEditDailyFixed] = useState(150000)
+  const [editSellProceedsMode, setEditSellProceedsMode] = useState<'keep_cash' | 'recycle_to_budget'>('keep_cash')
   const [editApplyTodayDiff, setEditApplyTodayDiff] = useState(true)
   const [editMemo, setEditMemo] = useState('')
 
@@ -51,6 +55,7 @@ export default function BudgetPlanSection({ templateId }: BudgetPlanSectionProps
   const loadData = async (tplId: number) => {
     setLoading(true)
     setError(null)
+    setLedgerPage(1)
     try {
       const [ld, hd] = await Promise.all([
         fetchBudgetLedger(tplId),
@@ -68,11 +73,21 @@ export default function BudgetPlanSection({ templateId }: BudgetPlanSectionProps
   useEffect(() => {
     fetchTemplates()
       .then((tpls) => {
-        const topTpls = tpls.filter((t) => t.strategy_type === 'kospi_top_dca' || t.name.includes('TOP'))
-        setTemplates(topTpls)
-        const targetId = (templateId && tpls.some((t) => t.id === templateId))
-          ? templateId
-          : (topTpls.length > 0 ? topTpls[0].id : (tpls.length > 0 ? tpls[0].id : null))
+        const managedTpls = tpls.filter(
+          (t) =>
+            t.strategy_type !== 'sgrid' &&
+            t.strategy_type !== 'sdca' &&
+            !(t.strategy_type === 'dca' && (t.params as any)?.amount_type === 'volume') &&
+            !(t.params as any)?.is_archived,
+        )
+        const listToUse = managedTpls.length > 0 ? managedTpls : tpls
+        setTemplates(listToUse)
+        const targetId =
+          templateId && listToUse.some((t) => t.id === templateId)
+            ? templateId
+            : listToUse.length > 0
+            ? listToUse[0].id
+            : null
         setSelectedTemplateId(targetId)
         if (targetId) loadData(targetId)
       })
@@ -102,6 +117,7 @@ export default function BudgetPlanSection({ templateId }: BudgetPlanSectionProps
           budget_mode: editMode,
           monthly_budget: editMonthlyBudget,
           daily_fixed_budget: editDailyFixed,
+          sell_proceeds_mode: editSellProceedsMode,
         },
         apply_today_diff: editApplyTodayDiff,
         memo: editMemo,
@@ -212,9 +228,12 @@ export default function BudgetPlanSection({ templateId }: BudgetPlanSectionProps
 
           <button
             onClick={() => {
-              setEditMode(currentParams.budget_mode || 'monthly')
-              setEditMonthlyBudget(currentParams.monthly_budget || 3000000)
-              setEditDailyFixed(currentParams.daily_fixed_budget || 150000)
+              const defaultMode = selectedTemplate?.strategy_type === 'kospi_top_dca' ? 'monthly' : 'total'
+              const defaultSell = selectedTemplate?.strategy_type === 'rsitrade' || selectedTemplate?.strategy_type === 'rsi' ? 'recycle_to_budget' : 'keep_cash'
+              setEditMode(ledgerData?.budget_mode || currentParams.budget_mode || defaultMode)
+              setEditMonthlyBudget(ledgerData?.monthly_budget || currentParams.monthly_budget || selectedTemplate?.budget || 3000000)
+              setEditDailyFixed(ledgerData?.daily_fixed_budget || currentParams.daily_fixed_budget || 150000)
+              setEditSellProceedsMode(ledgerData?.sell_proceeds_mode || currentParams.sell_proceeds_mode || defaultSell)
               setShowEditModal(true)
             }}
             className="flex items-center gap-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 text-xs font-semibold shadow-sm"
@@ -249,12 +268,12 @@ export default function BudgetPlanSection({ templateId }: BudgetPlanSectionProps
         </div>
 
         <div className={`${CARD} p-4`}>
-          <span className="text-xs text-slate-500">당월 누적 소진액 (Monthly Spent)</span>
+          <span className="text-xs text-slate-500">누적/당월 소진액 (Spent)</span>
           <div className="mt-1 text-2xl font-bold text-slate-800 dark:text-slate-100 font-mono">
             {krwFmt(ledgerData?.monthly_spent || 0)}
           </div>
           <span className="text-[11px] text-slate-400 mt-1 block">
-            목표 월 예산: {krwFmt(currentParams.monthly_budget || 3000000)}
+            배정 총예산: {krwFmt(ledgerData?.monthly_budget || currentParams.monthly_budget || selectedTemplate?.budget || 3000000)}
           </span>
         </div>
 
@@ -264,7 +283,12 @@ export default function BudgetPlanSection({ templateId }: BudgetPlanSectionProps
             v{currentParams.plan_revision_no || 1} <span className="text-sm font-normal text-slate-400">/ Epoch #{ledgerData?.current_epoch || 1}</span>
           </div>
           <span className="text-[11px] text-slate-400 mt-1 block">
-            모드: {currentParams.budget_mode === 'daily' ? '일일 고정 충전' : '월간 동적 분할'}
+            모드:{' '}
+            {(ledgerData?.budget_mode || currentParams.budget_mode) === 'daily'
+              ? '일일 고정 충전'
+              : (ledgerData?.budget_mode || currentParams.budget_mode) === 'total'
+              ? '총예산 풀 (일시 배정)'
+              : '월간 동적 분할'}
           </span>
         </div>
 
@@ -306,14 +330,19 @@ export default function BudgetPlanSection({ templateId }: BudgetPlanSectionProps
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {(ledgerData?.ledger || []).length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="py-6 text-center text-slate-400">
-                    원장 기록이 없습니다.
-                  </td>
-                </tr>
-              ) : (
-                ledgerData?.ledger.map((item: any, idx: number) => {
+              {(() => {
+                const ledgerRows = ledgerData?.ledger || []
+                const pagedLedgerRows = ledgerRows.slice((ledgerPage - 1) * ledgerPageSize, ledgerPage * ledgerPageSize)
+                if (ledgerRows.length === 0) {
+                  return (
+                    <tr>
+                      <td colSpan={6} className="py-6 text-center text-slate-400">
+                        원장 기록이 없습니다.
+                      </td>
+                    </tr>
+                  )
+                }
+                return pagedLedgerRows.map((item: any, idx: number) => {
                   const isPlus = item.delta_krw > 0
                   const isMinus = item.delta_krw < 0
                   return (
@@ -323,7 +352,7 @@ export default function BudgetPlanSection({ templateId }: BudgetPlanSectionProps
                       </td>
                       <td className={TD}>
                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold ${
-                          item.entry_type === 'DAILY_CREDIT'
+                          item.entry_type === 'DAILY_CREDIT' || item.entry_type === 'INITIAL_CREDIT' || item.entry_type === 'MANUAL_TOPUP'
                             ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
                             : item.entry_type === 'BUY_ORDER_SPEND'
                             ? 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300'
@@ -353,10 +382,26 @@ export default function BudgetPlanSection({ templateId }: BudgetPlanSectionProps
                     </tr>
                   )
                 })
-              )}
+              })()}
             </tbody>
           </table>
         </div>
+
+        {/* 감사 원장 페이징 (기본 10건) */}
+        {(ledgerData?.ledger || []).length > 0 && (
+          <Pagination
+            currentPage={ledgerPage}
+            totalPages={Math.max(1, Math.ceil((ledgerData?.ledger || []).length / ledgerPageSize))}
+            pageSize={ledgerPageSize}
+            totalCount={(ledgerData?.ledger || []).length}
+            onPageChange={setLedgerPage}
+            onPageSizeChange={(sz) => {
+              setLedgerPageSize(sz)
+              setLedgerPage(1)
+            }}
+            pageSizeOptions={[10, 20, 50, 100]}
+          />
+        )}
       </div>
 
       {/* 5. 플랜 수정 모달 */}
@@ -370,39 +415,38 @@ export default function BudgetPlanSection({ templateId }: BudgetPlanSectionProps
             <div className="space-y-3 text-xs">
               <div>
                 <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">예산 모드</label>
-                <div className="flex gap-2">
+                <div className="grid grid-cols-3 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setEditMode('total')}
+                    className={`py-1.5 px-2 rounded-lg border font-semibold ${
+                      editMode === 'total' ? 'bg-indigo-600 text-white border-indigo-600' : 'border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300'
+                    }`}
+                  >
+                    총예산 풀 (Total)
+                  </button>
                   <button
                     type="button"
                     onClick={() => setEditMode('monthly')}
-                    className={`flex-1 py-1.5 rounded-lg border font-semibold ${
+                    className={`py-1.5 px-2 rounded-lg border font-semibold ${
                       editMode === 'monthly' ? 'bg-indigo-600 text-white border-indigo-600' : 'border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300'
                     }`}
                   >
-                    월 총예산 분할 (Monthly)
+                    월 분할 (Monthly)
                   </button>
                   <button
                     type="button"
                     onClick={() => setEditMode('daily')}
-                    className={`flex-1 py-1.5 rounded-lg border font-semibold ${
+                    className={`py-1.5 px-2 rounded-lg border font-semibold ${
                       editMode === 'daily' ? 'bg-indigo-600 text-white border-indigo-600' : 'border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300'
                     }`}
                   >
-                    일일 고정 충전 (Daily)
+                    일 고정 (Daily)
                   </button>
                 </div>
               </div>
 
-              {editMode === 'monthly' ? (
-                <div>
-                  <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">월 설정 총예산 (원)</label>
-                  <input
-                    type="number"
-                    value={editMonthlyBudget}
-                    onChange={(e) => setEditMonthlyBudget(Number(e.target.value))}
-                    className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 p-2 font-mono"
-                  />
-                </div>
-              ) : (
+              {editMode === 'daily' ? (
                 <div>
                   <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">일일 고정 충전액 (원)</label>
                   <input
@@ -412,7 +456,31 @@ export default function BudgetPlanSection({ templateId }: BudgetPlanSectionProps
                     className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 p-2 font-mono"
                   />
                 </div>
+              ) : (
+                <div>
+                  <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">
+                    {editMode === 'total' ? '전략 배정 총예산 (원)' : '월 설정 총예산 (원)'}
+                  </label>
+                  <input
+                    type="number"
+                    value={editMonthlyBudget}
+                    onChange={(e) => setEditMonthlyBudget(Number(e.target.value))}
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 p-2 font-mono"
+                  />
+                </div>
               )}
+
+              <div>
+                <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">매도 대금 처리 방식</label>
+                <select
+                  value={editSellProceedsMode}
+                  onChange={(e) => setEditSellProceedsMode(e.target.value as 'keep_cash' | 'recycle_to_budget')}
+                  className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 p-2"
+                >
+                  <option value="recycle_to_budget">전략 가용 예산 풀에 자동 재투입 (순환매매 추천)</option>
+                  <option value="keep_cash">예수금 보관 (가용 예산에 합산하지 않음)</option>
+                </select>
+              </div>
 
               <div className="flex items-center gap-2 pt-1">
                 <input

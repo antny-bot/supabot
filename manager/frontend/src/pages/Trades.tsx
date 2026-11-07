@@ -28,7 +28,7 @@ export default function Trades() {
   const [data, setData] = useState<TradesData | null>(null)
   const [dateRange, setDateRange] = usePersistedState<DateRangeValue>('filter:trades:dateRange', DEFAULT_RANGE)
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = usePersistedState('filter:trades:pageSize', 50)
+  const [pageSize, setPageSize] = usePersistedState('filter:trades:pageSize', 10)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)

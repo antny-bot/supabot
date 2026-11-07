@@ -16,6 +16,8 @@ export interface TemplateFormState {
   dcaSchedule: string
   dcaExecTime: string
   dcaAmountType: 'budget' | 'volume'
+  dcaOrderType: 'limit' | 'market'
+  dcaCarryoverMode: 'next_day' | 'delay_20m' | 'skip'
   topMarket: string
   rankStart: string
   rankEnd: string
@@ -24,7 +26,7 @@ export interface TemplateFormState {
   exitRankBuffer: string
   exitConfirmDays: string
   sellSplitDays: string
-  budgetMode: 'monthly' | 'daily'
+  budgetMode: 'total' | 'monthly' | 'daily'
   dailyFixedBudget: string
   tradingDaysPerMonth: string
   cycleAllocMode: 'one_share' | 'target_amount'
@@ -33,6 +35,7 @@ export interface TemplateFormState {
   orderPriceMode: 'limit_current' | 'limit_aggressive' | 'market'
   scheduleEnabled: boolean
   isDryRun: boolean
+  dcaPlanBudget: string
 }
 
 export const DEFAULT_SINGLE_FORM: TemplateFormState = {
@@ -50,6 +53,8 @@ export const DEFAULT_SINGLE_FORM: TemplateFormState = {
   dcaSchedule: '매일',
   dcaExecTime: '09:05',
   dcaAmountType: 'budget',
+  dcaOrderType: 'limit',
+  dcaCarryoverMode: 'next_day',
   topMarket: 'KOSPI',
   rankStart: '1',
   rankEnd: '10',
@@ -58,7 +63,7 @@ export const DEFAULT_SINGLE_FORM: TemplateFormState = {
   exitRankBuffer: '2',
   exitConfirmDays: '2',
   sellSplitDays: '5',
-  budgetMode: 'monthly',
+  budgetMode: 'total',
   dailyFixedBudget: '150000',
   tradingDaysPerMonth: '20',
   cycleAllocMode: 'one_share',
@@ -67,6 +72,7 @@ export const DEFAULT_SINGLE_FORM: TemplateFormState = {
   orderPriceMode: 'limit_current',
   scheduleEnabled: true,
   isDryRun: false,
+  dcaPlanBudget: '1000000',
 }
 
 export const DEFAULT_MULTI_FORM: TemplateFormState = {
@@ -76,6 +82,7 @@ export const DEFAULT_MULTI_FORM: TemplateFormState = {
   ticker: 'KOSPI_TOP10',
   strategyType: 'kospi_top_dca',
   budget: '3000000',
+  budgetMode: 'monthly',
   dcaExecTime: '09:10',
   topMarket: 'KOSPI',
   rankStart: '1',
@@ -127,20 +134,44 @@ export function buildPayload(form: TemplateFormState) {
   if (stype === 'grid' || stype === 'sgrid') {
     payload.start_price = parseFloat(stripCommas(form.startPrice)) || 0
     payload.end_price = parseFloat(stripCommas(form.endPrice)) || 0
+    if (stype === 'grid') {
+      payload.params = {
+        budget_mode: form.budgetMode || 'total',
+        monthly_budget: payload.budget,
+        sell_proceeds_mode: form.sellProceedsMode || 'keep_cash',
+      }
+    }
   } else if (stype === 'rsitrade') {
     payload.params = {
       buy_rsi_range: form.buyRsiRange.trim(),
       sell_rsi_range: form.sellRsiRange.trim(),
       weighted: form.weighted,
+      budget_mode: form.budgetMode || 'total',
+      monthly_budget: payload.budget,
+      sell_proceeds_mode: form.sellProceedsMode || 'recycle_to_budget',
     }
   } else if (stype === 'dca' || stype === 'sdca') {
     const maxRuns = payload.count > 0 ? payload.count : null
+    const isBidBudget = stype === 'dca' && form.dcaAmountType === 'budget'
+    const planBudgetNum = parseFloat(stripCommas(form.dcaPlanBudget)) || (maxRuns ? payload.budget * maxRuns : payload.budget * 20)
     payload.params = {
       schedule: form.dcaSchedule.trim() || '매일',
       exec_time: form.dcaExecTime.trim() || '09:05',
       amount_type: form.dcaAmountType,
       max_runs: maxRuns,
       side: stype === 'sdca' ? 'ask' : 'bid',
+      order_type: form.dcaOrderType || 'limit',
+      order_price_mode: form.dcaOrderType || 'limit',
+      carryover_mode: form.dcaCarryoverMode || 'next_day',
+      ...(isBidBudget
+        ? {
+            per_order_budget: payload.budget,
+            budget_mode: form.budgetMode || 'total',
+            monthly_budget: planBudgetNum,
+            daily_fixed_budget: form.budgetMode === 'daily' ? payload.budget : 0,
+            sell_proceeds_mode: form.sellProceedsMode || 'keep_cash',
+          }
+        : {}),
     }
   } else if (stype === 'kospi_top_dca') {
     const rStart = Math.max(1, parseInt(form.rankStart, 10) || 1)
@@ -183,7 +214,16 @@ export function buildPayload(form: TemplateFormState) {
 export function templateToForm(template: Template): TemplateFormState {
   const strategyType = normalizeStrategyType(template.strategy_type)
   const p = (template.params || {}) as any
-  const rawBudget = strategyType === 'kospi_top_dca' ? (p.monthly_budget ?? template.budget) : template.budget
+  const rawBudget =
+    strategyType === 'kospi_top_dca'
+      ? (p.monthly_budget ?? template.budget)
+      : strategyType === 'dca' && p.per_order_budget
+      ? p.per_order_budget
+      : template.budget
+  const defaultBudgetMode =
+    strategyType === 'kospi_top_dca' ? 'monthly' : 'total'
+  const defaultSellMode =
+    strategyType === 'rsitrade' ? 'recycle_to_budget' : 'keep_cash'
   return {
     name: template.name,
     exchange: template.exchange,
@@ -207,17 +247,26 @@ export function templateToForm(template: Template): TemplateFormState {
     exitRankBuffer: String(p.exit_rank_buffer ?? '2'),
     exitConfirmDays: String(p.exit_confirm_days ?? '2'),
     sellSplitDays: String(p.sell_split_days ?? '5'),
-    budgetMode: p.budget_mode === 'daily' ? 'daily' : 'monthly',
+    budgetMode:
+      p.budget_mode === 'daily' || p.budget_mode === 'monthly' || p.budget_mode === 'total'
+        ? p.budget_mode
+        : defaultBudgetMode,
     dailyFixedBudget: formatWithCommas(p.daily_fixed_budget ?? '150000'),
     tradingDaysPerMonth: String(p.trading_days_per_month ?? '20'),
     cycleAllocMode: p.cycle_alloc_mode === 'target_amount' ? 'target_amount' : 'one_share',
     cycleTargetKrw: formatWithCommas(p.cycle_target_krw ?? '300000'),
-    sellProceedsMode: p.sell_proceeds_mode === 'recycle_to_budget' ? 'recycle_to_budget' : 'keep_cash',
+    sellProceedsMode:
+      p.sell_proceeds_mode === 'recycle_to_budget' || p.sell_proceeds_mode === 'keep_cash'
+        ? p.sell_proceeds_mode
+        : defaultSellMode,
     orderPriceMode:
       p.order_price_mode === 'limit_aggressive' || p.order_price_mode === 'market'
         ? p.order_price_mode
         : 'limit_current',
     scheduleEnabled: p.schedule_enabled !== undefined ? Boolean(p.schedule_enabled) : true,
     isDryRun: Boolean(p.is_dry_run),
+    dcaPlanBudget: formatWithCommas(p.monthly_budget ?? (Number(rawBudget || 0) * 10 || 1000000)),
+    dcaOrderType: (p.order_type === 'market' || p.order_price_mode === 'market') ? 'market' : 'limit',
+    dcaCarryoverMode: p.carryover_mode === 'delay_20m' || p.carryover_mode === 'skip' ? p.carryover_mode : 'next_day',
   }
 }

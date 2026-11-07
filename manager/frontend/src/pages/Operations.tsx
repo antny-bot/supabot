@@ -633,8 +633,8 @@ export default function Operations() {
                 const isDca = tpl.strategy_type === 'dca' || tpl.strategy_type === 'sdca'
                 const isTop = tpl.strategy_type === 'kospi_top_dca'
                 const isVolume =
-                  tpl.strategy_type === 'sgrid' || (isDca && p.amount_type === 'volume')
-                const supportsCarryover = isTop || isDca
+                  tpl.strategy_type === 'sgrid' || tpl.strategy_type === 'sdca' || (isDca && p.amount_type === 'volume')
+                const supportsCarryover = !isVolume
 
                 return (
                   <div
@@ -748,7 +748,12 @@ export default function Operations() {
                           </div>
                           <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
                             {supportsCarryover ? (
-                              krwFmt(p.carryover_budget ?? 0)
+                              krwFmt(
+                                p.carryover_budget ??
+                                  (tpl.strategy_type === 'rsitrade' || tpl.strategy_type === 'rsi' || tpl.strategy_type === 'grid'
+                                    ? tpl.budget
+                                    : 0)
+                              )
                             ) : (
                               <span className="text-slate-400 font-normal text-[11px]">해당사항 없음</span>
                             )}
@@ -957,17 +962,24 @@ export default function Operations() {
               <div className="flex flex-wrap items-center gap-2 self-end lg:self-auto">
                 {(() => {
                   const selStype = selectedTemplate.strategy_type
-                  const selIsTop = selStype === 'kospi_top_dca'
-                  const selIsDca = selStype === 'dca' || selStype === 'sdca'
-                  const selSupportsCarryover = selIsTop || selIsDca
+                  const selParams = (selectedTemplate.params || {}) as any
+                  const selIsVolume =
+                    selStype === 'sgrid' ||
+                    selStype === 'sdca' ||
+                    ((selStype === 'dca' || selStype === 'sdca') && selParams.amount_type === 'volume')
+                  const selSupportsCarryover = !selIsVolume
+                  const defaultCarryover =
+                    selStype === 'rsitrade' || selStype === 'rsi' || selStype === 'grid'
+                      ? selectedTemplate.budget
+                      : 0
 
                   return (
                     <div className="hidden sm:flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-1.5 text-xs dark:bg-slate-800/60 font-mono">
                       <div>
-                        <span className="text-[10px] text-slate-400 block">이월 가용예산</span>
+                        <span className="text-[10px] text-slate-400 block">가용 예산 (잔액)</span>
                         <span className="font-bold text-slate-700 dark:text-slate-200">
                           {selSupportsCarryover ? (
-                            krwFmt((selectedTemplate.params as any)?.carryover_budget ?? 0)
+                            krwFmt(selParams.carryover_budget ?? defaultCarryover)
                           ) : (
                             <span className="text-slate-400 font-normal text-[11px]">해당사항 없음</span>
                           )}
@@ -975,12 +987,12 @@ export default function Operations() {
                       </div>
                       <div className="border-l border-slate-200 dark:border-slate-700 pl-3">
                         <span className="text-[10px] text-slate-400 block">
-                          {selSupportsCarryover ? '당월 소진' : '설정 예산'}
+                          {selSupportsCarryover ? '누적/당월 소진' : '설정 수량'}
                         </span>
                         <span className="font-bold text-slate-700 dark:text-slate-200">
                           {selSupportsCarryover
-                            ? krwFmt((selectedTemplate.params as any)?.monthly_spent ?? 0)
-                            : krwFmt(selectedTemplate.budget)}
+                            ? krwFmt(selParams.monthly_spent ?? 0)
+                            : `${selectedTemplate.budget}`}
                         </span>
                       </div>
                     </div>

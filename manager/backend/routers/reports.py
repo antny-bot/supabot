@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from .. import bot_client
 from ..db import get_db, get_stock_name_map
 from ._auth import _require_login, get_session_user
-from ..services import backtest_engine, progression_manager, universe_resolver
+from ..services import backtest_engine, budget_manager, progression_manager, universe_resolver
 
 router = APIRouter()
 
@@ -1555,7 +1555,7 @@ async def api_reports_top_rotation(
         history = params.get("history", [])
         latest_group_no = max((int(h.get("group_no") or 0) for h in history), default=0)
         daily_execution_flow = []
-        for h_item in reversed(history[-14:]):
+        for h_item in reversed(history):
             dt = h_item.get("date", "")
             g_no = h_item.get("group_no")
             c_no = h_item.get("cycle_no", cycle_no)
@@ -1680,6 +1680,7 @@ async def api_reports_strategy_detail(
             return JSONResponse({"error": "전략 템플릿을 찾을 수 없습니다."}, status_code=404)
 
         template = t_rows[0]
+        await budget_manager.sync_single_strategy_budget_events(template, persist=True)
         ticker = (template.get("ticker") or "").upper()
         exchange = (template.get("exchange") or "upbit").lower()
         params = template.get("params") or {}
