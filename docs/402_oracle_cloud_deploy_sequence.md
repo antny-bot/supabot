@@ -208,7 +208,86 @@ cd ~/supabot
 docker compose up -d --build
 ```
 
-## 12. 배포 직후 운영 점검
+## 12. 자동 배포 스크립트(`deploy.sh`) 및 Cron 설정 (권장)
+
+현재 Supabot 봇 인스턴스는 매일 새벽 4시 cron을 통해 최신 커밋을 확인하고 자동 배포하는 방식을 권장합니다.
+
+### 1) 자동 배포 스크립트 동작 원리 (`scripts/deploy.sh`)
+
+스크립트 경로: `~/supabot/scripts/deploy.sh`
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd /home/ubuntu/supabot
+
+git fetch origin
+
+LOCAL_SHA="$(git rev-parse HEAD)"
+REMOTE_SHA="$(git rev-parse origin/main)"
+
+# 원격(origin/main)과 로컬 커밋이 같으면 불필요한 빌드 스킵
+if [ "$LOCAL_SHA" = "$REMOTE_SHA" ]; then
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] 최신 커밋과 동일합니다 ($LOCAL_SHA). 빌드를 건너뜁니다."
+  exit 0
+fi
+
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] 새로운 커밋이 감지되었습니다 ($LOCAL_SHA -> $REMOTE_SHA). 배포를 시작합니다."
+git reset --hard origin/main
+
+VERSION="$(git describe --tags --always 2>/dev/null || echo dev)"
+GIT_SHA="$(git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
+
+VERSION="$VERSION" GIT_SHA="$GIT_SHA" docker compose up -d --build
+docker image prune -f
+```
+
+- **커밋 비교**: `origin/main`과 현재 `HEAD`를 비교하여 커밋 해시가 동일하면 빌드를 건너뛰어 서버 자원을 절약합니다.
+- **데이터 보존**: `git reset --hard`를 수행하더라도 `.gitignore` 대상인 `config/.env` 및 `data/` 디렉터리는 영속 볼륨과 파일로 안전하게 보존됩니다.
+- **리소스 정리**: 컨테이너 교체 후 `docker image prune -f`로 댕글링 이미지를 정리해 디스크 용량을 확보합니다.
+
+### 2) 스크립트 실행 권한 부여 및 수동 테스트
+
+서버 터미널에서 실행 권한을 부여하고 1회 직접 실행하여 동작을 확인합니다:
+
+```bash
+chmod +x ~/supabot/scripts/deploy.sh
+
+# 수동 실행 테스트
+bash ~/supabot/scripts/deploy.sh
+```
+
+### 3) Crontab 등록 방법
+
+새벽 4시(서버 타임존 `Asia/Seoul` 기준)에 스크립트가 자동 실행되도록 `crontab -e`로 등록합니다:
+
+```bash
+crontab -e
+```
+
+편집기 창 맨 아래에 다음 줄을 추가합니다:
+
+```cron
+0 4 * * * /home/ubuntu/supabot/scripts/deploy.sh >> /home/ubuntu/supabot/data/deploy-cron.log 2>&1
+```
+
+등록 확인:
+```bash
+crontab -l
+```
+
+### 4) 자동 배포 로그 확인
+
+cron으로 실행된 배포 결과 및 커밋 비교 로그는 아래 명령으로 실시간 확인 가능합니다:
+
+```bash
+tail -n 100 -f ~/supabot/data/deploy-cron.log
+```
+
+---
+
+## 13. 배포 직후 운영 점검
 
 배포 직후 점검:
 
@@ -220,7 +299,7 @@ docker compose up -d --build
 - `docker compose logs` 반복 에러 없는지
 - `data/users.json` 권한 과도 허용 없는지
 
-## 13. 주의사항
+## 14. 주의사항
 
 - 실거래 경로 포함. 테스트 중 실주문 방지 주의.
 - 거래소/Gemini API 키 런타임 `data/users.json` 저장. `USER_SECRET_KEY` 암호화 저장되나 `.env`와 `users.json` 모두 읽을 수 있으면 복호화 가능하므로 파일 권한 엄격 제한.

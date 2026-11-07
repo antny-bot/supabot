@@ -1,162 +1,78 @@
-# gemini_intent.md — Gemini 자연어 Intent 처리
+# gemini_intent.md — Gemini 자연어 Intent 및 Function Calling 에이전트
 
 ## 개요
 
-`llm_enabled=True` 시 텍스트 메시지 룰 기반 전처리. 미처리 문장만 Google Gemini API로 JSON intent 변환. "비트코인 시세 알려줘" 등 자연어 입력 가능.
-Gemini 호출 시 **Pydantic Structured Outputs (`TradeIntentModel`)** 및 **최근 대화 맥락(Recent Context)**을 지원합니다.
+`llm_enabled=True` 시 텍스트 메시지 룰 기반 전처리(`preprocess_natural_language_intent`)를 1차 패스트트랙으로 수행하며, 미적중된 복합 요청 및 주문/취소/전략 변경은 **Gemini Function Calling (Tool Use)** 기반의 멀티턴 에이전트 루프(`run_nl_agent_loop`)로 처리합니다.
+이를 통해 단발성 스키마 파싱의 한계를 넘어, 실시간 시세·잔고·미체결 주문을 능동적으로 조회하고 최적의 실행 계획(Proposed Actions)을 사용자 승인 하에 실행합니다.
 
-## 사전 조건
-
-- `users.json → llm.gemini_api_key` 설정 필요
-- `llm_enabled=True` 필요
-- `validate_config_update`: `llm_enabled=True` + 빈 API 키 조합 → `ValueError`
-
-## 룰 기반 전처리
-
-Gemini 호출 전 `preprocess_natural_language_intent(text, user)` 실행.
-
-조회성 action만 허용.
-
-| action | 예시 표현 | 처리 |
-|--------|-----------|------|
-| `status` | `주문대기중인것은?`, `예약 주문 보여줘`, `전략 상태 알려줘` | 전략 대시보드 즉시 조회 |
-| `orders` | `미체결 주문 뭐 있어?`, `오픈오더`, `거래소에 걸린 주문` | 미체결 주문 즉시 조회 |
-| `asset` | `잔고 보여줘`, `보유 자산`, `빗썸 잔고` | 자산 조회 |
-| `price` | `BTC 시세`, `비트 얼마야`, `삼성전자 가격` | 종목 추출 시 시세 조회 |
-| `history` | `최근 체결`, `거래 내역`, `BTC 거래내역` | 최근 체결 조회 |
-| `config_view` | `현재 설정 보여줘`, `API 등록 상태` | 설정 조회 |
-| `help` | `사용법`, `명령어 알려줘`, `도움말` | 도움말 조회 |
-| `rsi` | `BTC RSI 알려줘` | 단일 종목 RSI 조회 |
-| `indicators` | `BTC 지표 보여줘` | 다중 보조지표 조회 |
-
-`취소`, `중지`, `매수`, `매도`, `사줘`, `설정해`, `변경`, `켜줘`, `꺼줘` 등 변경성 표현은 전처리 제외. Gemini 및 확인 버튼 흐름으로 전달.
-
-`normalize_natural_language_intent()`로 Gemini intent 후처리. RSI+분할+매도 힌트(`매도`, `팔아`, `팔다` 등) 감지 시 action `sgridrsi`, RSI 구간 `sell_rsi_range` 지정. 매도 힌트 없는 RSI+분할은 `rsitrade` + `buy_rsi_range` 처리.
-
-문장 내 `dca`, `디씨에이`, `물타기` 포함(또는 Gemini `dca_mode: true` 반환) 시 `rsitrade` intent `dca_mode` = `true`. `sgridrsi`(매도) 미적용.
-
-전처리 완료 문장은 Gemini 미호출 및 노로그.
-action hit 카운터만 `data/nl_preprocess_hits.json` 저장 (원문/종목/거래소 미저장).
-`비트 봐줘` 등 종목은 있으나 의도 불명확 시 시세/자산/전략상태 되물음.
-
-## Gemini 프롬프트 및 Structured Outputs
-
-`_build_llm_prompt(user_text, user, recent_context=None)`:
-
-```
-Parse Korean trading bot text. Return JSON matching the schema.
-Never execute. Use null for unknown fields.
-Use help only for usage/capability questions.
-Missing required fields => clarify.
-Orders/cancel/config/watch need user confirm.
-Pending/reserved/tracked strategy orders => status. Real open/unfilled exchange orders => orders.
-매도/팔아 + RSI + 분할 => sgridrsi (sell_rsi_range only, buy_rsi_range=null).
-매수/사줘 + RSI + 분할, or RSI + 분할 (no direction) => rsitrade (buy_rsi_range).
-grid/gridrsi is price-range; RSI range goes to gridrsi/sgridrsi not grid.
-Missing sell_rsi_range for rsitrade/gridrsi => null; server uses default.
-dca_mode=true only if user explicitly mentions DCA/물타기/가중치 분할 (rsitrade only); else null.
-Exchange: upbit|bithumb|kis|toss|null. Korean stock => kis or toss (default kis if unspecified, toss if user explicitly says 토스/tossinvest). Samsung => 005930. Crypto ticker: BTC/ETH/XRP.
-Default exchange: {user's default_exchange}.
-Recent conversation context:
-{User & Bot recent turns}
-Commands:
-{LLM_COMMAND_CATALOG}
-User text: {text}
-```
-
-- Google GenAI SDK 호출 시 `types.GenerateContentConfig(response_mime_type="application/json", response_schema=TradeIntentModel, temperature=0.1)` 적용.
-- 프롬프트 문자열 조작 대신 Pydantic 모델을 스키마로 직접 전달하여 타입 안정성 보장.
-
-## Multi-turn 최근 대화 맥락 (Recent Context)
-
-사용자가 연속 대화 시 이전 발화의 종목이나 의도를 승계할 수 있도록 슬라이딩 윈도우 컨텍스트를 지원합니다.
-- 보관 위치: `context.user_data["_nl_recent_context"]`
-- 보관 용량: 최근 2턴 (유저 발화 + 봇 의도 최대 4개 아이템)
-- 동작 예시:
-  1. 유저: *"삼성전자 시세 얼마야?"* → 봇: (price / 005930 해석 및 시세 전송)
-  2. 유저: *"그럼 10주 사줘"* → Gemini가 Recent Context를 참조하여 티커 `005930`를 자동으로 보완해 매수 주문 확인창 제시
-
-## Intent 스키마 (`core.nl_schema.TradeIntentModel`)
-
-```python
-class TradeIntentModel(BaseModel):
-    action: Optional[Literal[
-        "asset", "price", "orders", "status", "config_view", "config_set",
-        "history", "buy", "sell", "grid", "sgrid", "rsitrade", "gridrsi",
-        "sgridrsi", "watch", "unwatch", "cancel", "help", "rsi", "indicators", "clarify"
-    ]] = None
-    exchange: Optional[Literal["upbit", "bithumb", "kis", "toss"]] = None
-    ticker: Optional[str] = None         # "BTC", "005930" 등
-    price: Optional[float] = None
-    volume: Optional[float] = None
-    amount_krw: Optional[int] = None
-    start_price: Optional[float] = None
-    end_price: Optional[float] = None
-    count: Optional[int] = None
-    buy_rsi_range: Optional[str] = None  # "25-30" — rsitrade/gridrsi 매수 RSI 구간
-    sell_rsi_range: Optional[str] = None # "65-75" — sgridrsi 매도 RSI 구간
-    dca_mode: Optional[bool] = None      # true면 rsitrade 예산을 get_dca_weights로 가중 분배
-    config_key: Optional[str] = None
-    config_value: Optional[str] = None
-    question: Optional[str] = None       # action=="clarify" 시 되묻기 질문
-```
-
-## 읽기 vs 쓰기 구분
-
-`_is_immediate_intent(action)`으로 즉시 실행 판별:
-
-```python
-IMMEDIATE = {"asset", "price", "orders", "status", "config_view", "history", "help", "rsi", "indicators"}
-```
-
-| 구분 | 액션 목록 | 처리 |
-|------|-----------|------|
-| **읽기 (즉시)** | asset, price, orders, status, config_view, history, help, rsi, indicators | `execute_query_intent` |
-| **쓰기 (확인)** | buy, sell, grid, sgrid, rsitrade, gridrsi, sgridrsi, watch, unwatch, config_set, cancel | 확인 버튼 표시 후 실행 |
-
-## 확인 플로우
+## 핵심 아키텍처
 
 ```mermaid
 flowchart TD
-    A[일반 텍스트 메시지] --> B["preprocess_natural_language_intent()<br/>조회성 intent면 즉시 실행"]
-    B --> C["parse_natural_language_intent(recent_context)<br/>→ JSON intent (Pydantic Schema)"]
-    C --> D["normalize_natural_language_intent()<br/>서버 후처리 보정"]
-    D --> E{"action == clarify<br/>또는 None?"}
-    E -->|Yes| F[질문/오류 응답 반환]
-    E -->|No| G{"_is_immediate_intent?"}
-    G -->|Yes| H["execute_query_intent<br/>(확인 없음)"]
-    G -->|No| I["_pending_nl_intents[token] = {user_id, intent} 저장<br/>확인 버튼 표시: [실행](nlrun|token) / [취소](nlcancel|token)"]
-    I --> J["사용자 [실행] 클릭"]
-    J --> K["natural_language_confirm_callback():<br/>1. token 존재 확인 (만료/없으면 오류)<br/>2. user_id 일치 확인 (타인 실행 방지)<br/>3. execute_confirmed_intent(query, context, user, intent)"]
+    U[사용자 텔레그램 자연어 입력] --> P{1. 룰 기반 전처리<br/>preprocess_natural_language_intent}
+    P -->|단순 조회 적중| Q[즉시 실행 및 응답<br/>Gemini 미호출 / 비용 0]
+    P -->|미적중 / 복합·변경 요청| A[2. Gemini Agentic Loop 진입<br/>src/core/nl_agent.py]
+
+    subgraph AgentLoop["멀티턴 Function Calling 루프 (최대 5 Step)"]
+        A --> G[Gemini API 호출<br/>tools = Read Tools + Write Proposal Tools]
+        G --> FC{Function Call 반환?}
+        FC -->|Read Tool 호출<br/>예: get_open_orders, get_balances| RT[즉시 실행: Bot Core 또는<br/>Manager REST API 호출]
+        RT -->|Tool 실행 결과 JSON 전달| G
+        FC -->|Write Tool 호출<br/>예: propose_cancel_orders, propose_manual_order| WT[실행 보류 큐에 Action 적재<br/>ProposedAction 생성 및 결과 반환]
+        WT --> G
+        FC -->|최종 텍스트 응답| DONE[루프 종료]
+    end
+
+    DONE --> HAS_WRITE{보류된 Write Action<br/>존재 여부?}
+    HAS_WRITE -->|없음: 순수 조회/분석 답변| REPLY[최종 자연어 브리핑 전송]
+    HAS_WRITE -->|있음: 주문/취소/설정/템플릿 변경| CONFIRM["실행 계획 요약 + [✅ 실행] / [❌ 취소] 버튼 전송<br/>main._pending_nl_intents[token] 저장"]
+    CONFIRM -->|사용자 [✅ 실행] 클릭| EXEC[execute_confirmed_actions<br/>보류된 Action 순차 실행 및 결과 리포트]
 ```
 
-## 미처리 자연어 로그
+## 1. 읽기 전용 도구 (Read Tools, 즉시 실행)
 
-Gemini 호출 문장은 `append_natural_language_log()`로 `data/nl_unmatched.jsonl` 및 Supabase `nl_logs` 테이블 기록.
+에이전트 루프 내에서 실계좌나 DB를 변경하지 않고 정보를 즉시 수집하여 Gemini에게 컨텍스트로 제공합니다.
 
-기록 항목:
+1. `get_ticker_price(exchange, ticker)`: 실시간 시세, 전일 대비 변동률, 고/저가 조회.
+2. `get_technical_indicators(exchange, ticker, interval)`: RSI(14), MACD, 볼린저 밴드, 스토캐스틱 등 보조지표 계산.
+3. `get_account_balances(exchange)`: 거래소별 보유 현금(KRW/USD) 및 보유 종목 수량·평단가 조회.
+4. `get_open_orders(exchange, ticker)`: 현재 대기/예약/미체결 중인 주문 목록 및 UUID 조회.
+5. `get_recent_trades(exchange, ticker, limit)`: 최근 체결 완료된 거래 내역 조회.
+6. `get_strategy_templates()`: Manager Backend 등록 전략 템플릿 목록 조회.
+7. `get_budget_health(exchange)`: 필요 예산 대비 실계좌 예수금 건전성 상태 조회.
+8. `get_user_settings()`: 사용자의 현재 봇 환경설정 조회.
 
-```json
-{"ts":"2026-05-30T16:20:00+09:00","text_norm":"BTC <NUMBER>원 주문?","llm_action":"clarify","final_action":"clarify"}
-```
+## 2. 변경 제안 도구 (Write Proposal Tools, 실행 보류 및 승인)
 
-로그 미저장 정보:
-- chat_id / user_id
-- 주문 ID, 거래소 응답 원문
-- API 키 또는 긴 토큰 원문
+실거래 안전 표준([`100_project_standards.md`](file:///E:/apps/supabot/docs/100_project_standards.md))에 따라 실제 거래소 API나 DB 변경을 즉시 호출하지 않고, `session_proposed_actions` 큐에 적재한 뒤 사용자의 승인 인라인 버튼을 생성합니다.
 
-마스킹 규칙:
-- 긴 영숫자 토큰 → `<TOKEN>`
-- 6자리 숫자 → `<STOCK>`
-- 일반 숫자/소수 → `<NUMBER>`
+1. `propose_manual_order(exchange, ticker, side, price, volume, amount_krw)`: 단일 지정가 매수/매도 제안.
+2. `propose_cancel_orders(exchange, order_uuids, reason)`: 확인된 특정 미체결 주문 UUID 목록 취소 제안.
+3. `propose_rsi_strategy(exchange, ticker, side, buy_rsi_range, sell_rsi_range, count, amount_krw, dca_mode)`: RSI 순환 매매 분할 주문 제안.
+4. `propose_grid_strategy(exchange, ticker, side, start_price, end_price, count, amount_krw, volume)`: 거미줄 분할 주문 제안.
+5. `propose_template_action(template_id, action, amount_krw)`: 전략 템플릿 제어 제안 (`run`, `pause`, `stop_and_cancel`, `topup`).
+6. `propose_update_config(config_key, config_value)`: 환경설정 변경 제안 (사전 유효성 검증 포함).
+7. `propose_watchlist_change(exchange, ticker, action)`: 관심종목 등록/해제 제안.
 
-`data/nl_unmatched.jsonl` 최근 500줄 유지.
+## 3. Manager REST API HMAC 대리 인증
 
-## 오류 처리
+텔레그램 봇이 사용자를 대리하여 Manager Backend REST API를 안전하게 호출할 수 있도록 HMAC-SHA256 헤더 인증을 지원합니다:
+- `X-Bot-User-Id`: 텔레그램 `user_id`
+- `X-Timestamp`: Unix Timestamp (5분 이내 유효)
+- `X-Signature`: `HMAC-SHA256(MANAGER_API_KEY, f"{timestamp}:{bot_user_id}:{path}")`
+- `X-Is-Admin`: 관리자 여부 (`true` / `false`)
 
-| 상황 | 응답 |
-|------|------|
-| Gemini API 실패 | None 반환 → "해석할 수 없습니다" 안내 |
-| token 만료 (봇 재시작 등) | "만료된 자연어 요청" |
-| 다른 유저 확인 클릭 | "다른 사용자의 요청은 실행할 수 없습니다" |
-| `execute_confirmed_intent` 예외 | 에러 메시지 유저 전달 |
+## 4. Multi-turn 최근 대화 맥락 (Recent Context)
+
+사용자가 연속 대화 시 이전 발화의 종목이나 의도를 승계할 수 있도록 슬라이딩 윈도우 컨텍스트를 지원합니다.
+- 보관 위치: `context.user_data["_nl_recent_context"]`
+- 보관 용량: 최근 4턴 슬라이딩 윈도우
+- 복합 시나리오 지원:
+  1. 유저: *"비트코인 미체결 주문 확인해줘"* → 봇: (주문 목록 2건 표시)
+  2. 유저: *"그 중 제일 아래 거 취소해줘"* → 에이전트가 이전 맥락의 주문 목록 중 해당 UUID를 특정하여 취소 계획 제안
+
+## 5. 미처리 자연어 로그 및 감사 추적
+
+Gemini 호출 문장은 `append_natural_language_log()`를 통해 기록되며, Function Calling 도구 호출 trace(`llm_action: "get_open_orders, propose_cancel_orders"`)가 함께 저장됩니다.
+- 마스킹 규칙 준수: 개인정보 및 보안 토큰은 `<TOKEN>`, `<STOCK>`, `<NUMBER>`로 마스킹.
+- `nl_logs.confirm_status`: `auto`(조회), `pending`(승인 대기), `confirmed`(실행 완료), `rejected`(취소됨).

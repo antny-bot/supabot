@@ -1,11 +1,13 @@
-"""자연어(Gemini NL) 라우팅 — 의도 파싱·확인·실행.
+"""자연어(Gemini NL) 라우팅 — 의도 파싱·도구 호출·확인·실행.
 
-`_pending_nl_intents`/`LLM_COMMAND_CATALOG`/`_log`/`_KIS_RSI_MINUTE_ERROR` 등은
-main.py 소유 상태로 남는다 (main.<name>으로 접근). `help_command`는
-`handlers.system_handlers`로 이동했으므로 지연 임포트로 호출한다.
+단순 조회는 룰 기반 1차 패스트트랙(`preprocess_natural_language_intent`)으로 0초대 즉시 응답하고,
+복합 요청 및 매매/제어 작업은 Gemini Function Calling 멀티턴 에이전트 루프(`run_nl_agent_loop`)로 처리한다.
 """
+from __future__ import annotations
+
 import asyncio
 import json
+from typing import Any
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
@@ -29,6 +31,8 @@ from core.parsers import (
 )
 from core.formatters import build_config_view, format_config_value
 from core.nl_schema import TradeIntentModel
+from core.nl_agent import run_nl_agent_loop, AgentRunResult
+from core.manager_api_client import request_manager_api
 from core.order_execution import execute_rsitrade_orders, execute_sgridrsi_orders
 from core.stock_resolver import find_kr_stock_candidates
 from core.ticker_disambiguation import (
@@ -75,6 +79,7 @@ def _build_llm_prompt(user_text, user, recent_context=None):
 
 
 async def parse_natural_language_intent(text, user, recent_context=None):
+    """단발성 TradeIntentModel 스키마 파서 (단위 테스트 및 하위 호환성 유지)."""
     api_key = user.get("llm", {}).get("gemini_api_key", "")
     if not api_key:
         return None
@@ -222,7 +227,6 @@ async def execute_query_intent(update, context, user, intent):
 
 
 async def _send_nl_ticker_disambiguation(query, intent, raw_name, candidates):
-    """후보 종목을 버튼으로 제시한다. 선택 시 intent['ticker']를 코드로 바꿔 execute_confirmed_intent를 재호출."""
     token = create_nl_disambiguation_token(str(query.from_user.id), intent, candidates)
     buttons = [
         [InlineKeyboardButton(f"{name} ({code})", callback_data=f"nltickerpick|{token}|{idx}")]
@@ -261,7 +265,181 @@ async def nl_ticker_disambiguation_callback(update: Update, context: ContextType
         await query.edit_message_text(f"❌ 자연어 요청 실행 실패: {e}")
 
 
+def _format_action_summary(act: dict) -> str:
+    """단일 ProposedAction에 대한 한 줄 요약 텍스트를 반환한다."""
+    act_type = act.get("action_type")
+    ex = exchange_display_name(act.get("exchange", ""))
+    tk = act.get("ticker", "")
+
+    if act_type == "manual_order":
+        side_kr = "매수" if act.get("side") == "bid" else "매도"
+        price = act.get("price", 0.0)
+        vol = act.get("volume", 0.0)
+        total = act.get("amount_krw") or (price * vol)
+        return f"• [{ex}] {tk} {side_kr} {vol:g}개 @ {price:,.0f}원 (총 {total:,.0f}원)"
+
+    if act_type == "cancel_orders":
+        uuids = act.get("order_uuids", [])
+        uuid_preview = ", ".join(uuids[:2]) + ("..." if len(uuids) > 2 else "")
+        return f"• [{ex}] 미체결 주문 {len(uuids)}건 취소 ({uuid_preview})"
+
+    if act_type == "strategy_rsi":
+        strat = "RSI 분할 매수" if act.get("side") == "buy" else "RSI 분할 매도"
+        count = act.get("count", 5)
+        amount = act.get("amount_krw")
+        amt_str = f", 총 {amount:,.0f}원" if amount else ""
+        return f"• [{ex}] {tk} {strat} {count}분할{amt_str}"
+
+    if act_type == "strategy_grid":
+        sp = act.get("start_price", 0.0)
+        ep = act.get("end_price", 0.0)
+        count = act.get("count", 5)
+        return f"• [{ex}] {tk} 거미줄 매매 ({sp:,.0f}~{ep:,.0f}원, {count}분할)"
+
+    if act_type == "template_control":
+        t_id = act.get("template_id")
+        action = act.get("action")
+        act_kr = {"run": "즉시 실행", "pause": "일시중지", "stop_and_cancel": "중지 및 주문취소", "topup": "예산 추가"}.get(action, action)
+        return f"• 전략 템플릿 #{t_id} {act_kr}"
+
+    if act_type == "update_config":
+        return f"• 설정 변경: {act.get('config_key')} = {act.get('config_value')}"
+
+    if act_type == "watchlist_change":
+        act_kr = "관심종목 등록" if act.get("action") == "watch" else "관심종목 해제"
+        return f"• [{ex}] {tk} {act_kr}"
+
+    return f"• 작업: {act}"
+
+
+async def execute_confirmed_actions(query, context, user, actions: list[dict]):
+    """Gemini Function Calling 에이전트가 제안한 복수/단일 작업을 일괄 순차 실행한다."""
+    user_id = str(query.from_user.id)
+    results = []
+
+    for idx, act in enumerate(actions, 1):
+        act_type = act.get("action_type")
+        ex = act.get("exchange") or user.get("preferences", {}).get("default_exchange", "upbit")
+        tk = act.get("ticker", "")
+
+        try:
+            if act_type == "manual_order":
+                side = act.get("side", "bid")
+                price = float(act.get("price", 0.0))
+                volume = float(act.get("volume", 0.0))
+                if main.exchange_adapter:
+                    volume = main.exchange_adapter.get_exchange(ex).round_volume(volume)
+                ok, err = validate_max_order(user, price * volume)
+                if not ok:
+                    results.append(f"❌ {idx}. 주문 실패: {err}")
+                    continue
+                res = await main.exchange_adapter.create_order(user_id, ex, tk, side, price, volume)
+                if res and "uuid" in res:
+                    main.order_manager.add_order(user_id, ex, tk, res["uuid"], price, volume, side=side, strategy="manual")
+                    side_kr = "매수" if side == "bid" else "매도"
+                    results.append(f"✅ {idx}. [{exchange_display_name(ex)}] {tk} {side_kr} 성공 (ID: {res['uuid']})")
+                else:
+                    results.append(f"❌ {idx}. [{exchange_display_name(ex)}] {tk} 주문 실패: {res}")
+
+            elif act_type == "cancel_orders":
+                uuids = act.get("order_uuids", [])
+                cancelled_cnt = 0
+                for u in uuids:
+                    order = main.order_manager.get_order(u)
+                    if not order:
+                        # user_orders에서 재탐색
+                        for o in main.order_manager.get_user_orders(user_id, ex):
+                            if o.get("uuid") == u:
+                                order = o
+                                break
+                    if order and await main.cancel_and_remove_order(user_id, order):
+                        cancelled_cnt += 1
+                    await asyncio.sleep(0.05)
+                results.append(f"✅ {idx}. [{exchange_display_name(ex)}] 주문 {cancelled_cnt}/{len(uuids)}건 취소 완료")
+
+            elif act_type == "strategy_rsi":
+                strat = act.get("strategy", "rsitrade")
+                buy_range = act.get("buy_rsi_range") or user.get("preferences", {}).get("rsi_buy_range", "25-30")
+                sell_range = act.get("sell_rsi_range") or user.get("preferences", {}).get("rsi_sell_range", "65-75")
+                count = int(act.get("count") or user.get("preferences", {}).get("rsi_order_count", 5))
+                budget = float(act.get("amount_krw") or user.get("preferences", {}).get("rsi_budget_krw") or 0)
+                group_no = main.order_manager.get_next_group_no(user_id)
+
+                if strat == "rsitrade":
+                    if act.get("dca_mode"):
+                        budgets = [budget * w for w in get_dca_weights(count)]
+                    else:
+                        budgets = [budget / count] * count
+                    await execute_rsitrade_orders(
+                        exchange_adapter=main.exchange_adapter, order_manager=main.order_manager,
+                        signal_engine=main.signal_engine,
+                        user_id=user_id, exchange=ex, ticker=tk,
+                        buy_rsi_range=buy_range, sell_rsi_range=sell_range,
+                        count=count, per_order_budgets=budgets,
+                        user=user, group_no=group_no, bot=context.bot, notify_chat_id=user_id,
+                        trigger_sync_fn=main.trigger_realtime_sync,
+                    )
+                    results.append(f"✅ {idx}. [{exchange_display_name(ex)}] {tk} RSI 분할 매수 실행 완료")
+                else:
+                    await execute_sgridrsi_orders(
+                        exchange_adapter=main.exchange_adapter, order_manager=main.order_manager,
+                        signal_engine=main.signal_engine,
+                        user_id=user_id, exchange=ex, ticker=tk,
+                        sell_rsi_range=sell_range, count=count, budget=budget,
+                        user=user, group_no=group_no, bot=context.bot, notify_chat_id=user_id,
+                        trigger_sync_fn=main.trigger_realtime_sync,
+                    )
+                    results.append(f"✅ {idx}. [{exchange_display_name(ex)}] {tk} RSI 분할 매도 실행 완료")
+
+            elif act_type == "template_control":
+                t_id = act.get("template_id")
+                action = act.get("action")
+                path_map = {
+                    "run": f"/api/templates/{t_id}/run",
+                    "pause": f"/api/templates/{t_id}/pause",
+                    "stop_and_cancel": f"/api/templates/{t_id}/stop-cancel",
+                    "topup": f"/api/templates/{t_id}/topup",
+                }
+                api_path = path_map.get(action)
+                if api_path:
+                    body = {"amount_krw": act.get("amount_krw")} if action == "topup" else None
+                    is_adm = bool(user.get("is_admin", False))
+                    resp = await request_manager_api("POST", api_path, user_id, is_admin=is_adm, json_body=body)
+                    if resp.get("ok"):
+                        results.append(f"✅ {idx}. 전략 템플릿 #{t_id} {action} 완료")
+                    else:
+                        results.append(f"❌ {idx}. 전략 템플릿 #{t_id} 실패: {resp.get('error')}")
+                else:
+                    results.append(f"⚠️ {idx}. 지원되지 않는 템플릿 명령: {action}")
+
+            elif act_type == "update_config":
+                ckey = act.get("config_key")
+                cval = act.get("config_value")
+                main.user_manager.update_preference(user_id, ckey, cval)
+                results.append(f"✅ {idx}. 설정 변경 완료: {ckey} = {format_config_value(ckey, cval)}")
+
+            elif act_type == "watchlist_change":
+                act_str = act.get("action")
+                if act_str == "watch":
+                    changed = main.user_manager.add_watchlist(user_id, ex, tk)
+                    results.append(f"✅ {idx}. [{exchange_display_name(ex)}] {tk} 관심종목 등록 완료")
+                else:
+                    changed = main.user_manager.remove_watchlist(user_id, ex, tk)
+                    results.append(f"✅ {idx}. [{exchange_display_name(ex)}] {tk} 관심종목 해제 완료")
+
+            else:
+                results.append(f"⚠️ {idx}. 알 수 없는 작업 유형: {act_type}")
+
+        except Exception as e:
+            main._log.error("execute_confirmed_actions failed for act=%s: %s", act, e, exc_info=True)
+            results.append(f"❌ {idx}. 실행 오류 ({act_type}): {str(e)}")
+
+    summary_text = "🎉 **실행 결과 보고**\n\n" + "\n".join(results)
+    await query.edit_message_text(summary_text)
+
+
 async def execute_confirmed_intent(query, context, user, intent):
+    """기존 단일 intent 실행 함수 (하위 호환성 유지)."""
     user_id = str(query.from_user.id)
     action = intent.get("action")
     exchange = intent.get("exchange") or user.get("preferences", {}).get("default_exchange", "upbit")
@@ -388,17 +566,27 @@ async def execute_confirmed_intent(query, context, user, intent):
     await query.edit_message_text("⚠️ 이 자연어 요청은 아직 실행할 수 없습니다. /help에서 지원 명령을 확인해 주세요.")
 
 
-def _update_user_nl_context(context, user_text, intent):
+def _update_user_nl_context(context, user_text, outcome):
+    """대화 맥락 보관 (최대 4턴 슬라이딩 윈도우)."""
     if not context or not hasattr(context, "user_data") or context.user_data is None:
         return
     history = context.user_data.get("_nl_recent_context")
     if not isinstance(history, list):
         history = []
-    action = intent.get("action") if isinstance(intent, dict) else None
-    ticker = intent.get("ticker") if isinstance(intent, dict) else None
+
     history.append({"role": "user", "text": user_text})
-    if action:
+
+    if isinstance(outcome, AgentRunResult):
+        # 에이전트 결과
+        summary = outcome.reply_text[:100] if outcome.reply_text else ""
+        if outcome.proposed_actions:
+            summary = f"{len(outcome.proposed_actions)} actions proposed: {summary}"
+        history.append({"role": "bot", "action": "agent_loop", "summary": summary})
+    elif isinstance(outcome, dict):
+        action = outcome.get("action")
+        ticker = outcome.get("ticker")
         history.append({"role": "bot", "action": action, "ticker": ticker})
+
     context.user_data["_nl_recent_context"] = history[-4:]
 
 
@@ -413,6 +601,7 @@ async def natural_language_command(update: Update, context: ContextTypes.DEFAULT
 
     recent_context = context.user_data.get("_nl_recent_context", []) if context and hasattr(context, "user_data") and context.user_data else []
 
+    # 1. 패스트트랙: 단순 조회/룰 기반 전처리 적중 시 Gemini 호출 없이 0초대 즉시 응답
     preprocessed = preprocess_natural_language_intent(text, user)
     if preprocessed:
         append_preprocess_hit(preprocessed)
@@ -424,6 +613,8 @@ async def natural_language_command(update: Update, context: ContextTypes.DEFAULT
             append_natural_language_log(text, None, preprocessed, user_id=user_id, confirm_status="auto")
             await execute_query_intent(update, context, user, preprocessed)
             return
+
+        # 단순 룰 매칭으로 확인이 필요한 주문/취소인 경우
         intent = normalize_natural_language_intent(text, preprocessed, user)
         log_id = append_natural_language_log(text, None, intent, user_id=user_id, confirm_status="pending")
         confirm_text = f"🧠 자연어 요청 확인\n\n{_intent_summary(intent)}\n\n위 내용으로 실행할까요?"
@@ -434,46 +625,73 @@ async def natural_language_command(update: Update, context: ContextTypes.DEFAULT
         await update.message.reply_text(confirm_text, reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
+    # 2. Gemini 에이전트 활성화 여부 확인
     if not prefs.get("llm_enabled") or not has_gemini_key(user):
         await update.message.reply_text("💬 자연어 명령을 사용하려면 /config에서 Gemini API 키를 저장한 뒤 /config set llm_enabled on을 실행해 주세요.")
         return
 
-    llm_intent = await parse_natural_language_intent(text, user, recent_context=recent_context)
-    intent = normalize_natural_language_intent(text, llm_intent, user)
-    _update_user_nl_context(context, text, intent)
-    action = intent.get("action") if isinstance(intent, dict) else None
-    is_immediate = _is_immediate_intent(action)
-    confirm_status = "auto" if (not intent or action in [None, "clarify"] or is_immediate) else "pending"
-    log_id = append_natural_language_log(text, llm_intent, intent, user_id=user_id, confirm_status=confirm_status)
-    if not intent or action in [None, "clarify"]:
-        question = intent.get("question") if isinstance(intent, dict) else None
-        await update.message.reply_text(question or _clarify_message(text, intent))
+    # 3. Gemini Function Calling 멀티턴 에이전트 루프 진입
+    status_msg = await update.message.reply_text("🤖 AI가 요청을 분석하고 있습니다...")
+
+    agent_result = await run_nl_agent_loop(
+        text=text,
+        user=user,
+        user_id=user_id,
+        recent_context=recent_context,
+        exchange_adapter=main.exchange_adapter,
+        order_manager=main.order_manager,
+        signal_engine=main.signal_engine,
+        user_manager=main.user_manager,
+    )
+
+    _update_user_nl_context(context, text, agent_result)
+
+    # 호출된 도구 목록 요약 로깅
+    called_tools = [t.get("tool") for t in agent_result.tool_trace if t.get("tool")]
+    llm_action_summary = ", ".join(called_tools) if called_tools else "chat"
+
+    # 케이스 A: 쓰기 변경 제안이 없는 경우 (순수 복합 조회 / 분석 / 일반 대화)
+    if not agent_result.proposed_actions:
+        append_natural_language_log(
+            text,
+            {"action": llm_action_summary},
+            {"action": "answer"},
+            user_id=user_id,
+            confirm_status="auto",
+        )
+        await status_msg.edit_text(agent_result.reply_text or "요청을 처리했습니다.")
         return
 
-    if is_immediate:
-        await execute_query_intent(update, context, user, intent)
-        return
+    # 케이스 B: 쓰기 변경 제안이 존재하는 경우 (주문 / 취소 / 전략 실행 / 설정 변경 등)
+    log_id = append_natural_language_log(
+        text,
+        {"action": llm_action_summary},
+        {"action": "multi_action"},
+        user_id=user_id,
+        confirm_status="pending",
+    )
 
-    confirm_text = f"🧠 자연어 요청 확인\n\n{_intent_summary(intent)}\n\n위 내용으로 실행할까요?"
-    if action in ("rsitrade", "gridrsi", "sgridrsi"):
-        from handlers import strategy_handlers
-        status_msg = await update.message.reply_text(f"🔍 RSI 가격 분석 중...")
-        confirm_text = await strategy_handlers.build_rsigrid_confirm_summary(str(update.effective_chat.id), user, intent)
-        if not confirm_text:
-            await status_msg.edit_text("❌ RSI 가격 역산에 실패했습니다. 데이터를 불러올 수 없습니다.")
-            return
+    action_summaries = [_format_action_summary(a) for a in agent_result.proposed_actions]
+    confirm_text = (
+        f"{agent_result.reply_text}\n\n"
+        f"📋 **실행 계획 ({len(agent_result.proposed_actions)}건)**\n"
+        f"{'\n'.join(action_summaries)}\n\n"
+        f"위 작업을 실행할까요?"
+    )
 
     token = str(len(main._pending_nl_intents) + 1)
-    main._pending_nl_intents[token] = {"user_id": str(update.effective_chat.id), "intent": intent, "log_id": log_id}
-    keyboard = [[InlineKeyboardButton("✅ 실행", callback_data=f"nlrun|{token}"),
-                 InlineKeyboardButton("❌ 취소", callback_data=f"nlcancel|{token}")]]
-    if action in ("rsitrade", "gridrsi", "sgridrsi"):
-        await status_msg.edit_text(confirm_text, reply_markup=InlineKeyboardMarkup(keyboard))
-    else:
-        await update.message.reply_text(
-            confirm_text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-        )
+    main._pending_nl_intents[token] = {
+        "user_id": str(update.effective_chat.id),
+        "actions": agent_result.proposed_actions,
+        "log_id": log_id,
+        "reply_text": agent_result.reply_text,
+    }
+
+    keyboard = [[
+        InlineKeyboardButton("✅ 실행", callback_data=f"nlrun|{token}"),
+        InlineKeyboardButton("❌ 취소", callback_data=f"nlcancel|{token}"),
+    ]]
+    await status_msg.edit_text(confirm_text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 async def natural_language_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -498,7 +716,16 @@ async def natural_language_confirm_callback(update: Update, context: ContextType
         await query.edit_message_text("❌ 사용자 인증을 확인할 수 없습니다.")
         return
     update_natural_language_log_outcome(pending.get("log_id"), "confirmed")
+
     try:
-        await execute_confirmed_intent(query, context, user, pending["intent"])
+        if "actions" in pending:
+            # 멀티 액션 일괄 실행
+            await execute_confirmed_actions(query, context, user, pending["actions"])
+        elif "intent" in pending:
+            # 단일 intent 실행 (하위 호환)
+            await execute_confirmed_intent(query, context, user, pending["intent"])
+        else:
+            await query.edit_message_text("⚠️ 실행할 작업 데이터가 없습니다.")
     except Exception as e:
+        main._log.error("Execution failed: %s", e, exc_info=True)
         await query.edit_message_text(f"❌ 자연어 요청 실행 실패: {e}")

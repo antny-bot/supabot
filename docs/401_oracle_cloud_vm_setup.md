@@ -294,7 +294,31 @@ docker compose logs -f --tail=100
 - Oracle 콘솔 인스턴스 `사용자 이름` `ubuntu` 확인
 - 인스턴스 공인 IP 할당 확인
 
-## 5. Oracle 콘솔 후처리 체크리스트
+## 5. 자동 배포 스크립트(`deploy.sh`) 및 Cron 등록
+
+서버에서 소스를 원격(`origin/main`)과 비교하여 변경 커밋이 있을 때만 자동으로 재빌드 및 재기동하도록 cron을 설정합니다.
+
+### 스크립트 권한 부여 및 수동 테스트
+```bash
+chmod +x ~/supabot/scripts/deploy.sh
+bash ~/supabot/scripts/deploy.sh
+```
+
+### 새벽 4시 자동 배포 Cron 등록
+```bash
+crontab -e
+```
+맨 아래에 다음 내용 추가:
+```cron
+0 4 * * * /home/ubuntu/supabot/scripts/deploy.sh >> /home/ubuntu/supabot/data/deploy-cron.log 2>&1
+```
+
+### 배포 로그 확인
+```bash
+tail -n 100 -f ~/supabot/data/deploy-cron.log
+```
+
+## 6. Oracle 콘솔 후처리 체크리스트
 
 인스턴스 생성 후 Oracle 콘솔 확인:
 
@@ -305,7 +329,7 @@ docker compose logs -f --tail=100
 5. `80`, `443` 미사용 시 차단 유지
 6. Boot volume backup policy 활성화 확인
 
-## 6. 운영 시 주의사항
+## 7. 운영 시 주의사항
 
 - `data/users.json` 키 저장: `USER_SECRET_KEY` 설정 시 `enc:v1:` 암호화. `.env` 및 `users.json` 보안 권한 철저 관리.
 - 자동화 테스트: 실거래 엔드포인트 호출 금지 (mock 전용).

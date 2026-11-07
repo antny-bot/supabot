@@ -1,6 +1,8 @@
 import os
 import sys
 import asyncio
+import mimetypes
+mimetypes.inited = True
 import dotenv
 import dotenv.main
 import pytest
