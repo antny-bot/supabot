@@ -45,6 +45,18 @@ import StrategyFormModal from '../components/strategy/StrategyFormModal'
 import { STRATEGY_BADGE_LABELS } from '../components/strategy/strategyTypes'
 import { useToast } from '../contexts/ToastContext'
 import { krwFmt } from '../utils/formatters'
+import { usePersistedState } from '../hooks/usePersistedState'
+
+const OPERATIONS_EXCHANGE_FILTER_KEY = 'sbm_operations_exchange_filter'
+const OPERATIONS_STATUS_FILTER_KEY = 'sbm_operations_status_filter'
+
+function isTemplateActive(tpl: Template): boolean {
+  const p = (tpl.params || {}) as any
+  return (
+    p.strategy_status === 'active' ||
+    (p.strategy_status === undefined && p.schedule_enabled !== false)
+  )
+}
 import type { DateRangeValue } from '../components/ui/DateRangePicker'
 
 const DEFAULT_TIMELINE_RANGE: DateRangeValue = { mode: '30d', from: '', to: '' }
@@ -70,6 +82,16 @@ export default function Operations() {
 
   // 전략 관리 탭 내 서브필터: 'active' (운용 중) | 'archived' (보관함)
   const [subFilter, setSubFilter] = useState<'active' | 'archived'>('active')
+
+  // 운용 전략 필터 (거래소 다운콤보, 모두|On|Off) - localStorage에 조건 기억
+  const [exchangeFilter, setExchangeFilter] = usePersistedState<string>(
+    OPERATIONS_EXCHANGE_FILTER_KEY,
+    'all',
+  )
+  const [statusFilter, setStatusFilter] = usePersistedState<'all' | 'on' | 'off'>(
+    OPERATIONS_STATUS_FILTER_KEY,
+    'all',
+  )
 
   const [activeTab, setActiveTab] = useState(() => {
     return tabParam && ['rotation', 'ledger', 'batches', 'timeline'].includes(tabParam)
@@ -159,7 +181,42 @@ export default function Operations() {
     () => templates.filter((t) => (t.params as any)?.is_archived === true),
     [templates],
   )
-  const displayedTemplates = subFilter === 'active' ? activeTemplates : archivedTemplates
+  const exchangeOptions = useMemo(() => {
+    const baseExchanges = [
+      { value: 'all', label: '전체 거래소' },
+      { value: 'upbit', label: 'Upbit' },
+      { value: 'bithumb', label: 'Bithumb' },
+      { value: 'kis', label: 'KIS' },
+      { value: 'toss', label: 'TOSS' },
+    ]
+    const known = new Set(baseExchanges.map((o) => o.value.toLowerCase()))
+    const extraExchanges: { value: string; label: string }[] = []
+    templates.forEach((t) => {
+      const ex = (t.exchange || '').toLowerCase().trim()
+      if (ex && !known.has(ex)) {
+        known.add(ex)
+        extraExchanges.push({ value: ex, label: ex.toUpperCase() })
+      }
+    })
+    return [...baseExchanges, ...extraExchanges]
+  }, [templates])
+
+  const filteredActiveTemplates = useMemo(() => {
+    return activeTemplates.filter((tpl) => {
+      if (exchangeFilter && exchangeFilter !== 'all') {
+        if ((tpl.exchange || '').toLowerCase() !== exchangeFilter.toLowerCase()) {
+          return false
+        }
+      }
+      const active = isTemplateActive(tpl)
+      if (statusFilter === 'on' && !active) return false
+      if (statusFilter === 'off' && active) return false
+      return true
+    })
+  }, [activeTemplates, exchangeFilter, statusFilter])
+
+  const displayedTemplates = subFilter === 'active' ? filteredActiveTemplates : archivedTemplates
+  const isFiltered = exchangeFilter !== 'all' || statusFilter !== 'all'
 
   const selectedTemplate = templates.find((t) => t.id === selectedTemplateId)
   const isTopDca = selectedTemplate?.strategy_type === 'kospi_top_dca'
@@ -174,10 +231,7 @@ export default function Operations() {
   // 전략 가동 ON/OFF 토글 핸들러
   const handleToggleHolding = async (tpl: Template, e?: React.MouseEvent) => {
     if (e) e.stopPropagation()
-    const p = (tpl.params || {}) as any
-    const currentActive =
-      p.strategy_status === 'active' ||
-      (p.strategy_status === undefined && p.schedule_enabled !== false)
+    const currentActive = isTemplateActive(tpl)
     const nextHolding = currentActive
 
     setTogglingId(tpl.id)
@@ -436,7 +490,7 @@ export default function Operations() {
       {viewMode === 'management' && (
         <div className="space-y-4">
           {/* 운용 중 vs 보관함 서브 탭 */}
-          <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-2">
             <div className="flex items-center gap-1">
               <button
                 type="button"
@@ -455,7 +509,9 @@ export default function Operations() {
                       : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
                   }`}
                 >
-                  {activeTemplates.length}
+                  {isFiltered && subFilter === 'active'
+                    ? `${filteredActiveTemplates.length}/${activeTemplates.length}`
+                    : activeTemplates.length}
                 </span>
               </button>
               <button
@@ -482,11 +538,52 @@ export default function Operations() {
                 )}
               </button>
             </div>
-            <div className="text-xs text-slate-400 hidden sm:block">
-              {subFilter === 'active'
-                ? '카드의 [관제 열기 →]를 클릭하면 실시간 워크벤치로 즉시 전환됩니다.'
-                : '보관된 전략은 자동 실행이 중지되며 언제든 복원하거나 삭제할 수 있습니다.'}
-            </div>
+            {/* 운용 전략 전용 필터: 거래소 다운콤보 + 모두 | On | Off 세그먼트 */}
+            {subFilter === 'active' ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={exchangeFilter}
+                  onChange={(e) => setExchangeFilter(e.target.value)}
+                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 outline-none transition-colors hover:border-slate-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                  aria-label="거래소 필터"
+                >
+                  {exchangeOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+
+                <SegmentedControl
+                  size="sm"
+                  options={[
+                    { id: 'all', label: '모두' },
+                    { id: 'on', label: 'On' },
+                    { id: 'off', label: 'Off' },
+                  ]}
+                  value={statusFilter}
+                  onChange={(v) => setStatusFilter(v as 'all' | 'on' | 'off')}
+                />
+
+                {isFiltered && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExchangeFilter('all')
+                      setStatusFilter('all')
+                    }}
+                    className="text-[11px] font-medium text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 underline underline-offset-2 ml-0.5 whitespace-nowrap break-keep"
+                    title="필터 조건 초기화"
+                  >
+                    초기화
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="text-xs text-slate-400 hidden sm:block">
+                보관된 전략은 자동 실행이 중지되며 언제든 복원하거나 삭제할 수 있습니다.
+              </div>
+            )}
           </div>
 
           {loading && displayedTemplates.length === 0 ? (
@@ -501,22 +598,38 @@ export default function Operations() {
               <h3 className="mt-3 text-sm font-semibold text-slate-800 dark:text-slate-200">
                 {subFilter === 'archived'
                   ? '보관된 전략이 없습니다.'
+                  : isFiltered
+                  ? '필터 조건에 일치하는 운용 전략이 없습니다.'
                   : '등록된 운용 전략이 없습니다.'}
               </h3>
               <p className="mt-1 text-xs text-slate-500">
                 {subFilter === 'archived'
                   ? '완료되었거나 사용하지 않는 전략을 보관함으로 이동해 보관하거나 영구 삭제할 수 있습니다.'
+                  : isFiltered
+                  ? '거래소 또는 On/Off 필터 조건을 변경하거나 초기화해 보세요.'
                   : '상단의 [단일 종목 전략] 또는 [복수 종목 전략]을 클릭하여 새로운 자동매매 전략을 등록하세요.'}
               </p>
+              {subFilter === 'active' && isFiltered && (
+                <div className="mt-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExchangeFilter('all')
+                      setStatusFilter('all')
+                    }}
+                    className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
+                  >
+                    필터 초기화
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {displayedTemplates.map((tpl) => {
                 const p = (tpl.params || {}) as any
                 const isSelected = tpl.id === selectedTemplateId
-                const isActive =
-                  p.strategy_status === 'active' ||
-                  (p.strategy_status === undefined && p.schedule_enabled !== false)
+                const isActive = isTemplateActive(tpl)
                 const isDca = tpl.strategy_type === 'dca' || tpl.strategy_type === 'sdca'
                 const isTop = tpl.strategy_type === 'kospi_top_dca'
                 const isVolume =

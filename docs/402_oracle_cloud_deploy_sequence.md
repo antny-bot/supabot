@@ -13,6 +13,8 @@ Oracle Cloud VM Supabot 실배포 순서 가이드.
 
 두 컴포넌트는 동일한 Supabase Postgres DB를 공유합니다. 이 문서는 bot / Oracle VM 쪽에 집중합니다.
 
+> **운영 배포 방식 (중요)**: Oracle VM은 **cron으로 직접 빌드·반영**합니다. 릴리즈(`bot-v*`) 후 수동 `docker compose pull`/`up -d` 배포는 불필요합니다. 에이전트는 릴리즈 태그 생성·GHCR 빌드까지만 수행하고 VM 배포 단계는 생략합니다. (아래 수동 배포 절차는 초기 구축·장애 복구용)
+
 ## 1. Oracle 콘솔에서 인스턴스 생성 및 확인
 
 Oracle Cloud 콘솔 Supabot용 VM 생성.

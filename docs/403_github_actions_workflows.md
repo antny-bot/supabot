@@ -44,7 +44,7 @@
 
 주의:
 
-- bot 워크플로는 이미지 빌드 및 GHCR 푸시만 담당하며, Oracle Cloud VM에서 수동 `docker compose pull`을 통해 배포합니다.
+- bot 워크플로는 이미지 빌드 및 GHCR 푸시만 담당합니다. Oracle Cloud VM은 cron으로 직접 빌드·반영하므로 수동 `docker compose pull` 배포는 불필요합니다.
 
 ## Build Manager
 

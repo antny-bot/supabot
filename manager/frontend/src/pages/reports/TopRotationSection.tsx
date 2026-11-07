@@ -607,10 +607,17 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
 
                       {/* 당일 매수 성공/매도 결과 뱃지 */}
                       {hasBuys ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2.5 py-0.5 text-[11px] font-bold text-rose-600 dark:bg-rose-950/40 dark:text-rose-400">
-                          <Check size={12} />
-                          매수 성공 {flow.buys.length}건 ({flow.buys.map((b) => `${b.name} ${b.volume}주`).join(', ')})
-                        </span>
+                        flow.buys.every((b) => b.status && b.status !== 'done') ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2.5 py-0.5 text-[11px] font-bold text-violet-600 dark:bg-violet-950/40 dark:text-violet-400">
+                            <Clock size={12} />
+                            매수 예약·대기 {flow.buys.length}건 ({flow.buys.map((b) => `${b.name} ${b.volume}주`).join(', ')})
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2.5 py-0.5 text-[11px] font-bold text-rose-600 dark:bg-rose-950/40 dark:text-rose-400">
+                            <Check size={12} />
+                            매수 성공 {flow.buys.length}건 ({flow.buys.map((b) => `${b.name} ${b.volume}주`).join(', ')})
+                          </span>
+                        )
                       ) : (
                         <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                           당일 매수 없음 (예산 이월)
