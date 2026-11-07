@@ -136,11 +136,29 @@ export interface SupabaseHealthStats {
   table_counts?: Record<string, number>
 }
 
+export interface BackupHealthStats {
+  enabled: boolean
+  health_grade: 'HEALTHY' | 'WARNING' | 'CRITICAL' | 'DISABLED' | string
+  health_message: string
+  last_status: 'success' | 'partial_error' | 'error' | 'none' | string
+  last_success_at: string | null
+  last_backup_file?: string | null
+  last_backup_size?: number
+  last_error?: string | null
+  schedule_type?: 'interval' | 'weekly'
+  interval_hours?: number
+  days_of_week?: number[]
+  time_of_day?: string
+  gdrive_enabled?: boolean
+  total_rows?: number
+}
+
 export interface DashboardData {
   stats: DashboardStats
   recent_events: Event[]
   mfa_enabled?: boolean
   db_health?: SupabaseHealthStats
+  backup_health?: BackupHealthStats
 }
 
 export interface TradeSummary {

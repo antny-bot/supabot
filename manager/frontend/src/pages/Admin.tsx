@@ -38,6 +38,7 @@ import { UsersContent } from './Users'
 import NlLogsSection from './reports/NlLogsSection'
 import AdminFeedbacksTab from './admin/AdminFeedbacksTab'
 import AdminBackupTab from './admin/AdminBackupTab'
+import BackupHealthCard from '../components/backup/BackupHealthCard'
 
 const Analytics = lazy(() => import('./Analytics'))
 
@@ -155,7 +156,7 @@ function SupabaseHealthCard({ health }: { health?: SupabaseHealthStats }) {
   )
 }
 
-function DashboardTab() {
+function DashboardTab({ onSelectTab }: { onSelectTab?: (tab: string) => void } = {}) {
   const [data, setData] = useState<DashboardData | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pendingEventId, setPendingEventId] = useState<number | null>(null)
@@ -240,8 +241,15 @@ function DashboardTab() {
 
           {/* Bento Grid: 인프라 상태(4) + 최근 이벤트(8) */}
           <div className="grid gap-5 lg:grid-cols-12">
-            <div className="lg:col-span-4">
+            <div className="lg:col-span-4 flex flex-col gap-4">
               <SupabaseHealthCard health={data.db_health} />
+              {data.backup_health && (
+                <BackupHealthCard
+                  healthData={data.backup_health}
+                  showDetailLink
+                  onClick={() => onSelectTab?.('backup')}
+                />
+              )}
             </div>
 
             <div className="lg:col-span-8 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
@@ -716,7 +724,7 @@ export default function Admin() {
       <ResponsiveTabs tabs={ADMIN_TABS} activeTab={activeTab} onChange={setActiveTab} />
 
       <div key={activeTab} className="animate-fade-in-up">
-        {activeTab === 'dashboard'   && <DashboardTab />}
+        {activeTab === 'dashboard'   && <DashboardTab onSelectTab={setActiveTab} />}
         {activeTab === 'analytics'   && (
           <Suspense
             fallback={

@@ -75,3 +75,11 @@ export async function triggerBackup(): Promise<any> {
 export function getBackupDownloadUrl(filename: string): string {
   return `/api/backup/download/${encodeURIComponent(filename)}`
 }
+
+export async function fetchBackupHealth(): Promise<any> {
+  const res = await fetch('/api/backup/health')
+  if (!res.ok) {
+    throw new Error('백업 헬스 정보를 불러오는 데 실패했습니다.')
+  }
+  return res.json()
+}

@@ -29,6 +29,7 @@ import {
 } from 'recharts'
 import DonutChart from '../components/ui/DonutChart'
 import BudgetHealthCard, { type BudgetHealthData } from '../components/budget/BudgetHealthCard'
+import BackupHealthCard from '../components/backup/BackupHealthCard'
 import { fetchBudgetHealth } from '../api/templates'
 import { fetchDashboard } from '../api/dashboard'
 import { fetchReportHoldings, fetchReportDaily, fetchReportAllocation } from '../api/reports'
@@ -296,11 +297,11 @@ export default function Dashboard() {
       </div>
 
       {/* =========================================================================
-          [2] 통합 예수금 Health Check 카드 & 4대 핵심 지표 요약 바
+          [2] 통합 예수금 & 백업 스케줄러 Health Check 카드 & 4대 핵심 지표 요약 바
           ========================================================================= */}
       <div className="grid gap-5 md:grid-cols-12 md:gap-4 min-w-0 w-full">
         {/* 거래소별 통합 예수금 Health Check 카드 (클릭 시 감사 원장 리포트 직행) */}
-        <div className="col-span-12">
+        <div className={data?.backup_health ? "col-span-12 xl:col-span-6" : "col-span-12"}>
           <BudgetHealthCard
             healthData={budgetHealth}
             loading={loading && !budgetHealth}
@@ -308,6 +309,18 @@ export default function Dashboard() {
             onClick={() => navigate('/operations?tab=ledger')}
           />
         </div>
+
+        {/* Supabase 정기 백업 스케줄러 Health Check 카드 (클릭 시 관리자 백업 관리 직행) */}
+        {data?.backup_health && (
+          <div className="col-span-12 xl:col-span-6">
+            <BackupHealthCard
+              healthData={data.backup_health}
+              loading={loading && !data.backup_health}
+              showDetailLink
+              onClick={() => navigate('/admin?tab=backup')}
+            />
+          </div>
+        )}
 
         <div className="hidden md:contents">
         {loading && !data ? (

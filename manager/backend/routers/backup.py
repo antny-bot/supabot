@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from ..bot_client import get_bot_backup_status, trigger_bot_backup
 from ..db import get_db
-from ._auth import get_admin_user
+from ._auth import get_admin_user, get_current_user
 
 router = APIRouter()
 
@@ -200,3 +200,11 @@ async def api_download_backup(filename: str, _=Depends(get_admin_user)):
         filename=filename,
         media_type="application/zip",
     )
+
+
+@router.get("/api/backup/health")
+async def api_get_backup_health(_=Depends(get_current_user)):
+    """백업 스케줄러 Health 정보 조회 (대시보드 공통)."""
+    from .dashboard import _build_backup_health
+    health = await _build_backup_health(get_db())
+    return JSONResponse(health)
