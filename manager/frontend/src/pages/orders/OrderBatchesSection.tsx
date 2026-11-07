@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import {
   ChevronDown,
   ChevronUp,
@@ -9,8 +9,10 @@ import {
   TrendingUp,
 } from 'lucide-react'
 import { fetchOrderBatches } from '../../api/orders'
+import { fetchTemplates, type Template } from '../../api/templates'
 import Badge from '../../components/ui/Badge'
 import ProgressBar from '../../components/ui/ProgressBar'
+import ResponsiveTabs from '../../components/ui/ResponsiveTabs'
 import Spinner from '../../components/ui/Spinner'
 import type { OrderBatchItem } from '../../types'
 import { krwFmt } from '../../utils/formatters'
@@ -19,9 +21,19 @@ interface Props {
   onSelectGroupNo: (groupNo: number, batch: OrderBatchItem) => void
   initialGroupNo?: number
   templateId?: number
+  onSelectTemplateId?: (templateId?: number) => void
 }
 
-export default function OrderBatchesSection({ onSelectGroupNo, initialGroupNo, templateId }: Props) {
+export default function OrderBatchesSection({
+  onSelectGroupNo,
+  initialGroupNo,
+  templateId,
+  onSelectTemplateId,
+}: Props) {
+  const [selectedTemplateId, setSelectedTemplateId] = useState<number | undefined>(templateId)
+  const [templates, setTemplates] = useState<Template[]>([])
+  const [showAllTemplates, setShowAllTemplates] = useState(false)
+
   const [batches, setBatches] = useState<OrderBatchItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -29,6 +41,76 @@ export default function OrderBatchesSection({ onSelectGroupNo, initialGroupNo, t
   const [pageSize] = useState(20)
   const [totalPages, setTotalPages] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
+
+  // 외부 props templateId 변경 시 동기화
+  useEffect(() => {
+    setSelectedTemplateId(templateId)
+  }, [templateId])
+
+  // 전략 템플릿 목록 로드
+  useEffect(() => {
+    let cancelled = false
+    fetchTemplates()
+      .then((list) => {
+        if (!cancelled) {
+          setTemplates(Array.isArray(list) ? list : [])
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to load strategy templates for batch tabs:', err)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // 활성(Active: ON) 전략 판별
+  const isTemplateActive = useCallback((tpl: Template) => {
+    const p = (tpl.params || {}) as Record<string, any>
+    if (p.is_archived) return false
+    if (p.strategy_status === 'active') return true
+    if (p.strategy_status === undefined && p.schedule_enabled !== false) return true
+    return false
+  }, [])
+
+  // 시트 탭 목록 구성
+  const tabs = useMemo(() => {
+    const items = [{ id: 'all', label: '전체' }]
+
+    // 기본적으로 active(활성)된 전략만 노출하며, showAllTemplates가 켜지면 보관되지 않은 전체 노출
+    const candidateList = templates.filter((tpl) => {
+      const p = (tpl.params || {}) as Record<string, any>
+      if (p.is_archived) return false
+      return showAllTemplates ? true : isTemplateActive(tpl)
+    })
+
+    // 현재 선택된 전략이 candidateList에 없다면 강제로 포함시켜 탭이 깨지지 않도록 방어
+    const currentTpl = selectedTemplateId ? templates.find((t) => t.id === selectedTemplateId) : null
+    if (currentTpl && !candidateList.some((t) => t.id === currentTpl.id)) {
+      candidateList.push(currentTpl)
+    }
+
+    // 템플릿 ID 오름차순 정렬
+    candidateList.sort((a, b) => a.id - b.id)
+
+    candidateList.forEach((t) => {
+      const active = isTemplateActive(t)
+      items.push({
+        id: String(t.id),
+        label: `전략 #${t.id} ${t.name}${active ? '' : ' (비활성)'}`,
+      })
+    })
+
+    return items
+  }, [templates, showAllTemplates, selectedTemplateId, isTemplateActive])
+
+  // 탭 변경 핸들러
+  const handleTabChange = (tabId: string) => {
+    const nextId = tabId === 'all' ? undefined : Number(tabId)
+    setSelectedTemplateId(nextId)
+    setPage(1)
+    onSelectTemplateId?.(nextId)
+  }
 
   // 배치의 고유 식별자 키 생성 (template_id와 group_no의 조합으로 중복 방지)
   const getBatchKey = (batch: OrderBatchItem) => `${batch.template_id ?? 'solo'}_${batch.group_no}`
@@ -39,13 +121,13 @@ export default function OrderBatchesSection({ onSelectGroupNo, initialGroupNo, t
   useEffect(() => {
     setPage(1)
     setExpandedBatches(new Set())
-  }, [templateId])
+  }, [selectedTemplateId])
 
   const loadBatches = useCallback(
     async (showSpinner = false) => {
       if (showSpinner) setLoading(true)
       try {
-        const res = await fetchOrderBatches(templateId, undefined, page, pageSize)
+        const res = await fetchOrderBatches(selectedTemplateId, undefined, page, pageSize)
         const list = res.batches || []
         setBatches(list)
         setTotalPages(res.total_pages || 1)
@@ -57,14 +139,14 @@ export default function OrderBatchesSection({ onSelectGroupNo, initialGroupNo, t
           const matched = list.find(
             (b: OrderBatchItem) =>
               b.group_no === initialGroupNo &&
-              (templateId === undefined || b.template_id === templateId),
+              (selectedTemplateId === undefined || b.template_id === selectedTemplateId),
           )
           if (matched) {
             setExpandedBatches(new Set([getBatchKey(matched)]))
-          } else if (templateId !== undefined && list.length > 0) {
+          } else if (selectedTemplateId !== undefined && list.length > 0) {
             setExpandedBatches(new Set([getBatchKey(list[0])]))
           }
-        } else if (templateId !== undefined && list.length > 0) {
+        } else if (selectedTemplateId !== undefined && list.length > 0) {
           setExpandedBatches(new Set([getBatchKey(list[0])]))
         }
       } catch (e) {
@@ -73,7 +155,7 @@ export default function OrderBatchesSection({ onSelectGroupNo, initialGroupNo, t
         if (showSpinner) setLoading(false)
       }
     },
-    [templateId, page, pageSize, initialGroupNo],
+    [selectedTemplateId, page, pageSize, initialGroupNo],
   )
 
   useEffect(() => {
@@ -118,6 +200,51 @@ export default function OrderBatchesSection({ onSelectGroupNo, initialGroupNo, t
           <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
           <span>새로고침</span>
         </button>
+      </div>
+
+      {/* 전략별 시트 탭 (ResponsiveTabs) */}
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
+          <div className="flex-1 min-w-0">
+            <ResponsiveTabs
+              tabs={tabs}
+              activeTab={selectedTemplateId ? String(selectedTemplateId) : 'all'}
+              onChange={handleTabChange}
+            />
+          </div>
+          <label className="flex items-center gap-1.5 self-end sm:self-center text-xs text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 cursor-pointer select-none whitespace-nowrap break-keep shrink-0 pb-1 sm:pb-0">
+            <input
+              type="checkbox"
+              checked={showAllTemplates}
+              onChange={(e) => setShowAllTemplates(e.target.checked)}
+              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800"
+            />
+            <span>비활성 전략 포함</span>
+          </label>
+        </div>
+
+        {/* 선택된 전략이 있는 경우 정보 표시 */}
+        {selectedTemplateId !== undefined && (
+          <div className="flex items-center justify-between rounded-xl bg-indigo-50/70 px-3.5 py-2 text-xs text-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200 border border-indigo-100 dark:border-indigo-900/40">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-bold">선택된 전략:</span>
+              <span className="font-semibold text-indigo-700 dark:text-indigo-300">
+                {templates.find((t) => t.id === selectedTemplateId)?.name || `전략 #${selectedTemplateId}`}
+              </span>
+              <span className="text-slate-400">·</span>
+              <span className="text-slate-600 dark:text-slate-400">
+                해당 전략에서 실행된 배치 주문만 모아보고 있습니다. (총 {totalCount}개 회차)
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleTabChange('all')}
+              className="font-semibold text-indigo-600 hover:underline dark:text-indigo-400 whitespace-nowrap break-keep ml-2"
+            >
+              전체 보기
+            </button>
+          </div>
+        )}
       </div>
 
       {error && (
