@@ -668,6 +668,10 @@ async def api_execute_template(template_id: int, user: dict = Depends(get_curren
             if max_runs is None and int(tpl.get("count") or 0) > 0:
                 max_runs = int(tpl["count"])
             per_order_amount = float(params.get("per_order_budget") or tpl["budget"])
+            order_type = str(params.get("order_type") or params.get("order_price_mode") or "limit").lower()
+            if order_type not in ("market", "limit"):
+                order_type = "market" if "market" in order_type else "limit"
+            carryover_mode = str(params.get("carryover_mode") or "next_day").lower()
             res = execute_dca(
                 user_id=tpl["user_id"],
                 exchange=tpl["exchange"],
@@ -679,6 +683,8 @@ async def api_execute_template(template_id: int, user: dict = Depends(get_curren
                 exec_time=params.get("exec_time", "09:05"),
                 max_runs=max_runs,
                 template_id=template_id,
+                order_type=order_type,
+                carryover_mode=carryover_mode,
             )
             success, err_msg = (await res) if inspect.isawaitable(res) else res
             msg = "정기 적립식 매수 전략이 등록되었습니다." if side == "bid" else "정기 분할 매도 전략이 등록되었습니다."

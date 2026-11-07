@@ -137,6 +137,8 @@ class UpbitExchange(BaseExchange):
         return res if isinstance(res, list) else None
 
     async def create_order(self, user_id, client, ticker, side, price, volume, ord_type="limit"):
+        if ord_type == "market" and side in ("bid", "buy", "매수"):
+            ord_type = "price"
         args = ["--market", ticker, "--side", side, "--ord-type", ord_type]
         if ord_type != "price":
             args.extend(["--volume", str(volume)])

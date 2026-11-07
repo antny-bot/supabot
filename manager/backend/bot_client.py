@@ -207,6 +207,8 @@ async def execute_dca(
     exec_time: str = "09:05",
     max_runs: int | None = None,
     template_id: int | None = None,
+    order_type: str = "limit",
+    carryover_mode: str = "next_day",
 ) -> tuple[bool, str]:
     """Send DCA/SDCA periodic strategy registration request via /internal/execute_dca."""
     try:
@@ -220,6 +222,8 @@ async def execute_dca(
             "amount": amount,
             "exec_time": exec_time,
             "max_runs": max_runs,
+            "order_type": order_type,
+            "carryover_mode": carryover_mode,
         }
         if template_id is not None:
             payload["template_id"] = template_id

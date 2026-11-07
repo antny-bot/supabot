@@ -16,6 +16,8 @@ export interface TemplateFormState {
   dcaSchedule: string
   dcaExecTime: string
   dcaAmountType: 'budget' | 'volume'
+  dcaOrderType: 'limit' | 'market'
+  dcaCarryoverMode: 'next_day' | 'delay_20m' | 'skip'
   topMarket: string
   rankStart: string
   rankEnd: string
@@ -51,6 +53,8 @@ export const DEFAULT_SINGLE_FORM: TemplateFormState = {
   dcaSchedule: '매일',
   dcaExecTime: '09:05',
   dcaAmountType: 'budget',
+  dcaOrderType: 'limit',
+  dcaCarryoverMode: 'next_day',
   topMarket: 'KOSPI',
   rankStart: '1',
   rankEnd: '10',
@@ -156,6 +160,9 @@ export function buildPayload(form: TemplateFormState) {
       amount_type: form.dcaAmountType,
       max_runs: maxRuns,
       side: stype === 'sdca' ? 'ask' : 'bid',
+      order_type: form.dcaOrderType || 'limit',
+      order_price_mode: form.dcaOrderType || 'limit',
+      carryover_mode: form.dcaCarryoverMode || 'next_day',
       ...(isBidBudget
         ? {
             per_order_budget: payload.budget,
@@ -259,5 +266,7 @@ export function templateToForm(template: Template): TemplateFormState {
     scheduleEnabled: p.schedule_enabled !== undefined ? Boolean(p.schedule_enabled) : true,
     isDryRun: Boolean(p.is_dry_run),
     dcaPlanBudget: formatWithCommas(p.monthly_budget ?? (Number(rawBudget || 0) * 10 || 1000000)),
+    dcaOrderType: (p.order_type === 'market' || p.order_price_mode === 'market') ? 'market' : 'limit',
+    dcaCarryoverMode: p.carryover_mode === 'delay_20m' || p.carryover_mode === 'skip' ? p.carryover_mode : 'next_day',
   }
 }

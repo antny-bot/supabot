@@ -48,6 +48,7 @@ _WEEKDAY_TOKEN_MAP = {
 
 DEFAULT_DCA_EXEC_TIME = "09:05"
 _DCA_RETRY_DELAY_SECONDS = 300
+_DCA_SIDECAR_RETRY_SECONDS = 1200  # 20분 (서킷브레이커/사이드카 매매정지 대기)
 _DCA_MAX_CONSECUTIVE_FAILS = 3
 _dca_fail_counts: dict[str, int] = {}
 
@@ -69,10 +70,12 @@ def parse_dca_schedule(raw: str) -> dict:
     if text in ("매일", "매일마다", "daily", "every", "everyday", "1d"):
         return {"frequency": "daily", "days_of_week": None, "day_of_month": None}
 
-    # 2. 평일 / 주말
-    if text in ("평일", "주중", "weekdays", "weekday"):
+    # 2. 평일 / 주말 및 전체 요일 표현
+    if text in ("매일", "매일마다", "daily", "every", "everyday", "1d", "월~일", "월-일", "월/일", "월~일요일"):
+        return {"frequency": "daily", "days_of_week": None, "day_of_month": None}
+    if text in ("평일", "주중", "weekdays", "weekday", "월~금", "월-금", "월~금요일"):
         return {"frequency": "days", "days_of_week": [0, 1, 2, 3, 4], "day_of_month": None}
-    if text in ("주말", "weekend", "weekends"):
+    if text in ("주말", "weekend", "weekends", "토~일", "토-일", "토,일", "토일"):
         return {"frequency": "days", "days_of_week": [5, 6], "day_of_month": None}
 
     # 3. 매월 N일 / 말일
@@ -93,23 +96,48 @@ def parse_dca_schedule(raw: str) -> dict:
         return {"frequency": "weekly", "days_of_week": [0], "day_of_month": None}
 
     cleaned = re.sub(r"^(?:매주|주간|weekly)[:\s_-]*", "", text).strip()
-    if "," in cleaned or "/" in cleaned or "·" in cleaned:
-        parts = [p.strip() for p in re.split(r"[,/·]+", cleaned) if p.strip()]
+
+    # 요일 범위 (예: "월~금", "월-금", "월~목", "화~금", "월~일")
+    m_range = re.match(r"^([월화수목금토일](?:요일)?)\s*[~-]\s*([월화수목금토일](?:요일)?)$", cleaned)
+    if m_range:
+        start_tok = m_range.group(1).rstrip("요일")
+        end_tok = m_range.group(2).rstrip("요일")
+        start_d = _WEEKDAY_TOKEN_MAP[start_tok]
+        end_d = _WEEKDAY_TOKEN_MAP[end_tok]
+        if start_d <= end_d:
+            range_days = list(range(start_d, end_d + 1))
+        else:
+            range_days = list(range(start_d, 7)) + list(range(0, end_d + 1))
+        if len(range_days) == 7:
+            return {"frequency": "daily", "days_of_week": None, "day_of_month": None}
+        return {"frequency": "weekly" if len(range_days) == 1 else "days", "days_of_week": range_days, "day_of_month": None}
+
+    if any(sep in cleaned for sep in (",", "/", "·", " ", "+")):
+        parts = [p.strip() for p in re.split(r"[,/·\s+]+", cleaned) if p.strip()]
         days = []
         for p in parts:
-            if p not in _WEEKDAY_TOKEN_MAP:
+            p_clean = p.rstrip("요일")
+            if p_clean in _WEEKDAY_TOKEN_MAP:
+                days.append(_WEEKDAY_TOKEN_MAP[p_clean])
+            elif p in _WEEKDAY_TOKEN_MAP:
+                days.append(_WEEKDAY_TOKEN_MAP[p])
+            else:
                 raise ValueError(f"알 수 없는 요일입니다: {p}")
-            days.append(_WEEKDAY_TOKEN_MAP[p])
         unique_days = sorted(set(days))
+        if len(unique_days) == 7:
+            return {"frequency": "daily", "days_of_week": None, "day_of_month": None}
         freq = "weekly" if len(unique_days) == 1 else "days"
         return {"frequency": freq, "days_of_week": unique_days, "day_of_month": None}
 
-    if cleaned in _WEEKDAY_TOKEN_MAP:
-        return {"frequency": "weekly", "days_of_week": [_WEEKDAY_TOKEN_MAP[cleaned]], "day_of_month": None}
+    cleaned_no_yoil = cleaned.rstrip("요일")
+    if cleaned_no_yoil in _WEEKDAY_TOKEN_MAP:
+        return {"frequency": "weekly", "days_of_week": [_WEEKDAY_TOKEN_MAP[cleaned_no_yoil]], "day_of_month": None}
 
     # 붙여 쓴 한글 요일 조합 (예: "월수금", "화목", "월화수목금")
     if all(ch in "월화수목금토일" for ch in cleaned) and len(cleaned) >= 1:
         unique_days = sorted({_WEEKDAY_TOKEN_MAP[ch] for ch in cleaned})
+        if len(unique_days) == 7:
+            return {"frequency": "daily", "days_of_week": None, "day_of_month": None}
         freq = "weekly" if len(unique_days) == 1 else "days"
         return {"frequency": freq, "days_of_week": unique_days, "day_of_month": None}
 
@@ -344,13 +372,26 @@ class DcaManager:
         if not is_db_available() or not self._db_table_supported:
             return
 
-        sched_copy = {k: v for k, v in sched.items() if k != "template_id"}
+        sched_copy = {
+            k: v for k, v in sched.items()
+            if k not in ("template_id", "is_carryover", "carryover_reason", "carryover_count")
+        }
 
         async def _run():
             try:
                 await get_db().table("dca_schedules").upsert(sched_copy).execute_async()
             except Exception as e:
-                _log.warning("Failed to upsert dca_schedule to DB (using file fallback): %s", e)
+                try:
+                    basic_keys = {
+                        "id", "user_id", "exchange", "ticker", "side", "frequency",
+                        "days_of_week", "day_of_month", "exec_time", "amount_type",
+                        "amount", "max_runs", "run_count", "status", "group_no",
+                        "next_run_at", "last_run_at", "created_at"
+                    }
+                    fallback_copy = {k: v for k, v in sched_copy.items() if k in basic_keys}
+                    await get_db().table("dca_schedules").upsert(fallback_copy).execute_async()
+                except Exception as e2:
+                    _log.warning("Failed to upsert dca_schedule to DB (using file fallback): %s", e2)
 
         try:
             loop = asyncio.get_running_loop()
@@ -434,6 +475,8 @@ class DcaManager:
         max_runs: int | None = None,
         group_no: int | None = None,
         template_id: int | None = None,
+        order_type: str = "limit",
+        carryover_mode: str = "next_day",
         now: float | None = None,
     ) -> dict:
         now_ts = float(now if now is not None else time.time())
@@ -448,6 +491,8 @@ class DcaManager:
         if group_no is None:
             group_no = self.get_next_group_no(user_id)
         sched_id = f"dca_{_uuid.uuid4().hex[:8]}"
+        norm_order_type = "market" if str(order_type or "").lower() in ("market", "시장가") else "limit"
+        norm_carryover = str(carryover_mode or "").lower() if str(carryover_mode or "").lower() in ("delay_20m", "next_day", "skip") else "next_day"
         sched = {
             "id": sched_id,
             "user_id": str(user_id),
@@ -467,6 +512,8 @@ class DcaManager:
             "status": "active",
             "group_no": int(group_no),
             "created_at": now_ts,
+            "order_type": norm_order_type,
+            "carryover_mode": norm_carryover,
         }
         if template_id is not None:
             sched["template_id"] = int(template_id)
@@ -626,17 +673,30 @@ async def execute_due_dca_schedules(
         if not dca_manager.get_schedule(sched_id):
             continue
 
-        # 1. 글로벌 거래 중지(kill-switch) 확인
-        if trading_gate.is_trading_halted():
-            dca_manager.defer_schedule(sched_id, now_val + _DCA_RETRY_DELAY_SECONDS)
-            continue
-
         user_id = str(sched["user_id"])
         exchange = sched["exchange"]
         ticker = sched["ticker"]
         side = sched.get("side", "bid")
         action_label = "매수" if side == "bid" else "매도"
         ex_label = exchange_display_name(exchange)
+        carry_mode = sched.get("carryover_mode", "next_day")
+        order_type = sched.get("order_type", "limit")
+
+        # 1. 글로벌 거래 중지(kill-switch) 및 사이드카/서킷브레이커 일시정지 확인 (+20분 이월)
+        if trading_gate.is_trading_halted():
+            retry_ts = now_val + _DCA_SIDECAR_RETRY_SECONDS
+            dca_manager.defer_schedule(sched_id, retry_ts)
+            sched["is_carryover"] = True
+            sched["carryover_reason"] = "sidecar_halt"
+            dca_manager._db_upsert(sched)
+            retry_dt = datetime.fromtimestamp(retry_ts, tz=KST).strftime("%H:%M")
+            await _safe_notify(
+                application, user_id,
+                f"⚠️ [{ex_label}] {ticker} 정기 {action_label} 일시 보류 (+20분 이월)\n"
+                f"• 사유: 시장 거래 일시정지(사이드카/서킷브레이커 등) 감지\n"
+                f"• 이월 조치: 20분 뒤({retry_dt} KST)에 주문을 다시 시도합니다.",
+            )
+            continue
 
         user = user_manager.get_user(user_id)
         if not user or not user.get("is_active"):
@@ -651,12 +711,35 @@ async def execute_due_dca_schedules(
         if exchange == "toss" and str(ticker).isdigit():
             await exchange_adapter.ensure_toss_kr_calendar(user_id)
 
-        # 2. 주식 거래소 정규장 오픈 여부 확인 -> 휴장일/장외 시간이면 다음 개장 시각으로 연기
+        # 2. 거래소 정규장 오픈 여부 확인 -> 휴장일/임시공휴일/장외 시간 이월 처리
         if not ex_obj.is_market_open(ticker) or not getattr(ex_obj, "is_order_placement_allowed", lambda t: True)(ticker):
-            next_open = ex_obj.next_check_timestamp(ticker)
-            if next_open <= now_val:
-                next_open = now_val + _DCA_RETRY_DELAY_SECONDS
-            dca_manager.defer_schedule(sched_id, next_open)
+            if carry_mode == "skip":
+                dca_manager.advance_schedule(sched_id, now_ts=now_val, increment_run=False)
+                await _safe_notify(
+                    application, user_id,
+                    f"ℹ️ [{ex_label}] {ticker} 정기 {action_label} 건너뜀\n"
+                    f"• 사유: 거래소 휴장일/장외 시간\n"
+                    f"• 설정에 따라 이번 회차를 건너뛰고 다음 지정 요일에 실행됩니다.",
+                )
+            elif carry_mode == "delay_20m":
+                retry_ts = now_val + _DCA_SIDECAR_RETRY_SECONDS
+                dca_manager.defer_schedule(sched_id, retry_ts)
+            else:  # next_day (기본값: 다음 거래일 개장 시각으로 이월)
+                next_open = ex_obj.next_check_timestamp(ticker)
+                if next_open <= now_val:
+                    next_open = now_val + _DCA_SIDECAR_RETRY_SECONDS
+                dca_manager.defer_schedule(sched_id, next_open)
+                if not sched.get("is_carryover"):
+                    sched["is_carryover"] = True
+                    sched["carryover_reason"] = "holiday"
+                    dca_manager._db_upsert(sched)
+                    next_open_dt = datetime.fromtimestamp(next_open, tz=KST).strftime("%Y-%m-%d %H:%M")
+                    await _safe_notify(
+                        application, user_id,
+                        f"📅 [{ex_label}] {ticker} 정기 {action_label} 이월 안내\n"
+                        f"• 사유: 거래소 휴장(임시공휴일/주말 등) 감지\n"
+                        f"• 이월 조치: 다음 거래일 개장 시점({next_open_dt} KST)으로 이월되어 실행됩니다.",
+                    )
             continue
 
         # 3. 현재가 조회
@@ -756,18 +839,55 @@ async def execute_due_dca_schedules(
                 await _safe_notify(application, user_id, f"⚠️ [{ex_label}] {ticker} 정기 매수 보류\n• {gate_msg}")
                 continue
 
-        # 5. 실주문 제출
+        # 5. 실주문 제출 (시장가 vs 지정가 분기)
+        is_market = order_type == "market"
+        if is_market:
+            ord_type_param = "market"
+            if side == "bid" and exchange in ("upbit", "bithumb"):
+                ord_price = effective_budget
+                ord_volume = 0
+            else:
+                ord_price = 0
+                ord_volume = volume
+        else:
+            ord_type_param = "limit"
+            ord_price = price
+            ord_volume = volume
+
         try:
-            res = await exchange_adapter.create_order(user_id, exchange, ticker, side, price, volume)
+            res = await exchange_adapter.create_order(
+                user_id, exchange, ticker, side, ord_price, ord_volume, ord_type=ord_type_param
+            )
         except Exception as e:
             _log.error("DCA order placement exception for %s %s", exchange, ticker, exc_info=e)
             res = None
 
+        err_msg_str = str(res.get("error", "") if isinstance(res, dict) else "")
+        is_sidecar_err = any(kw in err_msg_str for kw in ("사이드카", "서킷브레이커", "거래정지", "호가", "일시", "정지", "halt"))
+
+        if is_sidecar_err:
+            retry_ts = now_val + _DCA_SIDECAR_RETRY_SECONDS
+            dca_manager.defer_schedule(sched_id, retry_ts)
+            sched["is_carryover"] = True
+            sched["carryover_reason"] = "sidecar_halt"
+            dca_manager._db_upsert(sched)
+            retry_dt = datetime.fromtimestamp(retry_ts, tz=KST).strftime("%H:%M")
+            await _safe_notify(
+                application, user_id,
+                f"⚠️ [{ex_label}] {ticker} 정기 {action_label} 사이드카/거래정지 감지 (+20분 이월)\n"
+                f"• 사유: {err_msg_str or '매매 호가 접수 일시 정지'}\n"
+                f"• 20분 뒤({retry_dt} KST)에 주문을 다시 시도합니다.",
+            )
+            continue
+
         if res and "uuid" in res:
             _dca_fail_counts.pop(sched_id, None)
+            was_carryover = sched.pop("is_carryover", None)
+            sched.pop("carryover_reason", None)
             group_no = sched.get("group_no")
+            rec_price = current_price if is_market else price
             order_manager.add_order(
-                user_id, exchange, ticker, res["uuid"], price, volume,
+                user_id, exchange, ticker, res["uuid"], rec_price, volume,
                 side=side, strategy="dca", status="wait", group_no=group_no,
                 template_id=template_id,
             )
@@ -777,9 +897,13 @@ async def execute_due_dca_schedules(
             run_count = updated["run_count"] if updated else int(sched.get("run_count") or 0) + 1
             max_runs = sched.get("max_runs")
             progress_str = f"{run_count}/{max_runs}회" if max_runs else f"누적 {run_count}회"
-            price_str = f"${price:,.2f}" if is_usd else f"{price:,.0f}원"
+            if is_market:
+                price_str = f"시장가 (즉시 체결, 현재가 약 {current_price:,.0f}원)" if not is_usd else f"시장가 (즉시 체결, 현재가 약 ${current_price:,.2f})"
+            else:
+                price_str = f"{price:,.0f}원 (현재가 기준 지정가)" if not is_usd else f"${price:,.2f} (현재가 기준 지정가)"
             vol_str = f"{int(volume):,}주" if ex_obj.requires_integer_volume() else f"{volume:.4f}개"
             group_tag = f" [#{group_no}]" if group_no else ""
+            carry_tag = " [이월 주문 실행 완료]" if was_carryover else ""
 
             done_note = ""
             if updated and updated.get("status") == "completed":
@@ -790,8 +914,8 @@ async def execute_due_dca_schedules(
 
             await _safe_notify(
                 application, user_id,
-                f"📅 [{ex_label}] {ticker} 정기 {action_label} 주문 접수{group_tag} ({progress_str})\n"
-                f"• 주문가: {price_str} (현재가 기준 지정가)\n"
+                f"📅 [{ex_label}] {ticker} 정기 {action_label} 주문 접수{group_tag}{carry_tag} ({progress_str})\n"
+                f"• 주문 방식: {price_str}\n"
                 f"• 수량: {vol_str}"
                 f"{done_note}",
             )
