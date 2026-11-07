@@ -27,7 +27,7 @@ prices  = await adapter.get_krw_ticker_prices(exchange)   # 전체 KRW 마켓 �
 
 # 인증 필요
 balances = await adapter.get_balances(user_id, exchange)
-order    = await adapter.create_order(user_id, exchange, ticker, side, price, volume)
+order    = await adapter.create_order(user_id, exchange, ticker, side, price, volume, ord_type="limit")
 ok       = await adapter.cancel_order(user_id, exchange, order_id, ticker)
 status   = await adapter.get_order_status(user_id, exchange, order_id, ticker)
 history  = await adapter.get_order_history(user_id, exchange, ticker)
@@ -35,6 +35,11 @@ valid    = await adapter.validate_api_keys(user_id, exchange)
 ```
 
 `side` 허용값: `"bid"/"buy"/"매수"` → 내부 `"bid"` 정규화, `"ask"/"sell"/"매도"` → `"ask"`.
+`ord_type` 허용값: `"limit"` (기본값, 지정가), `"market"` (시장가).
+- **Upbit / Bithumb 코인 시장가**:
+  - 시장가 매수(`bid` + `market`): 내부적으로 `ord_type="price"`로 자동 변환되어 `price`(총 매수금액 KRW) 기준으로 즉시 체결 주문 발행.
+  - 시장가 매도(`ask` + `market`): `volume`(매도 코인 수량) 기준으로 시장가 체결 주문 발행.
+- **KIS / Toss 주식**: 정규장 세션에 즉시 체결 시장가 주문 지원 및 장외 시간 예약 주문 지원(`supports_reserved_orders = True`).
 
 ## 거래소별 인증
 

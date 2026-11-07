@@ -34,7 +34,7 @@ stateDiagram-v2
 ```
 
 - `market_closed`: `sync_orders` KIS 장외 임시 보류 상태 (다이어그램 미포함, `wait`/`reserved` 덧씌움 가능). 재주문 전 유지.
-- `reserved` ≠ `pending_reorder`. `pending_reorder`: **제출 후** 마감 취소된 주문. `reserved`: **미제출 장외** 주문 (가짜 uuid `reserved:<hex>` 등록). 둘 다 `sync_orders`(`src/main.py`)가 `supports_reserved_orders=True` 거래소(KIS/Toss) 다음 정규장 제출 처리. `add_order(..., status="reserved")`: `grid`/`rsitrade`/`sgridrsi`/`manual` 전략 호출부가 `getattr(ex, "supports_reserved_orders", False) and not ex.is_market_open(ticker)` 체크 후 직접 설정 — `order_manager` 무관 (호출부 책임).
+- `reserved` ≠ `pending_reorder`. `pending_reorder`: **제출 후** 마감 취소된 주문. `reserved`: **미제출 장외** 주문 (가짜 uuid `reserved:<hex>` 등록). 둘 다 `sync_orders`(`src/core/order_sync.py`)가 `supports_reserved_orders=True` 거래소(KIS/Toss) 다음 정규장 제출 처리. `add_order(..., status="reserved")`: `grid`/`rsitrade`/`sgridrsi`/`manual` 전략 호출부가 `getattr(ex, "supports_reserved_orders", False) and not ex.is_market_open(ticker)` 체크 후 직접 설정 — `order_manager` 무관 (호출부 책임).
 - `cancel_requested`: 웹 매니저/백엔드가 비동기로 취소를 요청한 상태.
   - 거래소 미제출(`reserved:`) 주문은 즉시 메모리/DB에서 제거.
   - 거래소 제출 주문은 취소 전 실거래소 체결 여부를 먼저 확인하여 이미 완료(`done`)된 경우 체결 처리(`_process_order_fill`), 부분 체결(`executed_volume > 0`)이 있을 경우 취소 성공 후 `trade_logs`에 부분 체결분을 기록하여 정산 무결성을 유지.
@@ -49,6 +49,7 @@ manager.add_order(
     strategy="manual",    # manual | grid | sgrid | rsitrade | rsitrade_sell | gridrsi | sgridrsi
     target_rsi=None,      # float, rsitrade/gridrsi/sgridrsi 레그 전용
     linked_to=None,       # rsitrade/gridrsi 매수 레그: 매도 목표 RSI(float). sgridrsi는 None
+    template_id=None,     # int | None, 전략 템플릿 연결 (매도 주문 시 매수 템플릿 ID 승계)
     status="wait"
 )
 
@@ -73,6 +74,7 @@ manager.clear_user_orders(user_id)  # 해당 유저의 모든 주문을 DB+메�
 | `linked_to` | rsitrade/gridrsi 매수 레그: 매도 RSI. 체결 시 `sync_orders` 매도가 계산. sgridrsi None |
 | `reorder_of` | `replace_order_uuid` 이전 uuid 저장 (감사 체인) |
 | `next_check_at` | Unix timestamp. sync 루프 건너뜀 시각 |
+| `template_id` | 전략 템플릿 ID (RSI 연결 매도 주문, 부분 체결, 예산 감사 원장 연동 시 승계) |
 
 전체 스키마 `CLAUDE.md` 참조.
 

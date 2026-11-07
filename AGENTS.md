@@ -17,10 +17,10 @@ AI 에이전트(Claude Code, Codex, Antigravity) 공통 진입점. 작업 전 �
 ### 2. 아키텍처 & 핵심 모듈 구현
 - **[[200] 시스템 아키텍처 및 데이터 스키마](file:///E:/apps/supabot/docs/200_system_architecture.md)**: 봇/UI 맵, DB 스키마, 거래소 인증·제약
 - **[[201] 거래소 어댑터](file:///E:/apps/supabot/docs/201_exchange_adapter.md)**: Upbit, Bithumb, KIS, Toss 인터페이스
-- **[[202] 주문 관리자](file:///E:/apps/supabot/docs/202_order_manager.md)**: 주문 상태 추적, 파일/DB 동기화
+- **[[202] 주문 관리자](file:///E:/apps/supabot/docs/202_order_manager.md)**: 주문 상태 추적, 파일/DB 동기화, `order_sync` 실시간 라이프사이클 엔진
 - **[[203] 사용자 관리자](file:///E:/apps/supabot/docs/203_user_manager.md)**: 유저 설정, 권한, 키 관리
 - **[[204] 시그널 엔진](file:///E:/apps/supabot/docs/204_signal_engine.md)**: RSI 계산·분석
-- **[[205] 메인 핸들러](file:///E:/apps/supabot/docs/205_main_handlers.md)**: 텔레그램 명령 처리, 루프 통제
+- **[[205] 메인 핸들러](file:///E:/apps/supabot/docs/205_main_handlers.md)**: 텔레그램 명령 처리, 루프 통제, `dca_manager` 정기 매매 스케줄러
   - **[자연어 처리 흐름](file:///E:/apps/supabot/docs/205a_natural_language.md)**: Gemini 자연어 처리 및 로그 명세
   - **[보안 및 안전장치](file:///E:/apps/supabot/docs/205b_security_logging.md)**: API 암호화, 일회용 토큰, 킬스위치
   - **[유틸리티 파서](file:///E:/apps/supabot/docs/205c_utility_parsers.md)**: 주요 파서 및 포맷터 함수 목록

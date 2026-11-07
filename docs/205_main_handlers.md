@@ -8,6 +8,7 @@
 user_manager     = UserManager()
 exchange_adapter = ExchangeAdapter(user_manager)
 order_manager    = OrderManager()
+dca_manager      = DcaManager()
 signal_engine    = SignalEngine(user_manager, exchange_adapter)
 metrics          # core.metrics — 인메모리 운영 지표 (주문 성공률, 레이턴시, 루프 타임스탬프)
 _order_wake_event: asyncio.Event    # 새 주문 발생 시 sync 루프 즉시 기상
@@ -40,6 +41,8 @@ KST = timezone(timedelta(hours=9))
 | `/sgrid` | `sgrid_command` | 보유 수량 분할 매도 전략 실행 |
 | `/rsitrade`, `/gridrsi`| `rsitrade_command` | RSI 역산 분할 매수 전략 (linked_to 자동 익절 매도 생성) |
 | `/sgridrsi` | `sgridrsi_command` | RSI 목표가 분할 매도 전략 |
+| `/dca` | `dca_command` | 정기 분할/적립식 매수 스케줄 등록 및 실행 |
+| `/sdca` | `sdca_command` | 정기 분할 매도 스케줄 등록 및 실행 |
 | `/cancel` | `cancel_command` | 종목 전체 주문 취소 |
 | `/cancelno` | `cancelno_command` | 배치 번호(#N) 기준 주문 묶음 취소 |
 | `/watch` | `watch_command` | RSI 감시 대상 종목 추가 |
@@ -95,17 +98,21 @@ stateDiagram-v2
 ## 백그라운드 루프
 
 ### order_sync_loop
-- `sync_orders(application)` 주기적 실행.
-- 간격: 주문 존재 시 `poll_active_interval` (60초) / 주문 무 시 `poll_no_order_interval` (300초).
-- 간격 결정: `system_config` 테이블 주기 우선 사용, DB 미사용 시 관리자 preferences 기준 폴백.
-- `_order_wake_event` 발생 시 대기 루프 즉시 깨어남.
+- 주기적 주문 및 스케줄 통합 실행 루프:
+  1. `order_manager` / `dca_manager` / `user_manager` DB 비동기 리로드.
+  2. `execute_due_dca_schedules(...)`: 실행 시각 도래한 정기 매수/매도(DCA/SDCA) 스케줄 주문 제출 (시장가/지정가 및 휴장/사이드카 이월 처리).
+  3. `sync_orders(application)` (`src/core/order_sync.py`): 주문 상태 폴링, 부분/전체 체결 감지, 연동 익절 매도 생성, KIS 장외 재주문 등 처리.
+  4. `check_daily_cash_alerts(...)`: DCA 당일 매수 예수금 부족 사전 감지 및 알림.
+- 간격: 주문 존재 시 `poll_active_interval` (60초) / 주문 미존재 시 `poll_no_order_interval` (300초) 기준, 가장 가까운 DCA 실행 예정 시각(`nearest_next_run_delay()`)과 비교하여 최소값으로 동적 슬립.
+- `_order_wake_event` 발생 시 대기 루프 즉시 기상.
+- 백그라운드 태스크: `_spawn_bg(coro)`를 통해 Strong Reference를 유지하여 GC 조기 수거 방지.
 - 성공 시 `metrics.record_poll_ok()` 타임스탬프 기록.
 
 ### signal_analysis_loop
 - `signal_engine.analyze_watchlist(application)` 주기적 실행.
 - 간격: `signal_analysis_interval` (300초). `system_config` 테이블 값 우선 사용.
 
-### sync_orders 핵심 처리 흐름
+### sync_orders 핵심 처리 흐름 (`src/core/order_sync.py`)
 1. **취소 요청 주문 우선 처리 (`status == "cancel_requested"`, `_handle_cancel_requested`)**:
    - **미제출 가상 주문 (`reserved:`)**: 거래소에 주문이 나가지 않은 상태이므로 `order_manager.remove_order(uuid)`로 즉시 메모리/DB에서 삭제.
    - **거래소 제출 주문 선조회**: 실거래소 취소 호출 전 `exchange_adapter.get_order_status`를 호출하여 현재 체결 상태를 조회.
@@ -122,6 +129,7 @@ stateDiagram-v2
    - `get_order_status` 실시간 조회, 부분 체결 발생 시 `filled_volume` 갱신.
 6. **연동 주문 익절 매도**:
    - rsitrade/gridrsi 매수 체결 완료 및 `linked_to` 존재 시 목표 익절가 계산 후 즉시 매도 주문 전송 (`rsitrade_sell`).
+   - 이때 매수 주문의 `template_id`를 그대로 승계하여 등록함으로써 체결 및 매도 대금의 예산 원장(Ledger) 환원·재투자 감사 추적성을 일관되게 보장.
 7. **종료 판정**:
    - `done`/`cancel` 도달 시 추적 리스트에서 제외 (KIS 전략 등은 제외).
 
