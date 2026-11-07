@@ -64,6 +64,12 @@ class _FilteredQuery(_Query):
         self._params[column] = f"ilike.{pattern}"
         return self
 
+    def order(self, column: str, desc: bool = False) -> "_FilteredQuery":
+        direction = "desc" if desc else "asc"
+        parts = [f"{c.strip()}.{direction}" for c in column.split(",") if c.strip()]
+        self._params["order"] = ",".join(parts)
+        return self
+
     def limit(self, n: int) -> "_FilteredQuery":
         self._params["limit"] = str(n)
         return self
@@ -157,6 +163,13 @@ def query_fallback(table_name: str, columns: str = "*", filters: dict = None) ->
         conn.row_factory = sqlite3.Row
         try:
             cursor = conn.cursor()
+            cursor.execute(f'PRAGMA table_info("{table_name}")')
+            bool_cols = {
+                info[1]
+                for info in cursor.fetchall()
+                if str(info[2] or "").upper() == "BOOLEAN"
+            }
+
             where_clauses = []
             params = []
             if filters:
@@ -172,7 +185,9 @@ def query_fallback(table_name: str, columns: str = "*", filters: dict = None) ->
             for row in rows:
                 d = dict(row)
                 for k, v in d.items():
-                    if isinstance(v, str) and (v.startswith("{") or v.startswith("[")):
+                    if k in bool_cols and v in (0, 1):
+                        d[k] = bool(v)
+                    elif isinstance(v, str) and (v.startswith("{") or v.startswith("[")):
                         try:
                             d[k] = json.loads(v)
                         except Exception:

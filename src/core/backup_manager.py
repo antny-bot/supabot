@@ -36,6 +36,15 @@ BACKUP_TABLES = [
     "feedbacks",
 ]
 
+TABLE_ORDER_KEYS = {
+    "users": "user_id",
+    "orders": "uuid",
+    "system_config": "key",
+    "command_log_daily": "day,user_id,command",
+    "kr_stock_cache": "code",
+    "market_top_snapshots": "exchange,snapshot_date,rank",
+}
+
 BACKUP_DIR = "data/backups"
 STATE_FILE = "data/backup_state.json"
 FALLBACK_SQLITE_PATH = "data/fallback_latest.sqlite3"
@@ -172,15 +181,36 @@ def save_backup_state(state: Dict[str, Any]) -> None:
         logger.error("Failed to save backup state: %s", e)
 
 
+def list_local_backup_files() -> List[Dict[str, Any]]:
+    """로컬 BACKUP_DIR 내 보관 중인 ZIP 백업 파일 목록을 최신순으로 반환합니다."""
+    local_files: List[Dict[str, Any]] = []
+    if os.path.exists(BACKUP_DIR):
+        for fname in os.listdir(BACKUP_DIR):
+            if fname.endswith(".zip") and fname.startswith("supabot-backup-"):
+                fpath = os.path.join(BACKUP_DIR, fname)
+                try:
+                    stat = os.stat(fpath)
+                    local_files.append({
+                        "filename": fname,
+                        "sizeBytes": stat.st_size,
+                        "createdAt": stat.st_mtime,
+                    })
+                except Exception:
+                    continue
+        local_files.sort(key=lambda x: x["createdAt"], reverse=True)
+    return local_files
+
+
 def dump_supabase_table(table_name: str, batch_size: int = 1000) -> List[Dict[str, Any]]:
     """Supabase 테이블을 1000행 단위 페이지네이션으로 전수 조회합니다."""
     db = get_db()
     all_rows = []
     start = 0
+    order_col = TABLE_ORDER_KEYS.get(table_name, "id")
 
     while True:
         end = start + batch_size - 1
-        resp = db.table(table_name).select("*").range(start, end).execute()
+        resp = db.table(table_name).select("*").order(order_col).range(start, end).execute()
         rows = resp.data or []
         if not rows:
             break
@@ -195,7 +225,7 @@ def dump_supabase_table(table_name: str, batch_size: int = 1000) -> List[Dict[st
 def _sqlite_type(value: Any) -> str:
     """Python 값을 SQLite 컬럼 타입 문자열로 매핑합니다."""
     if isinstance(value, bool):
-        return "INTEGER"
+        return "BOOLEAN"
     if isinstance(value, int):
         return "INTEGER"
     if isinstance(value, float):
@@ -391,15 +421,10 @@ def execute_full_backup_sync() -> Dict[str, Any]:
 
     try:
         for tname in BACKUP_TABLES:
-            try:
-                rows = dump_supabase_table(tname)
-                tables_data[tname] = rows
-                table_counts[tname] = len(rows)
-                total_rows += len(rows)
-            except Exception as e:
-                logger.warning("Failed to dump table %s: %s", tname, e)
-                tables_data[tname] = []
-                table_counts[tname] = 0
+            rows = dump_supabase_table(tname)
+            tables_data[tname] = rows
+            table_counts[tname] = len(rows)
+            total_rows += len(rows)
 
         # 2. SQLite 스냅샷 파일 생성
         logger.info("Writing SQLite snapshot to %s...", sqlite_path)
@@ -435,6 +460,7 @@ def execute_full_backup_sync() -> Dict[str, Any]:
 
         # 6. Google Drive 업로드 (설정되어 있는 경우)
         gdrive_file_id = None
+        gdrive_error: Optional[str] = None
         gdrive_cid = os.environ.get("GDRIVE_CLIENT_ID", "").strip()
         gdrive_sec = os.environ.get("GDRIVE_CLIENT_SECRET", "").strip()
         gdrive_tok = os.environ.get("GDRIVE_REFRESH_TOKEN", "").strip()
@@ -460,11 +486,13 @@ def execute_full_backup_sync() -> Dict[str, Any]:
                 prune_gdrive_backups(access_token, cfg.get("gdrive_max_keep", 14), folder_name)
             except Exception as e:
                 logger.error("Failed to upload/prune Google Drive backup: %s", e, exc_info=True)
+                gdrive_error = f"GDrive upload failed: {e}"
 
         # 상태 업데이트
+        status_val = "partial_error" if gdrive_error else "success"
         state["last_success_at"] = now_kst.isoformat()
-        state["last_status"] = "success"
-        state["last_error"] = None
+        state["last_status"] = status_val
+        state["last_error"] = gdrive_error
         state["last_backup_file"] = zip_filename
         state["last_backup_size"] = zip_size
         state["last_gdrive_file_id"] = gdrive_file_id
@@ -473,7 +501,8 @@ def execute_full_backup_sync() -> Dict[str, Any]:
         save_backup_state(state)
 
         return {
-            "status": "success",
+            "status": status_val,
+            "error": gdrive_error,
             "file": zip_filename,
             "size": zip_size,
             "gdrive_id": gdrive_file_id,
@@ -556,7 +585,18 @@ async def backup_loop(check_interval: int = 600):
         try:
             if should_run_backup():
                 logger.info("Backup condition met. Starting scheduled backup...")
-                await trigger_backup()
+                res = await trigger_backup()
+                if res.get("status") in ("error", "partial_error"):
+                    try:
+                        from core.operational_events import append_operational_event
+                        append_operational_event(
+                            "error",
+                            "backup_loop",
+                            "Scheduled backup failed",
+                            res.get("error") or "Scheduled backup failed",
+                        )
+                    except Exception:
+                        pass
         except Exception as e:
             logger.error("Error in backup loop: %s", e, exc_info=True)
             try:

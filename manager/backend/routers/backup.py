@@ -5,7 +5,7 @@ import re
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
-from ..bot_client import trigger_bot_backup
+from ..bot_client import get_bot_backup_status, trigger_bot_backup
 from ..db import get_db
 from ._auth import get_admin_user
 
@@ -31,7 +31,7 @@ async def api_get_backup_config(_=Depends(get_admin_user)):
             "gdrive_folder": os.environ.get("GDRIVE_FOLDER", "supabot-backups"),
         }
 
-        # Google Drive 환경변수 확인
+        # Google Drive 환경변수 확인 (로컬 폴백)
         gdrive_cid = os.environ.get("GDRIVE_CLIENT_ID", "").strip()
         gdrive_sec = os.environ.get("GDRIVE_CLIENT_SECRET", "").strip()
         gdrive_tok = os.environ.get("GDRIVE_REFRESH_TOKEN", "").strip()
@@ -63,6 +63,15 @@ async def api_get_backup_config(_=Depends(get_admin_user)):
             cfg["gdrive_max_keep"] = int(row_dict["backup_gdrive_max_keep"])
         if "backup_gdrive_folder" in row_dict:
             cfg["gdrive_folder"] = row_dict["backup_gdrive_folder"]
+
+        # 봇 컨테이너의 Google Drive 연동 상태 및 폴더 설정 우선 반영
+        ok, bot_res = await get_bot_backup_status()
+        if ok and isinstance(bot_res, dict):
+            bot_cfg = bot_res.get("config") or {}
+            if "gdrive_enabled" in bot_cfg:
+                cfg["gdrive_enabled"] = bool(bot_cfg["gdrive_enabled"])
+            if "backup_gdrive_folder" not in row_dict and bot_cfg.get("gdrive_folder"):
+                cfg["gdrive_folder"] = bot_cfg["gdrive_folder"]
 
         return JSONResponse(cfg)
     except Exception as e:
@@ -107,7 +116,6 @@ async def api_save_backup_config(request: Request, _=Depends(get_admin_user)):
 async def api_get_backup_status(_=Depends(get_admin_user)):
     """최근 백업 상태 및 로컬 파일 목록 반환."""
     try:
-        # 상태 파일 로드
         state = {
             "last_attempt_at": None,
             "last_success_at": None,
@@ -119,6 +127,18 @@ async def api_get_backup_status(_=Depends(get_admin_user)):
             "table_counts": {},
             "total_rows": 0,
         }
+
+        # 1. 봇 컨테이너의 백업 상태 및 로컬 파일 목록 우선 조회
+        ok, bot_res = await get_bot_backup_status()
+        if ok and isinstance(bot_res, dict) and "state" in bot_res:
+            if isinstance(bot_res.get("state"), dict):
+                state.update(bot_res["state"])
+            return JSONResponse({
+                "state": state,
+                "local_files": bot_res.get("local_files", []),
+            })
+
+        # 2. 봇 연결 실패 시 로컬 파일시스템 폴백 조회
         if os.path.exists(STATE_FILE):
             try:
                 with open(STATE_FILE, "r", encoding="utf-8") as f:
@@ -126,7 +146,6 @@ async def api_get_backup_status(_=Depends(get_admin_user)):
             except Exception:
                 pass
 
-        # 로컬 백업 파일 목록
         local_files = []
         if os.path.exists(BACKUP_DIR):
             for fname in os.listdir(BACKUP_DIR):
@@ -157,14 +176,10 @@ async def api_trigger_backup(_=Depends(get_admin_user)):
         if ok:
             return JSONResponse(res)
 
-        # 봇 webhook이 비활성이거나 실패한 경우 직접 동기 백업 시도
-        try:
-            from core.backup_manager import execute_full_backup_sync
-            import asyncio
-            result = await asyncio.to_thread(execute_full_backup_sync)
-            return JSONResponse(result)
-        except Exception as local_e:
-            return JSONResponse({"error": f"Backup failed: {res.get('error') or str(local_e)}"}, status_code=500)
+        return JSONResponse(
+            {"error": f"Backup failed: {res.get('error', 'Bot webhook unreachable')}"},
+            status_code=500,
+        )
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 

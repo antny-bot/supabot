@@ -148,7 +148,7 @@ export default function AdminBackupTab() {
 
   return (
     <div className="space-y-6 break-keep">
-      {error && <ErrorBanner message={error} onClose={() => setError(null)} />}
+      {error && <ErrorBanner message={error} />}
       {successMsg && (
         <div className="flex items-center gap-2 p-3 bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 rounded-lg text-sm whitespace-nowrap break-keep">
           <CheckCircle className="w-4 h-4 shrink-0" />
@@ -170,10 +170,25 @@ export default function AdminBackupTab() {
           </div>
           <div className="mt-1 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
             <Badge
-              variant={state?.last_status === 'success' ? 'success' : state?.last_status === 'error' ? 'danger' : 'neutral'}
-            >
-              {state?.last_status === 'success' ? '정상' : state?.last_status === 'error' ? '실패' : '대기'}
-            </Badge>
+              value={
+                state?.last_status === 'success'
+                  ? 'active'
+                  : state?.last_status === 'error'
+                    ? 'error'
+                    : state?.last_status === 'partial_error'
+                      ? 'warning'
+                      : 'pending'
+              }
+              label={
+                state?.last_status === 'success'
+                  ? '정상'
+                  : state?.last_status === 'error'
+                    ? '실패'
+                    : state?.last_status === 'partial_error'
+                      ? '일부실패(GDrive)'
+                      : '대기'
+              }
+            />
             <span>총 {state?.total_rows || 0} 행 백업</span>
           </div>
         </div>
@@ -202,9 +217,9 @@ export default function AdminBackupTab() {
           </div>
           <div className="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">
             {config?.gdrive_enabled ? (
-              <Badge variant="success">연동 완료 (.env)</Badge>
+              <Badge value="active" label="연동 완료 (.env)" />
             ) : (
-              <Badge variant="warning">미연동 (.env 필요)</Badge>
+              <Badge value="warning" label="미연동 (.env 필요)" />
             )}
           </div>
           <div className="mt-1 text-xs text-gray-500 dark:text-gray-400 truncate">

@@ -609,6 +609,7 @@ async def post_init(application):
         notify_app.router.add_post("/internal/get_prices", internal_api._internal_get_prices_handler)
         notify_app.router.add_post("/internal/get_balances", internal_api._internal_get_balances_handler)
         notify_app.router.add_post("/internal/backup/trigger", internal_api._internal_backup_trigger_handler)
+        notify_app.router.add_post("/internal/backup/status", internal_api._internal_backup_status_handler)
         notify_app.router.add_get("/internal/backup/status", internal_api._internal_backup_status_handler)
         _notify_runner = _web.AppRunner(notify_app)
         await _notify_runner.setup()

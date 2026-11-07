@@ -192,3 +192,74 @@ def test_execute_full_backup_sync_end_to_end(temp_backup_env, monkeypatch):
     fb_rows = db.query_fallback("users")
     assert len(fb_rows) == 1
     assert fb_rows[0]["name"] == "row_in_users"
+
+
+def test_execute_full_backup_sync_aborts_on_table_dump_error(temp_backup_env, monkeypatch):
+    monkeypatch.setattr(backup_manager, "is_db_available", lambda: True)
+
+    # 기존 fallback_latest.sqlite3 파일 생성
+    fallback_path = temp_backup_env["fallback_file"]
+    backup_manager.create_sqlite_snapshot(
+        {"users": [{"user_id": "keep_me", "username": "original"}]},
+        str(fallback_path),
+    )
+
+    def mock_dump_with_error(table_name):
+        if table_name == "orders":
+            raise RuntimeError("Supabase 503 Service Unavailable")
+        return [{"id": 1}]
+
+    monkeypatch.setattr(backup_manager, "dump_supabase_table", mock_dump_with_error)
+
+    res = backup_manager.execute_full_backup_sync()
+    assert res["status"] == "error"
+    assert "Supabase 503 Service Unavailable" in res["error"]
+
+    state = backup_manager.load_backup_state()
+    assert state["last_status"] == "error"
+
+    # 기존 fallback_latest.sqlite3가 빈 DB로 덮어써지지 않고 유지되었는지 검증
+    fb_rows = db.query_fallback("users")
+    assert len(fb_rows) == 1
+    assert fb_rows[0]["user_id"] == "keep_me"
+
+
+def test_query_fallback_restores_boolean_and_json(temp_backup_env):
+    fallback_path = str(temp_backup_env["fallback_file"])
+    backup_manager.create_sqlite_snapshot(
+        {
+            "users": [
+                {"user_id": "u1", "is_admin": True, "is_active": False, "preferences": {"a": 1}},
+            ]
+        },
+        fallback_path,
+    )
+
+    rows = db.query_fallback("users")
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["is_admin"] is True
+    assert row["is_active"] is False
+    assert row["preferences"] == {"a": 1}
+
+
+def test_execute_full_backup_sync_partial_error_on_gdrive_failure(temp_backup_env, monkeypatch):
+    monkeypatch.setattr(backup_manager, "is_db_available", lambda: True)
+    monkeypatch.setattr(
+        backup_manager,
+        "dump_supabase_table",
+        lambda table_name: [{"id": 1, "name": f"row_in_{table_name}"}],
+    )
+
+    monkeypatch.setenv("GDRIVE_CLIENT_ID", "cid")
+    monkeypatch.setenv("GDRIVE_CLIENT_SECRET", "csecret")
+    monkeypatch.setenv("GDRIVE_REFRESH_TOKEN", "rtok")
+
+    with patch("core.gdrive_client.refresh_access_token", side_effect=RuntimeError("OAuth token expired")):
+        res = backup_manager.execute_full_backup_sync()
+        assert res["status"] == "partial_error"
+        assert "GDrive upload failed" in res["error"]
+
+    state = backup_manager.load_backup_state()
+    assert state["last_status"] == "partial_error"
+    assert "OAuth token expired" in state["last_error"]

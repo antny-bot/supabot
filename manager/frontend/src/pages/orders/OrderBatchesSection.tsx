@@ -11,6 +11,7 @@ import {
 import { fetchOrderBatches } from '../../api/orders'
 import { fetchTemplates, type Template } from '../../api/templates'
 import Badge from '../../components/ui/Badge'
+import Pagination from '../../components/ui/Pagination'
 import ProgressBar from '../../components/ui/ProgressBar'
 import ResponsiveTabs from '../../components/ui/ResponsiveTabs'
 import Spinner from '../../components/ui/Spinner'
@@ -22,6 +23,7 @@ interface Props {
   initialGroupNo?: number
   templateId?: number
   onSelectTemplateId?: (templateId?: number) => void
+  hideTemplateTabs?: boolean
 }
 
 export default function OrderBatchesSection({
@@ -29,6 +31,7 @@ export default function OrderBatchesSection({
   initialGroupNo,
   templateId,
   onSelectTemplateId,
+  hideTemplateTabs = false,
 }: Props) {
   const [selectedTemplateId, setSelectedTemplateId] = useState<number | undefined>(templateId)
   const [templates, setTemplates] = useState<Template[]>([])
@@ -38,17 +41,22 @@ export default function OrderBatchesSection({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [page, setPage] = useState(1)
-  const [pageSize] = useState(10)
+  const [pageSize, setPageSize] = useState(10)
   const [totalPages, setTotalPages] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
+
+  // 배치 내부 소속 주문 목록 페이지 상태 (batchKey -> page)
+  const [orderPages, setOrderPages] = useState<Record<string, number>>({})
+  const orderPageSize = 10
 
   // 외부 props templateId 변경 시 동기화
   useEffect(() => {
     setSelectedTemplateId(templateId)
   }, [templateId])
 
-  // 전략 템플릿 목록 로드
+  // 전략 템플릿 목록 로드 (시트 탭 UI가 필요한 경우에만 호출)
   useEffect(() => {
+    if (hideTemplateTabs) return
     let cancelled = false
     fetchTemplates()
       .then((list) => {
@@ -62,7 +70,7 @@ export default function OrderBatchesSection({
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [hideTemplateTabs])
 
   // 활성(Active: ON) 전략 판별
   const isTemplateActive = useCallback((tpl: Template) => {
@@ -75,6 +83,7 @@ export default function OrderBatchesSection({
 
   // 시트 탭 목록 구성
   const tabs = useMemo(() => {
+    if (hideTemplateTabs) return []
     const items = [{ id: 'all', label: '전체' }]
 
     // 기본적으로 active(활성)된 전략만 노출하며, showAllTemplates가 켜지면 보관되지 않은 전체 노출
@@ -102,7 +111,7 @@ export default function OrderBatchesSection({
     })
 
     return items
-  }, [templates, showAllTemplates, selectedTemplateId, isTemplateActive])
+  }, [hideTemplateTabs, templates, showAllTemplates, selectedTemplateId, isTemplateActive])
 
   // 탭 변경 핸들러
   const handleTabChange = (tabId: string) => {
@@ -121,13 +130,16 @@ export default function OrderBatchesSection({
   useEffect(() => {
     setPage(1)
     setExpandedBatches(new Set())
+    setOrderPages({})
   }, [selectedTemplateId])
+
+  const effectiveTemplateId = hideTemplateTabs ? templateId : selectedTemplateId
 
   const loadBatches = useCallback(
     async (showSpinner = false) => {
       if (showSpinner) setLoading(true)
       try {
-        const res = await fetchOrderBatches(selectedTemplateId, undefined, page, pageSize)
+        const res = await fetchOrderBatches(effectiveTemplateId, undefined, page, pageSize)
         const list = res.batches || []
         setBatches(list)
         setTotalPages(res.total_pages || 1)
@@ -139,14 +151,14 @@ export default function OrderBatchesSection({
           const matched = list.find(
             (b: OrderBatchItem) =>
               b.group_no === initialGroupNo &&
-              (selectedTemplateId === undefined || b.template_id === selectedTemplateId),
+              (effectiveTemplateId === undefined || b.template_id === effectiveTemplateId),
           )
           if (matched) {
             setExpandedBatches(new Set([getBatchKey(matched)]))
-          } else if (selectedTemplateId !== undefined && list.length > 0) {
+          } else if (effectiveTemplateId !== undefined && list.length > 0) {
             setExpandedBatches(new Set([getBatchKey(list[0])]))
           }
-        } else if (selectedTemplateId !== undefined && list.length > 0) {
+        } else if (effectiveTemplateId !== undefined && list.length > 0) {
           setExpandedBatches(new Set([getBatchKey(list[0])]))
         }
       } catch (e) {
@@ -155,7 +167,7 @@ export default function OrderBatchesSection({
         if (showSpinner) setLoading(false)
       }
     },
-    [selectedTemplateId, page, pageSize, initialGroupNo],
+    [effectiveTemplateId, page, pageSize, initialGroupNo],
   )
 
   useEffect(() => {
@@ -187,7 +199,9 @@ export default function OrderBatchesSection({
               전략 배치 실행 주문 묶음
             </h3>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              전략 템플릿에서 발행된 일괄 주문들을 회차(배치) 단위로 한눈에 추적합니다. (총 {totalCount}개 회차)
+              {hideTemplateTabs
+                ? `선택된 관제 대상 전략에서 발행된 일괄 주문들을 회차(배치) 단위로 추적합니다. (총 ${totalCount}개 회차)`
+                : `전략 템플릿에서 발행된 일괄 주문들을 회차(배치) 단위로 한눈에 추적합니다. (총 ${totalCount}개 회차)`}
             </p>
           </div>
         </div>
@@ -202,50 +216,52 @@ export default function OrderBatchesSection({
         </button>
       </div>
 
-      {/* 전략별 시트 탭 (ResponsiveTabs) */}
-      <div className="flex flex-col gap-2">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
-          <div className="flex-1 min-w-0">
-            <ResponsiveTabs
-              tabs={tabs}
-              activeTab={selectedTemplateId ? String(selectedTemplateId) : 'all'}
-              onChange={handleTabChange}
-            />
-          </div>
-          <label className="flex items-center gap-1.5 self-end sm:self-center text-xs text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 cursor-pointer select-none whitespace-nowrap break-keep shrink-0 pb-1 sm:pb-0">
-            <input
-              type="checkbox"
-              checked={showAllTemplates}
-              onChange={(e) => setShowAllTemplates(e.target.checked)}
-              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800"
-            />
-            <span>비활성 전략 포함</span>
-          </label>
-        </div>
-
-        {/* 선택된 전략이 있는 경우 정보 표시 */}
-        {selectedTemplateId !== undefined && (
-          <div className="flex items-center justify-between rounded-xl bg-indigo-50/70 px-3.5 py-2 text-xs text-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200 border border-indigo-100 dark:border-indigo-900/40">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-bold">선택된 전략:</span>
-              <span className="font-semibold text-indigo-700 dark:text-indigo-300">
-                {templates.find((t) => t.id === selectedTemplateId)?.name || `전략 #${selectedTemplateId}`}
-              </span>
-              <span className="text-slate-400">·</span>
-              <span className="text-slate-600 dark:text-slate-400">
-                해당 전략에서 실행된 배치 주문만 모아보고 있습니다. (총 {totalCount}개 회차)
-              </span>
+      {/* 전략별 시트 탭 (주문 관리 등 전체 배치 조회 화면에서만 노출, 전략 운용에서는 숨김) */}
+      {!hideTemplateTabs && (
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
+            <div className="flex-1 min-w-0">
+              <ResponsiveTabs
+                tabs={tabs}
+                activeTab={selectedTemplateId ? String(selectedTemplateId) : 'all'}
+                onChange={handleTabChange}
+              />
             </div>
-            <button
-              type="button"
-              onClick={() => handleTabChange('all')}
-              className="font-semibold text-indigo-600 hover:underline dark:text-indigo-400 whitespace-nowrap break-keep ml-2"
-            >
-              전체 보기
-            </button>
+            <label className="flex items-center gap-1.5 self-end sm:self-center text-xs text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 cursor-pointer select-none whitespace-nowrap break-keep shrink-0 pb-1 sm:pb-0">
+              <input
+                type="checkbox"
+                checked={showAllTemplates}
+                onChange={(e) => setShowAllTemplates(e.target.checked)}
+                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800"
+              />
+              <span>비활성 전략 포함</span>
+            </label>
           </div>
-        )}
-      </div>
+
+          {/* 선택된 전략이 있는 경우 정보 표시 */}
+          {selectedTemplateId !== undefined && (
+            <div className="flex items-center justify-between rounded-xl bg-indigo-50/70 px-3.5 py-2 text-xs text-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200 border border-indigo-100 dark:border-indigo-900/40">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-bold">선택된 전략:</span>
+                <span className="font-semibold text-indigo-700 dark:text-indigo-300">
+                  {templates.find((t) => t.id === selectedTemplateId)?.name || `전략 #${selectedTemplateId}`}
+                </span>
+                <span className="text-slate-400">·</span>
+                <span className="text-slate-600 dark:text-slate-400">
+                  해당 전략에서 실행된 배치 주문만 모아보고 있습니다. (총 {totalCount}개 회차)
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleTabChange('all')}
+                className="font-semibold text-indigo-600 hover:underline dark:text-indigo-400 whitespace-nowrap break-keep ml-2"
+              >
+                전체 보기
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {error && (
         <div className="rounded-xl bg-rose-50 p-4 text-xs font-medium text-rose-600 dark:bg-rose-950/30 dark:text-rose-400">
@@ -271,6 +287,15 @@ export default function OrderBatchesSection({
             const batchKey = getBatchKey(batch)
             const isExpanded = expandedBatches.has(batchKey)
             const isFullyDone = batch.total_orders > 0 && batch.done_count === batch.total_orders
+            const currentOrderPage = orderPages[batchKey] || 1
+            const totalOrderPages = Math.max(1, Math.ceil(batch.orders.length / orderPageSize))
+            const pagedOrders =
+              batch.orders.length > orderPageSize
+                ? batch.orders.slice(
+                    (currentOrderPage - 1) * orderPageSize,
+                    currentOrderPage * orderPageSize,
+                  )
+                : batch.orders
 
             return (
               <div
@@ -427,7 +452,7 @@ export default function OrderBatchesSection({
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                          {batch.orders.map((ord) => (
+                          {pagedOrders.map((ord) => (
                             <tr
                               key={ord.uuid}
                               className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors"
@@ -478,6 +503,18 @@ export default function OrderBatchesSection({
                           ))}
                         </tbody>
                       </table>
+
+                      {batch.orders.length > orderPageSize && (
+                        <Pagination
+                          currentPage={currentOrderPage}
+                          totalPages={totalOrderPages}
+                          pageSize={orderPageSize}
+                          totalCount={batch.orders.length}
+                          onPageChange={(nextPage) =>
+                            setOrderPages((prev) => ({ ...prev, [batchKey]: nextPage }))
+                          }
+                        />
+                      )}
                     </div>
                   </div>
                 )}
@@ -485,30 +522,21 @@ export default function OrderBatchesSection({
             )
           })}
 
-          {/* 페이지네이션 */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-center gap-2 pt-3">
-              <button
-                type="button"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold disabled:opacity-40"
-              >
-                이전
-              </button>
-              <span className="text-xs text-slate-500">
-                {page} / {totalPages}
-              </span>
-              <button
-                type="button"
-                disabled={page >= totalPages}
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold disabled:opacity-40"
-              >
-                다음
-              </button>
-            </div>
-          )}
+          {/* 배치 회차 페이지네이션 */}
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900 [&>div]:border-t-0">
+            <Pagination
+              currentPage={page}
+              totalPages={totalPages}
+              pageSize={pageSize}
+              totalCount={totalCount}
+              onPageChange={(nextPage) => setPage(nextPage)}
+              onPageSizeChange={(sz) => {
+                setPageSize(sz)
+                setPage(1)
+              }}
+              pageSizeOptions={[5, 10, 20, 50]}
+            />
+          </div>
         </div>
       )}
     </div>
