@@ -132,21 +132,21 @@ export default function Trades() {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <span className="text-xs font-medium text-slate-500 dark:text-slate-400">조회기간 거래</span>
-              <p className="mt-1.5 text-xl font-extrabold text-slate-900 dark:text-white font-mono">
+              <p className="mt-1.5 text-xl font-extrabold text-slate-900 dark:text-white">
                 {data?.total.toLocaleString()}건
               </p>
             </div>
 
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <span className="text-xs font-medium text-slate-500 dark:text-slate-400">총 거래금액</span>
-              <p className="mt-1.5 text-xl font-extrabold text-emerald-600 dark:text-emerald-400 font-mono">
+              <p className="mt-1.5 text-xl font-extrabold text-emerald-600 dark:text-emerald-400">
                 {krwFmt(data?.summary.volume_krw ?? 0)}
               </p>
             </div>
 
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <span className="text-xs font-medium text-slate-500 dark:text-slate-400">매수 체결</span>
-              <p className="mt-1.5 text-xl font-extrabold text-red-500 dark:text-red-400 font-mono flex items-center gap-1">
+              <p className="mt-1.5 text-xl font-extrabold text-red-500 dark:text-red-400 flex items-center gap-1">
                 <ArrowUpRight size={18} />
                 {buyCount.toLocaleString()}건
               </p>
@@ -154,7 +154,7 @@ export default function Trades() {
 
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <span className="text-xs font-medium text-slate-500 dark:text-slate-400">매도 체결</span>
-              <p className="mt-1.5 text-xl font-extrabold text-blue-500 dark:text-blue-400 font-mono flex items-center gap-1">
+              <p className="mt-1.5 text-xl font-extrabold text-blue-500 dark:text-blue-400 flex items-center gap-1">
                 <ArrowDownRight size={18} />
                 {sellCount.toLocaleString()}건
               </p>
@@ -211,7 +211,7 @@ export default function Trades() {
                     <th className="px-4 py-3">전략</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {Array.from({ length: 8 }).map((_, i) => (
                     <TableRowSkeleton key={i} cols={9} />
                   ))}
@@ -242,7 +242,7 @@ export default function Trades() {
                     <th className="px-4 py-3">전략</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {!data || data.trades.length === 0 ? (
                     <tr>
                       <td colSpan={9} className="py-12 text-center text-xs text-slate-400 font-sans">
