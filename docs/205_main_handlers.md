@@ -100,7 +100,11 @@ stateDiagram-v2
 ### order_sync_loop
 - 주기적 주문 및 스케줄 통합 실행 루프:
   1. `order_manager` / `dca_manager` / `user_manager` DB 비동기 리로드.
-  2. `execute_due_dca_schedules(...)`: 실행 시각 도래한 정기 매수/매도(DCA/SDCA) 스케줄 주문 제출 (시장가/지정가 및 휴장/사이드카 이월 처리).
+  2. `execute_due_dca_schedules(...)`: 실행 시각 도래한 정기 매수/매도(DCA/SDCA) 스케줄 주문 제출:
+     - **주문 방식**: 지정가(`limit`, 호가 버퍼 반영) 및 시장가(`market`, 즉시 체결, 코인 거래소는 총액 매수) 지원. 시장가 매수 체결 시 실제 체결 수량으로 `orders`의 `volume` 자동 보정.
+     - **예산 한도 연동**: 템플릿 연동 KRW 매수 시 `carryover_budget`을 사전 검사하여 잔액 초과 방지. DB 쿼리 실패 시 5분 안전 보류.
+     - **이월 정책**: 거래소 휴장 또는 사이드카/서킷브레이커 감지 시 이월 모드(`next_day`, `delay_20m`, `skip`) 적용. 사이드카 지속 시 최대 12회(4시간) 상한 초과 후 일반 실패로 전환하며, 알림은 최초 1회만 발송.
+     - **안전 게이트**: 비활성 유저 최우선 검사 및 글로벌 킬스위치 활성화 시 알림 없는 5분 무음 지연.
   3. `sync_orders(application)` (`src/core/order_sync.py`): 주문 상태 폴링, 부분/전체 체결 감지, 연동 익절 매도 생성, KIS 장외 재주문 등 처리.
   4. `check_daily_cash_alerts(...)`: DCA 당일 매수 예수금 부족 사전 감지 및 알림.
 - 간격: 주문 존재 시 `poll_active_interval` (60초) / 주문 미존재 시 `poll_no_order_interval` (300초) 기준, 가장 가까운 DCA 실행 예정 시각(`nearest_next_run_delay()`)과 비교하여 최소값으로 동적 슬립.

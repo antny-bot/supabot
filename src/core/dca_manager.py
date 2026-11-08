@@ -80,13 +80,11 @@ def parse_dca_schedule(raw: str) -> dict:
     if not text:
         raise ValueError("주기를 입력해 주세요. (예: 매일, 매주월, 월수금, 매월15일)")
 
-    # 1. 매일
-    if text in ("매일", "매일마다", "daily", "every", "everyday", "1d"):
-        return {"frequency": "daily", "days_of_week": None, "day_of_month": None}
-
-    # 2. 평일 / 주말 및 전체 요일 표현
+    # 1. 매일 및 전체 요일 표현
     if text in ("매일", "매일마다", "daily", "every", "everyday", "1d", "월~일", "월-일", "월/일", "월~일요일"):
         return {"frequency": "daily", "days_of_week": None, "day_of_month": None}
+
+    # 2. 평일 / 주말
     if text in ("평일", "주중", "weekdays", "weekday", "월~금", "월-금", "월~금요일"):
         return {"frequency": "days", "days_of_week": [0, 1, 2, 3, 4], "day_of_month": None}
     if text in ("주말", "weekend", "weekends", "토~일", "토-일", "토,일", "토일"):
@@ -357,14 +355,27 @@ class DcaManager:
         self.on_schedule_changed = None
 
     def _load_schedules(self) -> list[dict]:
+        file_schedules = self._load_from_file()
+        file_map = {s["id"]: s for s in file_schedules if isinstance(s, dict) and "id" in s}
         if is_db_available() and self._db_table_supported:
             try:
                 rows = get_db().table("dca_schedules").select("*").execute().data or []
+                # DB 스키마에 order_type, carryover_mode 등이 아직 없는 경우 파일의 값을 보존/병합
+                for r in rows:
+                    sid = r.get("id")
+                    if sid in file_map:
+                        f_sched = file_map[sid]
+                        if not r.get("order_type") and f_sched.get("order_type"):
+                            r["order_type"] = f_sched["order_type"]
+                        if not r.get("carryover_mode") and f_sched.get("carryover_mode"):
+                            r["carryover_mode"] = f_sched["carryover_mode"]
+                        if not r.get("template_id") and f_sched.get("template_id"):
+                            r["template_id"] = f_sched["template_id"]
                 _log.info("Loaded DCA schedules from DB", extra={"event": "dca_loaded_db", "count": len(rows)})
                 return rows
             except Exception as e:
                 _log.warning("Failed to load dca_schedules from DB, falling back to file: %s", e)
-        return self._load_from_file()
+        return file_schedules
 
     def _load_from_file(self) -> list[dict]:
         if not os.path.exists(self.file_path):
@@ -411,6 +422,11 @@ class DcaManager:
                     }
                     fallback_copy = {k: v for k, v in sched_copy.items() if k in basic_keys}
                     await get_db().table("dca_schedules").upsert(fallback_copy).execute_async()
+                    _log.warning(
+                        "dca_schedules upsert 실패 후 기본 키로 저장되었습니다. "
+                        "order_type/carryover_mode 컬럼 추가를 위해 마이그레이션(2026-11-07-dca-order-type-carryover.sql)을 적용해 주세요. (원인: %s)",
+                        e,
+                    )
                 except Exception as e2:
                     _log.warning("Failed to upsert dca_schedule to DB (using file fallback): %s", e2)
 
@@ -451,7 +467,19 @@ class DcaManager:
             await asyncio.gather(*pending, return_exceptions=True)
         try:
             res = await get_db().table("dca_schedules").select("*").execute_async()
-            self.schedules = res.data or []
+            new_schedules = res.data or []
+            file_map = {s["id"]: s for s in self._load_from_file() if isinstance(s, dict) and "id" in s}
+            for r in new_schedules:
+                sid = r.get("id")
+                if sid in file_map:
+                    f_sched = file_map[sid]
+                    if not r.get("order_type") and f_sched.get("order_type"):
+                        r["order_type"] = f_sched["order_type"]
+                    if not r.get("carryover_mode") and f_sched.get("carryover_mode"):
+                        r["carryover_mode"] = f_sched["carryover_mode"]
+                    if not r.get("template_id") and f_sched.get("template_id"):
+                        r["template_id"] = f_sched["template_id"]
+            self.schedules = new_schedules
             return True
         except Exception as e:
             _log.debug("Failed to reload dca_schedules from DB (using local state): %s", e)
@@ -703,25 +731,15 @@ async def execute_due_dca_schedules(
         carry_mode = sched.get("carryover_mode", "next_day")
         order_type = sched.get("order_type", "limit")
 
-        # 1. 글로벌 거래 중지(kill-switch) 및 사이드카/서킷브레이커 일시정지 확인 (+20분 이월)
-        if trading_gate.is_trading_halted():
-            retry_ts = now_val + _DCA_SIDECAR_RETRY_SECONDS
-            dca_manager.defer_schedule(sched_id, retry_ts)
-            sched["is_carryover"] = True
-            sched["carryover_reason"] = "sidecar_halt"
-            dca_manager._db_upsert(sched)
-            retry_dt = datetime.fromtimestamp(retry_ts, tz=KST).strftime("%H:%M")
-            await _safe_notify(
-                application, user_id,
-                f"⚠️ [{ex_label}] {ticker} 정기 {action_label} 일시 보류 (+20분 이월)\n"
-                f"• 사유: 시장 거래 일시정지(사이드카/서킷브레이커 등) 감지\n"
-                f"• 이월 조치: 20분 뒤({retry_dt} KST)에 주문을 다시 시도합니다.",
-            )
-            continue
-
+        # 0. 비활성 유저 확인 (비활성 유저에게 킬스위치 등 알림이 가지 않도록 최우선 검사)
         user = user_manager.get_user(user_id)
         if not user or not user.get("is_active"):
             dca_manager.remove_schedule(sched_id)
+            continue
+
+        # 1. 글로벌 거래 중지(kill-switch) 확인 (알림 없이 5분 무음 지연)
+        if trading_gate.is_trading_halted():
+            dca_manager.defer_schedule(sched_id, now_val + _DCA_RETRY_DELAY_SECONDS)
             continue
 
         ex_obj = exchange_adapter.get_exchange(exchange)
@@ -743,17 +761,39 @@ async def execute_due_dca_schedules(
                     f"• 설정에 따라 이번 회차를 건너뛰고 다음 지정 요일에 실행됩니다.",
                 )
             elif carry_mode == "delay_20m":
-                retry_ts = now_val + _DCA_SIDECAR_RETRY_SECONDS
+                next_open = ex_obj.next_check_timestamp(ticker)
+                # 거래소 다음 개장 시각이 20분 뒤보다 더 늦다면(휴장일/주말/야간 등) 다음 개장 시각을 우선하여 불필요한 주말 20분 주기 폴링 방지
+                retry_ts = max(now_val + _DCA_SIDECAR_RETRY_SECONDS, next_open)
                 dca_manager.defer_schedule(sched_id, retry_ts)
+                orig_sched = dca_manager.get_schedule(sched_id)
+                if not sched.get("is_carryover"):
+                    sched["is_carryover"] = True
+                    sched["carryover_reason"] = "delay_20m"
+                    if orig_sched:
+                        orig_sched["is_carryover"] = True
+                        orig_sched["carryover_reason"] = "delay_20m"
+                    dca_manager._db_upsert(orig_sched or sched)
+                    retry_dt = datetime.fromtimestamp(retry_ts, tz=KST).strftime("%H:%M") if retry_ts - now_val < 86400 else datetime.fromtimestamp(retry_ts, tz=KST).strftime("%Y-%m-%d %H:%M")
+                    delay_desc = "20분 뒤" if retry_ts == now_val + _DCA_SIDECAR_RETRY_SECONDS else f"다음 개장 시점({retry_dt} KST)"
+                    await _safe_notify(
+                        application, user_id,
+                        f"⚠️ [{ex_label}] {ticker} 정기 {action_label} 일시 보류 (+20분 이월)\n"
+                        f"• 사유: 거래소 휴장일/장외 시간 감지\n"
+                        f"• 이월 조치: {delay_desc}에 주문을 다시 시도합니다.",
+                    )
             else:  # next_day (기본값: 다음 거래일 개장 시각으로 이월)
                 next_open = ex_obj.next_check_timestamp(ticker)
                 if next_open <= now_val:
                     next_open = now_val + _DCA_SIDECAR_RETRY_SECONDS
                 dca_manager.defer_schedule(sched_id, next_open)
+                orig_sched = dca_manager.get_schedule(sched_id)
                 if not sched.get("is_carryover"):
                     sched["is_carryover"] = True
                     sched["carryover_reason"] = "holiday"
-                    dca_manager._db_upsert(sched)
+                    if orig_sched:
+                        orig_sched["is_carryover"] = True
+                        orig_sched["carryover_reason"] = "holiday"
+                    dca_manager._db_upsert(orig_sched or sched)
                     next_open_dt = datetime.fromtimestamp(next_open, tz=KST).strftime("%Y-%m-%d %H:%M")
                     await _safe_notify(
                         application, user_id,
@@ -834,7 +874,9 @@ async def execute_due_dca_schedules(
                                 continue
                             raw_amount = min(raw_amount, avail_cob)
             except Exception as te:
-                _log.debug("Failed to check DCA template carryover budget: %s", te)
+                _log.warning("Failed to check DCA template carryover budget for template %s: %s", template_id, te)
+                dca_manager.defer_schedule(sched_id, now_val + _DCA_RETRY_DELAY_SECONDS)
+                continue
 
         if amount_type == "volume":
             volume = ex_obj.round_volume(raw_amount)
@@ -942,12 +984,14 @@ async def execute_due_dca_schedules(
                     orig_sched["carryover_reason"] = "sidecar_halt"
                 dca_manager._db_upsert(orig_sched or sched)
                 retry_dt = datetime.fromtimestamp(retry_ts, tz=KST).strftime("%H:%M")
-                await _safe_notify(
-                    application, user_id,
-                    f"⚠️ [{ex_label}] {ticker} 정기 {action_label} 사이드카/거래정지 감지 (+20분 이월, {c_count}/{_DCA_MAX_SIDECAR_RETRIES}회)\n"
-                    f"• 사유: {err_msg_str or '매매 호가 접수 일시 정지'}\n"
-                    f"• 20분 뒤({retry_dt} KST)에 주문을 다시 시도합니다.",
-                )
+                # 첫 회차(이월 시작 시점)에만 1회 알림 발송
+                if c_count == 1:
+                    await _safe_notify(
+                        application, user_id,
+                        f"⚠️ [{ex_label}] {ticker} 정기 {action_label} 사이드카/거래정지 감지 (+20분 이월)\n"
+                        f"• 사유: {err_msg_str or '매매 호가 접수 일시 정지'}\n"
+                        f"• 20분 뒤({retry_dt} KST)에 주문을 다시 시도합니다.",
+                    )
                 continue
 
         if res and "uuid" in res:

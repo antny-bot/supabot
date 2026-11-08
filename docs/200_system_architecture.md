@@ -172,5 +172,5 @@ FastAPI 백엔드 + React/TypeScript(Vite+Tailwind) SPA. Synology Docker 배포 
 * **실거래 경로**: 실제 네트워크 도달 시 실계좌 매매 발생. 테스트 시 mock 필수.
 * **재주문**: KIS 전략 주문 만료 시 미체결 잔량(`volume - filled_volume`)만 재주문.
 * **해외주식 통화 혼재**: `trade_logs` currency 컬럼 없음. KRW/USD 구분 `is_us_stock_ticker()` 패턴 검사로 추론.
-* **DCA 주문 방식 & 이월 모드**: DCA 주문은 지정가(`limit`, 현재가 기준 호가) 또는 시장가(`market`, 즉시 체결)를 지원하며, 업비트/빗썸 시장가 매수는 `ord_type="price"` 총액 매수로 발행. 휴장일/임시공휴일 또는 사이드카·서킷브레이커 발동 시 설정된 이월 정책(`next_day`: 다음 거래일 정규장 개장, `delay_20m`: 20분 후 재시도, `skip`: 건너뛰기)으로 안전하게 자동 처리.
+* **DCA 주문 방식 & 이월 모드**: DCA 주문은 지정가(`limit`, 현재가 기준 호가) 또는 시장가(`market`, 즉시 체결)를 지원하며, 업비트/빗썸 시장가 매수는 `ord_type="price"` 총액 매수로 발행되고 체결 완료 시 실제 체결 수량으로 주문 수량이 자동 보정됨. 휴장일/임시공휴일 또는 사이드카·서킷브레이커 발동 시 설정된 이월 정책(`next_day`: 다음 거래일 정규장 개장, `delay_20m`: 20분 후 재시도[휴장일 시 개장시각 우선], `skip`: 건너뛰기)으로 안전하게 자동 처리되며, 거래정지 지속 시 최대 12회(4시간) 상한 초과 후 일반 실패로 전환되어 무한 재시도를 방지함. 요일 주기는 "일", "일요일", 범위("화~일"), 분리형("토,일요일", "월수금") 모두 지원.
 * **통합 예산 플랜 & 감사 원장(Budget Audit Ledger)**: 전략별 예산은 `strategy_templates`의 `budget_mode`(`total` | `monthly`)와 `budget_ledger`를 통해 관리되며, 일일 충전(`DAILY_CREDIT`), 주문 집행(`BUY_ORDER_SPEND`), 취소 환원(`ORDER_CANCEL_REFUND`), 매도 대금 재투입(`SELL_PROCEEDS_RECYCLE`)이 1원 단위 감사 원장으로 기록되어 원장-잔액 항등식 및 일일 충전 멱등성 보장.

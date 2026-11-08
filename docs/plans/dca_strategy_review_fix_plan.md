@@ -71,10 +71,10 @@
 
 ## 완료 기준
 - [x] P1-1~P1-3 수정 및 테스트 통과
-- [ ] P2-4~P2-7 수정 및 테스트 통과
-- [ ] P3-8~P3-11 반영
-- [ ] 전체 `pytest tests/` 통과, `py_compile` 통과
-- [ ] 관련 문서(`docs/205_main_handlers.md`, `docs/200_system_architecture.md`의 DCA 항목) 갱신
+- [x] P2-4~P2-7 수정 및 테스트 통과
+- [x] P3-8~P3-11 반영
+- [x] 전체 `pytest tests/` 통과, `py_compile` 통과
+- [x] 관련 문서(`docs/205_main_handlers.md`, `docs/200_system_architecture.md`의 DCA 항목) 갱신
 
 ---
 

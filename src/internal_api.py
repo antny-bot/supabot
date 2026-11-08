@@ -530,10 +530,25 @@ async def _internal_execute_dca_handler(request: _web.Request) -> _web.Response:
         max_runs = int(raw_max_runs) if raw_max_runs and int(raw_max_runs) > 0 else None
         raw_tpl_id = data.get("template_id")
         template_id = int(raw_tpl_id) if raw_tpl_id is not None else None
-        order_type = str(data.get("order_type") or data.get("order_price_mode") or "limit").lower()
-        if order_type not in ("market", "limit"):
-            order_type = "market" if "market" in order_type else "limit"
-        carryover_mode = str(data.get("carryover_mode") or "next_day").lower()
+        # order_type 검증 및 정규화
+        raw_order_type = str(data.get("order_type") or data.get("order_price_mode") or "limit").strip().lower()
+        if raw_order_type in ("market", "시장가"):
+            order_type = "market"
+        elif raw_order_type in ("limit", "지정가"):
+            order_type = "limit"
+        else:
+            return _web.Response(status=400, text=f"유효하지 않은 주문 방식(order_type)입니다: {raw_order_type} (허용값: market, limit)")
+
+        # carryover_mode 검증 및 정규화
+        raw_carryover = str(data.get("carryover_mode") or "next_day").strip().lower()
+        if raw_carryover in ("delay_20m", "+20분", "20분"):
+            carryover_mode = "delay_20m"
+        elif raw_carryover in ("next_day", "다음거래일", "다음날"):
+            carryover_mode = "next_day"
+        elif raw_carryover in ("skip", "건너뛰기"):
+            carryover_mode = "skip"
+        else:
+            return _web.Response(status=400, text=f"유효하지 않은 이월 옵션(carryover_mode)입니다: {raw_carryover} (허용값: next_day, delay_20m, skip)")
 
         user = _user_manager.get_user(user_id)
         if not user:
@@ -590,9 +605,9 @@ async def _internal_execute_dca_handler(request: _web.Request) -> _web.Response:
                         f"✅ [웹 템플릿] [{exchange_display_name(ex)}] {tk} 정기 {action_label} 등록 완료!\n"
                         f"• 배치: #{sched['group_no']} (ID: {sched['id']})\n"
                         f"• 주기: {format_dca_schedule(sched)}\n"
-                        f"• 방식: {'시장가 (즉시 체결)' if order_type == 'market' else '지정가 (현재가 호가)'}\n"
+                        f"• 방식: {'시장가 (즉시 체결)' if sched.get('order_type') == 'market' else '지정가 (현재가 호가)'}\n"
                         f"• 1회 규모: {amt_str} ({runs_str})\n"
-                        f"• 이월 옵션: {'+20분 재시도' if carryover_mode == 'delay_20m' else ('건너뛰기' if carryover_mode == 'skip' else '다음 거래일 이월')}\n"
+                        f"• 이월 옵션: {'+20분 재시도' if sched.get('carryover_mode') == 'delay_20m' else ('건너뛰기' if sched.get('carryover_mode') == 'skip' else '다음 거래일 이월')}\n"
                         f"• 첫 실행: {next_dt} (KST)"
                     ),
                 )

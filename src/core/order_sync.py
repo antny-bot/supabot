@@ -550,7 +550,12 @@ async def _process_order_fill(application, ord: dict, res: dict, ex_obj) -> None
             elif outcome == "external_sold":
                 keep_order_for_retry = False
         else:
-            order_manager.update_order_fill(ord['uuid'], exec_vol, state)
+            # 시장가 매수(DCA/SDCA 등)로 인해 발주 시점 추정 수량(volume)과 실제 거래소 체결 수량(exec_vol)이
+            # 다를 수 있으므로, 완료(done) 시점에 실제 체결 수량으로 주문 volume을 보정하여 일치시킨다.
+            if state == "done" and exec_vol > 0 and (ord.get("volume", 0) <= 0 or ord.get("strategy") in ("dca", "sdca")):
+                order_manager.update_order(ord['uuid'], volume=exec_vol, filled_volume=exec_vol, status=state)
+            else:
+                order_manager.update_order_fill(ord['uuid'], exec_vol, state)
             if state == "done":
                 await application.bot.send_message(
                     chat_id=user_id,
