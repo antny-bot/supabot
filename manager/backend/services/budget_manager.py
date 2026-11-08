@@ -17,7 +17,7 @@ def get_current_kst_date_str() -> str:
     return datetime.now(KST).strftime("%Y-%m-%d")
 
 
-DEFAULT_DCA_PLAN_BUDGET = 3000000.0
+# (기본 예산 상수 없음: 예산은 항상 템플릿 설정값을 따른다)
 
 
 def is_budget_managed_strategy(template: dict) -> bool:
@@ -150,8 +150,8 @@ async def credit_daily_allowance(
     budget_mode = params.get("budget_mode") or default_budget_mode_for_strategy(template.get("strategy_type", "grid"))
     if budget_mode == "total":
         return 0.0, params
-    monthly_budget = float(params.get("monthly_budget", template.get("budget", 3000000.0)))
-    daily_fixed = float(params.get("daily_fixed_budget", 150000.0))
+    monthly_budget = float(params.get("monthly_budget", (template.get("budget") or 0.0)))
+    daily_fixed = float(params.get("daily_fixed_budget", 0.0))
     monthly_spent = float(params.get("monthly_spent", 0.0))
     carryover = float(params.get("carryover_budget", 0.0))
 
@@ -218,7 +218,7 @@ async def spend_for_buy(
     params = template.get("params") or {}
     budget_epoch = int(params.get("budget_epoch", 1))
     plan_rev = int(params.get("plan_revision_no", 1))
-    monthly_budget = float(params.get("monthly_budget", template.get("budget", 3000000.0)))
+    monthly_budget = float(params.get("monthly_budget", (template.get("budget") or 0.0)))
 
     carryover = float(params.get("carryover_budget", 0.0)) if carryover_before is None else float(carryover_before)
     monthly_spent = float(params.get("monthly_spent", 0.0)) if monthly_spent_before is None else float(monthly_spent_before)
@@ -260,7 +260,7 @@ async def refund_cancelled_orders(
     params = template.get("params") or {}
     cur_epoch = int(params.get("budget_epoch", 1))
     plan_rev = int(params.get("plan_revision_no", 1))
-    monthly_budget = float(params.get("monthly_budget", template.get("budget", 3000000.0)))
+    monthly_budget = float(params.get("monthly_budget", (template.get("budget") or 0.0)))
 
     carryover = float(params.get("carryover_budget", 0.0))
     monthly_spent = float(params.get("monthly_spent", 0.0))
@@ -338,7 +338,7 @@ async def recycle_sell_proceeds(
 
     cur_epoch = int(params.get("budget_epoch", 1))
     plan_rev = int(params.get("plan_revision_no", 1))
-    monthly_budget = float(params.get("monthly_budget", template.get("budget", 3000000.0)))
+    monthly_budget = float(params.get("monthly_budget", (template.get("budget") or 0.0)))
 
     carryover = float(params.get("carryover_budget", 0.0)) + proceeds_krw
     monthly_spent = float(params.get("monthly_spent", 0.0))
@@ -380,10 +380,10 @@ async def apply_plan_change(
     old_budget_mode = params.get("budget_mode") or default_budget_mode_for_strategy(template.get("strategy_type", "grid"))
     new_budget_mode = new_plan_config.get("budget_mode", old_budget_mode)
 
-    old_monthly_budget = float(params.get("monthly_budget", template.get("budget", 3000000.0)))
+    old_monthly_budget = float(params.get("monthly_budget", (template.get("budget") or 0.0)))
     new_monthly_budget = float(new_plan_config.get("monthly_budget", old_monthly_budget))
 
-    old_daily_fixed = float(params.get("daily_fixed_budget", 150000.0))
+    old_daily_fixed = float(params.get("daily_fixed_budget", 0.0))
     new_daily_fixed = float(new_plan_config.get("daily_fixed_budget", old_daily_fixed))
 
     carryover = float(params.get("carryover_budget", 0.0))
@@ -543,7 +543,7 @@ async def manual_topup(
     params = template.get("params") or {}
     budget_epoch = int(params.get("budget_epoch", 1))
     plan_rev = int(params.get("plan_revision_no", 1))
-    monthly_budget = float(params.get("monthly_budget", template.get("budget", 3000000.0)))
+    monthly_budget = float(params.get("monthly_budget", (template.get("budget") or 0.0)))
 
     carryover = float(params.get("carryover_budget", 0.0)) + amount_krw
     monthly_spent = float(params.get("monthly_spent", 0.0))
@@ -582,8 +582,8 @@ async def reset_budget_plan(
 
     default_mode = default_budget_mode_for_strategy(template.get("strategy_type", "grid"))
     budget_mode = new_config.get("budget_mode", params.get("budget_mode", default_mode))
-    monthly_budget = float(new_config.get("monthly_budget", params.get("monthly_budget", template.get("budget", 3000000.0))))
-    daily_fixed = float(new_config.get("daily_fixed_budget", params.get("daily_fixed_budget", 150000.0)))
+    monthly_budget = float(new_config.get("monthly_budget", params.get("monthly_budget", (template.get("budget") or 0.0))))
+    daily_fixed = float(new_config.get("daily_fixed_budget", params.get("daily_fixed_budget", 0.0)))
 
     params["budget_epoch"] = new_epoch
     params["plan_revision_no"] = 1
@@ -685,7 +685,8 @@ async def ensure_budget_plan_initialized(
         if str(params.get("amount_type") or "budget").lower() == "volume":
             plan_b = float(params.get("dca_plan_budget") or params.get("monthly_budget") or 0.0)
             if plan_b <= 0:
-                plan_b = DEFAULT_DCA_PLAN_BUDGET
+                # 임의의 기본 예산을 하드코딩하지 않고, 템플릿 budget(없으면 0)을 사용한다.
+                plan_b = raw_tpl_budget
             params["monthly_budget"] = plan_b
             if "per_order_budget" not in params:
                 params["per_order_budget"] = float(params.get("per_order_budget") or 0.0)
@@ -701,11 +702,11 @@ async def ensure_budget_plan_initialized(
                 changed = True
     else:
         if "monthly_budget" not in params or float(params.get("monthly_budget") or 0) <= 0:
-            params["monthly_budget"] = raw_tpl_budget if raw_tpl_budget > 0 else 3000000.0
+            params["monthly_budget"] = raw_tpl_budget
             changed = True
 
     if "daily_fixed_budget" not in params:
-        params["daily_fixed_budget"] = float(params.get("per_order_budget") or 150000.0)
+        params["daily_fixed_budget"] = float(params.get("per_order_budget") or 0.0)
         changed = True
 
     if "sell_proceeds_mode" not in params:
@@ -1006,8 +1007,8 @@ def check_exchange_budget_health(
         p = t.get("params") or {}
         stype = str(t.get("strategy_type") or "grid").lower()
         b_mode = p.get("budget_mode") or default_budget_mode_for_strategy(stype)
-        m_budget = float(p.get("monthly_budget", t.get("budget", 3000000.0)))
-        d_fixed = float(p.get("daily_fixed_budget", 150000.0))
+        m_budget = float(p.get("monthly_budget", (t.get("budget") or 0.0)))
+        d_fixed = float(p.get("daily_fixed_budget", 0.0))
         m_spent = float(p.get("monthly_spent", 0.0))
         c_budget = float(p.get("carryover_budget", m_budget if b_mode == "total" else 0.0))
 
@@ -1045,7 +1046,7 @@ def check_exchange_budget_health(
         p = t.get("params") or {}
         stype = str(t.get("strategy_type") or "grid").lower()
         b_mode = p.get("budget_mode") or default_budget_mode_for_strategy(stype)
-        m_budget = float(p.get("monthly_budget", t.get("budget", 3000000.0)))
+        m_budget = float(p.get("monthly_budget", (t.get("budget") or 0.0)))
         c_budget = float(p.get("carryover_budget", m_budget if b_mode == "total" else 0.0))
         holding_daily_req_total += c_budget
         holding_details.append({

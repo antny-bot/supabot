@@ -654,7 +654,7 @@ async def run_strategy_progression(
             "spent_today": sum(b["cost"] for b in buy_orders),
             "new_carryover": new_params.get("carryover_budget", 0.0),
             "end_carryover": new_params.get("carryover_budget", 0.0),
-            "monthly_budget": float(new_params.get("monthly_budget", template.get("budget", 3000000.0))),
+            "monthly_budget": float(new_params.get("monthly_budget", (template.get("budget") or 0.0))),
             "monthly_spent_after": new_params.get("monthly_spent", 0.0),
             "summary": new_params.get("last_status_message", ""),
             "status_summary": new_params.get("last_status_message", ""),

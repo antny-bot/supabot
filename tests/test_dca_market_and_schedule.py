@@ -923,9 +923,11 @@ async def test_dca_volume_unlimited_strategy_initialized():
     """항목 3 & R5, R6: budget_mode 없는 volume DCA는 unlimited로 간주되어 임의 한도가 생기지 않음."""
     import sys
     sys.path.insert(0, "manager")
-    from backend.services.budget_manager import is_budget_managed_strategy, ensure_budget_plan_initialized, DEFAULT_DCA_PLAN_BUDGET
+    from backend.services import budget_manager
+    from backend.services.budget_manager import is_budget_managed_strategy, ensure_budget_plan_initialized
+    assert not hasattr(budget_manager, "DEFAULT_DCA_PLAN_BUDGET")
 
-    assert DEFAULT_DCA_PLAN_BUDGET == 3000000.0
+    # 기본 예산 하드코딩 금지
 
     # 1. budget_mode 없고 carryover_budget 없는 기존 volume DCA 템플릿
     old_vol_tpl = {
@@ -1186,3 +1188,25 @@ async def test_internal_api_order_type_carryover_mode_aliases(monkeypatch):
     res = await _internal_execute_dca_handler(req)
     assert res.status == 200
     assert "DCA schedule registered" in res.text
+
+
+
+@pytest.mark.asyncio
+async def test_refund_unfilled_budget_on_limit_cancel(monkeypatch):
+    """지정가 DCA 매수 취소 시 미체결분만 환원하고, 시장가/타 전략은 환원하지 않는다."""
+    from core import order_sync
+    calls = []
+
+    async def fake_adjust(**kw):
+        calls.append(kw)
+
+    monkeypatch.setattr("core.budget_ledger.record_budget_adjust", fake_adjust)
+    base = {"user_id": "u", "ticker": "005930", "uuid": "o1", "strategy": "dca", "side": "bid",
+            "template_id": 7, "price": 1000.0, "volume": 10.0, "filled_volume": 4.0, "order_type": "limit"}
+    await order_sync._refund_unfilled_budget(base)
+    assert len(calls) == 1 and calls[0]["diff_krw"] == -6000.0 and calls[0]["template_id"] == 7
+
+    await order_sync._refund_unfilled_budget({**base, "order_type": "market"})
+    await order_sync._refund_unfilled_budget({**base, "strategy": "grid"})
+    await order_sync._refund_unfilled_budget({**base, "filled_volume": 10.0})
+    assert len(calls) == 1

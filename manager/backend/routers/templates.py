@@ -175,7 +175,7 @@ async def api_create_template(payload: TemplateCreate, user: dict = Depends(get_
             if payload.strategy_type == "dca" and float(params.get("monthly_budget", 0) or 0) > 0:
                 base_budget = float(params["monthly_budget"])
             elif payload.strategy_type == "dca" and str(params.get("amount_type") or "budget").lower() == "volume":
-                base_budget = float(params.get("dca_plan_budget") or params.get("monthly_budget") or budget_manager.DEFAULT_DCA_PLAN_BUDGET)
+                base_budget = float(params.get("dca_plan_budget") or params.get("monthly_budget") or payload.budget or 0.0)
             if "budget_epoch" not in params: params["budget_epoch"] = 1
             if "plan_revision_no" not in params: params["plan_revision_no"] = 1
             if "budget_mode" not in params: params["budget_mode"] = budget_mode

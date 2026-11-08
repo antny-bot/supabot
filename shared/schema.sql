@@ -66,6 +66,8 @@ CREATE TABLE IF NOT EXISTS orders (
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS trailing_stop_pct DOUBLE PRECISION;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS group_no INTEGER;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS auto_reorder BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_type TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS template_id BIGINT;
 
 -- ── Trade Logs ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS trade_logs (
@@ -285,6 +287,9 @@ CREATE TABLE IF NOT EXISTS dca_schedules (
 CREATE INDEX IF NOT EXISTS idx_dca_schedules_user ON dca_schedules(user_id);
 ALTER TABLE dca_schedules ENABLE ROW LEVEL SECURITY;
 GRANT ALL ON TABLE dca_schedules TO service_role;
+ALTER TABLE dca_schedules ADD COLUMN IF NOT EXISTS order_type TEXT DEFAULT 'limit';
+ALTER TABLE dca_schedules ADD COLUMN IF NOT EXISTS carryover_mode TEXT DEFAULT 'next_day';
+ALTER TABLE dca_schedules ADD COLUMN IF NOT EXISTS template_id BIGINT;
 
 -- ── KOSPI / KOSDAQ TOP N DCA & Budget Ledger ────────────────────────────────
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS template_id BIGINT;

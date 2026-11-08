@@ -47,7 +47,7 @@ async def record_budget_spend(
 
         budget_epoch = int(params.get("budget_epoch", 1))
         plan_rev = int(params.get("plan_revision_no", 1))
-        monthly_budget = float(params.get("monthly_budget", tpl.get("budget", 3000000.0) or 3000000.0))
+        monthly_budget = float(params.get("monthly_budget") or tpl.get("budget") or 0.0)
 
         carryover = float(params.get("carryover_budget", 0.0))
         monthly_spent = float(params.get("monthly_spent", 0.0))
@@ -101,11 +101,15 @@ async def record_budget_adjust(
     group_no: int | None = None,
     order_uuid: str | None = None,
     description: str | None = None,
+    entry_type: str = "BUY_ORDER_ADJUST",
 ) -> dict | None:
     """시장가 체결 후 실제 소요 금액과 당초 차감액의 차이(diff_krw = 실제 - 추정)를 정산하고 BUY_ORDER_ADJUST 기록.
 
     diff_krw > 0: 실제 체결액이 더 커서 추가 차감 필요 (delta = -diff_krw)
     diff_krw < 0: 실제 체결액이 더 적어 환원 필요 (delta = +abs(diff_krw))
+
+    entry_type="ORDER_CANCEL_REFUND"(취소 미체결분 환원)는 (template_id, budget_epoch, order_uuid) 유니크 인덱스로
+    중복 환원이 차단된다. 이 경우 원장 기록이 실패하면(중복 등) params를 갱신하지 않고 None을 반환한다.
     """
     if not is_db_available() or template_id is None or round(diff_krw) == 0:
         return None
@@ -128,7 +132,7 @@ async def record_budget_adjust(
 
         budget_epoch = int(params.get("budget_epoch", 1))
         plan_rev = int(params.get("plan_revision_no", 1))
-        monthly_budget = float(params.get("monthly_budget", tpl.get("budget", 3000000.0) or 3000000.0))
+        monthly_budget = float(params.get("monthly_budget") or tpl.get("budget") or 0.0)
 
         carryover = float(params.get("carryover_budget", 0.0))
         monthly_spent = float(params.get("monthly_spent", 0.0))
@@ -147,7 +151,7 @@ async def record_budget_adjust(
             "plan_revision_no": plan_rev,
             "group_no": int(group_no) if group_no is not None else None,
             "credit_date": datetime.now(KST).strftime("%Y-%m-%d"),
-            "entry_type": "BUY_ORDER_ADJUST",
+            "entry_type": entry_type,
             "delta_krw": delta_krw,
             "balance_after_krw": new_carryover,
             "monthly_spent_after_krw": new_monthly_spent,
@@ -161,7 +165,9 @@ async def record_budget_adjust(
         try:
             await db.table("budget_ledger").insert(entry).execute_async()
         except Exception as le:
-            _log.error("Failed to insert budget_ledger entry (BUY_ORDER_ADJUST) for template %s: %s", template_id, le)
+            _log.error("Failed to insert budget_ledger entry (%s) for template %s: %s", entry_type, template_id, le)
+            if entry_type == "ORDER_CANCEL_REFUND":
+                return None
 
         params["carryover_budget"] = new_carryover
         params["monthly_spent"] = new_monthly_spent

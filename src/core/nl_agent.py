@@ -134,6 +134,7 @@ async def run_nl_agent_loop(
             system_instruction=sys_instruction,
             temperature=0.1,
             tools=ALL_NL_TOOLS,
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
         )
 
         contents = [types.Content(role="user", parts=[types.Part.from_text(text=text)])]

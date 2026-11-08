@@ -267,6 +267,38 @@ async def reconcile_external_sells_fifo(application, user_id: str, exchange: str
         )
 
 
+async def _refund_unfilled_budget(ord_dict: dict, filled_volume: float | None = None) -> None:
+    """취소/만료로 종료되는 지정가 DCA 매수 주문의 미체결분 예산을 템플릿에 환원한다 (ORDER_CANCEL_REFUND, 주문 UUID 기준 중복 환원 차단).
+
+    접수 시 차감한 금액(price*volume) 중 체결되지 않은 수량 몫만 되돌린다. 시장가 주문은 대상이 아니다.
+    """
+    try:
+        if ord_dict.get("strategy") != "dca" or ord_dict.get("side") != "bid":
+            return
+        if ord_dict.get("template_id") is None or ord_dict.get("order_type") == "market":
+            return
+        vol = float(ord_dict.get("volume") or 0.0)
+        filled = float(ord_dict.get("filled_volume") or 0.0) if filled_volume is None else float(filled_volume)
+        unfilled = max(0.0, vol - filled)
+        refund = round(float(ord_dict.get("price") or 0.0) * unfilled)
+        if refund <= 0:
+            return
+        from core.budget_ledger import record_budget_adjust
+        await record_budget_adjust(
+            user_id=ord_dict["user_id"],
+            template_id=int(ord_dict["template_id"]),
+            diff_krw=-float(refund),
+            ticker=ord_dict["ticker"],
+            qty=unfilled,
+            group_no=ord_dict.get("group_no"),
+            order_uuid=ord_dict["uuid"],
+            description=f"DCA 주문 취소 미체결분 예산 환원: {ord_dict['ticker']} {unfilled:g}주 ({refund:,.0f}원)",
+            entry_type="ORDER_CANCEL_REFUND",
+        )
+    except Exception as e:
+        _log.error("Failed to refund unfilled DCA budget for %s: %s", ord_dict.get("uuid"), e)
+
+
 async def cancel_and_remove_order(user_id: str, ord_dict: dict) -> bool:
     """거래소에 주문 취소를 요청하고, 성공하거나 이미 완료된 주문이면 order_manager에서 제거합니다."""
     order_manager, _, exchange_adapter, _ = _get_app_context()
@@ -278,6 +310,7 @@ async def cancel_and_remove_order(user_id: str, ord_dict: dict) -> bool:
         cancel_ok = await exchange_adapter.cancel_order(user_id, exchange, uuid, ticker)
         if cancel_ok:
             order_manager.remove_order(uuid)
+            await _refund_unfilled_budget(ord_dict)
             return True
     except Exception as e:
         _log.warning(f"Exception during cancel_order for {uuid}", exc_info=e)
@@ -286,6 +319,10 @@ async def cancel_and_remove_order(user_id: str, ord_dict: dict) -> bool:
         status_res = await exchange_adapter.get_order_status(user_id, exchange, uuid, ticker)
         if status_res is not None and status_res.get("state") in ("done", "cancel"):
             order_manager.remove_order(uuid)
+            if status_res.get("state") == "cancel":
+                await _refund_unfilled_budget(
+                    ord_dict, max(float(ord_dict.get("filled_volume") or 0.0), float(status_res.get("executed_volume") or 0.0))
+                )
             return True
     except Exception as e:
         _log.warning(f"Failed to check order status after cancel failure for {uuid}", exc_info=e)
@@ -567,7 +604,7 @@ async def _process_order_fill(application, ord: dict, res: dict, ex_obj) -> None
                         if exec_funds <= 0 and float(res.get("price") or 0.0) > 0:
                             exec_funds = float(res["price"]) * exec_vol
                         ord_price = float(ord.get("price") or 0.0)
-                        est_cost = ord_price if ord_vol <= 0 else (ord_price * ord_vol)
+                        est_cost = float(round(ord_price * ord_vol)) if ord_vol > 0 else ord_price
                         diff_krw = exec_funds - est_cost if exec_funds > 0 and est_cost > 0 else 0.0
                         if round(diff_krw) != 0:
                             from core.budget_ledger import record_budget_adjust
@@ -607,6 +644,7 @@ async def _process_order_fill(application, ord: dict, res: dict, ex_obj) -> None
                     text=f"⏳ [{exchange_display_name(exchange)}] {ticker} {order_kind} 주문이 만료/취소되어 다음 정규장 재주문 예정입니다.",
                 )
                 return
+            await _refund_unfilled_budget(ord, max(current_filled, exec_vol))
             await application.bot.send_message(
                 chat_id=user_id,
                 text=f"🛑 [{exchange_display_name(exchange)}] {ticker} 외부 개입 감지\n"
@@ -662,6 +700,7 @@ async def _handle_cancel_requested(application, ord: dict, ex_obj) -> None:
         exec_vol = max(exec_vol, float(res.get("executed_volume") or 0.0))
         fee_amount = float(res.get("fee_amount") or 0.0)
 
+    ord["filled_volume"] = max(float(ord.get("filled_volume") or 0.0), exec_vol)
     if not await _call_cancel_and_remove_order(user_id, ord):
         return
 
