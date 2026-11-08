@@ -468,7 +468,7 @@ export default function Orders() {
               </span>
             )}
             {templateIdFilter && (
-              <span className="rounded-md bg-indigo-100 px-1.5 py-0.5 font-mono text-[11px] font-bold text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200">
+              <span className="rounded-md bg-indigo-100 px-1.5 py-0.5 text-[11px] font-bold text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200">
                 전략 #{templateIdFilter}
               </span>
             )}
@@ -563,7 +563,7 @@ export default function Orders() {
                     <th className="px-4 py-3 text-right">제어</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {Array.from({ length: 8 }).map((_, i) => (
                     <TableRowSkeleton key={i} cols={12} />
                   ))}
@@ -597,7 +597,7 @@ export default function Orders() {
                     <th className="px-4 py-3 text-right">제어</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {!data || data.orders.length === 0 ? (
                     <tr>
                       <td colSpan={12} className="py-12 text-center text-xs text-slate-400 font-sans">
@@ -730,7 +730,7 @@ export default function Orders() {
                     </div>
 
                     {/* 중단: 가격, 수량, 주문금액 */}
-                    <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                    <div className="grid grid-cols-2 gap-2 text-xs">
                       <div>
                         <span className="text-slate-400 font-sans text-[11px]">주문가 / 수량</span>
                         <p className="font-semibold text-slate-800 dark:text-slate-200">
@@ -870,7 +870,7 @@ export default function Orders() {
           />
           <div className="relative z-10 w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
             <h3 className="text-base font-bold text-slate-900 dark:text-white">주문 수동 수정</h3>
-            <p className="mt-1 text-xs text-slate-500 font-mono">
+            <p className="mt-1 text-xs text-slate-500">
               {editingOrder.ticker} ({editingOrder.exchange.toUpperCase()})
             </p>
             <div className="mt-4 space-y-3">
@@ -893,7 +893,7 @@ export default function Orders() {
                   step="any"
                   value={editFilledVolume}
                   onChange={(e) => setEditFilledVolume(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                 />
               </div>
             </div>
