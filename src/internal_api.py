@@ -532,18 +532,18 @@ async def _internal_execute_dca_handler(request: _web.Request) -> _web.Response:
         template_id = int(raw_tpl_id) if raw_tpl_id is not None else None
         # order_type 검증 및 정규화
         raw_order_type = str(data.get("order_type") or data.get("order_price_mode") or "limit").strip().lower()
-        if raw_order_type in ("market", "시장가"):
+        if raw_order_type in ("market", "시장가", "market_order"):
             order_type = "market"
-        elif raw_order_type in ("limit", "지정가"):
+        elif raw_order_type in ("limit", "지정가", "limit_order", "limit_current", "limit_aggressive"):
             order_type = "limit"
         else:
             return _web.Response(status=400, text=f"유효하지 않은 주문 방식(order_type)입니다: {raw_order_type} (허용값: market, limit)")
 
         # carryover_mode 검증 및 정규화
         raw_carryover = str(data.get("carryover_mode") or "next_day").strip().lower()
-        if raw_carryover in ("delay_20m", "+20분", "20분"):
+        if raw_carryover in ("delay_20m", "+20분", "20분", "delay20m", "20m"):
             carryover_mode = "delay_20m"
-        elif raw_carryover in ("next_day", "다음거래일", "다음날"):
+        elif raw_carryover in ("next_day", "다음거래일", "다음날", "nextday"):
             carryover_mode = "next_day"
         elif raw_carryover in ("skip", "건너뛰기"):
             carryover_mode = "skip"

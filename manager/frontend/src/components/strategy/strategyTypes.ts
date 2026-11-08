@@ -75,6 +75,25 @@ export const DEFAULT_SINGLE_FORM: TemplateFormState = {
   dcaPlanBudget: '1000000',
 }
 
+export const DEFAULT_DCA_PLAN_BUDGET = 3000000
+
+export function hasDcaBudget(templateOrParams: any): boolean {
+  if (!templateOrParams) return false
+  const p = (templateOrParams.params || templateOrParams) as any
+  const stype = normalizeStrategyType(templateOrParams.strategy_type || p.strategy_type)
+  if (stype !== 'dca' && stype !== 'sdca') return false
+  const bMode = String(p.budget_mode || '').toLowerCase()
+  if (bMode === 'unlimited') return false
+  // budget_mode가 명시되지 않았고 carryover_budget도 없는 기존 DCA는 무제한으로 취급
+  if (!bMode && p.carryover_budget === undefined && p.carryover_budget === null) return false
+  return Boolean(
+    p.carryover_budget !== undefined ||
+    Number(p.monthly_budget || 0) > 0 ||
+    Number(p.dca_plan_budget || 0) > 0 ||
+    bMode
+  )
+}
+
 export const DEFAULT_MULTI_FORM: TemplateFormState = {
   ...DEFAULT_SINGLE_FORM,
   name: '',
@@ -155,7 +174,7 @@ export function buildPayload(form: TemplateFormState) {
     const isBidDca = stype === 'dca'
     const parsedPlanBudget = parseFloat(stripCommas(form.dcaPlanBudget))
     const defaultTotal = form.dcaAmountType === 'volume'
-      ? (parsedPlanBudget > 0 ? parsedPlanBudget : (payload.budget > 0 ? payload.budget * 20 : 3000000))
+      ? (parsedPlanBudget > 0 ? parsedPlanBudget : (payload.budget > 0 ? payload.budget * 20 : DEFAULT_DCA_PLAN_BUDGET))
       : (parsedPlanBudget > 0 ? parsedPlanBudget : (maxRuns ? payload.budget * maxRuns : payload.budget * 20))
     const isUnlimited = form.budgetMode === 'unlimited'
     payload.params = {
@@ -259,7 +278,7 @@ export function templateToForm(template: Template): TemplateFormState {
     budgetMode:
       p.budget_mode === 'daily' || p.budget_mode === 'monthly' || p.budget_mode === 'total' || p.budget_mode === 'unlimited'
         ? p.budget_mode
-        : (strategyType === 'dca' && !p.budget_mode && !p.carryover_budget ? 'unlimited' : defaultBudgetMode),
+        : (strategyType === 'dca' && !hasDcaBudget(template) ? 'unlimited' : defaultBudgetMode),
     dailyFixedBudget: formatWithCommas(p.daily_fixed_budget ?? '150000'),
     tradingDaysPerMonth: String(p.trading_days_per_month ?? '20'),
     cycleAllocMode: p.cycle_alloc_mode === 'target_amount' ? 'target_amount' : 'one_share',

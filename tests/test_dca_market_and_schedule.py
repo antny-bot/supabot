@@ -746,3 +746,443 @@ async def test_internal_api_dca_validation(monkeypatch):
     res2 = await _internal_execute_dca_handler(req_bad_carry)
     assert res2.status == 400
     assert "유효하지 않은 이월 옵션" in res2.text
+
+
+@pytest.mark.asyncio
+async def test_dca_budget_spend_record_ledger(monkeypatch):
+    """항목 1 & 2: record_budget_spend 호출 시 BUY_ORDER_SPEND 원장 행이 생성되고 최신 params 키 보존 및 차감 갱신 확인."""
+    from core.budget_ledger import record_budget_spend
+    monkeypatch.setattr("core.budget_ledger.is_db_available", lambda: True)
+
+    fake_db = MagicMock()
+    fake_ledger_table = MagicMock()
+    fake_tpl_table = MagicMock()
+
+    tpl_data = [{
+        "id": 101,
+        "user_id": "u1",
+        "budget": 5000000.0,
+        "params": {
+            "budget_mode": "monthly",
+            "carryover_budget": 1000000.0,
+            "monthly_spent": 200000.0,
+            "custom_key_preserved": "hello_world",
+        }
+    }]
+
+    inserted_ledger = []
+    updated_params = []
+
+    def select_chain(cols):
+        q = MagicMock()
+        q.eq = MagicMock(return_value=q)
+        q.execute_async = AsyncMock(return_value=MagicMock(data=tpl_data))
+        return q
+
+    def insert_chain(entry):
+        inserted_ledger.append(entry)
+        q = MagicMock()
+        q.execute_async = AsyncMock(return_value=MagicMock())
+        return q
+
+    def update_chain(data):
+        updated_params.append(data)
+        q = MagicMock()
+        q.eq = MagicMock(return_value=q)
+        q.execute_async = AsyncMock(return_value=MagicMock())
+        return q
+
+    def table_mock(name):
+        if name == "strategy_templates":
+            t = MagicMock()
+            t.select = select_chain
+            t.update = update_chain
+            return t
+        elif name == "budget_ledger":
+            t = MagicMock()
+            t.insert = insert_chain
+            return t
+        return MagicMock()
+
+    fake_db.table.side_effect = table_mock
+    monkeypatch.setattr("core.budget_ledger.get_db", lambda: fake_db)
+
+    res = await record_budget_spend(
+        user_id="u1",
+        template_id=101,
+        cost_krw=100000.0,
+        ticker="KRW-BTC",
+        qty=0.001,
+        group_no=3,
+        order_uuid="uuid-spend-123",
+    )
+
+    assert res["carryover_budget"] == 900000.0
+    assert res["monthly_spent"] == 300000.0
+    assert len(inserted_ledger) == 1
+    assert inserted_ledger[0]["entry_type"] == "BUY_ORDER_SPEND"
+    assert inserted_ledger[0]["delta_krw"] == -100000.0
+    assert inserted_ledger[0]["balance_after_krw"] == 900000.0
+    assert inserted_ledger[0]["order_uuid"] == "uuid-spend-123"
+
+    # params 다른 키 보존 확인
+    assert len(updated_params) == 1
+    p = updated_params[0]["params"]
+    assert p["custom_key_preserved"] == "hello_world"
+    assert p["carryover_budget"] == 900000.0
+    assert p["monthly_spent"] == 300000.0
+
+
+@pytest.mark.asyncio
+async def test_order_sync_market_vs_limit_adjustment_and_adjust_ledger(tmp_path, monkeypatch):
+    """항목 1 & 7: 지정가 주문은 수량 보정 제외, 시장가 체결 시 실제 금액 차액 BUY_ORDER_ADJUST 정산 확인."""
+    monkeypatch.setattr("core.order_manager.is_db_available", lambda: False)
+    from core import order_sync
+    from core.order_manager import OrderManager
+
+    order_file = tmp_path / "orders_sync_test.json"
+    om = OrderManager(file_path=str(order_file))
+    monkeypatch.setattr(order_sync, "_get_app_context", lambda: (om, MagicMock(), MagicMock(), MagicMock()))
+    monkeypatch.setattr(order_sync, "_call_append_trade", MagicMock())
+
+    # 1. 지정가 주문: order_type="limit" -> done 시점에 volume 보정 호출되지 않음
+    om.add_order(
+        user_id="u1",
+        exchange="upbit",
+        ticker="KRW-BTC",
+        uuid="uuid-limit-1",
+        price=100000000,
+        volume=0.001,
+        side="bid",
+        strategy="dca",
+        order_type="limit",
+        template_id=202,
+    )
+    calls = []
+    orig_update = om.update_order
+    def spy_update(uuid, **fields):
+        calls.append((uuid, fields))
+        return orig_update(uuid, **fields)
+    monkeypatch.setattr(om, "update_order", spy_update)
+
+    app = MagicMock()
+    app.bot.send_message = AsyncMock()
+    ex_obj = MagicMock()
+
+    ord_limit = om.get_order("uuid-limit-1")
+    res_limit = {"state": "done", "executed_volume": 0.00095}
+    await order_sync._process_order_fill(app, ord_limit, res_limit, ex_obj)
+
+    # 지정가는 update_order(수량 덮어쓰기)가 호출되지 않아야 함 (update_order_fill 호출됨: volume 키 없음)
+    assert len(calls) == 1
+    assert "volume" not in calls[0][1]
+    assert calls[0][1]["filled_volume"] == 0.00095
+
+    # 2. 시장가 주문: order_type="market" -> 수량 보정 및 BUY_ORDER_ADJUST 호출 확인
+    calls.clear()
+    adjust_calls = []
+    async def mock_adjust(**kwargs):
+        adjust_calls.append(kwargs)
+    monkeypatch.setattr("core.budget_ledger.record_budget_adjust", mock_adjust)
+
+    om.add_order(
+        user_id="u1",
+        exchange="upbit",
+        ticker="KRW-BTC",
+        uuid="uuid-market-1",
+        price=100000.0,  # effective_budget (추정 차감액 100,000원)
+        volume=0.0,
+        side="bid",
+        strategy="dca",
+        order_type="market",
+        template_id=202,
+        group_no=5,
+    )
+
+    ord_mkt = om.get_order("uuid-market-1")
+    # 실제 체결: 0.00099주, 총 소요 99,500원 (500원 환원 대상)
+    res_mkt = {
+        "state": "done",
+        "executed_volume": 0.00099,
+        "executed_funds": 99500.0,
+    }
+    await order_sync._process_order_fill(app, ord_mkt, res_mkt, ex_obj)
+
+    assert len(calls) == 1
+    assert calls[0][0] == "uuid-market-1"
+    assert calls[0][1]["volume"] == 0.00099
+
+    assert len(adjust_calls) == 1
+    assert adjust_calls[0]["template_id"] == 202
+    assert adjust_calls[0]["diff_krw"] == -500.0  # 99500 - 100000 = -500 (500원 환원)
+    assert adjust_calls[0]["order_uuid"] == "uuid-market-1"
+
+
+@pytest.mark.asyncio
+async def test_dca_volume_unlimited_strategy_initialized():
+    """항목 3 & R5, R6: budget_mode 없는 volume DCA는 unlimited로 간주되어 임의 한도가 생기지 않음."""
+    import sys
+    sys.path.insert(0, "manager")
+    from backend.services.budget_manager import is_budget_managed_strategy, ensure_budget_plan_initialized, DEFAULT_DCA_PLAN_BUDGET
+
+    assert DEFAULT_DCA_PLAN_BUDGET == 3000000.0
+
+    # 1. budget_mode 없고 carryover_budget 없는 기존 volume DCA 템플릿
+    old_vol_tpl = {
+        "id": 1,
+        "strategy_type": "dca",
+        "params": {
+            "amount_type": "volume",
+            "volume": 1,
+        }
+    }
+    assert is_budget_managed_strategy(old_vol_tpl) is False
+
+    # ensure_budget_plan_initialized 호출 시 아무 한도도 생기지 않아야 함
+    params, changed = await ensure_budget_plan_initialized(old_vol_tpl, persist=False)
+    assert changed is False
+    assert "monthly_budget" not in params
+    assert "budget_mode" not in params
+
+
+def test_dca_carryover_count_reset_after_holiday_or_skip(tmp_path, monkeypatch):
+    """항목 4 & R2: 사이드카 오류 후 휴장 이월 또는 일반 건너뜀 시 carryover_count 초기화 확인."""
+    monkeypatch.setattr("core.dca_manager.is_db_available", lambda: False)
+    monkeypatch.setattr("core.order_manager.is_db_available", lambda: False)
+    monkeypatch.setattr("core.trading_gate.is_trading_halted", lambda: False)
+
+    dca_file = tmp_path / "dca_reset_test.json"
+    order_file = tmp_path / "orders_reset.json"
+    dm = DcaManager(file_path=str(dca_file))
+    om = OrderManager(file_path=str(order_file))
+
+    now_ts = datetime(2026, 11, 9, 9, 5, 0, tzinfo=KST).timestamp()
+    sched = dm.add_schedule(
+        user_id="u1",
+        exchange="upbit",
+        ticker="KRW-BTC",
+        side="bid",
+        frequency="daily",
+        amount_type="budget",
+        amount=50000,
+        carryover_mode="delay_20m",
+        now=now_ts,
+    )
+    sched_id = sched["id"]
+
+    # 사이드카 오류로 carryover_count가 3으로 쌓여있던 상태 모사
+    sched["carryover_count"] = 3
+    sched["is_carryover"] = True
+    dm.defer_schedule(sched_id, now_ts)
+
+    ex_obj = MagicMock()
+    ex_obj.is_market_open.return_value = False  # 휴장 상태 감지
+    ex_obj.next_check_timestamp.return_value = now_ts + 86400  # 다음 개장
+    adapter = MagicMock()
+    adapter.get_exchange.return_value = ex_obj
+    um = MagicMock()
+    um.get_user.return_value = {"is_active": True}
+    app = MagicMock()
+    app.bot.send_message = AsyncMock()
+
+    # 휴장 이월 실행 -> carryover_count가 제거되어야 함
+    executed = asyncio.run(execute_due_dca_schedules(app, dm, adapter, om, um, now_ts=now_ts))
+    assert executed == 0
+
+    cur_sched = dm.get_schedule(sched_id)
+    assert cur_sched.get("is_carryover") is True
+    assert cur_sched.get("carryover_reason") == "delay_20m"
+    assert "carryover_count" not in cur_sched  # 초기화 확인!
+
+
+def test_dca_delay_20m_title_and_message_branching(tmp_path, monkeypatch):
+    """항목 5: delay_20m 알림 문구 분기 (+20분 이월 vs 다음 개장 이월) 확인."""
+    monkeypatch.setattr("core.dca_manager.is_db_available", lambda: False)
+    monkeypatch.setattr("core.order_manager.is_db_available", lambda: False)
+    monkeypatch.setattr("core.trading_gate.is_trading_halted", lambda: False)
+
+    dca_file = tmp_path / "dca_msg_test.json"
+    dm = DcaManager(file_path=str(dca_file))
+    om = OrderManager(file_path=str(tmp_path / "orders_m.json"))
+
+    now_ts = datetime(2026, 11, 9, 9, 5, 0, tzinfo=KST).timestamp()
+    sched = dm.add_schedule(
+        user_id="u1",
+        exchange="upbit",
+        ticker="KRW-BTC",
+        side="bid",
+        frequency="daily",
+        amount_type="budget",
+        amount=50000,
+        carryover_mode="delay_20m",
+        now=now_ts,
+    )
+    sched_id = sched["id"]
+
+    ex_obj = MagicMock()
+    ex_obj.is_market_open.return_value = False
+    # 다음 개장이 20분 뒤보다 더 늦은 다음 날인 경우
+    ex_obj.next_check_timestamp.return_value = now_ts + 86400
+    adapter = MagicMock()
+    adapter.get_exchange.return_value = ex_obj
+    um = MagicMock()
+    um.get_user.return_value = {"is_active": True}
+    app = MagicMock()
+    sent_msgs = []
+    async def capture_msg(chat_id, text):
+        sent_msgs.append(text)
+    app.bot.send_message = AsyncMock(side_effect=capture_msg)
+
+    dm.defer_schedule(sched_id, now_ts)
+    asyncio.run(execute_due_dca_schedules(app, dm, adapter, om, um, now_ts=now_ts))
+
+    assert len(sent_msgs) == 1
+    # 20분 뒤가 아니므로 제목과 본문이 '다음 개장 이월'이어야 함
+    assert "다음 개장 이월" in sent_msgs[0]
+    assert "+20분 이월" not in sent_msgs[0]
+
+
+@pytest.mark.asyncio
+async def test_dca_volume_eval_price_boundary(tmp_path, monkeypatch):
+    """항목 6: volume DCA 사전검사 가격 기준(eval_price) 및 가용 예산 경계값 검증."""
+    from core.dca_manager import _check_budget_limit
+    monkeypatch.setattr("core.dca_manager.is_db_available", lambda: True)
+
+    sched = {"id": "s1", "template_id": 999}
+    current_price = 50000.0
+    limit_price = 55000.0  # 목표 지정가와 현재가가 다름
+
+    # 1. 가용 예산이 49,999원 (현재가 50,000원보다 1원 부족) -> 시장가 매수 보류 확인
+    tpl_data_short = [{
+        "id": 999,
+        "user_id": "u1",
+        "budget": 1000000,
+        "params": {
+            "budget_mode": "monthly",
+            "carryover_budget": 49999.0,
+        }
+    }]
+    fake_db = MagicMock()
+    fake_db.table.return_value.select.return_value.eq.return_value.execute_async = AsyncMock(
+        return_value=MagicMock(data=tpl_data_short)
+    )
+    monkeypatch.setattr("core.dca_manager.get_db", lambda: fake_db)
+
+    ex_obj = MagicMock()
+    ex_obj.round_volume = lambda v: round(v, 4)
+    dm = MagicMock()
+    app = MagicMock()
+    app.bot.send_message = AsyncMock()
+
+    ok, raw_amt, tpl_has_b, _ = await _check_budget_limit(
+        sched=sched, price=limit_price, current_price=current_price, order_type="market",
+        exchange="upbit", ticker="KRW-BTC", side="bid", raw_amount=1.0, amount_type="volume",
+        ex_obj=ex_obj, user_id="u1", ex_label="업비트", application=app, dca_manager=dm, now_val=1000.0
+    )
+    assert ok is False
+    assert dm.advance_schedule.call_count == 1
+
+    # 2. 가용 예산이 50,000원 (현재가 50,000원에 딱 맞음) -> 정상 통과 확인
+    tpl_data_exact = [{
+        "id": 999,
+        "user_id": "u1",
+        "budget": 1000000,
+        "params": {
+            "budget_mode": "monthly",
+            "carryover_budget": 50000.0,
+        }
+    }]
+    fake_db.table.return_value.select.return_value.eq.return_value.execute_async = AsyncMock(
+        return_value=MagicMock(data=tpl_data_exact)
+    )
+    ok2, raw_amt2, _, _ = await _check_budget_limit(
+        sched=sched, price=limit_price, current_price=current_price, order_type="market",
+        exchange="upbit", ticker="KRW-BTC", side="bid", raw_amount=1.0, amount_type="volume",
+        ex_obj=ex_obj, user_id="u1", ex_label="업비트", application=app, dca_manager=dm, now_val=1000.0
+    )
+    assert ok2 is True
+    assert raw_amt2 == 1.0
+
+
+def test_dca_merge_file_fields_policy():
+    """항목 8 & R3: 스케줄 DB/파일 병합 정책 및 컬럼 미존재 시 보강 확인."""
+    from core.dca_manager import _merge_file_fields
+
+    file_map = {
+        "s1": {"id": "s1", "order_type": "market", "carryover_mode": "delay_20m", "template_id": 55},
+        "s2": {"id": "s2", "order_type": "limit", "carryover_mode": "skip", "template_id": 66},
+    }
+
+    # 1. DB에 order_type, carryover_mode 컬럼이 없는 경우 (마이그레이션 미적용) -> 파일 데이터로 보강
+    db_rows_old = [
+        {"id": "s1", "ticker": "BTC"},
+        {"id": "s2", "ticker": "ETH"},
+    ]
+    merged1 = _merge_file_fields(db_rows_old, file_map)
+    assert merged1[0]["order_type"] == "market"
+    assert merged1[0]["carryover_mode"] == "delay_20m"
+    assert merged1[0]["template_id"] == 55
+
+    # 2. DB에 order_type 컬럼이 있는 경우 -> DB 값이 우선하며 지워진 값 되살리지 않음
+    db_rows_new = [
+        {"id": "s1", "ticker": "BTC", "order_type": "limit", "carryover_mode": "next_day"},
+    ]
+    merged2 = _merge_file_fields(db_rows_new, file_map)
+    assert merged2[0]["order_type"] == "limit"
+    assert merged2[0]["carryover_mode"] == "next_day"
+    assert merged2[0]["template_id"] == 55  # DB 미저장 필드만 파일 보강
+
+
+def test_parse_dca_schedule_ranges_and_invalid():
+    """항목 9: 다양한 요일 범위 및 잘못된 토큰 입력 회귀 검증."""
+    # 순환 범위 (토~월, 일~월)
+    res_sat_mon = parse_dca_schedule("토~월")
+    assert res_sat_mon["days_of_week"] == [5, 6, 0]
+
+    res_sun_mon = parse_dca_schedule("일~월")
+    assert res_sun_mon["days_of_week"] == [6, 0]
+
+    res_tue_sun = parse_dca_schedule("화~일요일")
+    assert res_tue_sun["days_of_week"] == [1, 2, 3, 4, 5, 6]
+
+    # 알 수 없는 토큰 및 비정상 범위
+    with pytest.raises(ValueError, match="알 수 없는 요일"):
+        parse_dca_schedule("월~foo")
+
+    with pytest.raises(ValueError, match="지원하지 않는 주기 형식"):
+        parse_dca_schedule("1~5")
+
+    with pytest.raises(ValueError, match="지원하지 않는 주기 형식"):
+        parse_dca_schedule("월~")
+
+
+@pytest.mark.asyncio
+async def test_internal_api_order_type_carryover_mode_aliases(monkeypatch):
+    """항목 10: internal_api의 허용 별칭(market_order, limit_current, delay20m 등) 검증."""
+    from unittest.mock import MagicMock
+    import internal_api
+    from internal_api import _internal_execute_dca_handler
+
+    monkeypatch.setattr(internal_api, "_verify_webhook_request", AsyncMock(return_value=True))
+    mock_um = MagicMock()
+    mock_um.get_user.return_value = {"is_active": True, "max_order_amount": 100000000}
+    monkeypatch.setattr(internal_api, "_user_manager", mock_um)
+
+    fake_dm = MagicMock()
+    fake_dm.add_schedule.return_value = {"id": "new_sched", "order_type": "limit", "carryover_mode": "delay_20m", "next_run_at": 1700000000.0}
+    import main
+    monkeypatch.setattr(main, "dca_manager", fake_dm)
+
+    req = MagicMock()
+    req.json = AsyncMock(return_value={
+        "user_id": "u1",
+        "exchange": "upbit",
+        "ticker": "KRW-BTC",
+        "side": "bid",
+        "amount": 50000,
+        "order_type": "limit_current",  # 프론트엔드 order_price_mode 별칭
+        "carryover_mode": "delay20m",   # 허용 별칭
+    })
+    res = await _internal_execute_dca_handler(req)
+    assert res.status == 200
+    assert "DCA schedule registered" in res.text

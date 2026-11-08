@@ -17,6 +17,9 @@ def get_current_kst_date_str() -> str:
     return datetime.now(KST).strftime("%Y-%m-%d")
 
 
+DEFAULT_DCA_PLAN_BUDGET = 3000000.0
+
+
 def is_budget_managed_strategy(template: dict) -> bool:
     """매수 예산 플랜 및 감사 원장 관리 대상 전략인지 판별한다."""
     stype = str(template.get("strategy_type") or "grid").lower()
@@ -26,8 +29,11 @@ def is_budget_managed_strategy(template: dict) -> bool:
     if stype == "dca":
         if str(params.get("side") or "bid").lower() in ("ask", "sell", "sdca"):
             return False
-        # DCA에서 명시적으로 예산 무한(unlimited)을 지정한 경우에만 예산 관리에서 제외
-        if str(params.get("budget_mode") or "").lower() == "unlimited":
+        b_mode = str(params.get("budget_mode") or "").lower()
+        if b_mode == "unlimited":
+            return False
+        # budget_mode가 명시되지 않았고 carryover_budget도 없는 기존 DCA는 무제한(unlimited)으로 간주하여 관리 대상 제외
+        if not b_mode and "carryover_budget" not in params:
             return False
     return True
 
@@ -679,7 +685,7 @@ async def ensure_budget_plan_initialized(
         if str(params.get("amount_type") or "budget").lower() == "volume":
             plan_b = float(params.get("dca_plan_budget") or params.get("monthly_budget") or 0.0)
             if plan_b <= 0:
-                plan_b = 3000000.0
+                plan_b = DEFAULT_DCA_PLAN_BUDGET
             params["monthly_budget"] = plan_b
             if "per_order_budget" not in params:
                 params["per_order_budget"] = float(params.get("per_order_budget") or 0.0)

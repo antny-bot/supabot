@@ -230,7 +230,7 @@ class OrderManager:
                 _log.error("Failed to delete order in fallback", exc_info=e)
                 self._save_orders_to_file()
 
-    def add_order(self, user_id, exchange, ticker, uuid, price, volume, side="bid", strategy="manual", target_rsi=None, linked_to=None, status="wait", stop_price=None, trailing_stop_pct=None, group_no=None, auto_reorder=False, reorder_of=None, template_id=None):
+    def add_order(self, user_id, exchange, ticker, uuid, price, volume, side="bid", strategy="manual", target_rsi=None, linked_to=None, status="wait", stop_price=None, trailing_stop_pct=None, group_no=None, auto_reorder=False, reorder_of=None, template_id=None, order_type=None):
         self.remove_order(uuid, save=False)
         order = {
             "user_id": str(user_id),
@@ -253,6 +253,7 @@ class OrderManager:
             "group_no": int(group_no) if group_no is not None else None,
             "template_id": int(template_id) if template_id is not None else None,
             "auto_reorder": bool(auto_reorder),
+            "order_type": str(order_type) if order_type is not None else None,
         }
         self.orders.append(order)
         self._orders_by_uuid[order["uuid"]] = order

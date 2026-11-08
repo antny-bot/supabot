@@ -24,6 +24,7 @@ supabot 봇 백엔드·관리 UI 모듈 구성, 핵심 데이터 스키마(Postg
 | `src/core/order_execution.py` | 주문 생성 및 체결 사후 연동 처리 | [202_order_manager.md](file:///E:/apps/supabot/docs/202_order_manager.md) |
 | `src/core/order_manager.py` | 주문 상태 관리 (DB 우선 + 파일 폴백) | [202_order_manager.md](file:///E:/apps/supabot/docs/202_order_manager.md) |
 | `src/core/dca_manager.py` | DCA 적립식/분할 매매 스케줄러 (시장가/지정가 주문, 휴장일/서킷브레이커 이월 관리) | [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md) |
+| `src/core/budget_ledger.py` | 전략 예산 원장(budget_ledger) 감사 기록 및 carryover_budget 차감/정산 | [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md) |
 | `src/core/exchange_adapter.py` | 거래소 레지스트리/파사드 | [201_exchange_adapter.md](file:///E:/apps/supabot/docs/201_exchange_adapter.md) |
 | `src/core/exchanges/base.py` | `BaseExchange` — 거래소 capability 기본값 정의 | [201_exchange_adapter.md](file:///E:/apps/supabot/docs/201_exchange_adapter.md) |
 | `src/core/exchanges/{upbit,bithumb,kis,toss}.py` | 거래소별 HTTP/인증 구현 및 capability 오버라이드 | [201_exchange_adapter.md](file:///E:/apps/supabot/docs/201_exchange_adapter.md) |

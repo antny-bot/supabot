@@ -131,3 +131,38 @@ supabot 프로젝트(E:\apps\supabot)에서 docs/plans/dca_strategy_review_fix_p
 - P3-11: 전체 테스트 보강 후 docker compose run --rm supabot python -m pytest tests/ 와 py_compile을 통과시켜라.
 - 마지막으로 docs/205_main_handlers.md, docs/200_system_architecture.md 의 DCA 관련 항목(요일 파싱, 시장가, 이월 정책, 상한)을 갱신하고, 계획서의 완료 기준 체크박스를 업데이트해라.
 ```
+
+
+---
+
+## Phase 4 — 후속 리뷰 이슈 및 리팩토링 (2026-11-08 완료)
+
+상세 계획: [dca_review_followup_fix_plan.md](file:///E:/apps/supabot/docs/plans/dca_review_followup_fix_plan.md)
+
+1. **예산 차감 원장 통합 & 시장가 정산 (항목 1)**:
+   - `src/core/budget_ledger.py` 신설 (`record_budget_spend`, `record_budget_adjust`).
+   - 주문 접수 시 `budget_ledger`에 `BUY_ORDER_SPEND` 행 기록 및 params 차감.
+   - 시장가 DCA 체결 완료 시 실제 체결액과 주문 추정액의 차액을 `BUY_ORDER_ADJUST`로 정산.
+2. **예산 갱신 원자성 및 오류 처리 (항목 2)**:
+   - 최신 params를 읽어 필요한 키(`carryover_budget`, `monthly_spent`)만 원자적으로 갱신. 실패 시 `_log.error` 및 사용자 텔레그램 알림 1회 발송.
+3. **DCA volume 예산 관리 대상 및 unlimited 일원화 (항목 3 & R5, R6)**:
+   - `budget_mode` 및 `carryover_budget`이 없는 DCA는 무제한(unlimited)으로 판정 (`is_budget_managed_strategy` 및 프론트 `hasDcaBudget`).
+   - `DEFAULT_DCA_PLAN_BUDGET = 3000000.0` 상수화 (R5).
+   - 1회성 마이그레이션 스크립트(`scripts/migrate_dca_unlimited_budget.py`) 제공.
+4. **`carryover_count` 초기화 누락 해결 & 상태 관리 헬퍼화 (항목 4 & R2)**:
+   - `_set_carryover(dca_manager, sched, reason, count=None)`, `_clear_carryover(dca_manager, sched)` 헬퍼 추출.
+   - 휴장 이월/일반 실패 건너뜀/성공 시 `carryover_count` 완전 초기화.
+5. **`delay_20m` 알림 문구 분기 (항목 5)**:
+   - 실제 재시도 시각이 20분 뒤면 "+20분 이월", 주말/야간 등 다음 개장 시점이면 "다음 개장 이월"로 제목/본문 일치.
+6. **volume DCA 사전검사 가격 기준 통일 (항목 6)**:
+   - 시장가는 `current_price`, 지정가는 `price`(`eval_price`)로 1주 비용 및 최대 매수 가능 수량 사전 검사 통일.
+7. **order_sync 보정 조건 한정 및 None 안전성 (항목 7)**:
+   - `is_market_order`일 때만 체결 수량 보정, 지정가는 보정 제외. `ord.get("volume") or 0` 안전화.
+8. **스케줄 DB/파일 병합 정책 및 R3 (항목 8 & R3)**:
+   - `_merge_file_fields` 헬퍼 추출. DB 스키마에 컬럼 미존재 시에만 파일 보강 및 1회성 error 로그.
+9. **요일 범위 파싱 회귀 점검 (항목 9)**:
+   - 순환 요일("토~월", "일~월"), 미지원("1~5", "월~") 및 에러 메시지 검증 테스트 추가.
+10. **internal_api 400 검증 별칭 보강 (항목 10)**:
+    - `market_order`, `limit_current`, `limit_aggressive`, `delay20m`, `nextday` 등 허용 별칭 추가.
+11. **`execute_due_dca_schedules` 모듈화 (R4)**:
+    - `_check_budget_limit`, `_handle_sidecar_error`, `_record_post_order`로 책임 분리.

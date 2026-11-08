@@ -551,9 +551,37 @@ async def _process_order_fill(application, ord: dict, res: dict, ex_obj) -> None
                 keep_order_for_retry = False
         else:
             # 시장가 매수(DCA/SDCA 등)로 인해 발주 시점 추정 수량(volume)과 실제 거래소 체결 수량(exec_vol)이
-            # 다를 수 있으므로, 완료(done) 시점에 실제 체결 수량으로 주문 volume을 보정하여 일치시킨다.
-            if state == "done" and exec_vol > 0 and (ord.get("volume", 0) <= 0 or ord.get("strategy") in ("dca", "sdca")):
+            # 다를 수 있으므로, 시장가 주문에 한해 완료(done) 시점에 실제 체결 수량으로 주문 volume을 보정하여 일치시킨다.
+            ord_vol = float(ord.get("volume") or 0.0)
+            ord_type = ord.get("order_type")
+            if ord_type is not None:
+                is_market_order = ord_type == "market" or ord_vol <= 0
+            else:
+                is_market_order = ord_vol <= 0 or ord.get("strategy") in ("dca", "sdca")
+            if state == "done" and exec_vol > 0 and is_market_order and ord.get("strategy") in ("dca", "sdca"):
                 order_manager.update_order(ord['uuid'], volume=exec_vol, filled_volume=exec_vol, status=state)
+                # 시장가 DCA 체결 완료 시 실제 소요 금액과 당초 주문 차감액 차이 정산 (BUY_ORDER_ADJUST)
+                if ord.get("strategy") == "dca" and ord.get("side") == "bid" and ord.get("template_id") is not None:
+                    try:
+                        exec_funds = float(res.get("executed_funds") or res.get("total_amount") or 0.0)
+                        if exec_funds <= 0 and float(res.get("price") or 0.0) > 0:
+                            exec_funds = float(res["price"]) * exec_vol
+                        ord_price = float(ord.get("price") or 0.0)
+                        est_cost = ord_price if ord_vol <= 0 else (ord_price * ord_vol)
+                        diff_krw = exec_funds - est_cost if exec_funds > 0 and est_cost > 0 else 0.0
+                        if round(diff_krw) != 0:
+                            from core.budget_ledger import record_budget_adjust
+                            await record_budget_adjust(
+                                user_id=user_id,
+                                template_id=int(ord["template_id"]),
+                                diff_krw=diff_krw,
+                                ticker=ticker,
+                                qty=exec_vol,
+                                group_no=ord.get("group_no"),
+                                order_uuid=ord["uuid"],
+                            )
+                    except Exception as adj_err:
+                        _log.error("Failed to record budget adjust in order_sync: %s", adj_err)
             else:
                 order_manager.update_order_fill(ord['uuid'], exec_vol, state)
             if state == "done":
