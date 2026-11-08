@@ -116,7 +116,7 @@ export default function BatchTimelineSection({
                     [{s.exchange.toUpperCase()}] {s.ticker} ({s.side === 'bid' ? '매수' : '매도'})
                   </span>
                   {s.group_no && (
-                    <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-[11px] font-mono text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300">
+                    <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-[11px] text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300">
                       #{s.group_no}
                     </span>
                   )}
@@ -256,23 +256,23 @@ export default function BatchTimelineSection({
                           : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
                       }`}
                     >
-                      <td className={`${TD} font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400`}>
+                      <td className={`${TD} text-xs font-bold text-indigo-600 dark:text-indigo-400`}>
                         #{b.group_no}
                       </td>
                       <td className={`${TD} text-xs font-medium text-slate-700 dark:text-slate-300`}>
                         [{b.exchange.toUpperCase()}] {b.ticker}
                       </td>
                       <td className={`${TD} text-xs text-slate-500`}>{b.strategy}</td>
-                      <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>
+                      <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400`}>
                         {b.bid_count}건 / {krwFmt(b.bid_krw)}
                       </td>
-                      <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>
+                      <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400`}>
                         {b.ask_count}건 / {krwFmt(b.ask_krw)}
                       </td>
-                      <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>
+                      <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400`}>
                         {b.holding_vol} / {krwFmt(Math.round(b.avg_buy_price))}
                       </td>
-                      <td className={`${TD} text-right font-mono text-xs font-semibold ${pctColor(b.realized_pnl)}`}>
+                      <td className={`${TD} text-right text-xs font-semibold ${pctColor(b.realized_pnl)}`}>
                         {b.realized_pnl >= 0 ? '+' : ''}{krwFmt(b.realized_pnl)}
                       </td>
                       <td className={`${TD} text-right text-[11px] text-slate-400`}>
@@ -338,10 +338,10 @@ export default function BatchTimelineSection({
                 }
                 return pagedTimeline.map((ev) => (
                   <tr key={ev.seq} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                    <td className={`${TD} font-mono text-xs text-slate-500`}>
+                    <td className={`${TD} text-xs text-slate-500`}>
                       #{ev.seq} · {ev.date_fmt}
                     </td>
-                    <td className={`${TD} font-mono text-xs text-indigo-600 dark:text-indigo-400`}>
+                    <td className={`${TD} text-xs text-indigo-600 dark:text-indigo-400`}>
                       {ev.group_no ? `#${ev.group_no}` : '-'}
                     </td>
                     <td className={`${TD} text-xs text-slate-700 dark:text-slate-300`}>
@@ -350,16 +350,16 @@ export default function BatchTimelineSection({
                     <td className={`${TD} text-xs font-semibold ${ev.side === 'bid' ? 'text-rose-500' : 'text-blue-500'}`}>
                       {ev.side === 'bid' ? '매수' : '매도'}
                     </td>
-                    <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>
+                    <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400`}>
                       {krwFmt(ev.price)} × {ev.volume}
                     </td>
-                    <td className={`${TD} text-right font-mono text-xs font-medium text-slate-700 dark:text-slate-300`}>
+                    <td className={`${TD} text-right text-xs font-medium text-slate-700 dark:text-slate-300`}>
                       {krwFmt(ev.amount)}
                     </td>
-                    <td className={`${TD} text-right font-mono text-xs text-slate-500`}>
+                    <td className={`${TD} text-right text-xs text-slate-500`}>
                       {ev.holding_vol} / {krwFmt(Math.round(ev.avg_buy_price))}
                     </td>
-                    <td className={`${TD} text-right font-mono text-xs`}>
+                    <td className={`${TD} text-right text-xs`}>
                       {ev.trade_pnl !== null ? (
                         <span className={pctColor(ev.trade_pnl)}>
                           {ev.trade_pnl >= 0 ? '+' : ''}{krwFmt(ev.trade_pnl)}

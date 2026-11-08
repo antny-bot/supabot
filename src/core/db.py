@@ -67,7 +67,11 @@ class _FilteredQuery(_Query):
     def order(self, column: str, desc: bool = False) -> "_FilteredQuery":
         direction = "desc" if desc else "asc"
         parts = [f"{c.strip()}.{direction}" for c in column.split(",") if c.strip()]
-        self._params["order"] = ",".join(parts)
+        new_order = ",".join(parts)
+        if "order" in self._params and self._params["order"]:
+            self._params["order"] = f"{self._params['order']},{new_order}"
+        else:
+            self._params["order"] = new_order
         return self
 
     def limit(self, n: int) -> "_FilteredQuery":

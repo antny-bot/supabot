@@ -308,3 +308,57 @@ def test_resolve_gdrive_credentials_encrypted_token(monkeypatch):
     }
     _, _, tok, _, _ = backup_manager._resolve_gdrive_credentials(db_rows)
     assert tok == raw_token
+
+
+def test_dump_supabase_table_ordering(monkeypatch):
+    calls = []
+
+    class MockQuery:
+        def __init__(self, table_name):
+            self.table_name = table_name
+            self.ordered_cols = []
+            self.range_called = None
+
+        def select(self, *args):
+            return self
+
+        def order(self, col):
+            self.ordered_cols.append(col)
+            calls.append((self.table_name, col))
+            return self
+
+        def range(self, start, end):
+            self.range_called = (start, end)
+            return self
+
+        def execute(self):
+            resp = MagicMock()
+            # 1건 반환 (batch_size 미만이므로 1회 실행 후 break)
+            resp.data = [{'id': 1}]
+            return resp
+
+    class MockDB:
+        def table(self, name):
+            return MockQuery(name)
+
+    monkeypatch.setattr(backup_manager, 'get_db', lambda: MockDB())
+
+    # 1. command_log_daily
+    backup_manager.dump_supabase_table('command_log_daily')
+    daily_orders = [c[1] for c in calls if c[0] == 'command_log_daily']
+    assert daily_orders == ['date', 'user_id', 'command', 'source', 'hour_of_day']
+
+    # 2. market_top_snapshots
+    backup_manager.dump_supabase_table('market_top_snapshots')
+    snapshot_orders = [c[1] for c in calls if c[0] == 'market_top_snapshots']
+    assert snapshot_orders == ['snapshot_date', 'market', 'top_n']
+
+    # 3. users
+    backup_manager.dump_supabase_table('users')
+    users_orders = [c[1] for c in calls if c[0] == 'users']
+    assert users_orders == ['user_id']
+
+    # 4. default id (e.g. trade_logs)
+    backup_manager.dump_supabase_table('trade_logs')
+    trade_orders = [c[1] for c in calls if c[0] == 'trade_logs']
+    assert trade_orders == ['id']

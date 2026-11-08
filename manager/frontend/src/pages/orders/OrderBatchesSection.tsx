@@ -311,7 +311,7 @@ export default function OrderBatchesSection({
                         배치 #{batch.group_no}
                       </span>
                       {batch.template_id && (
-                        <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300 font-mono">
+                        <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                           전략 #{batch.template_id}
                         </span>
                       )}
@@ -481,16 +481,16 @@ export default function OrderBatchesSection({
                                   )}
                                 </span>
                               </td>
-                              <td className="px-3.5 py-2 text-right font-mono text-slate-700 dark:text-slate-300">
+                              <td className="px-3.5 py-2 text-right text-slate-700 dark:text-slate-300">
                                 {ord.price.toLocaleString()}원
                               </td>
-                              <td className="px-3.5 py-2 text-right font-mono text-slate-700 dark:text-slate-300">
+                              <td className="px-3.5 py-2 text-right text-slate-700 dark:text-slate-300">
                                 {ord.volume.toLocaleString()}
                               </td>
-                              <td className="px-3.5 py-2 text-right font-mono text-slate-700 dark:text-slate-300">
+                              <td className="px-3.5 py-2 text-right text-slate-700 dark:text-slate-300">
                                 {ord.filled_volume.toLocaleString()}
                               </td>
-                              <td className="px-3.5 py-2 text-right font-mono text-slate-500">
+                              <td className="px-3.5 py-2 text-right text-slate-500">
                                 {ord.fill_pct}%
                               </td>
                               <td className="px-3.5 py-2">

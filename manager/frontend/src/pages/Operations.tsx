@@ -695,7 +695,7 @@ export default function Operations() {
                               />
                             </button>
                             <span
-                              className={`text-[10px] font-extrabold font-mono w-6 text-center ${
+                              className={`text-[10px] font-extrabold w-6 text-center ${
                                 isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'
                               }`}
                             >
@@ -722,7 +722,7 @@ export default function Operations() {
                               ? '설정 수량'
                               : '설정 예산'}
                           </span>
-                          <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                          <span className="font-bold text-slate-800 dark:text-slate-200">
                             {isDca && p.amount_type === 'volume'
                               ? `${p.schedule || '매일'} ${tpl.budget}주씩${dcaBudgetActive ? ' (예산한도)' : ' (무한)'}`
                               : isVolume
@@ -749,7 +749,7 @@ export default function Operations() {
                               </button>
                             )}
                           </div>
-                          <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                          <span className="font-bold text-slate-800 dark:text-slate-200">
                             {supportsCarryover ? (
                               krwFmt(
                                 p.carryover_budget ??
@@ -766,7 +766,7 @@ export default function Operations() {
                           <span className="text-slate-400">
                             {p.last_group_no ? `최근 실행: Batch #${p.last_group_no}` : '실행 대기중'}
                           </span>
-                          <span className="font-mono text-slate-500">
+                          <span className="text-slate-500">
                             스케줄: 매일 {p.schedule_time || p.exec_time || '09:10'}
                           </span>
                         </div>
@@ -919,7 +919,7 @@ export default function Operations() {
               {selectedTemplate && (
                 <>
                   <Badge value={selectedTemplate.exchange} label={selectedTemplate.exchange.toUpperCase()} />
-                  <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300 font-mono">
+                  <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                     {isTopDca ? '시총 TOP N DCA' : (selectedTemplate.strategy_type || '').toUpperCase()}
                   </span>
 
@@ -947,7 +947,7 @@ export default function Operations() {
                           />
                         </button>
                         <span
-                          className={`text-[10px] font-extrabold font-mono ${
+                          className={`text-[10px] font-extrabold ${
                             isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'
                           }`}
                         >
@@ -977,7 +977,7 @@ export default function Operations() {
                       : 0
 
                   return (
-                    <div className="hidden sm:flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-1.5 text-xs dark:bg-slate-800/60 font-mono">
+                    <div className="hidden sm:flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-1.5 text-xs dark:bg-slate-800/60">
                       <div>
                         <span className="text-[10px] text-slate-400 block">가용 예산 (잔액)</span>
                         <span className="font-bold text-slate-700 dark:text-slate-200">
@@ -1179,7 +1179,7 @@ export default function Operations() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-400">현재 이월 가용예산:</span>
-                  <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                  <span className="font-bold text-indigo-600 dark:text-indigo-400">
                     {krwFmt((topupTargetTpl.params as any)?.carryover_budget ?? 0)}
                   </span>
                 </div>
@@ -1196,7 +1196,7 @@ export default function Operations() {
                     min={10000}
                     value={topupAmount}
                     onChange={(e) => setTopupAmount(Number(e.target.value))}
-                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-sm font-mono font-bold text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-sm font-bold text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
                   />
                   <div className="mt-1 flex flex-wrap gap-1">
                     {[100000, 300000, 500000, 1000000].map((amt) => (

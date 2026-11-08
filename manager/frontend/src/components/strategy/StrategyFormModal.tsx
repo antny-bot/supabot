@@ -497,7 +497,7 @@ export default function StrategyFormModal({
                         <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
                           타겟 순위 구간 선택 (시총 순위)
                         </span>
-                        <span className="rounded-sm bg-violet-100 px-2 py-0.5 font-mono text-[11px] font-semibold text-violet-700 dark:bg-violet-900/70 dark:text-violet-300">
+                        <span className="rounded-sm bg-violet-100 px-2 py-0.5 text-[11px] font-semibold text-violet-700 dark:bg-violet-900/70 dark:text-violet-300">
                           자동 티커: {autoTickerPreview} ({totalTargetCount}개 종목)
                         </span>
                       </div>
@@ -543,7 +543,7 @@ export default function StrategyFormModal({
                             max="50"
                             value={form.rankStart}
                             onChange={(e) => setForm({ ...form, rankStart: e.target.value })}
-                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                             required
                           />
                         </div>
@@ -558,7 +558,7 @@ export default function StrategyFormModal({
                             max="50"
                             value={form.rankEnd}
                             onChange={(e) => setForm({ ...form, rankEnd: e.target.value })}
-                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                             required
                           />
                         </div>
@@ -659,7 +659,7 @@ export default function StrategyFormModal({
                               max="20"
                               value={form.exitRankBuffer}
                               onChange={(e) => setForm({ ...form, exitRankBuffer: e.target.value })}
-                              className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                              className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                               required
                             />
                             <p className="mt-1 text-[10px] text-slate-400">
@@ -678,7 +678,7 @@ export default function StrategyFormModal({
                               max="20"
                               value={form.exitConfirmDays}
                               onChange={(e) => setForm({ ...form, exitConfirmDays: e.target.value })}
-                              className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                              className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                               required
                             />
                             <p className="mt-1 text-[10px] text-slate-400">
@@ -698,7 +698,7 @@ export default function StrategyFormModal({
                             max="60"
                             value={form.sellSplitDays}
                             onChange={(e) => setForm({ ...form, sellSplitDays: e.target.value })}
-                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                             required
                           />
                           <p className="mt-1 text-[10px] text-slate-400">
@@ -779,7 +779,7 @@ export default function StrategyFormModal({
                               aria-label="일일 고정 충전액"
                               value={formatWithCommas(form.dailyFixedBudget)}
                               onChange={(e) => setForm({ ...form, dailyFixedBudget: stripCommas(e.target.value) })}
-                              className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                              className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                               required
                             />
                           ) : (
@@ -789,7 +789,7 @@ export default function StrategyFormModal({
                               aria-label="월 설정 총예산"
                               value={formatWithCommas(form.budget)}
                               onChange={(e) => setForm({ ...form, budget: stripCommas(e.target.value) })}
-                              className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                              className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                               required
                             />
                           )}
@@ -806,7 +806,7 @@ export default function StrategyFormModal({
                               aria-label="월 상한 캡"
                               value={formatWithCommas(form.budget)}
                               onChange={(e) => setForm({ ...form, budget: stripCommas(e.target.value) })}
-                              className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                              className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                               required
                             />
                           ) : (
@@ -817,7 +817,7 @@ export default function StrategyFormModal({
                               max="31"
                               value={form.tradingDaysPerMonth}
                               onChange={(e) => setForm({ ...form, tradingDaysPerMonth: e.target.value })}
-                              className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                              className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                               required
                             />
                           )}
@@ -826,7 +826,7 @@ export default function StrategyFormModal({
 
                       <div className="flex items-center justify-between rounded-lg bg-violet-100/60 px-3 py-2 text-xs text-violet-800 dark:bg-violet-950/60 dark:text-violet-300 font-medium">
                         <span>💡 예상 1영업일 당 집행 예산:</span>
-                        <span className="font-mono font-bold">
+                        <span className="font-bold">
                           약 {krwFmt(dailyApproxBudget)} ({dailyApproxBudget.toLocaleString()}원)
                         </span>
                       </div>
@@ -873,7 +873,7 @@ export default function StrategyFormModal({
                               aria-label="종목당 1회 목표 금액"
                               value={formatWithCommas(form.cycleTargetKrw)}
                               onChange={(e) => setForm({ ...form, cycleTargetKrw: stripCommas(e.target.value) })}
-                              className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                              className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                               required
                             />
                           </div>
@@ -963,7 +963,7 @@ export default function StrategyFormModal({
                           placeholder="09:10"
                           value={form.dcaExecTime}
                           onChange={(e) => setForm({ ...form, dcaExecTime: e.target.value })}
-                          className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                          className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                           required
                         />
                       </div>
@@ -1198,7 +1198,7 @@ export default function StrategyFormModal({
                             }
                           }
                         }}
-                        className={`w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono outline-hidden focus:border-indigo-500 dark:border-slate-700 dark:bg-slate-800 dark:text-white ${
+                        className={`w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs outline-hidden focus:border-indigo-500 dark:border-slate-700 dark:bg-slate-800 dark:text-white ${
                           isStockExchange ? 'pr-24' : 'uppercase'
                         }`}
                         required
@@ -1257,7 +1257,7 @@ export default function StrategyFormModal({
                               >
                                 <span className="font-medium truncate">{item.name}</span>
                                 <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                                  <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                                  <span className="text-[11px] text-slate-500 dark:text-slate-400">
                                     {item.code}
                                   </span>
                                   {isSingleMatch && (
@@ -1309,7 +1309,7 @@ export default function StrategyFormModal({
                         <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
                           실행 요일 지정 ({isCrypto ? '월~일 매일 거래 가능' : '주식 월~금 평일 운영'})
                         </label>
-                        <span className="text-[11px] font-mono text-indigo-600 dark:text-indigo-400 font-semibold">
+                        <span className="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold">
                           설정값: {form.dcaSchedule || '매일'}
                         </span>
                       </div>
@@ -1435,7 +1435,7 @@ export default function StrategyFormModal({
                             placeholder="09:05"
                             value={form.dcaExecTime}
                             onChange={(e) => setForm({ ...form, dcaExecTime: e.target.value })}
-                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                             required
                           />
                         </div>
@@ -1446,7 +1446,7 @@ export default function StrategyFormModal({
                             placeholder="예: 매일, 월수금, 금, 매월15일"
                             value={form.dcaSchedule}
                             onChange={(e) => setForm({ ...form, dcaSchedule: e.target.value })}
-                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                           />
                         </div>
                       </div>
@@ -1515,7 +1515,7 @@ export default function StrategyFormModal({
                             const val = e.target.value
                             setForm({ ...form, budget: form.dcaAmountType === 'volume' ? val : stripCommas(val) })
                           }}
-                          className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                          className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                           required
                         />
                         {form.dcaAmountType === 'budget' && form.budget && !Number.isNaN(parseFloat(stripCommas(form.budget))) && (
@@ -1531,7 +1531,7 @@ export default function StrategyFormModal({
                           min="0"
                           value={form.count}
                           onChange={(e) => setForm({ ...form, count: e.target.value })}
-                          className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                          className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                           required
                         />
                       </div>
@@ -1571,7 +1571,7 @@ export default function StrategyFormModal({
                                 aria-label="DCA 배정 총예산"
                                 value={formatWithCommas(form.dcaPlanBudget)}
                                 onChange={(e) => setForm({ ...form, dcaPlanBudget: stripCommas(e.target.value) })}
-                                className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                                className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                               />
                             </div>
                           ) : (
@@ -1603,7 +1603,7 @@ export default function StrategyFormModal({
                           const val = e.target.value
                           setForm({ ...form, budget: isSellGridForm ? val : stripCommas(val) })
                         }}
-                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                         required
                       />
                       {!isSellGridForm && form.budget && !Number.isNaN(parseFloat(stripCommas(form.budget))) && (
@@ -1620,7 +1620,7 @@ export default function StrategyFormModal({
                         max="50"
                         value={form.count}
                         onChange={(e) => setForm({ ...form, count: e.target.value })}
-                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                         required
                       />
                     </div>
@@ -1640,7 +1640,7 @@ export default function StrategyFormModal({
                         placeholder={isSellGridForm ? '최저 매도가' : '최저 매수가'}
                         value={formatWithCommas(form.startPrice)}
                         onChange={(e) => setForm({ ...form, startPrice: stripCommas(e.target.value) })}
-                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                         required
                       />
                       {form.startPrice && !Number.isNaN(parseFloat(stripCommas(form.startPrice))) && (
@@ -1660,7 +1660,7 @@ export default function StrategyFormModal({
                         placeholder={isSellGridForm ? '최고 매도가' : '최고 매수가'}
                         value={formatWithCommas(form.endPrice)}
                         onChange={(e) => setForm({ ...form, endPrice: stripCommas(e.target.value) })}
-                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                         required
                       />
                       {form.endPrice && !Number.isNaN(parseFloat(stripCommas(form.endPrice))) && (
@@ -1682,7 +1682,7 @@ export default function StrategyFormModal({
                           placeholder="25-30"
                           value={form.buyRsiRange}
                           onChange={(e) => setForm({ ...form, buyRsiRange: e.target.value })}
-                          className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                          className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                         />
                       </div>
                       <div>
@@ -1692,7 +1692,7 @@ export default function StrategyFormModal({
                           placeholder="65-75"
                           value={form.sellRsiRange}
                           onChange={(e) => setForm({ ...form, sellRsiRange: e.target.value })}
-                          className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                          className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                         />
                       </div>
                     </div>

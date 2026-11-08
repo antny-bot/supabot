@@ -307,7 +307,7 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
             <span>이월 잔여 가용 예산</span>
             <DollarSign size={15} className="text-emerald-500" />
           </div>
-          <div className="mt-2 text-xl font-bold text-slate-800 dark:text-slate-100 font-mono">
+          <div className="mt-2 text-xl font-bold text-slate-800 dark:text-slate-100">
             {krwFmt(carryover)}
           </div>
           <div className="mt-1 text-[11px] text-slate-400">
@@ -375,7 +375,7 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
                   style={{ width: `${pipeline.progress_pct}%` }}
                 />
               </div>
-              <span className="font-bold font-mono text-indigo-600 dark:text-indigo-400">
+              <span className="font-bold text-indigo-600 dark:text-indigo-400">
                 {pipeline.bought_count}/{pipeline.total_targets}개 ({pipeline.progress_pct}%)
               </span>
             </div>
@@ -408,7 +408,7 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
                     <span className="font-extrabold text-base text-slate-900 dark:text-white">
                       {nextTarget.rank}위 {nextTarget.name}
                     </span>
-                    <span className="text-xs text-slate-400 font-mono">({nextTarget.code})</span>
+                    <span className="text-xs text-slate-400">({nextTarget.code})</span>
                     {nextTarget.note && (
                       <span className="text-[11px] text-indigo-600 dark:text-indigo-400 font-medium">
                         · {nextTarget.note}
@@ -422,7 +422,7 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
               </div>
 
               {/* 금액 및 예산 충족 상태 */}
-              <div className="flex items-center gap-4 text-xs font-mono self-end md:self-auto">
+              <div className="flex items-center gap-4 text-xs self-end md:self-auto">
                 <div className="text-right">
                   <span className="text-slate-400 text-[10px] block">예상 매수단가 × 수량</span>
                   <span className="font-bold text-slate-800 dark:text-slate-100">
@@ -519,7 +519,7 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
                     <div className="mt-1.5 font-bold text-slate-900 dark:text-white truncate">
                       {item.name}
                     </div>
-                    <div className="mt-0.5 font-mono text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
+                    <div className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
                       <span>{krwFmt(item.price)}</span>
                       <span>{item.target_qty}주</span>
                     </div>
@@ -640,10 +640,10 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
                     className="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors"
                   >
                     <div className="flex items-center gap-2.5 flex-wrap">
-                      <span className="rounded-lg bg-indigo-100 px-2.5 py-1 text-xs font-mono font-bold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+                      <span className="rounded-lg bg-indigo-100 px-2.5 py-1 text-xs font-bold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
                         {flow.date}
                       </span>
-                      <span className="rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-xs font-bold text-slate-700 dark:text-slate-300 font-mono">
+                      <span className="rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-xs font-bold text-slate-700 dark:text-slate-300">
                         Batch #{flow.group_no}
                       </span>
                       <span className="text-xs text-slate-400">Cycle #{flow.cycle_no}</span>
@@ -675,7 +675,7 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
                     </div>
 
                     <div className="flex items-center gap-3 self-end sm:self-auto text-xs">
-                      <span className="font-mono text-slate-500">
+                      <span className="text-slate-500">
                         잔여 예산: {krwFmt(flow.carryover_budget)}
                       </span>
                       <button
@@ -701,7 +701,7 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
                           {(flow.snapshot_top || []).map((sp) => (
                             <span
                               key={sp.code}
-                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800 px-2 py-1 font-mono text-[11px]"
+                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800 px-2 py-1 text-[11px]"
                             >
                               <span className="font-bold text-indigo-600 dark:text-indigo-400">
                                 {sp.rank}위
@@ -728,7 +728,7 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
                               {flow.buys.map((b) => (
                                 <div
                                   key={b.code}
-                                  className="flex items-center justify-between font-mono text-[11px] bg-slate-50 dark:bg-slate-800/60 p-1.5 rounded"
+                                  className="flex items-center justify-between text-[11px] bg-slate-50 dark:bg-slate-800/60 p-1.5 rounded"
                                 >
                                   <span className="font-bold text-slate-800 dark:text-slate-200">
                                     {b.rank ? `${b.rank}위 ` : ''}{b.name} ({b.volume}주)
@@ -753,7 +753,7 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
                               {flow.sells.map((s) => (
                                 <div
                                   key={s.code}
-                                  className="flex items-center justify-between font-mono text-[11px] bg-slate-50 dark:bg-slate-800/60 p-1.5 rounded"
+                                  className="flex items-center justify-between text-[11px] bg-slate-50 dark:bg-slate-800/60 p-1.5 rounded"
                                 >
                                   <span className="font-bold text-slate-800 dark:text-slate-200">
                                     {s.name} ({s.volume}주)
@@ -875,11 +875,11 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
                           {item.status_badge}
                         </span>
                       </td>
-                      <td className={`${TD} text-right font-mono`}>{item.qty}주</td>
-                      <td className={`${TD} text-right font-mono`}>{krwFmt(item.avg_price)}</td>
-                      <td className={`${TD} text-right font-mono`}>{krwFmt(item.current_price)}</td>
-                      <td className={`${TD} text-right font-mono font-semibold`}>{krwFmt(item.eval_value)}</td>
-                      <td className={`${TD} text-right font-mono ${isUp ? 'text-red-500' : 'text-blue-500'}`}>
+                      <td className={`${TD} text-right`}>{item.qty}주</td>
+                      <td className={`${TD} text-right`}>{krwFmt(item.avg_price)}</td>
+                      <td className={`${TD} text-right`}>{krwFmt(item.current_price)}</td>
+                      <td className={`${TD} text-right font-semibold`}>{krwFmt(item.eval_value)}</td>
+                      <td className={`${TD} text-right ${isUp ? 'text-red-500' : 'text-blue-500'}`}>
                         <div className="flex items-center justify-end gap-1">
                           {isUp ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}
                           <span>{krwFmt(item.pnl)} ({item.pnl_pct > 0 ? `+${item.pnl_pct}` : item.pnl_pct}%)</span>
@@ -927,19 +927,19 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
               ) : (
                 pagedBatchLogs.map((b: any, idx: number) => (
                     <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
-                      <td className={`${TD} font-mono`}>{b.date}</td>
+                      <td className={TD}>{b.date}</td>
                       <td className={`${TD} font-semibold`}>#{b.group_no}</td>
                       <td className={TD}>Cycle #{b.cycle_no}</td>
-                      <td className={`${TD} text-right font-mono text-slate-500`}>
+                      <td className={`${TD} text-right text-slate-500`}>
                         {krwFmt(b.prev_carryover || 0)}
                       </td>
-                      <td className={`${TD} text-right font-mono text-emerald-600 dark:text-emerald-400 font-semibold`}>
+                      <td className={`${TD} text-right text-emerald-600 dark:text-emerald-400 font-semibold`}>
                         +{krwFmt(b.daily_allowance || 0)}
                       </td>
-                      <td className={`${TD} text-right font-mono text-rose-500 font-semibold`}>
+                      <td className={`${TD} text-right text-rose-500 font-semibold`}>
                         -{krwFmt(b.spent ?? b.spent_today ?? 0)}
                       </td>
-                      <td className={`${TD} text-right font-mono font-semibold`}>
+                      <td className={`${TD} text-right font-semibold`}>
                         {krwFmt(b.new_carryover ?? b.end_carryover ?? 0)}
                       </td>
                       <td className={`${TD} max-w-xs truncate text-slate-600 dark:text-slate-300`} title={b.summary || b.status_summary}>
@@ -1001,7 +1001,7 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
                   min="10000"
                   value={topupAmount}
                   onChange={(e) => setTopupAmount(Number(e.target.value))}
-                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm font-mono font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
 

@@ -373,7 +373,7 @@ export default function Templates() {
                           />
                         </button>
                         <span
-                          className={`text-[11px] font-extrabold font-mono w-7 text-center ${
+                          className={`text-[11px] font-extrabold w-7 text-center ${
                             isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'
                           }`}
                         >
@@ -403,7 +403,7 @@ export default function Templates() {
                             : '월 설정 총예산'
                           : '설정 예산'}
                       </span>
-                      <p className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                      <p className="font-bold text-slate-800 dark:text-slate-200">
                         {isVolumeBased
                           ? isDca
                             ? `${p.schedule || '매일'} ${tpl.budget}주씩`
@@ -423,7 +423,7 @@ export default function Templates() {
                           ? '타겟 순위 구간'
                           : '가용 예산 (잔액)'}
                       </span>
-                      <p className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                      <p className="font-bold text-slate-800 dark:text-slate-200">
                         {isVolumeBased
                           ? isDca
                             ? tpl.count > 0
@@ -556,7 +556,7 @@ export default function Templates() {
               <p className="mt-2 text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
                 <strong>'{executingTemplate.name}'</strong> 설정으로 거래소에 전략을 즉시 가동합니다.
               </p>
-              <div className="mt-3 rounded-xl bg-slate-50 p-3 text-xs font-mono space-y-1 dark:bg-slate-800/60">
+              <div className="mt-3 rounded-xl bg-slate-50 p-3 text-xs space-y-1 dark:bg-slate-800/60">
                 <p>
                   유형: {STRATEGY_TYPE_LABELS[executingTemplate.strategy_type || 'grid'] || executingTemplate.strategy_type}
                 </p>

@@ -113,7 +113,7 @@ export default function BudgetHealthCard({
 
         {/* 우측 수치 지표 및 상세 연결 링크 (모바일 대응 flex-wrap 및 grid) */}
         <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2.5 sm:gap-4 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-200/60 dark:border-slate-800/60 min-w-0">
-          <div className="grid grid-cols-3 sm:flex items-center gap-2 sm:gap-4 text-xs font-mono min-w-0 flex-1 sm:flex-initial">
+          <div className="grid grid-cols-3 sm:flex items-center gap-2 sm:gap-4 text-xs min-w-0 flex-1 sm:flex-initial">
             <div className="min-w-0">
               <span className="text-slate-500 block text-[10px] sm:text-[11px] truncate">예수금</span>
               <span

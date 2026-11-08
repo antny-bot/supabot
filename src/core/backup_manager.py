@@ -41,9 +41,9 @@ TABLE_ORDER_KEYS = {
     "users": "user_id",
     "orders": "uuid",
     "system_config": "key",
-    "command_log_daily": "day,user_id,command",
-    "kr_stock_cache": "code",
-    "market_top_snapshots": "exchange,snapshot_date,rank",
+    "command_log_daily": "date,user_id,command,source,hour_of_day",
+    "kr_stock_cache": "name",
+    "market_top_snapshots": "snapshot_date,market,top_n",
 }
 
 BACKUP_DIR = "data/backups"
@@ -237,11 +237,15 @@ def dump_supabase_table(table_name: str, batch_size: int = 1000) -> List[Dict[st
     db = get_db()
     all_rows = []
     start = 0
-    order_col = TABLE_ORDER_KEYS.get(table_name, "id")
+    order_col_spec = TABLE_ORDER_KEYS.get(table_name, "id")
+    order_cols = [c.strip() for c in order_col_spec.split(",") if c.strip()]
 
     while True:
         end = start + batch_size - 1
-        resp = db.table(table_name).select("*").order(order_col).range(start, end).execute()
+        query = db.table(table_name).select("*")
+        for col in order_cols:
+            query = query.order(col)
+        resp = query.range(start, end).execute()
         rows = resp.data or []
         if not rows:
             break

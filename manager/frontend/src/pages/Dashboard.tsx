@@ -221,14 +221,14 @@ export default function Dashboard() {
                   BOT {botStatus.toUpperCase()}
                 </span>
               </div>
-              <span className="text-[11px] font-mono text-slate-400">
+              <span className="text-[11px] text-slate-400">
                 {openOrdersCount > 0 ? `오픈 주문 ${openOrdersCount}건` : '대기 주문 없음'}
               </span>
             </div>
 
             {/* 총 평가자산 & 당일 손익 */}
             <div className="mt-2.5">
-              <h2 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white font-mono">
+              <h2 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white">
                 {krwFmt(totalValue)}
               </h2>
               <div className="mt-1 flex items-center gap-2 text-xs font-semibold">
@@ -274,20 +274,20 @@ export default function Dashboard() {
             <div className="mt-4 grid grid-cols-3 divide-x divide-slate-100 border-t border-slate-100 pt-3 text-center dark:divide-slate-800 dark:border-slate-800">
               <div>
                 <p className="text-[10px] text-slate-400">투자원금</p>
-                <p className="text-xs font-bold text-slate-700 dark:text-slate-200 font-mono mt-0.5">
+                <p className="text-xs font-bold text-slate-700 dark:text-slate-200 mt-0.5">
                   {krwFmt(totalCost)}
                 </p>
               </div>
               <div>
                 <p className="text-[10px] text-slate-400">24h 실현손익</p>
-                <p className={`text-xs font-bold font-mono mt-0.5 ${pnlTextClass(pnl24h)}`}>
+                <p className={`text-xs font-bold mt-0.5 ${pnlTextClass(pnl24h)}`}>
                   {pnl24h >= 0 ? '+' : ''}
                   {krwFmt(pnl24h)}
                 </p>
               </div>
               <div>
                 <p className="text-[10px] text-slate-400">보유 종목수</p>
-                <p className="text-xs font-bold text-slate-700 dark:text-slate-200 font-mono mt-0.5">
+                <p className="text-xs font-bold text-slate-700 dark:text-slate-200 mt-0.5">
                   {holdings?.summary.asset_count ?? 0}개
                 </p>
               </div>
@@ -339,7 +339,7 @@ export default function Dashboard() {
                   <Wallet size={16} />
                 </div>
               </div>
-              <p className="mt-2 text-xl font-extrabold text-slate-900 dark:text-white font-mono">
+              <p className="mt-2 text-xl font-extrabold text-slate-900 dark:text-white">
                 {krwFmt(totalValue)}
               </p>
               <p className="mt-1 text-xs text-slate-400">원금: {krwFmt(totalCost)}</p>
@@ -358,7 +358,7 @@ export default function Dashboard() {
                   <TrendingUp size={16} />
                 </div>
               </div>
-              <p className={`mt-2 text-xl font-extrabold font-mono ${pnlTextClass(totalPnl)}`}>
+              <p className={`mt-2 text-xl font-extrabold ${pnlTextClass(totalPnl)}`}>
                 {totalPnl >= 0 ? '+' : ''}
                 {krwFmt(totalPnl)}
               </p>
@@ -375,7 +375,7 @@ export default function Dashboard() {
                   <Coins size={16} />
                 </div>
               </div>
-              <p className={`mt-2 text-xl font-extrabold font-mono ${pnlTextClass(pnl24h)}`}>
+              <p className={`mt-2 text-xl font-extrabold ${pnlTextClass(pnl24h)}`}>
                 {pnl24h >= 0 ? '+' : ''}
                 {krwFmt(pnl24h)}
               </p>
@@ -594,7 +594,7 @@ export default function Dashboard() {
                         {row.ticker}
                       </span>
                     </div>
-                    <div className="text-right font-mono">
+                    <div className="text-right">
                       <p className="font-semibold text-slate-800 dark:text-slate-200">
                         {krwFmt(row.value_krw)}
                       </p>
@@ -658,11 +658,11 @@ export default function Dashboard() {
                       <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">
                         {trade.ticker}
                       </span>
-                      <span className="text-[11px] text-slate-400 font-mono">
+                      <span className="text-[11px] text-slate-400">
                         {trade.executed_fmt?.slice(11, 16)}
                       </span>
                     </div>
-                    <div className="text-right font-mono">
+                    <div className="text-right">
                       <p className="font-semibold text-slate-800 dark:text-slate-200">
                         {krwFmt(trade.krw ?? (trade.price ?? 0) * (trade.volume ?? 0))}
                       </p>

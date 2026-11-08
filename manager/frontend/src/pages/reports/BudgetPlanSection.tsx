@@ -258,7 +258,7 @@ export default function BudgetPlanSection({ templateId }: BudgetPlanSectionProps
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <div className={`${CARD} p-4`}>
           <span className="text-xs text-slate-500">현재 가용 예산 (Carryover)</span>
-          <div className="mt-1 text-2xl font-bold text-slate-800 dark:text-slate-100 font-mono">
+          <div className="mt-1 text-2xl font-bold text-slate-800 dark:text-slate-100">
             {krwFmt(ledgerData?.carryover_budget || 0)}
           </div>
           <span className="text-[11px] text-slate-400 mt-1 block">
@@ -268,7 +268,7 @@ export default function BudgetPlanSection({ templateId }: BudgetPlanSectionProps
 
         <div className={`${CARD} p-4`}>
           <span className="text-xs text-slate-500">누적/당월 소진액 (Spent)</span>
-          <div className="mt-1 text-2xl font-bold text-slate-800 dark:text-slate-100 font-mono">
+          <div className="mt-1 text-2xl font-bold text-slate-800 dark:text-slate-100">
             {krwFmt(ledgerData?.monthly_spent || 0)}
           </div>
           <span className="text-[11px] text-slate-400 mt-1 block">
@@ -293,7 +293,7 @@ export default function BudgetPlanSection({ templateId }: BudgetPlanSectionProps
 
         <div className={`${CARD} p-4`}>
           <span className="text-xs text-slate-500">예산 원장 총 기록수</span>
-          <div className="mt-1 text-2xl font-bold text-slate-800 dark:text-slate-100 font-mono">
+          <div className="mt-1 text-2xl font-bold text-slate-800 dark:text-slate-100">
             {(ledgerData?.ledger || []).length}건
           </div>
           <span className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1 block font-medium">
@@ -346,7 +346,7 @@ export default function BudgetPlanSection({ templateId }: BudgetPlanSectionProps
                   const isMinus = item.delta_krw < 0
                   return (
                     <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
-                      <td className={`${TD} font-mono text-[11px] text-slate-400`}>
+                      <td className={`${TD} text-[11px] text-slate-400`}>
                         {item.created_at ? item.created_at.slice(0, 16).replace('T', ' ') : '—'}
                       </td>
                       <td className={TD}>
@@ -364,15 +364,15 @@ export default function BudgetPlanSection({ templateId }: BudgetPlanSectionProps
                           {item.entry_type}
                         </span>
                       </td>
-                      <td className={`${TD} text-right font-mono font-bold ${
+                      <td className={`${TD} text-right font-bold ${
                         isPlus ? 'text-emerald-600 dark:text-emerald-400' : isMinus ? 'text-red-600 dark:text-red-400' : 'text-slate-500'
                       }`}>
                         {isPlus ? `+${krwFmt(item.delta_krw)}` : krwFmt(item.delta_krw)}
                       </td>
-                      <td className={`${TD} text-right font-mono font-semibold`}>
+                      <td className={`${TD} text-right font-semibold`}>
                         {krwFmt(item.balance_after_krw)}
                       </td>
-                      <td className={`${TD} text-right font-mono text-slate-500`}>
+                      <td className={`${TD} text-right text-slate-500`}>
                         {krwFmt(item.monthly_spent_after_krw)}
                       </td>
                       <td className={`${TD} text-slate-600 dark:text-slate-300 max-w-sm truncate`} title={item.description}>
@@ -452,7 +452,7 @@ export default function BudgetPlanSection({ templateId }: BudgetPlanSectionProps
                     type="number"
                     value={editDailyFixed}
                     onChange={(e) => setEditDailyFixed(Number(e.target.value))}
-                    className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 p-2 font-mono"
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 p-2"
                   />
                 </div>
               ) : (
@@ -464,7 +464,7 @@ export default function BudgetPlanSection({ templateId }: BudgetPlanSectionProps
                     type="number"
                     value={editMonthlyBudget}
                     onChange={(e) => setEditMonthlyBudget(Number(e.target.value))}
-                    className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 p-2 font-mono"
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 p-2"
                   />
                 </div>
               )}
@@ -543,7 +543,7 @@ export default function BudgetPlanSection({ templateId }: BudgetPlanSectionProps
                   type="number"
                   value={resetInitialCarryover}
                   onChange={(e) => setResetInitialCarryover(Number(e.target.value))}
-                  className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 p-2 font-mono"
+                  className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 p-2"
                 />
               </div>
 
