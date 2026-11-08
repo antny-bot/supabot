@@ -1,7 +1,7 @@
 {% set status = user.get("status", "pending") %}
 {% set uid = user.get("user_id", "") %}
 <tr id="user-row-{{ uid }}">
-  <td class="font-monospace small">{{ uid }}</td>
+  <td class="small">{{ uid }}</td>
   <td>{{ user.get("username") or "—" }}</td>
   <td>
     {% if status == "active" %}

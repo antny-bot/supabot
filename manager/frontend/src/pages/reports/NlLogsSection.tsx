@@ -131,7 +131,7 @@ export default function NlLogsSection() {
           {computedStats.top_tools.map((item) => (
             <span
               key={item.tool}
-              className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-0.5 font-mono text-[11px] font-medium text-slate-700 shadow-2xs border border-slate-200 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
+              className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-0.5 text-[11px] font-medium text-slate-700 shadow-2xs border border-slate-200 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
             >
               <span>{item.tool}</span>
               <span className="rounded-full bg-blue-100 px-1.5 py-0.2 text-[10px] text-blue-700 dark:bg-blue-900/60 dark:text-blue-300">
@@ -206,10 +206,10 @@ export default function NlLogsSection() {
                           }`}
                           style={staggerDelay(i)}
                         >
-                          <td className="px-4 py-3 whitespace-nowrap font-mono text-xs text-slate-500 dark:text-slate-400">
+                          <td className="px-4 py-3 whitespace-nowrap text-xs text-slate-500 dark:text-slate-400">
                             {row.logged_at_fmt}
                           </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-xs text-slate-600 dark:text-slate-400 font-mono">
+                          <td className="px-4 py-3 whitespace-nowrap text-xs text-slate-600 dark:text-slate-400">
                             {row.user_id ? String(row.user_id).slice(-6) : '—'}
                           </td>
                           <td className="px-4 py-3 text-xs text-slate-800 dark:text-slate-200 font-medium break-keep">
@@ -223,7 +223,7 @@ export default function NlLogsSection() {
                                   return (
                                     <span key={idx} className="inline-flex items-center gap-1">
                                       <span
-                                        className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-medium border ${
+                                        className={`rounded px-1.5 py-0.5 text-[10px] font-medium border ${
                                           isWrite
                                             ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/50'
                                             : 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800/50'
@@ -284,7 +284,7 @@ export default function NlLogsSection() {
                                     <p className="font-semibold text-slate-600 dark:text-slate-400 mb-1">🛠️ 에이전트 단계별 도구 실행 내역 (Tool Trace):</p>
                                     <div className="space-y-1.5">
                                       {row.tool_trace.map((item, idx) => (
-                                        <div key={idx} className="rounded border border-slate-100 bg-slate-50 p-2 font-mono text-[11px] dark:border-slate-800 dark:bg-slate-800/60">
+                                        <div key={idx} className="rounded border border-slate-100 bg-slate-50 p-2 text-[11px] dark:border-slate-800 dark:bg-slate-800/60">
                                           <div className="flex items-center justify-between text-blue-600 dark:text-blue-400 font-bold mb-1">
                                             <span>Step {item.step || idx + 1}: {item.tool}</span>
                                           </div>
@@ -307,7 +307,7 @@ export default function NlLogsSection() {
                                 {row.proposed_actions && row.proposed_actions.length > 0 && (
                                   <div>
                                     <p className="font-semibold text-amber-600 dark:text-amber-400 mb-1">📋 사용자 승인 제안 작업 (Proposed Actions):</p>
-                                    <div className="rounded border border-amber-100 bg-amber-50/50 p-2 font-mono text-[11px] text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">
+                                    <div className="rounded border border-amber-100 bg-amber-50/50 p-2 text-[11px] text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">
                                       {row.proposed_actions.map((act, idx) => (
                                         <div key={idx} className="py-0.5">
                                           #{idx + 1}: {JSON.stringify(act)}

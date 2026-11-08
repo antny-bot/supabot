@@ -42,7 +42,7 @@ export default function RoiRankingSection({ dateRange }: { dateRange: DateRangeV
                 <th className={`${TH} text-right`}>수익률</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {Array.from({ length: 6 }).map((_, i) => (
                 <TableRowSkeleton key={i} cols={8} />
               ))}
@@ -84,11 +84,11 @@ export default function RoiRankingSection({ dateRange }: { dateRange: DateRangeV
                 </td>
                 <td className={TD}><Badge value={r.exchange} label={r.exchange.toUpperCase()} /></td>
                 <td className={`${TD} font-medium text-xs text-slate-800 dark:text-slate-200`}>{r.ticker}</td>
-                <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(r.bid_krw)}</td>
-                <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(r.ask_krw)}</td>
-                <td className={`${TD} text-right font-mono text-xs text-slate-500`}>{krwFmt(r.fee_amount)}</td>
-                <td className={`${TD} text-right font-mono text-xs font-medium ${pctColor(r.pnl)}`}>{krwFmt(Math.abs(r.pnl))}</td>
-                <td className={`${TD} text-right font-mono text-xs font-bold ${pctColor(r.roi_pct)}`}>{pctFmt(r.roi_pct)}</td>
+                <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(r.bid_krw)}</td>
+                <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(r.ask_krw)}</td>
+                <td className={`${TD} text-right text-xs text-slate-500`}>{krwFmt(r.fee_amount)}</td>
+                <td className={`${TD} text-right text-xs font-medium ${pctColor(r.pnl)}`}>{krwFmt(Math.abs(r.pnl))}</td>
+                <td className={`${TD} text-right text-xs font-bold ${pctColor(r.roi_pct)}`}>{pctFmt(r.roi_pct)}</td>
               </tr>
             ))}
           </tbody>

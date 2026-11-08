@@ -104,7 +104,7 @@ function SupabaseHealthCard({ health }: { health?: SupabaseHealthStats }) {
           <div className="text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap break-keep">
             사용량 ({health.usage_pct.toFixed(1)}%)
           </div>
-          <div className="mt-0.5 font-mono text-sm font-bold text-slate-900 dark:text-white whitespace-nowrap">
+          <div className="mt-0.5 text-sm font-bold text-slate-900 dark:text-white whitespace-nowrap">
             {health.used_mb} <span className="text-xs font-normal text-slate-400">/ {health.limit_mb} MB</span>
           </div>
         </div>
@@ -112,7 +112,7 @@ function SupabaseHealthCard({ health }: { health?: SupabaseHealthStats }) {
           <div className="text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap break-keep">
             잔여 공간
           </div>
-          <div className={`mt-0.5 font-mono text-sm font-bold whitespace-nowrap ${isHealthy ? 'text-emerald-600 dark:text-emerald-400' : isWarning ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'}`}>
+          <div className={`mt-0.5 text-sm font-bold whitespace-nowrap ${isHealthy ? 'text-emerald-600 dark:text-emerald-400' : isWarning ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'}`}>
             {health.remaining_mb} <span className="text-xs font-normal text-slate-400">MB</span>
           </div>
         </div>
@@ -121,12 +121,12 @@ function SupabaseHealthCard({ health }: { health?: SupabaseHealthStats }) {
       {/* 용량 프로그레스 바 & 메타 정보 */}
       <div className="mt-3 space-y-1.5">
         <ProgressBar value={health.usage_pct} color={barColor} className="w-full" />
-        <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
+        <div className="flex items-center justify-between text-[11px] text-slate-400">
           <span>0 MB</span>
           <span>50%</span>
           <span>{health.limit_mb} MB</span>
         </div>
-        <div className="flex items-center justify-between pt-0.5 text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+        <div className="flex items-center justify-between pt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
           <span className="whitespace-nowrap break-keep">무료 티어 ({health.limit_mb} MB)</span>
           <span className="whitespace-nowrap break-keep">
             데이터 소스: <strong className="font-semibold text-slate-700 dark:text-slate-300">{health.source === 'database_actual' ? 'PostgreSQL 실측' : '테이블 통계 추정'}</strong>
@@ -144,7 +144,7 @@ function SupabaseHealthCard({ health }: { health?: SupabaseHealthStats }) {
             {Object.entries(health.table_counts).map(([tbl, count]) => (
               <div
                 key={tbl}
-                className="flex items-center gap-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/80 px-2.5 py-1 text-xs border border-slate-200/60 dark:border-slate-700/60 font-mono whitespace-nowrap break-keep"
+                className="flex items-center gap-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/80 px-2.5 py-1 text-xs border border-slate-200/60 dark:border-slate-700/60 whitespace-nowrap break-keep"
               >
                 <span className="text-slate-500 dark:text-slate-400">{tbl}:</span>
                 <span className="font-semibold text-slate-700 dark:text-slate-200">{count.toLocaleString()}건</span>
@@ -224,7 +224,7 @@ function DashboardTab({ onSelectTab }: { onSelectTab?: (tab: string) => void } =
                 봇 백그라운드 엔진: <strong className="uppercase text-indigo-600 dark:text-indigo-400">{data.stats.bot_status ?? 'online'}</strong>
               </span>
             </div>
-            <span className="text-xs text-slate-500">24h 실현손익: <strong className="font-mono text-slate-700 dark:text-slate-200">{data.stats.realized_pnl_24h ? krwFmt(data.stats.realized_pnl_24h) : '0원'}</strong></span>
+            <span className="text-xs text-slate-500">24h 실현손익: <strong className="text-slate-700 dark:text-slate-200">{data.stats.realized_pnl_24h ? krwFmt(data.stats.realized_pnl_24h) : '0원'}</strong></span>
           </div>
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
@@ -256,7 +256,7 @@ function DashboardTab({ onSelectTab }: { onSelectTab?: (tab: string) => void } =
             <div className="lg:col-span-8 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-800 flex justify-between items-center">
                 <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-300">최근 미확인 이벤트</h2>
-                <span className="text-[10px] text-slate-400 font-mono">총 {data.recent_events.length}건</span>
+                <span className="text-[10px] text-slate-400">총 {data.recent_events.length}건</span>
               </div>
 
               <div className="hidden overflow-x-auto md:block">
@@ -279,7 +279,7 @@ function DashboardTab({ onSelectTab }: { onSelectTab?: (tab: string) => void } =
                       </tr>
                     ) : data.recent_events.map((event, index) => (
                       <tr key={event.id} className="animate-fade-in transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50" style={staggerDelay(index)}>
-                        <td className="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-slate-500 dark:text-slate-400">
+                        <td className="whitespace-nowrap px-4 py-2.5 text-xs text-slate-500 dark:text-slate-400">
                           {fmtTime(String(event.created_at))}
                         </td>
                         <td className="px-4 py-2.5">
@@ -314,7 +314,7 @@ function DashboardTab({ onSelectTab }: { onSelectTab?: (tab: string) => void } =
                 ) : data.recent_events.map((event, index) => (
                   <div key={event.id} className="animate-fade-in-up space-y-1.5 p-3 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50" style={staggerDelay(index)}>
                     <div className="flex items-center justify-between text-xs">
-                      <span className="font-mono text-slate-500 dark:text-slate-400">{fmtTime(String(event.created_at))}</span>
+                      <span className="text-slate-500 dark:text-slate-400">{fmtTime(String(event.created_at))}</span>
                       <div className="flex items-center gap-2">
                         <Badge value={event.level} />
                         <button
@@ -602,7 +602,7 @@ function StockCacheTab() {
       <div className="md:col-span-7 flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <div>
           <h3 className="mb-1 text-sm font-semibold text-slate-800 dark:text-slate-200">CSV 및 KRX 일괄 갱신</h3>
-          <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">CSV 형식: 헤더 <code className="font-mono">name,code</code> (순서 무관) 또는 KRX 전체 자동 갱신</p>
+          <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">CSV 형식: 헤더 <code>name,code</code> (순서 무관) 또는 KRX 전체 자동 갱신</p>
         </div>
         <div className="flex flex-wrap gap-2.5 items-center pt-1">
           <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 cursor-pointer mr-1">
@@ -674,7 +674,7 @@ function StockCacheTab() {
               {pagedRows.map(r => (
                 <tr key={r.name} className="border-b border-slate-50 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/50">
                   <td className="px-4 py-2 font-medium text-slate-800 dark:text-slate-200">{r.name}</td>
-                  <td className="px-4 py-2 font-mono text-slate-600 dark:text-slate-400">{r.code}</td>
+                  <td className="px-4 py-2 text-slate-600 dark:text-slate-400">{r.code}</td>
                   <td className="px-4 py-2 text-slate-400 text-xs">{r.updated_at ? r.updated_at.slice(0, 19).replace('T', ' ') : '-'}</td>
                   <td className="px-4 py-2 text-right">
                     <button onClick={() => handleDelete(r.name)} className="text-red-400 hover:text-red-600 dark:hover:text-red-300">

@@ -49,7 +49,7 @@ export default function Privacy() {
                     </a>
                     을 준수합니다.
                   </p>
-                  <p className="mt-2 text-xs font-mono bg-white/70 dark:bg-slate-900/60 p-3 rounded-lg border border-slate-200/80 dark:border-slate-800">
+                  <p className="mt-2 text-xs bg-white/70 dark:bg-slate-900/60 p-3 rounded-lg border border-slate-200/80 dark:border-slate-800">
                     &quot;supabot&apos;s use and transfer to any other app of information received from Google APIs will adhere to the Google API Services User Data Policy, including the Limited Use requirements.&quot;
                   </p>
                 </div>

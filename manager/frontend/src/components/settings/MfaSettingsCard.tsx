@@ -139,7 +139,7 @@ export default function MfaSettingsCard({ initialEnabled, onStatusChange }: MfaS
               </p>
               <p className="text-xs text-slate-400 dark:text-slate-500 leading-relaxed">
                 스캔이 어렵다면 아래 비밀키를 직접 입력할 수 있습니다.<br />
-                <code className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded font-mono text-xs text-slate-700 dark:text-slate-300 font-semibold break-all select-all">{mfaSetupData.secret}</code>
+                <code className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-xs text-slate-700 dark:text-slate-300 font-semibold break-all select-all">{mfaSetupData.secret}</code>
               </p>
             </div>
           </div>

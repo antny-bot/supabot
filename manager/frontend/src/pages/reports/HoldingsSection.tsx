@@ -267,19 +267,19 @@ export default function HoldingsSection() {
                         {row.oversold && <Badge value="warning" label="oversell" />}
                       </div>
                     </td>
-                    <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>{row.quantity.toFixed(4)}</td>
-                    <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(row.avg_price)}</td>
-                    <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(row.cost_krw)}</td>
-                    <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>
+                    <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400`}>{row.quantity.toFixed(4)}</td>
+                    <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(row.avg_price)}</td>
+                    <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(row.cost_krw)}</td>
+                    <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400`}>
                       {row.current_price > 0 ? krwFmt(row.current_price) : '—'}
                     </td>
-                    <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>
+                    <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400`}>
                       {row.current_price > 0 ? krwFmt(row.value_krw) : '—'}
                     </td>
-                    <td className={`${TD} text-right font-mono text-xs font-medium ${pctColor(row.pnl)}`}>
+                    <td className={`${TD} text-right text-xs font-medium ${pctColor(row.pnl)}`}>
                       {row.current_price > 0 ? `${row.pnl >= 0 ? '+' : '-'}${krwFmt(Math.abs(row.pnl))}` : '—'}
                     </td>
-                    <td className={`${TD} text-right font-mono text-xs font-medium ${pctColor(row.roi_pct)}`}>
+                    <td className={`${TD} text-right text-xs font-medium ${pctColor(row.roi_pct)}`}>
                       {row.current_price > 0 ? pctFmt(row.roi_pct) : '—'}
                     </td>
                   </tr>

@@ -51,7 +51,7 @@
         <tbody>
           {% for r in by_exchange %}
           <tr><td class="text-uppercase">{{ r.name }}</td><td class="text-end">{{ r.count }}</td>
-              <td class="text-end font-monospace small">{{ "{:,.0f}".format(r.krw) }}</td></tr>
+              <td class="text-end small">{{ "{:,.0f}".format(r.krw) }}</td></tr>
           {% else %}<tr><td colspan="3" class="text-center text-muted py-2">—</td></tr>{% endfor %}
         </tbody>
       </table>
@@ -65,7 +65,7 @@
         <tbody>
           {% for r in by_strategy %}
           <tr><td>{{ r.name }}</td><td class="text-end">{{ r.count }}</td>
-              <td class="text-end font-monospace small">{{ "{:,.0f}".format(r.krw) }}</td></tr>
+              <td class="text-end small">{{ "{:,.0f}".format(r.krw) }}</td></tr>
           {% else %}<tr><td colspan="3" class="text-center text-muted py-2">—</td></tr>{% endfor %}
         </tbody>
       </table>
@@ -86,15 +86,15 @@
         <tr>
           <td class="small text-muted">{{ t.executed_fmt }}</td>
           <td class="text-uppercase small">{{ t.get("exchange") }}</td>
-          <td class="font-monospace small">{{ t.get("ticker") }}</td>
+          <td class="small">{{ t.get("ticker") }}</td>
           <td>
             {% if t.get("side") == "bid" %}<span class="badge bg-danger">매수</span>
             {% else %}<span class="badge bg-primary">매도</span>{% endif %}
           </td>
           <td class="small">{{ t.get("strategy") }}</td>
-          <td class="text-end font-monospace small">{{ "{:,.0f}".format(t.get("price") or 0) }}</td>
-          <td class="text-end font-monospace small">{{ "%.4f"|format(t.get("volume") or 0) }}</td>
-          <td class="text-end font-monospace small">{{ "{:,.0f}".format(t.krw) }}</td>
+          <td class="text-end small">{{ "{:,.0f}".format(t.get("price") or 0) }}</td>
+          <td class="text-end small">{{ "%.4f"|format(t.get("volume") or 0) }}</td>
+          <td class="text-end small">{{ "{:,.0f}".format(t.krw) }}</td>
         </tr>
         {% else %}
         <tr><td colspan="8" class="text-center text-muted py-4">거래 내역 없음</td></tr>

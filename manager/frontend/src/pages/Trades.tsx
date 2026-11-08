@@ -299,10 +299,10 @@ export default function Trades() {
                         <span className="font-bold text-slate-900 dark:text-white">{trade.ticker}</span>
                         <Badge value={trade.side} />
                       </div>
-                      <span className="font-mono text-[11px] text-slate-400">{trade.executed_fmt}</span>
+                      <span className="text-[11px] text-slate-400">{trade.executed_fmt}</span>
                     </div>
 
-                    <div className="flex items-center justify-between text-xs font-mono">
+                    <div className="flex items-center justify-between text-xs">
                       <span className="text-slate-400 font-sans text-[11px]">
                         {trade.price?.toLocaleString()}원 × {trade.volume?.toFixed(4)}
                       </span>

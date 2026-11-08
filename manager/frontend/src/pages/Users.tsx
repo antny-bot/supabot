@@ -287,7 +287,7 @@ export function UsersContent() {
                     </tr>
                   ) : users.map((user, index) => (
                     <tr key={user.user_id} className="animate-fade-in transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40" style={staggerDelay(index)}>
-                      <td className="px-4 py-2.5 font-mono text-xs text-slate-500 dark:text-slate-400">{user.user_id}</td>
+                      <td className="px-4 py-2.5 text-xs text-slate-500 dark:text-slate-400">{user.user_id}</td>
                       <td className="px-4 py-2.5 text-xs font-medium text-slate-800 dark:text-slate-200">{user.username || '--'}</td>
                       <td className="px-4 py-2.5">
                         <Badge value={user.status} label={user.status_label} />
@@ -320,7 +320,7 @@ export function UsersContent() {
                   {users.map((user, index) => (
                     <div key={user.user_id} className="animate-fade-in-up space-y-3 rounded-xl border border-slate-100 p-4 transition-colors hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/40" style={staggerDelay(index)}>
                       <div className="flex items-center justify-between text-xs">
-                        <span className="font-mono text-slate-500 dark:text-slate-400">{user.user_id}</span>
+                        <span className="text-slate-500 dark:text-slate-400">{user.user_id}</span>
                         <div className="flex items-center gap-1">
                           {user.is_admin && <ShieldCheck size={12} className="text-primary-500" />}
                           <Badge value={user.status} label={user.status_label} />

@@ -168,7 +168,7 @@ export default function BacktestSimulatorSection() {
             <span className="text-sm font-bold text-slate-800 dark:text-slate-100">
               시뮬레이션 기간 및 프리셋:
             </span>
-            <div className="flex items-center gap-1.5 text-xs font-mono">
+            <div className="flex items-center gap-1.5 text-xs">
               <input
                 type="date"
                 value={startDate}
@@ -267,7 +267,7 @@ export default function BacktestSimulatorSection() {
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-[11px] text-slate-400 block">순위 구간</label>
-                  <div className="flex items-center gap-1 font-mono">
+                  <div className="flex items-center gap-1">
                     <input
                       type="number"
                       value={sc.rank_start}
@@ -317,7 +317,7 @@ export default function BacktestSimulatorSection() {
                     type="number"
                     value={sc.sell_split_days}
                     onChange={(e) => updateScenario(idx, { sell_split_days: Number(e.target.value) })}
-                    className="w-full rounded border border-slate-200 dark:border-slate-700 p-1 bg-slate-50 dark:bg-slate-700 text-xs font-mono"
+                    className="w-full rounded border border-slate-200 dark:border-slate-700 p-1 bg-slate-50 dark:bg-slate-700 text-xs"
                   />
                 </div>
               </div>
@@ -391,17 +391,17 @@ export default function BacktestSimulatorSection() {
                             ))}
                           </div>
                         </td>
-                        <td className={`${TD} text-right font-mono font-bold ${isUp ? 'text-red-500' : 'text-blue-500'}`}>
+                        <td className={`${TD} text-right font-bold ${isUp ? 'text-red-500' : 'text-blue-500'}`}>
                           {lb.roi > 0 ? `+${lb.roi}` : lb.roi}%
                         </td>
-                        <td className={`${TD} text-right font-mono`}>{lb.cagr}%</td>
-                        <td className={`${TD} text-right font-mono text-slate-500`}>-{lb.mdd}%</td>
-                        <td className={`${TD} text-right font-mono font-semibold`}>{lb.calmar}</td>
-                        <td className={`${TD} text-right font-mono font-bold ${lb.alpha >= 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
+                        <td className={`${TD} text-right`}>{lb.cagr}%</td>
+                        <td className={`${TD} text-right text-slate-500`}>-{lb.mdd}%</td>
+                        <td className={`${TD} text-right font-semibold`}>{lb.calmar}</td>
+                        <td className={`${TD} text-right font-bold ${lb.alpha >= 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
                           {lb.alpha > 0 ? `+${lb.alpha}` : lb.alpha}%p
                         </td>
-                        <td className={`${TD} text-right font-mono text-slate-500`}>{krwFmt(lb.total_invested)}</td>
-                        <td className={`${TD} text-right font-mono font-bold`}>{krwFmt(lb.final_equity)}</td>
+                        <td className={`${TD} text-right text-slate-500`}>{krwFmt(lb.total_invested)}</td>
+                        <td className={`${TD} text-right font-bold`}>{krwFmt(lb.final_equity)}</td>
                         <td className={`${TD} text-center`}>
                           <button className="text-indigo-600 dark:text-indigo-400 hover:underline">
                             보기
@@ -519,14 +519,14 @@ export default function BacktestSimulatorSection() {
                       const isUp = sc.pnl >= 0
                       return (
                         <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
-                          <td className={`${TD} font-semibold font-mono`}>{sc.code}</td>
-                          <td className={`${TD} text-right font-mono`}>{sc.qty}주</td>
-                          <td className={`${TD} text-right font-mono text-slate-500`}>{krwFmt(sc.cost)}</td>
-                          <td className={`${TD} text-right font-mono font-semibold`}>{krwFmt(sc.value)}</td>
-                          <td className={`${TD} text-right font-mono font-bold ${isUp ? 'text-red-500' : 'text-blue-500'}`}>
+                          <td className={`${TD} font-semibold`}>{sc.code}</td>
+                          <td className={`${TD} text-right`}>{sc.qty}주</td>
+                          <td className={`${TD} text-right text-slate-500`}>{krwFmt(sc.cost)}</td>
+                          <td className={`${TD} text-right font-semibold`}>{krwFmt(sc.value)}</td>
+                          <td className={`${TD} text-right font-bold ${isUp ? 'text-red-500' : 'text-blue-500'}`}>
                             {isUp ? `+${krwFmt(sc.pnl)}` : krwFmt(sc.pnl)}
                           </td>
-                          <td className={`${TD} text-right font-mono font-bold ${isUp ? 'text-red-500' : 'text-blue-500'}`}>
+                          <td className={`${TD} text-right font-bold ${isUp ? 'text-red-500' : 'text-blue-500'}`}>
                             {sc.return_pct > 0 ? `+${sc.return_pct}` : sc.return_pct}%
                           </td>
                         </tr>

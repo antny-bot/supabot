@@ -254,7 +254,7 @@ export function EventsContent() {
                           className="rounded border-slate-300 dark:border-slate-700 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                         />
                       </td>
-                      <td className="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-slate-500 dark:text-slate-400">
+                      <td className="whitespace-nowrap px-4 py-2.5 text-xs text-slate-500 dark:text-slate-400">
                         {fmtTime(String(event.created_at))}
                       </td>
                       <td className="px-4 py-2.5">

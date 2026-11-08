@@ -126,13 +126,13 @@ export default function ExchangeSection({ dateRange }: { dateRange: DateRangeVal
                 <tr key={r.exchange} className="animate-fade-in hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors" style={staggerDelay(i)}>
                   <td className={`${TD} text-xs font-medium text-slate-700 dark:text-slate-300`}>{label(r.exchange)}</td>
                   <td className={`${TD} text-right text-xs text-slate-500`}>{r.trade_count.toLocaleString()}</td>
-                  <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(r.bid_krw)}</td>
-                  <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(r.ask_krw)}</td>
-                  <td className={`${TD} text-right font-mono text-xs text-slate-500`}>{krwFmt(r.fee_amount)}</td>
-                  <td className={`${TD} text-right font-mono text-xs font-medium ${pctColor(r.pnl)}`}>
+                  <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(r.bid_krw)}</td>
+                  <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(r.ask_krw)}</td>
+                  <td className={`${TD} text-right text-xs text-slate-500`}>{krwFmt(r.fee_amount)}</td>
+                  <td className={`${TD} text-right text-xs font-medium ${pctColor(r.pnl)}`}>
                     {r.pnl >= 0 ? '+' : '-'}{krwFmt(Math.abs(r.pnl))}
                   </td>
-                  <td className={`${TD} text-right font-mono text-xs font-medium ${pctColor(r.roi_pct)}`}>{pctFmt(r.roi_pct)}</td>
+                  <td className={`${TD} text-right text-xs font-medium ${pctColor(r.roi_pct)}`}>{pctFmt(r.roi_pct)}</td>
                   <td className={TD}><ProgressBar value={r.win_rate} /></td>
                 </tr>
               ))}

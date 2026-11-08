@@ -414,7 +414,7 @@ export default function AdminBackupTab() {
           </div>
           <div className="flex items-center gap-4 text-slate-500 dark:text-slate-400">
             <span>
-              보관 폴더: <code className="px-1 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-mono text-[11px]">{config?.gdrive_folder || 'supabot-backups'}</code>
+              보관 폴더: <code className="px-1 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 text-[11px]">{config?.gdrive_folder || 'supabot-backups'}</code>
             </span>
             <span>
               인증 방식: <span className="font-medium text-slate-700 dark:text-slate-300">{config?.gdrive_source === 'db' ? '웹 DB 인증' : config?.gdrive_source === 'env' ? '서버 .env 인증' : '미연동'}</span>
@@ -445,7 +445,7 @@ export default function AdminBackupTab() {
                   placeholder="예: xxxxx.apps.googleusercontent.com"
                   value={gdriveClientIdInput}
                   onChange={(e) => setGdriveClientIdInput(e.target.value)}
-                  className={`${inputCls} w-full font-mono text-xs`}
+                  className={`${inputCls} w-full text-xs`}
                 />
               </div>
 
@@ -458,7 +458,7 @@ export default function AdminBackupTab() {
                   placeholder={config?.gdrive_has_secret ? '기존 Secret 유지 중 (변경 시에만 입력)' : '예: GOCSPX-xxxx...'}
                   value={gdriveClientSecretInput}
                   onChange={(e) => setGdriveClientSecretInput(e.target.value)}
-                  className={`${inputCls} w-full font-mono text-xs`}
+                  className={`${inputCls} w-full text-xs`}
                 />
               </div>
 
@@ -486,7 +486,7 @@ export default function AdminBackupTab() {
               <ul className="list-disc list-inside space-y-0.5 text-blue-700 dark:text-blue-400 pl-1">
                 <li>
                   <strong>승인된 자바스크립트 원본(Origin):</strong>{' '}
-                  <code className="px-1 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 font-mono">
+                  <code className="px-1 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40">
                     {typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173'}
                   </code>
                 </li>
@@ -752,7 +752,7 @@ export default function AdminBackupTab() {
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                 {localFiles.map((f) => (
                   <tr key={f.filename} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                    <td className="py-2.5 px-4 font-mono font-medium text-slate-900 dark:text-white whitespace-nowrap">
+                    <td className="py-2.5 px-4 font-medium text-slate-900 dark:text-white whitespace-nowrap">
                       {f.filename}
                     </td>
                     <td className="py-2.5 px-4 text-slate-600 dark:text-slate-300 whitespace-nowrap">

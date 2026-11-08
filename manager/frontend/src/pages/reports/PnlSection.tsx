@@ -110,11 +110,11 @@ export default function PnlSection({ dateRange }: { dateRange: DateRangeValue })
                 <tr key={i} className="animate-fade-in hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors" style={staggerDelay(i)}>
                   <td className={TD}><Badge value={r.exchange} label={r.exchange.toUpperCase()} /></td>
                   <td className={`${TD} font-medium text-xs text-slate-800 dark:text-slate-200`}>{r.ticker}</td>
-                  <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(r.bid_krw)}</td>
-                  <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(r.ask_krw)}</td>
-                  <td className={`${TD} text-right font-mono text-xs text-slate-500 dark:text-slate-500`}>{krwFmt(r.fee_amount)}</td>
-                  <td className={`${TD} text-right font-mono text-xs font-medium ${pctColor(r.pnl)}`}>{krwFmt(Math.abs(r.pnl))}</td>
-                  <td className={`${TD} text-right font-mono text-xs font-medium ${pctColor(r.roi_pct)}`}>{pctFmt(r.roi_pct)}</td>
+                  <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(r.bid_krw)}</td>
+                  <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(r.ask_krw)}</td>
+                  <td className={`${TD} text-right text-xs text-slate-500 dark:text-slate-500`}>{krwFmt(r.fee_amount)}</td>
+                  <td className={`${TD} text-right text-xs font-medium ${pctColor(r.pnl)}`}>{krwFmt(Math.abs(r.pnl))}</td>
+                  <td className={`${TD} text-right text-xs font-medium ${pctColor(r.roi_pct)}`}>{pctFmt(r.roi_pct)}</td>
                 </tr>
               ))}
             </tbody>

@@ -44,7 +44,7 @@ export default function PairsSection({ dateRange }: { dateRange: DateRangeValue 
                 <th className={`${TH} text-right`}>수익률</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {Array.from({ length: 6 }).map((_, i) => (
                 <TableRowSkeleton key={i} cols={9} />
               ))}
@@ -86,14 +86,14 @@ export default function PairsSection({ dateRange }: { dateRange: DateRangeValue 
                 <td className={`${TD} font-medium text-xs text-slate-800 dark:text-slate-200`}>{p.ticker}</td>
                 <td className={TD}><Badge value={p.exchange} label={p.exchange.toUpperCase()} /></td>
                 <td className={`${TD} text-xs text-slate-500 dark:text-slate-400`}>{p.strategy}</td>
-                <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>{p.buy_price.toLocaleString()}</td>
-                <td className={`${TD} text-right font-mono text-xs text-slate-600 dark:text-slate-400`}>{p.sell_price.toLocaleString()}</td>
-                <td className={`${TD} text-right font-mono text-xs text-slate-500`}>{p.volume.toFixed(4)}</td>
+                <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400`}>{p.buy_price.toLocaleString()}</td>
+                <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400`}>{p.sell_price.toLocaleString()}</td>
+                <td className={`${TD} text-right text-xs text-slate-500`}>{p.volume.toFixed(4)}</td>
                 <td className={`${TD} text-right text-xs text-slate-500 dark:text-slate-400`}>{p.hold_time_fmt}</td>
-                <td className={`${TD} text-right font-mono text-xs font-medium ${pctColor(p.pnl)}`}>
+                <td className={`${TD} text-right text-xs font-medium ${pctColor(p.pnl)}`}>
                   {p.pnl >= 0 ? '+' : '-'}{krwFmt(Math.abs(p.pnl))}
                 </td>
-                <td className={`${TD} text-right font-mono text-xs font-bold ${pctColor(p.roi_pct)}`}>{pctFmt(p.roi_pct)}</td>
+                <td className={`${TD} text-right text-xs font-bold ${pctColor(p.roi_pct)}`}>{pctFmt(p.roi_pct)}</td>
               </tr>
             ))}
           </tbody>

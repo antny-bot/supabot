@@ -114,7 +114,7 @@ export default function AllocationSection() {
                   />
                   <span className="font-medium text-slate-700 dark:text-slate-200">{cat.name}</span>
                 </div>
-                <div className="flex items-center gap-3 font-mono">
+                <div className="flex items-center gap-3">
                   <span className="text-slate-600 dark:text-slate-400">{krwFmt(cat.value)}</span>
                   <span className="font-bold text-slate-900 dark:text-white w-12 text-right">{cat.pct}%</span>
                 </div>
@@ -152,7 +152,7 @@ export default function AllocationSection() {
                   />
                   <span className="font-medium text-slate-700 dark:text-slate-200">{exch.name}</span>
                 </div>
-                <div className="flex items-center gap-3 font-mono">
+                <div className="flex items-center gap-3">
                   <span className="text-slate-600 dark:text-slate-400">{krwFmt(exch.value)}</span>
                   <span className="font-bold text-slate-900 dark:text-white w-12 text-right">{exch.pct}%</span>
                 </div>
