@@ -26,7 +26,7 @@ export interface TemplateFormState {
   exitRankBuffer: string
   exitConfirmDays: string
   sellSplitDays: string
-  budgetMode: 'total' | 'monthly' | 'daily'
+  budgetMode: 'total' | 'monthly' | 'daily' | 'unlimited'
   dailyFixedBudget: string
   tradingDaysPerMonth: string
   cycleAllocMode: 'one_share' | 'target_amount'
@@ -152,8 +152,12 @@ export function buildPayload(form: TemplateFormState) {
     }
   } else if (stype === 'dca' || stype === 'sdca') {
     const maxRuns = payload.count > 0 ? payload.count : null
-    const isBidBudget = stype === 'dca' && form.dcaAmountType === 'budget'
-    const planBudgetNum = parseFloat(stripCommas(form.dcaPlanBudget)) || (maxRuns ? payload.budget * maxRuns : payload.budget * 20)
+    const isBidDca = stype === 'dca'
+    const parsedPlanBudget = parseFloat(stripCommas(form.dcaPlanBudget))
+    const defaultTotal = form.dcaAmountType === 'volume'
+      ? (parsedPlanBudget > 0 ? parsedPlanBudget : (payload.budget > 0 ? payload.budget * 20 : 3000000))
+      : (parsedPlanBudget > 0 ? parsedPlanBudget : (maxRuns ? payload.budget * maxRuns : payload.budget * 20))
+    const isUnlimited = form.budgetMode === 'unlimited'
     payload.params = {
       schedule: form.dcaSchedule.trim() || '매일',
       exec_time: form.dcaExecTime.trim() || '09:05',
@@ -163,13 +167,18 @@ export function buildPayload(form: TemplateFormState) {
       order_type: form.dcaOrderType || 'limit',
       order_price_mode: form.dcaOrderType || 'limit',
       carryover_mode: form.dcaCarryoverMode || 'next_day',
-      ...(isBidBudget
+      ...(isBidDca && !isUnlimited
         ? {
-            per_order_budget: payload.budget,
+            per_order_budget: form.dcaAmountType === 'budget' ? payload.budget : 0,
             budget_mode: form.budgetMode || 'total',
-            monthly_budget: planBudgetNum,
-            daily_fixed_budget: form.budgetMode === 'daily' ? payload.budget : 0,
+            monthly_budget: defaultTotal,
+            dca_plan_budget: defaultTotal,
+            daily_fixed_budget: form.budgetMode === 'daily' ? (form.dcaAmountType === 'budget' ? payload.budget : 0) : 0,
             sell_proceeds_mode: form.sellProceedsMode || 'keep_cash',
+          }
+        : isBidDca
+        ? {
+            budget_mode: 'unlimited',
           }
         : {}),
     }
@@ -248,9 +257,9 @@ export function templateToForm(template: Template): TemplateFormState {
     exitConfirmDays: String(p.exit_confirm_days ?? '2'),
     sellSplitDays: String(p.sell_split_days ?? '5'),
     budgetMode:
-      p.budget_mode === 'daily' || p.budget_mode === 'monthly' || p.budget_mode === 'total'
+      p.budget_mode === 'daily' || p.budget_mode === 'monthly' || p.budget_mode === 'total' || p.budget_mode === 'unlimited'
         ? p.budget_mode
-        : defaultBudgetMode,
+        : (strategyType === 'dca' && !p.budget_mode && !p.carryover_budget ? 'unlimited' : defaultBudgetMode),
     dailyFixedBudget: formatWithCommas(p.daily_fixed_budget ?? '150000'),
     tradingDaysPerMonth: String(p.trading_days_per_month ?? '20'),
     cycleAllocMode: p.cycle_alloc_mode === 'target_amount' ? 'target_amount' : 'one_share',

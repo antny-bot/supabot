@@ -26,7 +26,8 @@ def is_budget_managed_strategy(template: dict) -> bool:
     if stype == "dca":
         if str(params.get("side") or "bid").lower() in ("ask", "sell", "sdca"):
             return False
-        if str(params.get("amount_type") or "budget").lower() == "volume":
+        # DCA에서 명시적으로 예산 무한(unlimited)을 지정한 경우에만 예산 관리에서 제외
+        if str(params.get("budget_mode") or "").lower() == "unlimited":
             return False
     return True
 
@@ -675,14 +676,23 @@ async def ensure_budget_plan_initialized(
     raw_tpl_budget = float(template.get("budget") or 0.0)
 
     if stype == "dca":
-        if "per_order_budget" not in params:
-            params["per_order_budget"] = raw_tpl_budget
+        if str(params.get("amount_type") or "budget").lower() == "volume":
+            plan_b = float(params.get("dca_plan_budget") or params.get("monthly_budget") or 0.0)
+            if plan_b <= 0:
+                plan_b = 3000000.0
+            params["monthly_budget"] = plan_b
+            if "per_order_budget" not in params:
+                params["per_order_budget"] = float(params.get("per_order_budget") or 0.0)
             changed = True
-        if "monthly_budget" not in params or float(params.get("monthly_budget") or 0) <= 0:
-            ct = int(template.get("count") or 0)
-            est_total = raw_tpl_budget * ct if ct > 0 else raw_tpl_budget * 20
-            params["monthly_budget"] = float(est_total if est_total > 0 else raw_tpl_budget)
-            changed = True
+        else:
+            if "per_order_budget" not in params:
+                params["per_order_budget"] = raw_tpl_budget
+                changed = True
+            if "monthly_budget" not in params or float(params.get("monthly_budget") or 0) <= 0:
+                ct = int(template.get("count") or 0)
+                est_total = raw_tpl_budget * ct if ct > 0 else raw_tpl_budget * 20
+                params["monthly_budget"] = float(est_total if est_total > 0 else raw_tpl_budget)
+                changed = True
     else:
         if "monthly_budget" not in params or float(params.get("monthly_budget") or 0) <= 0:
             params["monthly_budget"] = raw_tpl_budget if raw_tpl_budget > 0 else 3000000.0

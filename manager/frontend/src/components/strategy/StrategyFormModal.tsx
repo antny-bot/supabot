@@ -1536,7 +1536,7 @@ export default function StrategyFormModal({
                         />
                       </div>
                     </div>
-                    {form.strategyType === 'dca' && form.dcaAmountType === 'budget' && (
+                    {form.strategyType === 'dca' && (
                       <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-3.5 space-y-2.5 dark:border-indigo-900/40 dark:bg-indigo-950/20">
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
@@ -1552,29 +1552,38 @@ export default function StrategyFormModal({
                             <select
                               aria-label="DCA 예산 운용 방식"
                               value={form.budgetMode}
-                              onChange={(e) => setForm({ ...form, budgetMode: e.target.value as 'total' | 'monthly' | 'daily' })}
+                              onChange={(e) => setForm({ ...form, budgetMode: e.target.value as 'total' | 'monthly' | 'daily' | 'unlimited' })}
                               className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                             >
                               <option value="total">총예산 풀 차감 모드 (일시 배정)</option>
                               <option value="monthly">월 예산 분할 충전 모드</option>
+                              <option value="unlimited">무한 예산 모드 (예산 제한 없음)</option>
                             </select>
                           </div>
-                          <div>
-                            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                              {form.budgetMode === 'monthly' ? '월 배정 총예산 (KRW)' : '전략 배정 총예산 (KRW)'}
-                            </label>
-                            <input
-                              type="text"
-                              inputMode="numeric"
-                              aria-label="DCA 배정 총예산"
-                              value={formatWithCommas(form.dcaPlanBudget)}
-                              onChange={(e) => setForm({ ...form, dcaPlanBudget: stripCommas(e.target.value) })}
-                              className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                            />
-                          </div>
+                          {form.budgetMode !== 'unlimited' ? (
+                            <div>
+                              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                                {form.budgetMode === 'monthly' ? '월 배정 총예산 (KRW)' : '전략 배정 총예산 (KRW)'}
+                              </label>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                aria-label="DCA 배정 총예산"
+                                value={formatWithCommas(form.dcaPlanBudget)}
+                                onChange={(e) => setForm({ ...form, dcaPlanBudget: stripCommas(e.target.value) })}
+                                className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-mono dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                              />
+                            </div>
+                          ) : (
+                            <div className="flex items-center text-xs text-slate-400 pt-5">
+                              예산 한도 없이 거래소 계좌 예수금으로 계속 매수합니다.
+                            </div>
+                          )}
                         </div>
                         <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                          매 회차 매수 시 가용 예산에서 차감되며, 소진 현황 확인 및 [+충전]이 가능합니다.
+                          {form.budgetMode === 'unlimited'
+                            ? '기본 무한 예산 모드: 스케줄 주기마다 계좌 예수금으로 매수하며 예산 차감을 수행하지 않습니다.'
+                            : '매 회차 매수 시(수량 또는 금액 주문) 가용 예산에서 자동 차감되며, 원장 감사 및 [+충전]이 가능합니다.'}
                         </p>
                       </div>
                     )}

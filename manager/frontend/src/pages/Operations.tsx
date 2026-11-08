@@ -634,7 +634,10 @@ export default function Operations() {
                 const isTop = tpl.strategy_type === 'kospi_top_dca'
                 const isVolume =
                   tpl.strategy_type === 'sgrid' || tpl.strategy_type === 'sdca' || (isDca && p.amount_type === 'volume')
-                const supportsCarryover = !isVolume
+                const hasDcaBudget = isDca && (p.budget_mode !== 'unlimited' || p.carryover_budget !== undefined || Number(p.monthly_budget || 0) > 0 || Number(p.dca_plan_budget || 0) > 0)
+                const isVolumeOnly =
+                  tpl.strategy_type === 'sgrid' || tpl.strategy_type === 'sdca' || (isDca && p.amount_type === 'volume' && !hasDcaBudget)
+                const supportsCarryover = !isVolumeOnly
 
                 return (
                   <div
@@ -721,7 +724,7 @@ export default function Operations() {
                           </span>
                           <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
                             {isDca && p.amount_type === 'volume'
-                              ? `${p.schedule || '매일'} ${tpl.budget}주씩`
+                              ? `${p.schedule || '매일'} ${tpl.budget}주씩${hasDcaBudget ? ' (예산한도)' : ' (무한)'}`
                               : isVolume
                               ? `${tpl.budget} (수량)`
                               : krwFmt(isTop ? (p.monthly_budget ?? tpl.budget) : tpl.budget)}

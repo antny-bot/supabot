@@ -49,8 +49,22 @@ _WEEKDAY_TOKEN_MAP = {
 DEFAULT_DCA_EXEC_TIME = "09:05"
 _DCA_RETRY_DELAY_SECONDS = 300
 _DCA_SIDECAR_RETRY_SECONDS = 1200  # 20분 (서킷브레이커/사이드카 매매정지 대기)
+_DCA_MAX_SIDECAR_RETRIES = 12      # 최대 12회 (20분 * 12 = 4시간 동안 거래정지 지속 시 일반 실패 전환)
 _DCA_MAX_CONSECUTIVE_FAILS = 3
 _dca_fail_counts: dict[str, int] = {}
+
+
+def _strip_yoil(tok: str) -> str:
+    """'요일' 접미사를 안전하게 제거하고 토큰 맵과 일치하는 유효 토큰을 반환한다.
+    rstrip('요일') 사용 시 '일', '일요일'이 빈 문자열("")이 되는 문제를 방지한다.
+    """
+    t = str(tok or "").strip()
+    clean = t.removesuffix("요일")
+    if clean in _WEEKDAY_TOKEN_MAP:
+        return clean
+    if t in _WEEKDAY_TOKEN_MAP:
+        return t
+    return clean or t
 
 
 def parse_dca_schedule(raw: str) -> dict:
@@ -97,26 +111,33 @@ def parse_dca_schedule(raw: str) -> dict:
 
     cleaned = re.sub(r"^(?:매주|주간|weekly)[:\s_-]*", "", text).strip()
 
-    # 요일 범위 (예: "월~금", "월-금", "월~목", "화~금", "월~일")
-    m_range = re.match(r"^([월화수목금토일](?:요일)?)\s*[~-]\s*([월화수목금토일](?:요일)?)$", cleaned)
+    # 요일 범위 (예: "월~금", "월-금", "월~목", "화~금", "월~일", "화~일요일")
+    m_range = re.match(r"^([^\s~-]+)\s*[~-]\s*([^\s~-]+)$", cleaned)
     if m_range:
-        start_tok = m_range.group(1).rstrip("요일")
-        end_tok = m_range.group(2).rstrip("요일")
-        start_d = _WEEKDAY_TOKEN_MAP[start_tok]
-        end_d = _WEEKDAY_TOKEN_MAP[end_tok]
-        if start_d <= end_d:
-            range_days = list(range(start_d, end_d + 1))
-        else:
-            range_days = list(range(start_d, 7)) + list(range(0, end_d + 1))
-        if len(range_days) == 7:
-            return {"frequency": "daily", "days_of_week": None, "day_of_month": None}
-        return {"frequency": "weekly" if len(range_days) == 1 else "days", "days_of_week": range_days, "day_of_month": None}
+        raw_start = m_range.group(1)
+        raw_end = m_range.group(2)
+        start_tok = _strip_yoil(raw_start)
+        end_tok = _strip_yoil(raw_end)
+        if start_tok in _WEEKDAY_TOKEN_MAP or end_tok in _WEEKDAY_TOKEN_MAP or any(ch in "월화수목금토일" for ch in raw_start + raw_end):
+            if start_tok not in _WEEKDAY_TOKEN_MAP:
+                raise ValueError(f"알 수 없는 요일입니다: {raw_start}")
+            if end_tok not in _WEEKDAY_TOKEN_MAP:
+                raise ValueError(f"알 수 없는 요일입니다: {raw_end}")
+            start_d = _WEEKDAY_TOKEN_MAP[start_tok]
+            end_d = _WEEKDAY_TOKEN_MAP[end_tok]
+            if start_d <= end_d:
+                range_days = list(range(start_d, end_d + 1))
+            else:
+                range_days = list(range(start_d, 7)) + list(range(0, end_d + 1))
+            if len(range_days) == 7:
+                return {"frequency": "daily", "days_of_week": None, "day_of_month": None}
+            return {"frequency": "weekly" if len(range_days) == 1 else "days", "days_of_week": range_days, "day_of_month": None}
 
     if any(sep in cleaned for sep in (",", "/", "·", " ", "+")):
         parts = [p.strip() for p in re.split(r"[,/·\s+]+", cleaned) if p.strip()]
         days = []
         for p in parts:
-            p_clean = p.rstrip("요일")
+            p_clean = _strip_yoil(p)
             if p_clean in _WEEKDAY_TOKEN_MAP:
                 days.append(_WEEKDAY_TOKEN_MAP[p_clean])
             elif p in _WEEKDAY_TOKEN_MAP:
@@ -129,7 +150,7 @@ def parse_dca_schedule(raw: str) -> dict:
         freq = "weekly" if len(unique_days) == 1 else "days"
         return {"frequency": freq, "days_of_week": unique_days, "day_of_month": None}
 
-    cleaned_no_yoil = cleaned.rstrip("요일")
+    cleaned_no_yoil = _strip_yoil(cleaned)
     if cleaned_no_yoil in _WEEKDAY_TOKEN_MAP:
         return {"frequency": "weekly", "days_of_week": [_WEEKDAY_TOKEN_MAP[cleaned_no_yoil]], "day_of_month": None}
 
@@ -755,6 +776,10 @@ async def execute_due_dca_schedules(
             _dca_fail_counts[sched_id] = fails
             if fails >= _DCA_MAX_CONSECUTIVE_FAILS:
                 _dca_fail_counts.pop(sched_id, None)
+                sched.pop("carryover_count", None)
+                orig_sched = dca_manager.get_schedule(sched_id)
+                if orig_sched:
+                    orig_sched.pop("carryover_count", None)
                 dca_manager.advance_schedule(sched_id, now_ts=now_val, increment_run=False)
                 await _safe_notify(
                     application, user_id,
@@ -774,27 +799,48 @@ async def execute_due_dca_schedules(
 
         # 템플릿 예산 플랜 가용 예산(carryover_budget) 한도 적용 (KRW 매수 DCA 한정)
         is_usd = is_us_stock_ticker(exchange, ticker)
-        if side == "bid" and amount_type == "budget" and not is_usd and template_id is not None and is_db_available():
+        tpl_has_budget = False
+        tpl_current_params = {}
+        if side == "bid" and not is_usd and template_id is not None and is_db_available():
             try:
                 tpl_res = await get_db().table("strategy_templates").select("params,budget").eq("id", int(template_id)).execute_async()
                 if tpl_res.data:
                     tpl_params = tpl_res.data[0].get("params") or {}
-                    if "carryover_budget" in tpl_params:
+                    tpl_current_params = tpl_params
+                    b_mode = str(tpl_params.get("budget_mode") or "").lower()
+                    if b_mode != "unlimited" and "carryover_budget" in tpl_params:
                         avail_cob = float(tpl_params.get("carryover_budget") or 0.0)
-                        if avail_cob <= 0:
-                            dca_manager.advance_schedule(sched_id, now_ts=now_val, increment_run=False)
-                            await _safe_notify(
-                                application, user_id,
-                                f"⚠️ [{ex_label}] {ticker} 정기 매수 보류\n"
-                                f"• 사유: 전략 가용 예산(이월금)이 0원입니다. 웹 매니저에서 [+충전] 또는 예산 플랜을 확인해 주세요.",
-                            )
-                            continue
-                        raw_amount = min(raw_amount, avail_cob)
+                        tpl_has_budget = True
+                        if amount_type == "volume":
+                            est_cost_1share = price * 1.0 if price > 0 else 0.0
+                            if est_cost_1share > 0 and avail_cob < est_cost_1share:
+                                dca_manager.advance_schedule(sched_id, now_ts=now_val, increment_run=False)
+                                await _safe_notify(
+                                    application, user_id,
+                                    f"⚠️ [{ex_label}] {ticker} 정기 매수 보류\n"
+                                    f"• 사유: 전략 가용 예산({avail_cob:,.0f}원)이 1주 가격({est_cost_1share:,.0f}원)보다 부족합니다. 웹 매니저에서 [+충전] 또는 예산 플랜을 확인해 주세요.",
+                                )
+                                continue
+                            max_buyable_vol = ex_obj.round_volume(avail_cob / price) if price > 0 else 0
+                            raw_amount = min(raw_amount, max_buyable_vol)
+                        else:
+                            if avail_cob <= 0:
+                                dca_manager.advance_schedule(sched_id, now_ts=now_val, increment_run=False)
+                                await _safe_notify(
+                                    application, user_id,
+                                    f"⚠️ [{ex_label}] {ticker} 정기 매수 보류\n"
+                                    f"• 사유: 전략 가용 예산(이월금)이 0원입니다. 웹 매니저에서 [+충전] 또는 예산 플랜을 확인해 주세요.",
+                                )
+                                continue
+                            raw_amount = min(raw_amount, avail_cob)
             except Exception as te:
                 _log.debug("Failed to check DCA template carryover budget: %s", te)
 
         if amount_type == "volume":
             volume = ex_obj.round_volume(raw_amount)
+            # 업비트/빗썸의 시장가 매수는 수량(volume) 대신 총 주문 금액(price 필드)을 전달해야 하므로,
+            # 수량 기반 주문이라도 현재가 기준 예상 소요 예산을 계산하여 effective_budget으로 설정한다.
+            effective_budget = volume * current_price
         else:
             effective_budget = raw_amount * 0.999 if side == "bid" else raw_amount
             volume = ex_obj.round_volume(effective_budget / price) if price > 0 else 0
@@ -863,27 +909,57 @@ async def execute_due_dca_schedules(
             res = None
 
         err_msg_str = str(res.get("error", "") if isinstance(res, dict) else "")
-        is_sidecar_err = any(kw in err_msg_str for kw in ("사이드카", "서킷브레이커", "거래정지", "호가", "일시", "정지", "halt"))
+        err_msg_lower = err_msg_str.lower()
+        is_sidecar_err = any(kw in err_msg_lower for kw in ("사이드카", "서킷브레이커", "거래정지", "halt"))
 
         if is_sidecar_err:
-            retry_ts = now_val + _DCA_SIDECAR_RETRY_SECONDS
-            dca_manager.defer_schedule(sched_id, retry_ts)
-            sched["is_carryover"] = True
-            sched["carryover_reason"] = "sidecar_halt"
-            dca_manager._db_upsert(sched)
-            retry_dt = datetime.fromtimestamp(retry_ts, tz=KST).strftime("%H:%M")
-            await _safe_notify(
-                application, user_id,
-                f"⚠️ [{ex_label}] {ticker} 정기 {action_label} 사이드카/거래정지 감지 (+20분 이월)\n"
-                f"• 사유: {err_msg_str or '매매 호가 접수 일시 정지'}\n"
-                f"• 20분 뒤({retry_dt} KST)에 주문을 다시 시도합니다.",
-            )
-            continue
+            orig_sched = dca_manager.get_schedule(sched_id)
+            c_count = int(sched.get("carryover_count") or 0) + 1
+            sched["carryover_count"] = c_count
+            if orig_sched:
+                orig_sched["carryover_count"] = c_count
+            if c_count > _DCA_MAX_SIDECAR_RETRIES:
+                # 상한 초과: 연속 이월을 중단하고 일반 실패 처리로 전환
+                targets = [sched] + ([orig_sched] if orig_sched else [])
+                for target_d in targets:
+                    target_d.pop("is_carryover", None)
+                    target_d.pop("carryover_reason", None)
+                    target_d.pop("carryover_count", None)
+                dca_manager._db_upsert(orig_sched or sched)
+                await _safe_notify(
+                    application, user_id,
+                    f"❌ [{ex_label}] {ticker} 정기 {action_label} 거래정지 지속({_DCA_MAX_SIDECAR_RETRIES}회 초과)으로 일반 실패 처리로 전환됩니다.\n"
+                    f"• 사유: {err_msg_str or '매매 거래 정지 상태 지속'}",
+                )
+                # 아래 일반 실패 블록(else:)으로 진입하도록 continue하지 않음
+            else:
+                retry_ts = now_val + _DCA_SIDECAR_RETRY_SECONDS
+                dca_manager.defer_schedule(sched_id, retry_ts)
+                sched["is_carryover"] = True
+                sched["carryover_reason"] = "sidecar_halt"
+                if orig_sched:
+                    orig_sched["is_carryover"] = True
+                    orig_sched["carryover_reason"] = "sidecar_halt"
+                dca_manager._db_upsert(orig_sched or sched)
+                retry_dt = datetime.fromtimestamp(retry_ts, tz=KST).strftime("%H:%M")
+                await _safe_notify(
+                    application, user_id,
+                    f"⚠️ [{ex_label}] {ticker} 정기 {action_label} 사이드카/거래정지 감지 (+20분 이월, {c_count}/{_DCA_MAX_SIDECAR_RETRIES}회)\n"
+                    f"• 사유: {err_msg_str or '매매 호가 접수 일시 정지'}\n"
+                    f"• 20분 뒤({retry_dt} KST)에 주문을 다시 시도합니다.",
+                )
+                continue
 
         if res and "uuid" in res:
             _dca_fail_counts.pop(sched_id, None)
+            orig_sched = dca_manager.get_schedule(sched_id)
             was_carryover = sched.pop("is_carryover", None)
             sched.pop("carryover_reason", None)
+            sched.pop("carryover_count", None)
+            if orig_sched:
+                orig_sched.pop("is_carryover", None)
+                orig_sched.pop("carryover_reason", None)
+                orig_sched.pop("carryover_count", None)
             group_no = sched.get("group_no")
             rec_price = current_price if is_market else price
             order_manager.add_order(
@@ -891,6 +967,16 @@ async def execute_due_dca_schedules(
                 side=side, strategy="dca", status="wait", group_no=group_no,
                 template_id=template_id,
             )
+            if tpl_has_budget and template_id is not None and is_db_available() and side == "bid" and not is_usd:
+                try:
+                    order_cost = round(rec_price * volume)
+                    new_cob = max(0.0, float(tpl_current_params.get("carryover_budget", 0.0)) - order_cost)
+                    new_spent = float(tpl_current_params.get("monthly_spent", 0.0)) + order_cost
+                    tpl_current_params["carryover_budget"] = new_cob
+                    tpl_current_params["monthly_spent"] = new_spent
+                    await get_db().table("strategy_templates").update({"params": tpl_current_params}).eq("id", int(template_id)).execute_async()
+                except Exception as b_err:
+                    _log.debug("Failed to deduct template carryover budget immediately: %s", b_err)
             updated = dca_manager.advance_schedule(sched_id, now_ts=now_val, increment_run=True)
             executed_count += 1
 

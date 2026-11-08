@@ -174,6 +174,8 @@ async def api_create_template(payload: TemplateCreate, user: dict = Depends(get_
             base_budget = float(payload.budget or 0.0)
             if payload.strategy_type == "dca" and float(params.get("monthly_budget", 0) or 0) > 0:
                 base_budget = float(params["monthly_budget"])
+            elif payload.strategy_type == "dca" and str(params.get("amount_type") or "budget").lower() == "volume":
+                base_budget = float(params.get("dca_plan_budget") or params.get("monthly_budget") or 3000000.0)
             if "budget_epoch" not in params: params["budget_epoch"] = 1
             if "plan_revision_no" not in params: params["plan_revision_no"] = 1
             if "budget_mode" not in params: params["budget_mode"] = budget_mode
@@ -184,7 +186,7 @@ async def api_create_template(payload: TemplateCreate, user: dict = Depends(get_
                 params["carryover_budget"] = base_budget if budget_mode == "total" else 0.0
             if "monthly_spent" not in params: params["monthly_spent"] = 0.0
             if payload.strategy_type == "dca" and "per_order_budget" not in params:
-                params["per_order_budget"] = float(payload.budget or 0.0)
+                params["per_order_budget"] = float(payload.budget or 0.0) if params.get("amount_type") != "volume" else 0.0
 
         data = {
             "user_id": target_user_id,
@@ -661,7 +663,7 @@ async def api_execute_template(template_id: int, user: dict = Depends(get_curren
         elif stype in ("dca", "sdca"):
             params = dict(tpl.get("params") or {})
             side = "ask" if stype == "sdca" or params.get("side") == "ask" else "bid"
-            if side == "bid" and params.get("amount_type", "budget") == "budget":
+            if side == "bid" and budget_manager.is_budget_managed_strategy(tpl):
                 await budget_manager.sync_single_strategy_budget_events(tpl, persist=True)
                 params = dict(tpl.get("params") or {})
             max_runs = params.get("max_runs")

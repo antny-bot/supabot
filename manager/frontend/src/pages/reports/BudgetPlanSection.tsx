@@ -77,7 +77,6 @@ export default function BudgetPlanSection({ templateId }: BudgetPlanSectionProps
           (t) =>
             t.strategy_type !== 'sgrid' &&
             t.strategy_type !== 'sdca' &&
-            !(t.strategy_type === 'dca' && (t.params as any)?.amount_type === 'volume') &&
             !(t.params as any)?.is_archived,
         )
         const listToUse = managedTpls.length > 0 ? managedTpls : tpls
