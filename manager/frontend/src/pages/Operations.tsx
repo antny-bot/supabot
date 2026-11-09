@@ -41,6 +41,7 @@ import BudgetPlanSection from './reports/BudgetPlanSection'
 import BatchTimelineSection from './reports/BatchTimelineSection'
 import OrderBatchesSection from './orders/OrderBatchesSection'
 import ResponsiveTabs from '../components/ui/ResponsiveTabs'
+import FormattedNumberInput from '../components/ui/FormattedNumberInput'
 import StrategyFormModal from '../components/strategy/StrategyFormModal'
 import { STRATEGY_BADGE_LABELS, hasDcaBudget } from '../components/strategy/strategyTypes'
 import { useToast } from '../contexts/ToastContext'
@@ -1187,29 +1188,16 @@ export default function Operations() {
 
               <div className="space-y-3">
                 <div>
-                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    추가 충전 금액 (KRW)
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                    추가 충전 금액 (천단위 콤마 자동 서식화)
                   </label>
-                  <input
-                    type="number"
+                  <FormattedNumberInput
+                    value={topupAmount}
+                    onChange={setTopupAmount}
                     step={10000}
                     min={10000}
-                    value={topupAmount}
-                    onChange={(e) => setTopupAmount(Number(e.target.value))}
-                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-sm font-bold text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                    quickAmounts={[100000, 300000, 500000, 1000000]}
                   />
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {[100000, 300000, 500000, 1000000].map((amt) => (
-                      <button
-                        key={amt}
-                        type="button"
-                        onClick={() => setTopupAmount(amt)}
-                        className="rounded-lg bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
-                      >
-                        +{krwFmt(amt)}
-                      </button>
-                    ))}
-                  </div>
                 </div>
 
                 <div>

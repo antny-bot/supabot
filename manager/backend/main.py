@@ -249,14 +249,18 @@ async def realtime_trigger(request: Request):
 async def api_me(user: dict = Depends(get_current_user)):
     mfa_enabled = False
     username = ""
+    timezone = "Asia/Seoul"
     user_id = user["bot_user_id"]
     if user_id:
         try:
             from .db import get_db
-            rows = (await get_db().table("users").select("mfa_enabled,username").eq("user_id", user_id).execute()).data
+            rows = (await get_db().table("users").select("mfa_enabled,username,preferences").eq("user_id", user_id).execute()).data
             if rows:
                 mfa_enabled = bool(rows[0].get("mfa_enabled", False))
                 username = rows[0].get("username", "")
+                prefs = rows[0].get("preferences") or {}
+                if isinstance(prefs, dict):
+                    timezone = prefs.get("timezone") or "Asia/Seoul"
         except Exception:
             pass
 
@@ -264,6 +268,7 @@ async def api_me(user: dict = Depends(get_current_user)):
         **user,
         "mfa_enabled": mfa_enabled,
         "username": username,
+        "timezone": timezone,
     })
 
 
@@ -274,9 +279,22 @@ async def api_update_profile(request: Request, user: dict = Depends(get_current_
         return JSONResponse({"error": "대시보드와 연결된 봇 계정이 없습니다."}, status_code=403)
     try:
         body = await request.json()
-        username = body.get("username", "").strip()
         from .db import get_db
-        await get_db().table("users").update({"username": username}).eq("user_id", user_id).execute()
+        db = get_db()
+        update_data = {}
+        if "username" in body:
+            update_data["username"] = str(body.get("username", "")).strip()
+        if "timezone" in body:
+            tz = str(body.get("timezone", "")).strip() or "Asia/Seoul"
+            u_row = (await db.table("users").select("preferences").eq("user_id", user_id).execute()).data
+            cur_prefs = (u_row[0].get("preferences") or {}) if u_row else {}
+            if not isinstance(cur_prefs, dict):
+                cur_prefs = {}
+            cur_prefs["timezone"] = tz
+            update_data["preferences"] = cur_prefs
+
+        if update_data:
+            await db.table("users").update(update_data).eq("user_id", user_id).execute()
         return JSONResponse({"ok": True})
     except Exception as e:
         logger.error("Profile update error: %s", e, exc_info=True)

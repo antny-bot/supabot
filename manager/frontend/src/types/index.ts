@@ -4,6 +4,7 @@ export interface AuthUser {
   bot_user_id: string | null
   mfa_enabled?: boolean
   username?: string
+  timezone?: string
 }
 
 export interface User {

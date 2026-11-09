@@ -61,7 +61,11 @@ export default function Config() {
           <DisplaySettingsCard preferences={displayPreferences} onChange={setDisplayPreferences} />
         )}
         {activeTab === 'profile' && (
-          <ProfileSettingsCard initialUsername={user?.username || ''} email={user?.email || ''} />
+          <ProfileSettingsCard
+            initialUsername={user?.username || ''}
+            email={user?.email || ''}
+            initialTimezone={user?.timezone}
+          />
         )}
         {activeTab === 'security' && (
           <MfaSettingsCard initialEnabled={mfaEnabled} onStatusChange={setMfaEnabled} />

@@ -825,3 +825,101 @@ def test_single_strategy_budget_plan_sync_and_total_mode():
     diff_calls = [c for c in mock_ledger3.call_args_list if c.kwargs.get("entry_type") == "PLAN_CHANGE_DIFF"]
     assert len(diff_calls) == 1
     assert diff_calls[0].kwargs.get("delta_krw") == 500000.0
+
+def test_top_n_partial_fills_and_unfilled_reconciliation_next_day_targets():
+    """TOP 5~10 중 5, 7, 10이 체결되고 6, 8, 9가 미체결 취소(장마감 실효)된 경우,
+    익일 6, 8, 9가 다시 차례대로 타겟이 되는지 검증."""
+    from manager.backend.services import progression_manager as pm
+
+    # 1. 전일 배치가 돌아서 TOP 5~10 6개 종목에 매수 주문이 나갔다고 가정
+    target_list = [
+        {"code": "C05", "rank": 5, "price": 100000.0, "name": "종목5"},
+        {"code": "C06", "rank": 6, "price": 80000.0, "name": "종목6"},
+        {"code": "C07", "rank": 7, "price": 120000.0, "name": "종목7"},
+        {"code": "C08", "rank": 8, "price": 50000.0, "name": "종목8"},
+        {"code": "C09", "rank": 9, "price": 60000.0, "name": "종목9"},
+        {"code": "C10", "rank": 10, "price": 90000.0, "name": "종목10"},
+    ]
+
+    # 발주 당시 current_cycle_bought에 6개 모두 추가되었던 상태
+    current_cycle_bought = ["C05", "C06", "C07", "C08", "C09", "C10"]
+
+    # 장 마감 후 C05, C07, C10은 체결 완료되었고, C06, C08, C09는 미체결 실효(cancelled)
+    cancelled_orders = [
+        {"uuid": "ord-6", "code": "C06", "price": 80000.0, "volume": 1.0, "filled_volume": 0.0},
+        {"uuid": "ord-8", "code": "C08", "price": 50000.0, "volume": 1.0, "filled_volume": 0.0},
+        {"uuid": "ord-9", "code": "C09", "price": 60000.0, "volume": 1.0, "filled_volume": 0.0},
+    ]
+
+    # Reconciliation 로직: 미체결 취소 주문 종목(체결수량 0)은 current_cycle_bought에서 제거
+    for cb in cancelled_orders:
+        if float(cb.get("filled_volume", 0.0)) <= 0:
+            c_code = cb.get("code") or cb.get("ticker")
+            if c_code in current_cycle_bought:
+                current_cycle_bought.remove(c_code)
+
+    # 2. 검증: current_cycle_bought에는 체결된 5, 7, 10만 남아있어야 함
+    assert sorted(current_cycle_bought) == ["C05", "C07", "C10"]
+    assert "C06" not in current_cycle_bought
+    assert "C08" not in current_cycle_bought
+    assert "C09" not in current_cycle_bought
+
+    # 3. 익일 배치가 실행될 때 (가용 예산 500,000원 가정)
+    # 케이스 A: 가용 예산이 200,000원인 경우 (미체결된 6, 8, 9의 합계 필요액 190,000원에 딱 맞음)
+    state = {
+        "rank_start": 5,
+        "rank_end": 10,
+        "cycle_no": 1,
+        "current_cycle_bought": list(current_cycle_bought),
+        "carryover_budget": 200000.0,
+        "monthly_spent": 310000.0,
+        "holdings": {
+            "C05": {"qty": 1.0, "avg_price": 100000.0, "total_cost": 100000.0},
+            "C07": {"qty": 1.0, "avg_price": 120000.0, "total_cost": 120000.0},
+            "C10": {"qty": 1.0, "avg_price": 90000.0, "total_cost": 90000.0},
+        },
+    }
+
+    new_state, buy_orders, sell_orders = pm.step_single_day(
+        state=state,
+        date_str="2026-11-04",
+        target_list=target_list,
+        master_items=target_list,
+        is_dry_run=True,
+    )
+
+    # 새로 생성된 매수 주문의 대상 종목 순서 확인
+    bought_tickers = [b["code"] for b in buy_orders]
+    # 5, 7, 10은 이미 샀으므로 건너뛰고, 미체결되었던 6, 8, 9가 정확히 순서대로 타겟이 되어 매수됨!
+    assert bought_tickers == ["C06", "C08", "C09"]
+    # 6, 8, 9까지 매수 완료되면 5~10위가 모두 완료되어 1사이클 완주(cycle_no 1 -> 2)
+    assert new_state["cycle_no"] == 2
+    assert new_state["carryover_budget"] == 10000.0  # 200,000 - 190,000 = 10,000원 잔여
+
+    # 케이스 B: 가용 예산이 500,000원으로 넉넉한 경우
+    # 6, 8, 9를 먼저 채워 Cycle #1을 완주한 후, 잔여 예산(310,000원)으로 다음 사이클(Cycle #2)의 첫 순위(C05)부터 이어서 매수
+    state2 = {
+        "rank_start": 5,
+        "rank_end": 10,
+        "cycle_no": 1,
+        "current_cycle_bought": list(current_cycle_bought),
+        "carryover_budget": 500000.0,
+        "monthly_spent": 310000.0,
+        "holdings": {
+            "C05": {"qty": 1.0, "avg_price": 100000.0, "total_cost": 100000.0},
+            "C07": {"qty": 1.0, "avg_price": 120000.0, "total_cost": 120000.0},
+            "C10": {"qty": 1.0, "avg_price": 90000.0, "total_cost": 90000.0},
+        },
+    }
+    new_state2, buy_orders2, _ = pm.step_single_day(
+        state=state2,
+        date_str="2026-11-04",
+        target_list=target_list,
+        master_items=target_list,
+        is_dry_run=True,
+    )
+    bought_tickers2 = [b["code"] for b in buy_orders2]
+    # 앞선 3개는 미체결이었던 6, 8, 9 완주, 이어서 다음 사이클 종목(C05, C06, C07) 순차 매수
+    assert bought_tickers2[:3] == ["C06", "C08", "C09"]
+    assert new_state2["cycle_no"] == 2
+

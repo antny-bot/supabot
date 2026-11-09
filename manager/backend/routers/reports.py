@@ -1613,6 +1613,7 @@ async def api_reports_top_rotation(
                 }
 
             status = "bought" if is_bought else ("next" if is_next else "waiting")
+            is_affordable = (not is_bought) and (cost <= carryover_budget)
             target_pipeline.append({
                 "rank": rank,
                 "code": code,
@@ -1621,6 +1622,7 @@ async def api_reports_top_rotation(
                 "target_qty": t_qty,
                 "cost": cost,
                 "status": status,
+                "is_affordable": is_affordable,
             })
 
         if not next_target and target_items:
@@ -1765,6 +1767,11 @@ async def api_reports_top_rotation(
             "orders": orders_data,
             "trades": trades_data,
             "master_top": master_top[:15],
+            affordable_targets = [
+                it for it in target_pipeline
+                if it["status"] != "bought" and it["cost"] <= carryover_budget
+            ]
+
             "cycle_pipeline": {
                 "cycle_no": cycle_no,
                 "rank_start": rank_start,
@@ -1774,6 +1781,7 @@ async def api_reports_top_rotation(
                 "progress_pct": round(len(current_cycle_bought) / max(1, len(target_pipeline)) * 100),
                 "pipeline": target_pipeline,
                 "next_target": next_target,
+                "affordable_targets": affordable_targets,
             },
             "daily_execution_flow": daily_execution_flow,
         })

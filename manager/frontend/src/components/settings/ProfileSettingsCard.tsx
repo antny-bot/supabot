@@ -1,16 +1,21 @@
 import { useState } from 'react'
-import { User, Mail, Save, CheckCircle2 } from 'lucide-react'
+import { User, Mail, Globe, Save, CheckCircle2 } from 'lucide-react'
+import { getUserTimezone, setUserTimezone, TIMEZONE_OPTIONS } from '../../lib/dateUtils'
 
 interface Props {
   initialUsername: string
   email: string
+  initialTimezone?: string
 }
 
-export default function ProfileSettingsCard({ initialUsername, email }: Props) {
+export default function ProfileSettingsCard({ initialUsername, email, initialTimezone }: Props) {
   const [username, setUsername] = useState(initialUsername)
+  const [timezone, setTimezoneState] = useState(initialTimezone || getUserTimezone())
   const [loading, setLoading] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const hasChanges = username !== initialUsername || timezone !== (initialTimezone || getUserTimezone())
 
   async function handleSave() {
     setLoading(true)
@@ -20,14 +25,12 @@ export default function ProfileSettingsCard({ initialUsername, email }: Props) {
       const res = await fetch('/api/me/profile', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username }),
+        body: JSON.stringify({ username, timezone }),
       })
       if (res.ok) {
+        setUserTimezone(timezone)
         setSaved(true)
         setTimeout(() => setSaved(false), 3000)
-        // Optionally reload page to update sidebar, but ideally AuthContext would update
-        // For simplicity, we can suggest a refresh or trigger a state update if possible.
-        // window.location.reload() 
       } else {
         const body = await res.json().catch(() => ({}))
         setError(body.error || '저장에 실패했습니다.')
@@ -48,7 +51,7 @@ export default function ProfileSettingsCard({ initialUsername, email }: Props) {
 
       <div className="p-5 space-y-5">
         <div>
-          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
+          <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
             <User size={14} className="text-slate-400" />
             이름
           </label>
@@ -56,14 +59,14 @@ export default function ProfileSettingsCard({ initialUsername, email }: Props) {
             type="text"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 transition-shadow"
+            className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:outline-hidden focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 transition-shadow"
             placeholder="홍길동"
           />
           <p className="text-xs text-slate-500 mt-1.5">대시보드 하단에 표시될 이름입니다.</p>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
+          <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
             <Mail size={14} className="text-slate-400" />
             이메일
           </label>
@@ -76,6 +79,28 @@ export default function ProfileSettingsCard({ initialUsername, email }: Props) {
           <p className="text-xs text-slate-500 mt-1.5">이메일은 변경할 수 없습니다.</p>
         </div>
 
+        {/* 시간 표시 > 위치(타임존) 설정 */}
+        <div>
+          <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
+            <Globe size={14} className="text-indigo-500" />
+            시간 표시 &gt; 위치 (타임존)
+          </label>
+          <select
+            value={timezone}
+            onChange={(e) => setTimezoneState(e.target.value)}
+            className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm font-medium focus:outline-hidden focus:ring-2 focus:ring-indigo-500 transition-shadow"
+          >
+            {TIMEZONE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label} {opt.value === 'Asia/Seoul' ? '(기본값)' : ''}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-slate-500 mt-1.5">
+            감사 원장, 주문 내역, 체결 일시 등이 선택한 위치의 현지 시간대로 표시됩니다. (기본값: 서울 KST)
+          </p>
+        </div>
+
         {error && (
           <p className="text-xs text-rose-600 dark:text-rose-400 font-medium bg-rose-50 dark:bg-rose-900/20 p-2.5 rounded-lg border border-rose-100 dark:border-rose-900/30">
             {error}
@@ -85,7 +110,7 @@ export default function ProfileSettingsCard({ initialUsername, email }: Props) {
         <div className="pt-2">
           <button
             onClick={handleSave}
-            disabled={loading || (username === initialUsername && !error)}
+            disabled={loading || (!hasChanges && !error)}
             className={`flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-medium transition-all ${
               saved 
                 ? 'bg-emerald-500 text-white' 

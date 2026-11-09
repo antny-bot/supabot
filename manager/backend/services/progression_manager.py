@@ -441,15 +441,27 @@ async def run_strategy_progression(
                             # 봇의 거래소 취소 확정 전에는 체결 가능성이 있으므로 환불하지 않고 이월
                             deferred_pending_buys.append(pb)
                             continue
-                        # cancel, failed, rejected, market_closed(장마감 실효), pending_reorder/reserved(전일 미체결 잔류) 등 미체결 상태
-                        if st in ("cancel", "failed", "rejected", "market_closed", "pending_reorder", "reserved"):
+                        # cancel, failed, rejected, market_closed(장마감 실효), pending_reorder/reserved(전일 미체결 잔류), expired 등 미체결 상태
+                        if st in ("cancel", "failed", "rejected", "market_closed", "pending_reorder", "reserved", "expired"):
                             pb["filled_volume"] = float(s_info.get("filled_volume", 0.0))
                             cancelled.append(pb)
-                            if st in ("market_closed", "pending_reorder", "reserved"):
+                            if st in ("market_closed", "pending_reorder", "reserved", "expired"):
                                 try:
                                     await db.table("orders").delete().eq("uuid", s_info["uuid"]).execute()
                                 except Exception as e:
                                     logger.warning(f"Failed to clean up stale order ({st}): {e}")
+                        elif st in ("wait", "open", "partial"):
+                            # 장 마감 후 익일 새 배치가 시작되었음에도 이전 배치의 주문이 wait/open/partial 상태로 남아있는 경우
+                            # (국내 주식 정규장 지정가 주문은 15:30 정규장 마감 시 자동 실효됨)
+                            key = (pb.get("group_no"), c_code)
+                            exec_vol = trade_vol_by_group_ticker.get(key, float(s_info.get("filled_volume", 0.0)))
+                            if exec_vol < pb_vol:
+                                pb["filled_volume"] = exec_vol
+                                cancelled.append(pb)
+                                try:
+                                    await db.table("orders").delete().eq("uuid", s_info["uuid"]).execute()
+                                except Exception as e:
+                                    logger.warning(f"Failed to clean up stale open order ({st}): {e}")
                     else:
                         # orders 테이블에 행이 없는 경우: trade_logs에 체결 내역이 있는지 대조
                         key = (pb.get("group_no"), c_code)
@@ -460,12 +472,13 @@ async def run_strategy_progression(
 
                 if cancelled:
                     await budget_manager.refund_cancelled_orders(template, cancelled)
-                    # 미체결 취소 종목은 사이클 매수 완료 목록(current_cycle_bought)에서 제거하여 재시도 복원
+                    # 미체결 취소 종목(체결 수량 0)은 사이클 매수 완료 목록(current_cycle_bought)에서 제거하여 재시도 복원
                     current_cycle_bought = list(params.get("current_cycle_bought", []))
                     for cb in cancelled:
-                        c_code = cb.get("code") or cb.get("ticker")
-                        if c_code in current_cycle_bought:
-                            current_cycle_bought.remove(c_code)
+                        if float(cb.get("filled_volume", 0.0)) <= 0:
+                            c_code = cb.get("code") or cb.get("ticker")
+                            if c_code in current_cycle_bought:
+                                current_cycle_bought.remove(c_code)
                     params["current_cycle_bought"] = current_cycle_bought
 
                     # 미체결 취소된 주문은 기존 history의 buys 목록 및 집행액(spent)에서도 제거/보정하여 중복 체결 표시 방지

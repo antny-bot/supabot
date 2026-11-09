@@ -12,6 +12,7 @@ import ErrorBanner from '../../components/ui/ErrorBanner'
 import Pagination from '../../components/ui/Pagination'
 import BudgetHealthCard from '../../components/budget/BudgetHealthCard'
 import { krwFmt, CARD, TH, TD } from './ReportsShared'
+import { formatDateTime, getUserTimezone } from '../../lib/dateUtils'
 
 interface BudgetPlanSectionProps {
   templateId?: number | null
@@ -311,9 +312,10 @@ export default function BudgetPlanSection({ templateId }: BudgetPlanSectionProps
               통장식 +/- 예산 증감 감사 원장 (Audit Ledger)
             </h3>
           </div>
-          <span className="text-xs text-slate-400">
-            세대: Epoch #{ledgerData?.current_epoch || 1} 기준
-          </span>
+          <div className="flex items-center gap-3 text-xs text-slate-400">
+            <span>시간 기준: <strong className="text-slate-600 dark:text-slate-300">{getUserTimezone() === 'Asia/Seoul' ? '서울 (KST)' : getUserTimezone()}</strong></span>
+            <span>세대: Epoch #{ledgerData?.current_epoch || 1} 기준</span>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -346,8 +348,8 @@ export default function BudgetPlanSection({ templateId }: BudgetPlanSectionProps
                   const isMinus = item.delta_krw < 0
                   return (
                     <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
-                      <td className={`${TD} text-[11px] text-slate-400`}>
-                        {item.created_at ? item.created_at.slice(0, 16).replace('T', ' ') : '—'}
+                      <td className={`${TD} text-[11px] text-slate-400 font-mono`}>
+                        {formatDateTime(item.created_at, true)}
                       </td>
                       <td className={TD}>
                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold ${

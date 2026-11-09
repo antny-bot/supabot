@@ -25,6 +25,8 @@ import { manualTopupTemplate } from '../../api/templates'
 import ErrorBanner from '../../components/ui/ErrorBanner'
 import Pagination from '../../components/ui/Pagination'
 import { krwFmt, CARD, TH, TD } from './ReportsShared'
+import FormattedNumberInput from '../../components/ui/FormattedNumberInput'
+import { Sparkles, Info, HelpCircle } from 'lucide-react'
 
 interface TopRotationSectionProps {
   templateId?: number | null
@@ -51,6 +53,7 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
   const [topupAmount, setTopupAmount] = useState<number>(100000)
   const [topupMemo, setTopupMemo] = useState<string>('')
   const [topupLoading, setTopupLoading] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
 
   useEffect(() => {
     if (templateId) {
@@ -381,86 +384,135 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
             </div>
           </div>
 
-          {/* 다음 매수 타겟 하이라이트 배너 */}
+          {/* 헤더 우측 운용 가이드 i 아이콘 버튼 */}
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+              타겟 순위 구간 ({pipeline.rank_start}위 ~ {pipeline.rank_end}위) 사이클 모니터
+            </span>
+            <button
+              type="button"
+              onClick={() => setHelpOpen(true)}
+              className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-300 transition-colors"
+            >
+              <HelpCircle size={13} />
+              <span>운용 규칙 안내</span>
+            </button>
+          </div>
+
+          {/* 다음 매수 타겟 & 현재 예산 내 매수 가능 종목 종합 배너 */}
           {nextTarget && (
             <div
-              className={`rounded-2xl p-4 border flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${
+              className={`rounded-2xl p-4 border flex flex-col gap-3 transition-all ${
                 nextTarget.budget_sufficient
-                  ? 'border-emerald-200 bg-emerald-50/60 dark:border-emerald-900/50 dark:bg-emerald-950/20'
-                  : 'border-amber-200 bg-amber-50/60 dark:border-amber-900/50 dark:bg-amber-950/20'
+                  ? 'border-emerald-200 bg-emerald-50/50 dark:border-emerald-900/40 dark:bg-emerald-950/20'
+                  : 'border-amber-200 bg-amber-50/50 dark:border-amber-900/40 dark:bg-amber-950/20'
               }`}
             >
-              <div className="flex items-center gap-3.5">
-                <div
-                  className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${
-                    nextTarget.budget_sufficient
-                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300'
-                      : 'bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300'
-                  }`}
-                >
-                  <Target size={22} />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="rounded-md bg-white dark:bg-slate-800 px-2 py-0.5 text-xs font-black shadow-xs">
-                      🎯 다음 매수 타겟
-                    </span>
-                    <span className="font-extrabold text-base text-slate-900 dark:text-white">
-                      {nextTarget.rank}위 {nextTarget.name}
-                    </span>
-                    <span className="text-xs text-slate-400">({nextTarget.code})</span>
-                    {nextTarget.note && (
-                      <span className="text-[11px] text-indigo-600 dark:text-indigo-400 font-medium">
-                        · {nextTarget.note}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl font-bold ${
+                      nextTarget.budget_sufficient
+                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300'
+                        : 'bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300'
+                    }`}
+                  >
+                    <Target size={20} />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="rounded-md bg-white dark:bg-slate-800 px-2 py-0.5 text-[11px] font-black shadow-xs">
+                        🎯 다음 타겟
                       </span>
+                      <span className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white">
+                        {nextTarget.rank}위 {nextTarget.name}
+                      </span>
+                      <span className="text-xs text-slate-400">({nextTarget.code})</span>
+                      {nextTarget.note && (
+                        <span className="text-[11px] text-indigo-600 dark:text-indigo-400 font-medium">
+                          · {nextTarget.note}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 금액 및 예산 충족 상태 */}
+                <div className="flex items-center gap-3 text-xs self-end md:self-auto">
+                  <div className="text-right">
+                    <span className="text-slate-400 text-[10px] block">단가 × 수량</span>
+                    <span className="font-bold text-slate-800 dark:text-slate-100">
+                      {krwFmt(nextTarget.price)} × {nextTarget.target_qty}주
+                    </span>
+                  </div>
+                  <div className="text-right pl-3 border-l border-slate-300 dark:border-slate-700">
+                    <span className="text-slate-400 text-[10px] block">필요금액</span>
+                    <span className="font-bold text-slate-900 dark:text-white text-sm">
+                      {krwFmt(nextTarget.required_krw)}
+                    </span>
+                  </div>
+                  <div className="pl-3 border-l border-slate-300 dark:border-slate-700">
+                    {nextTarget.budget_sufficient ? (
+                      <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200">
+                        <Check size={13} />
+                        예산충분
+                      </span>
+                    ) : (
+                      <div className="flex items-center gap-1.5">
+                        <span className="inline-flex items-center gap-1 rounded-lg bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-800 dark:bg-amber-900/60 dark:text-amber-200">
+                          <AlertTriangle size={13} />
+                          부족 {krwFmt(nextTarget.shortfall)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTopupAmount(Math.ceil((nextTarget.shortfall || 100000) / 10000) * 10000)
+                            setTopupMemo(`${nextTarget.name} 매수 부족액 충전`)
+                            setTopupOpen(true)
+                          }}
+                          className="rounded-lg bg-indigo-600 hover:bg-indigo-700 px-2.5 py-1 text-xs font-bold text-white shadow-xs transition-colors shrink-0"
+                        >
+                          +충전
+                        </button>
+                      </div>
                     )}
                   </div>
-                  <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">
-                    다음 정기 배치(매일 {params.schedule_time || '09:10'}) 실행 시 이 종목을 우선 매수합니다.
-                  </p>
                 </div>
               </div>
 
-              {/* 금액 및 예산 충족 상태 */}
-              <div className="flex items-center gap-4 text-xs self-end md:self-auto">
-                <div className="text-right">
-                  <span className="text-slate-400 text-[10px] block">예상 매수단가 × 수량</span>
-                  <span className="font-bold text-slate-800 dark:text-slate-100">
-                    {krwFmt(nextTarget.price)} × {nextTarget.target_qty}주
-                  </span>
-                </div>
-                <div className="text-right pl-3 border-l border-slate-300 dark:border-slate-700">
-                  <span className="text-slate-400 text-[10px] block">필요 주문금액</span>
-                  <span className="font-bold text-slate-900 dark:text-white text-sm">
-                    {krwFmt(nextTarget.required_krw)}
-                  </span>
-                </div>
-                <div className="pl-3 border-l border-slate-300 dark:border-slate-700">
-                  {nextTarget.budget_sufficient ? (
-                    <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200">
-                      <Check size={13} />
-                      예산 충분 (가용 {krwFmt(nextTarget.carryover_budget)})
-                    </span>
-                  ) : (
-                    <div className="flex items-center gap-1.5">
-                      <span className="inline-flex items-center gap-1 rounded-lg bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-800 dark:bg-amber-900/60 dark:text-amber-200">
-                        <AlertTriangle size={13} />
-                        부족 {krwFmt(nextTarget.shortfall)}
+              {/* [기능 제안 3] 현재 가용 예산 내 매수 가능 종목 표시 영역 */}
+              <div className="pt-2.5 border-t border-slate-200/60 dark:border-slate-800/60 flex flex-wrap items-center gap-2 text-xs">
+                <span className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 shrink-0">
+                  <Sparkles size={13} className="text-amber-500" />
+                  현재 예산({krwFmt(carryover)}) 내 매수가능 종목:
+                </span>
+                {(() => {
+                  const affordable = (pipeline.affordable_targets && pipeline.affordable_targets.length > 0)
+                    ? pipeline.affordable_targets
+                    : pipeline.pipeline.filter((it: any) => it.status !== 'bought' && it.cost <= carryover)
+                  
+                  if (affordable.length === 0) {
+                    return (
+                      <span className="text-[11px] text-slate-400">
+                        현재 잔액({krwFmt(carryover)})으로 매수 가능한 대기 종목이 없습니다. (익일 충전 또는 +추경 대기)
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTopupAmount(Math.ceil((nextTarget.shortfall || 100000) / 10000) * 10000)
-                          setTopupMemo(`${nextTarget.name} 매수 부족액 충전`)
-                          setTopupOpen(true)
-                        }}
-                        className="rounded-lg bg-indigo-600 hover:bg-indigo-700 px-2.5 py-1 text-xs font-bold text-white shadow-xs transition-colors shrink-0"
-                      >
-                        +부족액 즉시 충전
-                      </button>
+                    )
+                  }
+                  return (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {affordable.map((it: any) => (
+                        <span
+                          key={it.code}
+                          className="inline-flex items-center gap-1 rounded-md bg-white dark:bg-slate-800 border border-emerald-300 dark:border-emerald-800 px-2 py-0.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 shadow-2xs"
+                        >
+                          <span className="text-[10px] text-slate-400">#{it.rank}</span>
+                          <span>{it.name}</span>
+                          <span className="font-semibold text-slate-500 dark:text-slate-400">({krwFmt(it.price)})</span>
+                        </span>
+                      ))}
                     </div>
-                  )}
-                </div>
+                  )
+                })()}
               </div>
             </div>
           )}
@@ -511,6 +563,10 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
                       ) : isNext ? (
                         <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-indigo-600 dark:text-indigo-400 animate-pulse">
                           🎯 다음 타겟
+                        </span>
+                      ) : (item as any).is_affordable || item.cost <= carryover ? (
+                        <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                          💡 매수가능
                         </span>
                       ) : (
                         <span className="text-[10px] text-slate-400 font-medium">대기</span>
@@ -993,15 +1049,14 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
 
               <div>
                 <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                  충전 금액 (원 단위)
+                  충전 금액 (천단위 콤마 서식화)
                 </label>
-                <input
-                  type="number"
-                  step="10000"
-                  min="10000"
+                <FormattedNumberInput
                   value={topupAmount}
-                  onChange={(e) => setTopupAmount(Number(e.target.value))}
-                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                  onChange={setTopupAmount}
+                  step={10000}
+                  min={10000}
+                  quickAmounts={[50000, 100000, 300000, 500000, 1000000]}
                 />
               </div>
 
@@ -1035,6 +1090,72 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
                 >
                   {topupLoading && <Loader2 size={12} className="animate-spin" />}
                   <span>{krwFmt(topupAmount)} 충전</span>
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+      {/* [모달 3] TOP N DCA 전략 운용 규칙 안내 모달 */}
+      {helpOpen &&
+        createPortal(
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs" onClick={() => setHelpOpen(false)} />
+            <div className="relative z-10 w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <Info size={18} className="text-indigo-600 dark:text-indigo-400" />
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    TOP N 순환 모으기 운용 규칙
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setHelpOpen(false)}
+                  className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="space-y-3.5 text-xs text-slate-600 dark:text-slate-300 max-h-[60vh] overflow-y-auto pr-1">
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 space-y-1">
+                  <div className="font-bold text-slate-800 dark:text-slate-200 text-sm">
+                    1. 순환 모으기 & 미체결 복원
+                  </div>
+                  <p>
+                    • 매일 오전 09:10 마켓 스냅샷의 상위 종목을 1순위부터 순서대로 매수합니다.<br/>
+                    • 당일 발주된 지정가 주문 중 체결된 종목은 사이클 완료 처리되며, <strong>장 마감으로 미체결 취소된 종목은 다음 날 다시 우선 매수 타겟으로 복원</strong>되고 예산이 즉시 가용 잔액으로 환원됩니다.
+                  </p>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 space-y-1">
+                  <div className="font-bold text-slate-800 dark:text-slate-200 text-sm">
+                    2. 현재 예산 내 매수 가능 종목
+                  </div>
+                  <p>
+                    • 다음 차례 종목의 주가가 높아 예산이 일시 부족하더라도, 현재 가용 예산으로 살 수 있는 다른 대기 종목들을 실시간 확인하고 필요시 추경 충전할 수 있습니다.
+                  </p>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 space-y-1">
+                  <div className="font-bold text-slate-800 dark:text-slate-200 text-sm">
+                    3. 휩쏘(Whipsaw) 방지 & N일 분할 매도
+                  </div>
+                  <p>
+                    • 순위 경계선 종목의 잦은 매매를 막기 위해 유예 버퍼(+2위) 및 연속 2영업일 이탈 시에만 분할 매도를 확정합니다.<br/>
+                    • 이탈 확정 종목은 설정된 분할 일수(기본 5일) 동안 매일 균등 분할 매도됩니다.
+                  </p>
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setHelpOpen(false)}
+                  className="px-4 py-2 text-xs font-bold rounded-xl bg-indigo-600 text-white hover:bg-indigo-700"
+                >
+                  확인 완료
                 </button>
               </div>
             </div>
