@@ -1760,6 +1760,11 @@ async def api_reports_top_rotation(
                 "waiting_next": w_next,
             })
 
+        affordable_targets = [
+            it for it in target_pipeline
+            if it["status"] != "bought" and it["cost"] <= carryover_budget
+        ]
+
         return JSONResponse({
             "template": template,
             "holdings_status": holdings_status,
@@ -1767,11 +1772,6 @@ async def api_reports_top_rotation(
             "orders": orders_data,
             "trades": trades_data,
             "master_top": master_top[:15],
-            affordable_targets = [
-                it for it in target_pipeline
-                if it["status"] != "bought" and it["cost"] <= carryover_budget
-            ]
-
             "cycle_pipeline": {
                 "cycle_no": cycle_no,
                 "rank_start": rank_start,
