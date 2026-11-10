@@ -529,6 +529,10 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
                 const isHeld = (report?.holdings_status || []).some(
                   (h) => h.ticker === item.code && h.qty > 0,
                 )
+                const isReservedOrder =
+                  typeof (item as any).is_reserved === 'boolean'
+                    ? Boolean((item as any).is_reserved)
+                    : !isHeld
 
                 return (
                   <div
@@ -537,7 +541,7 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
                       isNext
                         ? 'border-indigo-500 bg-indigo-50/40 ring-2 ring-indigo-500/20 shadow-xs dark:bg-indigo-950/30'
                         : isBought
-                        ? isHeld
+                        ? !isReservedOrder
                           ? 'border-emerald-200 bg-emerald-50/30 dark:border-emerald-900/40 dark:bg-emerald-950/10'
                           : 'border-violet-200 bg-violet-50/30 dark:border-violet-900/40 dark:bg-violet-950/10'
                         : 'border-slate-200 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-800/30 opacity-70'
@@ -548,7 +552,7 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
                         {item.rank}위
                       </span>
                       {isBought ? (
-                        isHeld ? (
+                        !isReservedOrder ? (
                           <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
                             <Check size={11} /> 매수체결
                           </span>
@@ -774,26 +778,44 @@ export default function TopRotationSection({ templateId }: TopRotationSectionPro
                       {/* 당일 매수 / 매도 주문 상세 내역 */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
                         <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 p-3">
-                          <span className="text-[11px] font-bold text-rose-600 dark:text-rose-400 block mb-1.5">
-                            🛒 당일 모으기 매수 체결 ({flow.buys.length}건)
-                          </span>
+                          {flow.buys.length > 0 && flow.buys.every((b) => b.status && b.status !== 'done') ? (
+                            <span className="text-[11px] font-bold text-violet-600 dark:text-violet-400 block mb-1.5">
+                              🕒 당일 모으기 매수 예약·대기 ({flow.buys.length}건)
+                            </span>
+                          ) : (
+                            <span className="text-[11px] font-bold text-rose-600 dark:text-rose-400 block mb-1.5">
+                              🛒 당일 모으기 매수 체결 ({flow.buys.length}건)
+                            </span>
+                          )}
                           {flow.buys.length === 0 ? (
                             <p className="text-slate-400 text-[11px]">매수 체결 내역 없음</p>
                           ) : (
                             <div className="space-y-1">
-                              {flow.buys.map((b) => (
-                                <div
-                                  key={b.code}
-                                  className="flex items-center justify-between text-[11px] bg-slate-50 dark:bg-slate-800/60 p-1.5 rounded"
-                                >
-                                  <span className="font-bold text-slate-800 dark:text-slate-200">
-                                    {b.rank ? `${b.rank}위 ` : ''}{b.name} ({b.volume}주)
-                                  </span>
-                                  <span className="text-slate-600 dark:text-slate-300">
-                                    @{krwFmt(b.price)} = {krwFmt(b.cost)}
-                                  </span>
-                                </div>
-                              ))}
+                              {flow.buys.map((b) => {
+                                const isPendingBuy = Boolean(b.status && b.status !== 'done')
+                                return (
+                                  <div
+                                    key={b.code}
+                                    className="flex items-center justify-between text-[11px] bg-slate-50 dark:bg-slate-800/60 p-1.5 rounded gap-2"
+                                  >
+                                    <span className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                                      <span>{b.rank ? `${b.rank}위 ` : ''}{b.name} ({b.volume}주)</span>
+                                      {isPendingBuy ? (
+                                        <span className="rounded bg-violet-100 dark:bg-violet-950/60 px-1.5 py-0.5 text-[10px] font-bold text-violet-600 dark:text-violet-400">
+                                          예약·대기
+                                        </span>
+                                      ) : (
+                                        <span className="rounded bg-emerald-100 dark:bg-emerald-950/60 px-1.5 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                                          체결
+                                        </span>
+                                      )}
+                                    </span>
+                                    <span className="text-slate-600 dark:text-slate-300">
+                                      @{krwFmt(b.price)} = {krwFmt(b.cost)}
+                                    </span>
+                                  </div>
+                                )
+                              })}
                             </div>
                           )}
                         </div>

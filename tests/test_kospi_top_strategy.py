@@ -923,3 +923,53 @@ def test_top_n_partial_fills_and_unfilled_reconciliation_next_day_targets():
     assert bought_tickers2[:3] == ["C06", "C08", "C09"]
     assert new_state2["cycle_no"] == 2
 
+
+def test_live_mode_does_not_rollover_cycle_before_reconciliation():
+    """실전 배치(allow_same_day_cycle_rollover=False)에서는 당일 발주된 예약 주문이 체결 확정되기 전에
+    동일 배치에서 다음 사이클로 회전해 중복 발주하거나 current_cycle_bought를 비우지 않는지 검증."""
+    from manager.backend.services import progression_manager as pm
+
+    target_list = [
+        {"code": "005930", "rank": 1, "price": 200000.0, "name": "삼성전자"},
+        {"code": "000660", "rank": 2, "price": 300000.0, "name": "SK하이닉스"},
+    ]
+
+    # 1위가 이미 체결된 상태에서 예산이 넉넉한 날(1,000,000원) 배치 실행
+    state = {
+        "rank_start": 1,
+        "rank_end": 2,
+        "cycle_no": 1,
+        "current_cycle_bought": ["005930"],
+        "carryover_budget": 1000000.0,
+        "monthly_spent": 200000.0,
+        "holdings": {"005930": {"qty": 1.0, "avg_price": 200000.0, "total_cost": 200000.0}},
+    }
+
+    new_state, buy_orders, _ = pm.step_single_day(
+        state=state,
+        date_str="2026-11-10",
+        target_list=target_list,
+        master_items=target_list,
+        is_dry_run=False,
+        allow_same_day_cycle_rollover=False,
+    )
+
+    # 당일 배치에서는 남은 2위(000660) 1건만 발주하고, Cycle #2의 1위(005930)를 중복 발주하지 않아야 함
+    assert [b["code"] for b in buy_orders] == ["000660"]
+    assert new_state["cycle_no"] == 1
+    assert new_state["current_cycle_bought"] == ["005930", "000660"]
+    assert new_state["carryover_budget"] == 700000.0
+
+    # 만약 익일 배치에서 000660이 전부 체결된 상태로 시작하면 Cycle #2로 정상 진입하여 1위부터 발주
+    next_day_state, next_buys, _ = pm.step_single_day(
+        state=new_state,
+        date_str="2026-11-11",
+        target_list=target_list,
+        master_items=target_list,
+        is_dry_run=False,
+        allow_same_day_cycle_rollover=False,
+    )
+    assert next_day_state["cycle_no"] == 2
+    assert [b["code"] for b in next_buys] == ["005930", "000660"]
+
+

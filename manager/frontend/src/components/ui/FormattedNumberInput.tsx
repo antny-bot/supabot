@@ -28,8 +28,8 @@ function toKoreanWords(num: number): string {
 export default function FormattedNumberInput({
   value,
   onChange,
-  min = 0,
-  step = 10000,
+  min: _min = 0,
+  step: _step = 10000,
   placeholder = '0',
   className = '',
   quickAmounts = [100000, 300000, 500000, 1000000],

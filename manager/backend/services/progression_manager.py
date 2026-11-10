@@ -99,6 +99,7 @@ def step_single_day(
     master_items: list[dict] = None,
     price_map: dict[str, float] = None,
     is_dry_run: bool = False,
+    allow_same_day_cycle_rollover: bool = True,
 ) -> tuple[dict, list[dict], list[dict]]:
     """순수 상태 전이 함수 (Pure State Transition Function).
 
@@ -238,6 +239,13 @@ def step_single_day(
     while loop_count < max_loops:
         loop_count += 1
 
+        # 직전 배치에서 1사이클이 모두 체결 확정되어 완주된 상태라면 새 사이클로 전환
+        tradable_targets = [t["code"] for t in target_list if t["code"] not in skipped_untradable]
+        if tradable_targets and all(c in current_cycle_bought for c in tradable_targets):
+            cycle_no += 1
+            current_cycle_bought = []
+            skipped_untradable = []
+
         for t_item in target_list:
             code = t_item["code"]
             price = price_map.get(code, float(t_item["price"]))
@@ -304,6 +312,11 @@ def step_single_day(
         # 사이클 완주 여부 확인
         target_codes = [t["code"] for t in target_list if t["code"] not in skipped_untradable]
         if target_codes and all(c in current_cycle_bought for c in target_codes):
+            if not allow_same_day_cycle_rollover and buy_orders:
+                # 실전 배치에서는 당일 생성된 예약(reserved) 주문이 아직 거래소에서 체결 확정되지 않았으므로,
+                # 동일 배치 내에서 즉시 cycle_no를 증가시키거나 current_cycle_bought를 초기화해 중복 발주하지 않고
+                # 다음 영업일 배치 정산(Reconciliation) 후 체결이 확인되면 다음 사이클로 회전한다.
+                break
             # 1사이클 완주! 다음 사이클로 즉시 이어서 회전
             cycle_no += 1
             current_cycle_bought = []
@@ -581,12 +594,14 @@ async def run_strategy_progression(
         # step_single_day는 params(state)를 in-place로 갱신하므로 차감 직전 잔액을 미리 보관
         run_carry = float(params.get("carryover_budget", 0.0))
         run_spent = float(params.get("monthly_spent", 0.0))
+        effective_dry_run = bool(is_dry_run or params.get("is_dry_run", False))
         new_params, buy_orders, sell_orders = step_single_day(
             state=params,
             date_str=today_str,
             target_list=targets,
             master_items=master_items,
-            is_dry_run=is_dry_run or params.get("is_dry_run", False),
+            is_dry_run=effective_dry_run,
+            allow_same_day_cycle_rollover=effective_dry_run,
         )
 
         # 7. 결정된 매수/매도 주문을 Supabase orders 테이블에 업로드 (status='reserved')

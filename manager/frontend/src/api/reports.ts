@@ -134,6 +134,8 @@ export interface CycleTargetItem {
   target_qty: number
   cost: number
   status: 'bought' | 'next' | 'waiting'
+  is_affordable?: boolean
+  is_reserved?: boolean
 }
 
 export interface NextTargetInfo {
@@ -159,6 +161,7 @@ export interface CyclePipelineInfo {
   progress_pct: number
   pipeline: CycleTargetItem[]
   next_target: NextTargetInfo | null
+  affordable_targets?: CycleTargetItem[]
 }
 
 export interface DailyExecutionFlowItem {

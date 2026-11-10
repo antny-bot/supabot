@@ -1582,6 +1582,12 @@ async def api_reports_top_rotation(
         target_pipeline = []
         next_target = None
 
+        open_buy_tickers = {
+            str(o.get("ticker") or "")
+            for o in orders_data
+            if o.get("side") == "bid" and str(o.get("status") or "") in ("wait", "reserved", "partial", "pending_reorder")
+        }
+
         for item in target_items:
             code = item["code"]
             p = float(item["price"])
@@ -1623,6 +1629,7 @@ async def api_reports_top_rotation(
                 "cost": cost,
                 "status": status,
                 "is_affordable": is_affordable,
+                "is_reserved": bool(is_bought and (code in open_buy_tickers)),
             })
 
         if not next_target and target_items:
@@ -1709,8 +1716,8 @@ async def api_reports_top_rotation(
                     b_vol = b.get("volume", b.get("qty", 1))
                     b_cost = b.get("cost", b_price * b_vol)
                     b_status = open_st
-                elif key in cancelled_order_by_group_code or (g_no is not None and int(g_no) < latest_group_no and trades_data):
-                    # 과거 배치인데 체결 로그에도 없고 오픈 주문에도 없으면 미체결 취소된 주문이므로 체결 목록에서 제외
+                elif key in cancelled_order_by_group_code or not params.get("is_dry_run", False):
+                    # 실전 모드에서 체결 로그(trade_logs)에도 없고 진행중 주문(orders)에도 없으면 미체결 취소/삭제된 주문이므로 제외
                     continue
                 else:
                     b_price = b.get("price", 0)
