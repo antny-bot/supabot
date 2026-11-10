@@ -1,10 +1,14 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, cleanup } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import TimePickerInput from './TimePickerInput'
 import { normalizeTimeInput, isValidTimeInput } from '../strategy/strategyTypes'
 
 describe('TimePickerInput & Time Normalization', () => {
+  beforeEach(() => {
+    cleanup()
+  })
+
   it('normalizes various input formats correctly', () => {
     // 4자리 연속 숫자
     expect(normalizeTimeInput('1430')).toBe('14:30')
@@ -35,7 +39,7 @@ describe('TimePickerInput & Time Normalization', () => {
     const user = userEvent.setup()
     const handleChange = vi.fn()
 
-    const { rerender } = render(
+    render(
       <TimePickerInput value="1430" onChange={handleChange} aria-label="실행 시각" />,
     )
 
