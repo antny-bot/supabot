@@ -1754,6 +1754,7 @@ async def api_reports_top_rotation(
                     "code": sp_code,
                     "name": stock_map.get(sp_code, sp.get("name", sp_code)),
                     "price": sp.get("price", 0),
+                    "market_cap": sp.get("market_cap", 0),
                 })
 
             daily_execution_flow.append({
@@ -1766,6 +1767,120 @@ async def api_reports_top_rotation(
                 "snapshot_top": snap_preview,
                 "waiting_next": w_next,
             })
+
+        # 5. 일단위 스냅샷 시계열 데이터 구성 (기록 시작일부터 오름차순 정렬, 최대 1년)
+        snapshot_by_date: dict[str, dict] = {}
+        for flow_item in reversed(daily_execution_flow):
+            f_date = str(flow_item.get("date") or "").strip()
+            if not f_date:
+                continue
+            bought_set = {str(b.get("code") or "") for b in (flow_item.get("buys") or [])}
+            spent_val = sum(float(b.get("cost") or 0.0) for b in (flow_item.get("buys") or []))
+            raw_items = flow_item.get("snapshot_top") or []
+            norm_items = []
+            for idx_sp, sp in enumerate(raw_items):
+                sp_code = str(sp.get("code") or "")
+                sp_rank = int(sp.get("rank") or (rank_start + idx_sp))
+                if rank_start <= sp_rank <= rank_end:
+                    norm_items.append({
+                        "rank": sp_rank,
+                        "code": sp_code,
+                        "name": stock_map.get(sp_code, sp.get("name", sp_code)),
+                        "price": round(float(sp.get("price") or 0.0)),
+                        "market_cap": round(float(sp.get("market_cap") or 0.0)),
+                        "is_bought": sp_code in bought_set,
+                    })
+            if norm_items:
+                tot_p = sum(it["price"] for it in norm_items)
+                snapshot_by_date[f_date] = {
+                    "date": f_date,
+                    "group_no": flow_item.get("group_no"),
+                    "cycle_no": flow_item.get("cycle_no"),
+                    "total_price": round(tot_p),
+                    "avg_price": round(tot_p / len(norm_items)) if norm_items else 0,
+                    "spent_krw": round(spent_val),
+                    "carryover_budget": round(float(flow_item.get("carryover_budget") or 0.0)),
+                    "items": norm_items,
+                }
+
+        # market_top_snapshots 테이블에서 기록된 일자 보강 (기록 시작일 이후분)
+        try:
+            market_norm = str(market).upper()
+            if market_norm in ("KRW_MAJOR", "UPBIT"):
+                market_norm = "UPBIT_KRW"
+            elif market_norm == "BITHUMB":
+                market_norm = "BITHUMB_KRW"
+            snap_q = (
+                db.table("market_top_snapshots")
+                .select("snapshot_date,items")
+                .eq("market", market_norm)
+                .order("snapshot_date", desc=True)
+                .limit(365)
+            )
+            snap_rows = (await snap_q.execute()).data or []
+            earliest_hist_date = min(snapshot_by_date.keys()) if snapshot_by_date else None
+            for s_row in snap_rows:
+                s_date = str(s_row.get("snapshot_date") or "").strip()
+                if not s_date or s_date in snapshot_by_date:
+                    continue
+                if earliest_hist_date and s_date < earliest_hist_date:
+                    continue
+                s_items = s_row.get("items") or []
+                norm_items = []
+                for sp in s_items:
+                    sp_rank = int(sp.get("rank") or 0)
+                    if rank_start <= sp_rank <= rank_end:
+                        sp_code = str(sp.get("code") or "")
+                        norm_items.append({
+                            "rank": sp_rank,
+                            "code": sp_code,
+                            "name": stock_map.get(sp_code, sp.get("name", sp_code)),
+                            "price": round(float(sp.get("price") or 0.0)),
+                            "market_cap": round(float(sp.get("market_cap") or 0.0)),
+                            "is_bought": False,
+                        })
+                if norm_items:
+                    tot_p = sum(it["price"] for it in norm_items)
+                    snapshot_by_date[s_date] = {
+                        "date": s_date,
+                        "group_no": None,
+                        "cycle_no": None,
+                        "total_price": round(tot_p),
+                        "avg_price": round(tot_p / len(norm_items)),
+                        "spent_krw": 0,
+                        "carryover_budget": round(carryover_budget),
+                        "items": norm_items,
+                    }
+        except Exception as e:
+            logger.debug(f"Failed to enrich daily_snapshots from market_top_snapshots: {e}")
+
+        # 아직 기록된 스냅샷이 하나도 없으면 당일 master_top을 첫 기록일로 포함
+        if not snapshot_by_date and target_items:
+            today_str = budget_manager.get_current_kst_date_str()
+            norm_items = [
+                {
+                    "rank": int(it["rank"]),
+                    "code": str(it["code"]),
+                    "name": stock_map.get(str(it["code"]), it.get("name", str(it["code"]))),
+                    "price": round(float(it.get("price") or 0.0)),
+                    "market_cap": round(float(it.get("market_cap") or 0.0)),
+                    "is_bought": str(it["code"]) in current_cycle_bought,
+                }
+                for it in target_items
+            ]
+            tot_p = sum(it["price"] for it in norm_items)
+            snapshot_by_date[today_str] = {
+                "date": today_str,
+                "group_no": params.get("last_group_no"),
+                "cycle_no": cycle_no,
+                "total_price": round(tot_p),
+                "avg_price": round(tot_p / len(norm_items)) if norm_items else 0,
+                "spent_krw": 0,
+                "carryover_budget": round(carryover_budget),
+                "items": norm_items,
+            }
+
+        daily_snapshots = [snapshot_by_date[d] for d in sorted(snapshot_by_date.keys())]
 
         affordable_targets = [
             it for it in target_pipeline
@@ -1791,6 +1906,7 @@ async def api_reports_top_rotation(
                 "affordable_targets": affordable_targets,
             },
             "daily_execution_flow": daily_execution_flow,
+            "daily_snapshots": daily_snapshots,
         })
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)

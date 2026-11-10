@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell
 } from 'recharts'
-import { AlertTriangle, CalendarClock, Filter, RotateCcw } from 'lucide-react'
+import { AlertTriangle, CalendarClock, ChevronDown, ChevronUp, Filter, RotateCcw } from 'lucide-react'
 import { fetchReportBatches, type BatchesReport } from '../../api/reports'
 import type { DateRangeValue } from '../../components/ui/DateRangePicker'
 import { ChartSkeleton, CardSkeleton } from '../../components/ui/Skeleton'
@@ -27,6 +27,7 @@ export default function BatchTimelineSection({
   const [batchPageSize, setBatchPageSize] = useState(10)
   const [timelinePage, setTimelinePage] = useState(1)
   const [timelinePageSize, setTimelinePageSize] = useState(10)
+  const [showRawTimeline, setShowRawTimeline] = useState(false)
 
   useEffect(() => {
     setSelectedBatch(null)
@@ -303,95 +304,107 @@ export default function BatchTimelineSection({
         )}
       </div>
 
-      {/* 6. 시간순 체결 타임라인 테이블 */}
+      {/* 6. 시간순 체결 타임라인 테이블 (접이식 아코디언) */}
       <div className={`${CARD} overflow-hidden animate-fade-in-up`} style={staggerDelay(5)}>
-        <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800">
+        <button
+          type="button"
+          onClick={() => setShowRawTimeline((v) => !v)}
+          className="flex w-full items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors"
+        >
           <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">
-            시계열(Time-Series) 매수·매도 체결 내역 ({data.timeline.length}건)
+            시계열(Time-Series) 건별 체결 상세 내역 ({data.timeline.length}건)
           </h3>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
-                <th className={`${TH} text-left`}>순번 / 시각</th>
-                <th className={`${TH} text-left`}>배치</th>
-                <th className={`${TH} text-left`}>종목 / 전략</th>
-                <th className={`${TH} text-left`}>구분</th>
-                <th className={`${TH} text-right`}>체결단가 × 수량</th>
-                <th className={`${TH} text-right`}>체결금액</th>
-                <th className={`${TH} text-right`}>누적보유 / 평단가</th>
-                <th className={`${TH} text-right`}>건별 / 누적 실현손익</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {(() => {
-                const pagedTimeline = data.timeline.slice((timelinePage - 1) * timelinePageSize, timelinePage * timelinePageSize)
-                if (data.timeline.length === 0) {
-                  return (
-                    <tr>
-                      <td colSpan={8} className="px-4 py-10 text-center text-slate-400 text-xs">
-                        조건에 해당하는 체결 내역이 없습니다.
-                      </td>
-                    </tr>
-                  )
-                }
-                return pagedTimeline.map((ev) => (
-                  <tr key={ev.seq} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                    <td className={`${TD} text-xs text-slate-500`}>
-                      #{ev.seq} · {ev.date_fmt}
-                    </td>
-                    <td className={`${TD} text-xs text-indigo-600 dark:text-indigo-400`}>
-                      {ev.group_no ? `#${ev.group_no}` : '-'}
-                    </td>
-                    <td className={`${TD} text-xs text-slate-700 dark:text-slate-300`}>
-                      [{ev.exchange.toUpperCase()}] {ev.ticker} <span className="text-slate-400">({ev.strategy})</span>
-                    </td>
-                    <td className={`${TD} text-xs font-semibold ${ev.side === 'bid' ? 'text-rose-500' : 'text-blue-500'}`}>
-                      {ev.side === 'bid' ? '매수' : '매도'}
-                    </td>
-                    <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400`}>
-                      {krwFmt(ev.price)} × {ev.volume}
-                    </td>
-                    <td className={`${TD} text-right text-xs font-medium text-slate-700 dark:text-slate-300`}>
-                      {krwFmt(ev.amount)}
-                    </td>
-                    <td className={`${TD} text-right text-xs text-slate-500`}>
-                      {ev.holding_vol} / {krwFmt(Math.round(ev.avg_buy_price))}
-                    </td>
-                    <td className={`${TD} text-right text-xs`}>
-                      {ev.trade_pnl !== null ? (
-                        <span className={pctColor(ev.trade_pnl)}>
-                          {ev.trade_pnl >= 0 ? '+' : ''}{krwFmt(ev.trade_pnl)}
-                        </span>
-                      ) : (
-                        <span className="text-slate-400">-</span>
-                      )}{' '}
-                      <span className="text-slate-400">
-                        (누적 {ev.cum_realized_pnl >= 0 ? '+' : ''}{krwFmt(ev.cum_realized_pnl)})
-                      </span>
-                    </td>
-                  </tr>
-                ))
-              })()}
-            </tbody>
-          </table>
-        </div>
+          <span className="inline-flex items-center gap-1 text-xs text-slate-400">
+            <span>{showRawTimeline ? '접기' : '펼쳐보기'}</span>
+            {showRawTimeline ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          </span>
+        </button>
 
-        {/* 타임라인 페이징 (기본 10건) */}
-        {data.timeline.length > 0 && (
-          <Pagination
-            currentPage={timelinePage}
-            totalPages={Math.max(1, Math.ceil(data.timeline.length / timelinePageSize))}
-            pageSize={timelinePageSize}
-            totalCount={data.timeline.length}
-            onPageChange={setTimelinePage}
-            onPageSizeChange={(sz) => {
-              setTimelinePageSize(sz)
-              setTimelinePage(1)
-            }}
-            pageSizeOptions={[10, 20, 50, 100]}
-          />
+        {showRawTimeline && (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
+                    <th className={`${TH} text-left`}>순번 / 시각</th>
+                    <th className={`${TH} text-left`}>배치</th>
+                    <th className={`${TH} text-left`}>종목 / 전략</th>
+                    <th className={`${TH} text-left`}>구분</th>
+                    <th className={`${TH} text-right`}>체결단가 × 수량</th>
+                    <th className={`${TH} text-right`}>체결금액</th>
+                    <th className={`${TH} text-right`}>누적보유 / 평단가</th>
+                    <th className={`${TH} text-right`}>건별 / 누적 실현손익</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {(() => {
+                    const pagedTimeline = data.timeline.slice((timelinePage - 1) * timelinePageSize, timelinePage * timelinePageSize)
+                    if (data.timeline.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={8} className="px-4 py-10 text-center text-slate-400 text-xs">
+                            조건에 해당하는 체결 내역이 없습니다.
+                          </td>
+                        </tr>
+                      )
+                    }
+                    return pagedTimeline.map((ev) => (
+                      <tr key={ev.seq} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                        <td className={`${TD} text-xs text-slate-500`}>
+                          #{ev.seq} · {ev.date_fmt}
+                        </td>
+                        <td className={`${TD} text-xs text-indigo-600 dark:text-indigo-400`}>
+                          {ev.group_no ? `#${ev.group_no}` : '-'}
+                        </td>
+                        <td className={`${TD} text-xs text-slate-700 dark:text-slate-300`}>
+                          [{ev.exchange.toUpperCase()}] {ev.ticker} <span className="text-slate-400">({ev.strategy})</span>
+                        </td>
+                        <td className={`${TD} text-xs font-semibold ${ev.side === 'bid' ? 'text-rose-500' : 'text-blue-500'}`}>
+                          {ev.side === 'bid' ? '매수' : '매도'}
+                        </td>
+                        <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400`}>
+                          {krwFmt(ev.price)} × {ev.volume}
+                        </td>
+                        <td className={`${TD} text-right text-xs font-medium text-slate-700 dark:text-slate-300`}>
+                          {krwFmt(ev.amount)}
+                        </td>
+                        <td className={`${TD} text-right text-xs text-slate-500`}>
+                          {ev.holding_vol} / {krwFmt(Math.round(ev.avg_buy_price))}
+                        </td>
+                        <td className={`${TD} text-right text-xs`}>
+                          {ev.trade_pnl !== null ? (
+                            <span className={pctColor(ev.trade_pnl)}>
+                              {ev.trade_pnl >= 0 ? '+' : ''}{krwFmt(ev.trade_pnl)}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">-</span>
+                          )}{' '}
+                          <span className="text-slate-400">
+                            (누적 {ev.cum_realized_pnl >= 0 ? '+' : ''}{krwFmt(ev.cum_realized_pnl)})
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  })()}
+                </tbody>
+              </table>
+            </div>
+
+            {data.timeline.length > 0 && (
+              <Pagination
+                currentPage={timelinePage}
+                totalPages={Math.max(1, Math.ceil(data.timeline.length / timelinePageSize))}
+                pageSize={timelinePageSize}
+                totalCount={data.timeline.length}
+                onPageChange={setTimelinePage}
+                onPageSizeChange={(sz) => {
+                  setTimelinePageSize(sz)
+                  setTimelinePage(1)
+                }}
+                pageSizeOptions={[10, 20, 50, 100]}
+              />
+            )}
+          </>
         )}
       </div>
     </div>

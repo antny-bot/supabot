@@ -669,7 +669,7 @@ async def run_strategy_progression(
                 run_spent = bal["monthly_spent"]
             created_orders.append(db_ord)
 
-        # 8. 런타임 상태 히스토리 스냅샷 추가 (최근 90회)
+        # 8. 런타임 상태 히스토리 스냅샷 추가 (최근 365회 - 최대 1년 시계열 지원)
         history = new_params.get("history", [])
         history.append({
             "date": today_str,
@@ -686,12 +686,12 @@ async def run_strategy_progression(
             "monthly_spent_after": new_params.get("monthly_spent", 0.0),
             "summary": new_params.get("last_status_message", ""),
             "status_summary": new_params.get("last_status_message", ""),
-            "top_list": targets[:10],
+            "top_list": targets[:max(10, len(targets))],
             "buys": buy_orders,
             "sells": sell_orders,
             "waiting_next": new_params.get("next_target_ticker"),
         })
-        new_params["history"] = history[-90:]
+        new_params["history"] = history[-365:]
         new_params["pending_buy_orders"] = [
             {"uuid": b["uuid"], "code": b["code"], "price": b["price"], "volume": b["volume"], "group_no": group_no, "budget_epoch": cur_epoch}
             for b in buy_orders

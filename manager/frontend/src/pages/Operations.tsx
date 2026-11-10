@@ -17,6 +17,9 @@ import {
   RotateCcw,
   Trash2,
   Layers,
+  ArrowLeft,
+  ExternalLink,
+  ChevronRight,
 } from 'lucide-react'
 import {
   fetchTemplates,
@@ -36,10 +39,10 @@ import SegmentedControl from '../components/ui/SegmentedControl'
 import Spinner from '../components/ui/Spinner'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import TopRotationSection from './reports/TopRotationSection'
+import DailySnapshotSection from './reports/DailySnapshotSection'
 import SingleStrategySection from './reports/SingleStrategySection'
 import BudgetPlanSection from './reports/BudgetPlanSection'
 import BatchTimelineSection from './reports/BatchTimelineSection'
-import OrderBatchesSection from './orders/OrderBatchesSection'
 import ResponsiveTabs from '../components/ui/ResponsiveTabs'
 import FormattedNumberInput from '../components/ui/FormattedNumberInput'
 import StrategyFormModal from '../components/strategy/StrategyFormModal'
@@ -47,6 +50,7 @@ import { STRATEGY_BADGE_LABELS, hasDcaBudget } from '../components/strategy/stra
 import { useToast } from '../contexts/ToastContext'
 import { krwFmt } from '../utils/formatters'
 import { usePersistedState } from '../hooks/usePersistedState'
+import type { DateRangeValue } from '../components/ui/DateRangePicker'
 
 const OPERATIONS_EXCHANGE_FILTER_KEY = 'sbm_operations_exchange_filter'
 const OPERATIONS_STATUS_FILTER_KEY = 'sbm_operations_status_filter'
@@ -58,14 +62,8 @@ function isTemplateActive(tpl: Template): boolean {
     (p.strategy_status === undefined && p.schedule_enabled !== false)
   )
 }
-import type { DateRangeValue } from '../components/ui/DateRangePicker'
 
 const DEFAULT_TIMELINE_RANGE: DateRangeValue = { mode: '30d', from: '', to: '' }
-
-const MAIN_VIEWS = [
-  { id: 'management', label: '전략 관리 & 빠른 제어' },
-  { id: 'workbench', label: '전략 실시간 관제 (워크벤치)' },
-]
 
 export default function Operations() {
   const toast = useToast()
@@ -76,8 +74,20 @@ export default function Operations() {
   const tabParam = searchParams.get('tab')
   const templateIdParam = searchParams.get('template_id')
 
+  // 기존 중복 '전략 배치 주문 묶음(batches)' 탭 접근 시 주문 관리 > 전략 배치 묶음으로 일원화 리다이렉트
+  useEffect(() => {
+    if (tabParam === 'batches') {
+      const nextParams = new URLSearchParams()
+      nextParams.set('tab', 'batches')
+      if (templateIdParam) nextParams.set('template_id', templateIdParam)
+      navigate(`/orders?${nextParams.toString()}`, { replace: true })
+    }
+  }, [tabParam, templateIdParam, navigate])
+
   const [viewMode, setViewMode] = useState<'management' | 'workbench'>(() => {
-    if (viewParam === 'workbench') return 'workbench'
+    if (viewParam === 'workbench' || tabParam === 'snapshot' || tabParam === 'ledger' || tabParam === 'timeline') {
+      return 'workbench'
+    }
     return 'management'
   })
 
@@ -95,7 +105,7 @@ export default function Operations() {
   )
 
   const [activeTab, setActiveTab] = useState(() => {
-    return tabParam && ['rotation', 'ledger', 'batches', 'timeline'].includes(tabParam)
+    return tabParam && ['rotation', 'snapshot', 'ledger', 'timeline'].includes(tabParam)
       ? tabParam
       : 'rotation'
   })
@@ -155,6 +165,7 @@ export default function Operations() {
 
   // URL 파라미터 동기화
   useEffect(() => {
+    if (tabParam === 'batches') return
     const params = new URLSearchParams(searchParams)
     let changed = false
     if (viewMode && params.get('view') !== viewMode) {
@@ -172,7 +183,7 @@ export default function Operations() {
     if (changed) {
       setSearchParams(params, { replace: true })
     }
-  }, [viewMode, activeTab, selectedTemplateId, searchParams, setSearchParams])
+  }, [viewMode, activeTab, selectedTemplateId, tabParam, searchParams, setSearchParams])
 
   const activeTemplates = useMemo(
     () => templates.filter((t) => !(t.params as any)?.is_archived),
@@ -220,14 +231,36 @@ export default function Operations() {
   const isFiltered = exchangeFilter !== 'all' || statusFilter !== 'all'
 
   const selectedTemplate = templates.find((t) => t.id === selectedTemplateId)
-  const isTopDca = selectedTemplate?.strategy_type === 'kospi_top_dca'
+  const isTopDca =
+    selectedTemplate?.strategy_type === 'kospi_top_dca' ||
+    selectedTemplate?.params?.universe_type === 'market_top_n' ||
+    selectedTemplate?.params?.progression_mode === 'top_n_rotation' ||
+    selectedTemplate?.params?.progression_mode === 'batch_all' ||
+    selectedTemplate?.ticker === 'TOP10' ||
+    selectedTemplate?.ticker === 'TOP_N'
 
-  const workbenchTabs = [
-    { id: 'rotation', label: isTopDca ? '포지션 & 순위 회전' : '포지션 & 전략 지표' },
-    { id: 'ledger', label: '예산 플랜 & 감사원장' },
-    { id: 'batches', label: '전략 배치 주문 묶음' },
-    { id: 'timeline', label: '배치 실행 타임라인' },
-  ]
+  // 단일 전략으로 전환 시 스냅샷 탭에 있었다면 기본 탭(rotation)으로 복귀
+  useEffect(() => {
+    if (selectedTemplate && !isTopDca && activeTab === 'snapshot') {
+      setActiveTab('rotation')
+    }
+  }, [selectedTemplate, isTopDca, activeTab])
+
+  const workbenchTabs = useMemo(() => {
+    if (isTopDca) {
+      return [
+        { id: 'rotation', label: '운용 현황' },
+        { id: 'snapshot', label: '일단위 스냅샷 (차트)' },
+        { id: 'ledger', label: '예산 · 감사원장' },
+        { id: 'timeline', label: '체결 타임라인' },
+      ]
+    }
+    return [
+      { id: 'rotation', label: '운용 현황' },
+      { id: 'ledger', label: '예산 · 감사원장' },
+      { id: 'timeline', label: '체결 타임라인' },
+    ]
+  }, [isTopDca])
 
   // 전략 가동 ON/OFF 토글 핸들러
   const handleToggleHolding = async (tpl: Template, e?: React.MouseEvent) => {
@@ -304,10 +337,7 @@ export default function Operations() {
   // 전략 보관함 이동 핸들러
   const handleArchive = async (tpl: Template, e?: React.MouseEvent) => {
     if (e) e.stopPropagation()
-    const p = (tpl.params || {}) as any
-    const isActive =
-      p.strategy_status === 'active' ||
-      (p.strategy_status === undefined && p.schedule_enabled !== false)
+    const isActive = isTemplateActive(tpl)
 
     if (isActive) {
       toast.error('실행 중(Active)인 전략은 보관할 수 없습니다. 전략을 먼저 OFF로 일시정지해주세요.')
@@ -432,14 +462,30 @@ export default function Operations() {
     }
   }
 
+  const openStrategyDetail = (tplId: number, initialTab = 'rotation') => {
+    setSelectedTemplateId(tplId)
+    setActiveTab(initialTab)
+    setViewMode('workbench')
+  }
+
   return (
-    <div className="space-y-6 pb-12 break-keep animate-fade-in-up">
+    <div className="space-y-5 pb-12 break-keep animate-fade-in-up">
       {/* 최상단 페이지 헤더 */}
       <PageHeader
         title="전략 운용"
         Icon={Activity}
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            {viewMode === 'workbench' && (
+              <button
+                type="button"
+                onClick={() => setViewMode('management')}
+                className="flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50/70 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-300 transition-colors"
+              >
+                <ArrowLeft size={13} />
+                <span>전체 전략 목록</span>
+              </button>
+            )}
             <button
               onClick={() => loadTemplates()}
               className="flex items-center gap-1.5 rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
@@ -471,26 +517,12 @@ export default function Operations() {
 
       {error && <ErrorBanner message={error} />}
 
-      {/* 2대 메인 모드 분리 탭 (전략 관리 & 빠른 제어 vs 실시간 관제 워크벤치) */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
-        <SegmentedControl
-          options={MAIN_VIEWS}
-          value={viewMode}
-          onChange={(v) => setViewMode(v as 'management' | 'workbench')}
-        />
-        <div className="text-xs text-slate-400">
-          {viewMode === 'management'
-            ? '전체 전략 설정 수정, 복제, ON/OFF 가동 및 비상 제어를 총괄 관리합니다.'
-            : '선택된 전략의 실시간 포지션/지표 및 감사원장을 집중 관제합니다.'}
-        </div>
-      </div>
-
       {/* =========================================================================
-          [1] 뷰 1: 전략 관리 & 빠른 제어 (통합 카드 그리드)
+          [1] 1차 화면: 전략 카드 목록 (단순·직관적인 카드 그리드, 클릭 시 상세 진입)
           ========================================================================= */}
       {viewMode === 'management' && (
         <div className="space-y-4">
-          {/* 운용 중 vs 보관함 서브 탭 */}
+          {/* 운용 중 vs 보관함 서브 탭 및 필터 바 */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-2">
             <div className="flex items-center gap-1">
               <button
@@ -539,7 +571,7 @@ export default function Operations() {
                 )}
               </button>
             </div>
-            {/* 운용 전략 전용 필터: 거래소 다운콤보 + 모두 | On | Off 세그먼트 */}
+
             {subFilter === 'active' ? (
               <div className="flex flex-wrap items-center gap-2">
                 <select
@@ -629,42 +661,43 @@ export default function Operations() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {displayedTemplates.map((tpl) => {
                 const p = (tpl.params || {}) as any
-                const isSelected = tpl.id === selectedTemplateId
                 const isActive = isTemplateActive(tpl)
                 const isDca = tpl.strategy_type === 'dca' || tpl.strategy_type === 'sdca'
-                const isTop = tpl.strategy_type === 'kospi_top_dca'
+                const isTop =
+                  tpl.strategy_type === 'kospi_top_dca' ||
+                  p.universe_type === 'market_top_n' ||
+                  p.progression_mode === 'top_n_rotation' ||
+                  p.progression_mode === 'batch_all' ||
+                  tpl.ticker === 'TOP10' ||
+                  tpl.ticker === 'TOP_N'
                 const isVolume =
-                  tpl.strategy_type === 'sgrid' || tpl.strategy_type === 'sdca' || (isDca && p.amount_type === 'volume')
+                  tpl.strategy_type === 'sgrid' ||
+                  tpl.strategy_type === 'sdca' ||
+                  (isDca && p.amount_type === 'volume')
                 const dcaBudgetActive = hasDcaBudget(tpl)
                 const isVolumeOnly =
-                  tpl.strategy_type === 'sgrid' || tpl.strategy_type === 'sdca' || (isDca && p.amount_type === 'volume' && !dcaBudgetActive)
+                  tpl.strategy_type === 'sgrid' ||
+                  tpl.strategy_type === 'sdca' ||
+                  (isDca && p.amount_type === 'volume' && !dcaBudgetActive)
                 const supportsCarryover = !isVolumeOnly
 
                 return (
                   <div
                     key={tpl.id}
-                    onClick={() => {
-                      setSelectedTemplateId(tpl.id)
-                    }}
-                    className={`relative flex flex-col justify-between rounded-2xl border p-5 transition-all ${
-                      isSelected
-                        ? 'border-indigo-500 bg-indigo-50/20 shadow-md ring-2 ring-indigo-500/20 dark:border-indigo-500 dark:bg-indigo-950/20'
-                        : 'border-slate-200 bg-white shadow-xs hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700'
-                    }`}
+                    onClick={() => openStrategyDetail(tpl.id, 'rotation')}
+                    className="group relative flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-xs transition-all cursor-pointer hover:border-indigo-400 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:hover:border-indigo-500/70"
                   >
                     <div>
-                      {/* 상단: 거래소, 티커/종목명, 전략 유형 & ON/OFF 토글 */}
+                      {/* 상단: 거래소, 티커, 전략 유형 배지 & ON/OFF 토글 */}
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <Badge value={tpl.exchange} label={tpl.exchange.toUpperCase()} />
-                          <span className="text-xs font-extrabold text-slate-900 dark:text-white">
-                            #{tpl.id}
-                          </span>
-                          <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
                             {tpl.ticker}
                           </span>
                           <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                            {STRATEGY_BADGE_LABELS[tpl.strategy_type || 'grid'] || (tpl.strategy_type || 'GRID').toUpperCase()}
+                            {STRATEGY_BADGE_LABELS[tpl.strategy_type || 'grid'] ||
+                              (tpl.strategy_type || 'GRID').toUpperCase()}
                           </span>
                           {subFilter === 'archived' && (
                             <span className="rounded-md bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
@@ -673,9 +706,11 @@ export default function Operations() {
                           )}
                         </div>
 
-                        {/* On / Off 스위치 (운용 탭에서만 활성) */}
                         {subFilter === 'active' && (
-                          <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                          <div
+                            className="flex items-center gap-1.5"
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             <button
                               type="button"
                               disabled={togglingId === tpl.id}
@@ -697,7 +732,9 @@ export default function Operations() {
                             </button>
                             <span
                               className={`text-[10px] font-extrabold w-6 text-center ${
-                                isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'
+                                isActive
+                                  ? 'text-emerald-600 dark:text-emerald-400'
+                                  : 'text-slate-400'
                               }`}
                             >
                               {isActive ? 'ON' : 'OFF'}
@@ -707,33 +744,40 @@ export default function Operations() {
                       </div>
 
                       {/* 전략 명칭 */}
-                      <h4 className="mt-2.5 text-sm font-bold text-slate-900 dark:text-white truncate">
-                        {tpl.name}
-                      </h4>
+                      <div className="mt-2.5 flex items-center justify-between gap-2">
+                        <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                          <span className="text-slate-400 font-semibold mr-1">#{tpl.id}</span>
+                          {tpl.name}
+                        </h4>
+                        <ChevronRight
+                          size={15}
+                          className="shrink-0 text-slate-300 group-hover:text-indigo-500 transition-colors"
+                        />
+                      </div>
 
-                      {/* 지표 요약 그리드 */}
-                      <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-slate-50 p-2.5 text-xs dark:bg-slate-800/50">
+                      {/* 핵심 2대 수치만 심플하게 표시 */}
+                      <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs dark:bg-slate-800/50">
                         <div>
                           <span className="text-[10px] text-slate-400 block">
                             {isTop
                               ? '설정 총예산'
                               : isDca && p.amount_type === 'volume'
-                              ? '정기 매수 설정'
+                              ? '정기 매수'
                               : isVolume
                               ? '설정 수량'
                               : '설정 예산'}
                           </span>
                           <span className="font-bold text-slate-800 dark:text-slate-200">
                             {isDca && p.amount_type === 'volume'
-                              ? `${p.schedule || '매일'} ${tpl.budget}주씩${dcaBudgetActive ? ' (예산한도)' : ' (무한)'}`
+                              ? `${p.schedule || '매일'} ${tpl.budget}주`
                               : isVolume
-                              ? `${tpl.budget} (수량)`
+                              ? `${tpl.budget}주`
                               : krwFmt(isTop ? (p.monthly_budget ?? tpl.budget) : tpl.budget)}
                           </span>
                         </div>
                         <div>
                           <div className="flex items-center justify-between text-[10px] text-slate-400">
-                            <span>가용 이월예산</span>
+                            <span>가용 예산</span>
                             {subFilter === 'active' && supportsCarryover && (
                               <button
                                 type="button"
@@ -754,32 +798,28 @@ export default function Operations() {
                             {supportsCarryover ? (
                               krwFmt(
                                 p.carryover_budget ??
-                                  (tpl.strategy_type === 'rsitrade' || tpl.strategy_type === 'rsi' || tpl.strategy_type === 'grid'
+                                  (tpl.strategy_type === 'rsitrade' ||
+                                  tpl.strategy_type === 'rsi' ||
+                                  tpl.strategy_type === 'grid'
                                     ? tpl.budget
-                                    : 0)
+                                    : 0),
                               )
                             ) : (
-                              <span className="text-slate-400 font-normal text-[11px]">해당사항 없음</span>
+                              <span className="text-slate-400 font-normal text-[11px]">—</span>
                             )}
-                          </span>
-                        </div>
-                        <div className="col-span-2 pt-1 border-t border-slate-200/60 dark:border-slate-700/60 flex items-center justify-between text-[11px]">
-                          <span className="text-slate-400">
-                            {p.last_group_no ? `최근 실행: Batch #${p.last_group_no}` : '실행 대기중'}
-                          </span>
-                          <span className="text-slate-500">
-                            스케줄: 매일 {p.schedule_time || p.exec_time || '09:10'}
                           </span>
                         </div>
                       </div>
                     </div>
 
-                    {/* 하단 액션 툴바: 통합된 관리 + 제어 버튼들 */}
-                    <div className="mt-3.5 flex items-center justify-between border-t border-slate-100 pt-2.5 dark:border-slate-800">
+                    {/* 하단 간결 액션 바 */}
+                    <div
+                      className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2.5 dark:border-slate-800"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       {subFilter === 'active' ? (
                         <>
-                          {/* 좌측 관리 액션: 수정, 복제, 보관함, 비상제어 */}
-                          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center gap-0.5">
                             <button
                               type="button"
                               onClick={() =>
@@ -792,7 +832,7 @@ export default function Operations() {
                               className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                               title="전략 설정 수정"
                             >
-                              <Pencil size={14} />
+                              <Pencil size={13} />
                             </button>
                             <button
                               type="button"
@@ -800,7 +840,7 @@ export default function Operations() {
                               className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                               title="전략 복제"
                             >
-                              <Copy size={14} />
+                              <Copy size={13} />
                             </button>
                             <button
                               type="button"
@@ -817,7 +857,7 @@ export default function Operations() {
                                   : '보관함으로 이동'
                               }
                             >
-                              <Archive size={14} />
+                              <Archive size={13} />
                             </button>
                             <button
                               type="button"
@@ -829,42 +869,39 @@ export default function Operations() {
                               className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40 dark:hover:text-rose-400"
                               title="비상 제어 / 주문 취소 / 전량 청산"
                             >
-                              <ShieldAlert size={14} />
+                              <ShieldAlert size={13} />
                             </button>
                           </div>
 
-                          {/* 우측 실행 액션: 즉시 실행, 관제 열기 */}
-                          <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center gap-1.5">
                             <button
                               type="button"
                               disabled={executingId === tpl.id}
                               onClick={(e) => handleExecuteNow(tpl, e)}
                               className="flex items-center gap-1 rounded-xl bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white shadow-xs hover:bg-emerald-700 disabled:opacity-50 transition-colors"
                             >
-                              <Play size={11} className={executingId === tpl.id ? 'animate-spin' : ''} />
+                              <Play
+                                size={11}
+                                className={executingId === tpl.id ? 'animate-spin' : ''}
+                              />
                               <span>즉시 실행</span>
                             </button>
                             <button
                               type="button"
-                              onClick={() => {
-                                setSelectedTemplateId(tpl.id)
-                                setViewMode('workbench')
-                              }}
-                              className="flex items-center gap-1 rounded-xl bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:text-indigo-300 transition-colors"
+                              onClick={() => openStrategyDetail(tpl.id, 'rotation')}
+                              className="rounded-xl bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:text-indigo-300 transition-colors"
                             >
-                              <span>관제 열기 →</span>
+                              상세 보기
                             </button>
                           </div>
                         </>
                       ) : (
-                        /* 보관함 액션: 복원, 영구 삭제 */
-                        <div className="flex w-full items-center justify-between" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex w-full items-center justify-between">
                           <div className="flex items-center gap-2">
                             <button
                               type="button"
                               onClick={(e) => handleRestore(tpl, e)}
                               className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 transition-colors"
-                              title="운용 목록으로 복원"
                             >
                               <RotateCcw size={13} className="text-indigo-500" />
                               <span>복원</span>
@@ -873,15 +910,12 @@ export default function Operations() {
                               type="button"
                               onClick={(e) => handleDelete(tpl, e)}
                               className="flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50/50 px-2.5 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-100 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-400 dark:hover:bg-rose-900/50 transition-colors"
-                              title="영구 삭제"
                             >
                               <Trash2 size={13} />
                               <span>영구 삭제</span>
                             </button>
                           </div>
-                          <span className="text-[11px] font-medium text-slate-400">
-                            보관 중 (복원 후 실행 가능)
-                          </span>
+                          <span className="text-[11px] font-medium text-slate-400">보관 중</span>
                         </div>
                       )}
                     </div>
@@ -894,42 +928,49 @@ export default function Operations() {
       )}
 
       {/* =========================================================================
-          [2] 뷰 2: 선택된 전략별 실시간 관제 워크벤치
+          [2] 전략 상세 화면 (카드 클릭 시 이동 — 탭 간소화 & 배치 묶음 중복 제거)
           ========================================================================= */}
       {viewMode === 'workbench' && (
         <div className="space-y-4">
-          {/* 슬림 전략 선택 & 빠른 제어 바 */}
+          {/* 상단 통합 전략 헤더 바 */}
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
-            {/* 좌측: 전략 셀렉터 & 기본 식별 정보 */}
             <div className="flex flex-1 flex-wrap items-center gap-2.5">
-              <span className="text-xs font-bold text-slate-500 dark:text-slate-400 shrink-0">
-                관제 대상 전략:
-              </span>
+              <button
+                type="button"
+                onClick={() => setViewMode('management')}
+                className="inline-flex items-center gap-1 rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
+                title="전체 전략 카드 목록으로 돌아가기"
+              >
+                <ArrowLeft size={13} />
+                <span>목록</span>
+              </button>
+
               <select
                 value={selectedTemplateId || ''}
                 onChange={(e) => setSelectedTemplateId(Number(e.target.value))}
-                className="max-w-[280px] sm:max-w-[340px] truncate rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                aria-label="관제 대상 전략 선택"
+                className="max-w-[260px] sm:max-w-[320px] truncate rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
               >
                 {templates.map((t) => (
                   <option key={t.id} value={t.id}>
-                    #{t.id} {t.name} [{t.exchange.toUpperCase()}] ({t.strategy_type === 'kospi_top_dca' ? 'TOP N' : t.strategy_type})
+                    #{t.id} {t.name} [{t.exchange.toUpperCase()}]
                   </option>
                 ))}
               </select>
 
               {selectedTemplate && (
                 <>
-                  <Badge value={selectedTemplate.exchange} label={selectedTemplate.exchange.toUpperCase()} />
+                  <Badge
+                    value={selectedTemplate.exchange}
+                    label={selectedTemplate.exchange.toUpperCase()}
+                  />
                   <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                    {isTopDca ? '시총 TOP N DCA' : (selectedTemplate.strategy_type || '').toUpperCase()}
+                    {isTopDca ? '시총 TOP N' : (selectedTemplate.strategy_type || '').toUpperCase()}
                   </span>
 
                   {/* 가동 상태 토글 스위치 */}
                   {(() => {
-                    const p = (selectedTemplate.params || {}) as any
-                    const isActive =
-                      p.strategy_status === 'active' ||
-                      (p.strategy_status === undefined && p.schedule_enabled !== false)
+                    const isActive = isTemplateActive(selectedTemplate)
                     return (
                       <div className="flex items-center gap-1.5 pl-1">
                         <button
@@ -939,7 +980,11 @@ export default function Operations() {
                           className={`relative inline-flex h-5 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
                             isActive ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'
                           } ${togglingId === selectedTemplate.id ? 'opacity-50' : ''}`}
-                          title={isActive ? '전략 가동중 (클릭 시 일시정지 OFF)' : '전략 일시정지 (클릭 시 가동 ON)'}
+                          title={
+                            isActive
+                              ? '전략 가동중 (클릭 시 일시정지 OFF)'
+                              : '전략 일시정지 (클릭 시 가동 ON)'
+                          }
                         >
                           <span
                             className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-xs ring-0 transition duration-200 ease-in-out ${
@@ -961,47 +1006,20 @@ export default function Operations() {
               )}
             </div>
 
-            {/* 우측: 인라인 예산 요약 & 빠른 제어 버튼 */}
+            {/* 우측: 빠른 제어 & 주문 관리 배치 묶음 바로가기 */}
             {selectedTemplate && (
-              <div className="flex flex-wrap items-center gap-2 self-end lg:self-auto">
-                {(() => {
-                  const selStype = selectedTemplate.strategy_type
-                  const selParams = (selectedTemplate.params || {}) as any
-                  const selIsVolume =
-                    selStype === 'sgrid' ||
-                    selStype === 'sdca' ||
-                    ((selStype === 'dca' || selStype === 'sdca') && selParams.amount_type === 'volume')
-                  const selSupportsCarryover = !selIsVolume
-                  const defaultCarryover =
-                    selStype === 'rsitrade' || selStype === 'rsi' || selStype === 'grid'
-                      ? selectedTemplate.budget
-                      : 0
-
-                  return (
-                    <div className="hidden sm:flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-1.5 text-xs dark:bg-slate-800/60">
-                      <div>
-                        <span className="text-[10px] text-slate-400 block">가용 예산 (잔액)</span>
-                        <span className="font-bold text-slate-700 dark:text-slate-200">
-                          {selSupportsCarryover ? (
-                            krwFmt(selParams.carryover_budget ?? defaultCarryover)
-                          ) : (
-                            <span className="text-slate-400 font-normal text-[11px]">해당사항 없음</span>
-                          )}
-                        </span>
-                      </div>
-                      <div className="border-l border-slate-200 dark:border-slate-700 pl-3">
-                        <span className="text-[10px] text-slate-400 block">
-                          {selSupportsCarryover ? '누적/당월 소진' : '설정 수량'}
-                        </span>
-                        <span className="font-bold text-slate-700 dark:text-slate-200">
-                          {selSupportsCarryover
-                            ? krwFmt(selParams.monthly_spent ?? 0)
-                            : `${selectedTemplate.budget}`}
-                        </span>
-                      </div>
-                    </div>
-                  )
-                })()}
+              <div className="flex flex-wrap items-center gap-1.5 self-end lg:self-auto">
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigate(`/orders?tab=batches&template_id=${selectedTemplate.id}`)
+                  }
+                  className="flex items-center gap-1 rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
+                  title="주문 관리 > 전략 배치 묶음 화면으로 이동"
+                >
+                  <span>배치 주문 묶음</span>
+                  <ExternalLink size={11} />
+                </button>
 
                 <button
                   type="button"
@@ -1013,10 +1031,9 @@ export default function Operations() {
                     })
                   }
                   className="flex items-center gap-1 rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
-                  title="전략 설정 수정"
                 >
                   <Pencil size={12} />
-                  <span>수정</span>
+                  <span>설정 수정</span>
                 </button>
 
                 <button
@@ -1027,7 +1044,6 @@ export default function Operations() {
                     setTopupMemo('가용 예산 보충')
                   }}
                   className="flex items-center gap-1 rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
-                  title="예산 즉시 수동 추가 충전"
                 >
                   <Plus size={12} />
                   <span>충전</span>
@@ -1041,10 +1057,9 @@ export default function Operations() {
                     setLiquidateConfirmText('')
                   }}
                   className="flex items-center gap-1 rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-rose-50 hover:text-rose-600 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-rose-950/40 dark:hover:text-rose-400 transition-colors"
-                  title="비상 일시정지, 주문 취소 또는 전량 청산"
                 >
                   <ShieldAlert size={12} />
-                  <span>제어/청산</span>
+                  <span>비상 제어</span>
                 </button>
 
                 <button
@@ -1053,22 +1068,17 @@ export default function Operations() {
                   onClick={(e) => handleExecuteNow(selectedTemplate, e)}
                   className="flex items-center gap-1 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-emerald-700 disabled:opacity-50 transition-colors"
                 >
-                  <Play size={11} className={executingId === selectedTemplate.id ? 'animate-spin' : ''} />
+                  <Play
+                    size={11}
+                    className={executingId === selectedTemplate.id ? 'animate-spin' : ''}
+                  />
                   <span>즉시 실행</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setViewMode('management')}
-                  className="flex items-center gap-1 rounded-xl border border-indigo-200 px-2.5 py-1.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 dark:border-indigo-800 dark:text-indigo-400 dark:hover:bg-indigo-950/40 transition-colors"
-                >
-                  <span>목록 보기</span>
                 </button>
               </div>
             )}
           </div>
 
-          {/* 4대 탭 네비게이션 */}
+          {/* 상세 탭 네비게이션 */}
           <div className="space-y-4">
             <ResponsiveTabs
               tabs={workbenchTabs}
@@ -1076,12 +1086,14 @@ export default function Operations() {
               onChange={setActiveTab}
             />
 
-            {/* 탭별 컨텐츠 섹션 (전략 타입에 따라 적응형 렌더링) */}
             <div className="min-w-0">
-              {activeTab === 'rotation' && (
-                selectedTemplate ? (
+              {activeTab === 'rotation' &&
+                (selectedTemplate ? (
                   isTopDca ? (
-                    <TopRotationSection templateId={selectedTemplateId} />
+                    <TopRotationSection
+                      templateId={selectedTemplateId}
+                      onOpenSnapshot={() => setActiveTab('snapshot')}
+                    />
                   ) : (
                     <SingleStrategySection templateId={selectedTemplateId!} />
                   )
@@ -1089,37 +1101,14 @@ export default function Operations() {
                   <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-xs text-slate-400 dark:border-slate-700">
                     전략을 선택해주세요.
                   </div>
-                )
+                ))}
+
+              {activeTab === 'snapshot' && isTopDca && (
+                <DailySnapshotSection templateId={selectedTemplateId} />
               )}
 
               {activeTab === 'ledger' && (
                 <BudgetPlanSection templateId={selectedTemplateId} />
-              )}
-
-              {activeTab === 'batches' && (
-                selectedTemplateId ? (
-                  <OrderBatchesSection
-                    key={selectedTemplateId}
-                    templateId={selectedTemplateId}
-                    hideTemplateTabs
-                    initialGroupNo={
-                      (selectedTemplate?.params as any)?.last_group_no
-                        ? Number((selectedTemplate?.params as any)?.last_group_no)
-                        : undefined
-                    }
-                    onSelectGroupNo={(g, batch) => {
-                      const params = new URLSearchParams()
-                      params.set('group_no', String(g))
-                      if (batch?.template_id) params.set('template_id', String(batch.template_id))
-                      if (batch?.exchange) params.set('exchange', batch.exchange)
-                      navigate(`/orders?${params.toString()}`)
-                    }}
-                  />
-                ) : (
-                  <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-xs text-slate-400 dark:border-slate-700">
-                    전략을 선택해주세요.
-                  </div>
-                )
               )}
 
               {activeTab === 'timeline' && (
@@ -1274,9 +1263,7 @@ export default function Operations() {
                 </div>
               </div>
 
-              {/* 3단계 선택 라디오 카드 */}
               <div className="space-y-2.5">
-                {/* 1단계: 일시정지 */}
                 <label
                   className={`flex items-start gap-3 rounded-xl border p-3 cursor-pointer transition-colors ${
                     stopMode === 'pause'
@@ -1302,7 +1289,6 @@ export default function Operations() {
                   </div>
                 </label>
 
-                {/* 2단계: 중지 + 미체결 일괄 취소 */}
                 <label
                   className={`flex items-start gap-3 rounded-xl border p-3 cursor-pointer transition-colors ${
                     stopMode === 'stop_and_cancel'
@@ -1328,7 +1314,6 @@ export default function Operations() {
                   </div>
                 </label>
 
-                {/* 3단계: 즉시 전량 청산 */}
                 <label
                   className={`flex items-start gap-3 rounded-xl border p-3 cursor-pointer transition-colors ${
                     stopMode === 'terminate_and_liquidate'
@@ -1355,7 +1340,6 @@ export default function Operations() {
                 </label>
               </div>
 
-              {/* 3단계 청산 확인 문구 입력 */}
               {stopMode === 'terminate_and_liquidate' && (
                 <div className="rounded-xl border border-rose-200 bg-rose-50/60 p-3 dark:border-rose-900/60 dark:bg-rose-950/30 space-y-2">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-rose-700 dark:text-rose-400">
@@ -1363,7 +1347,8 @@ export default function Operations() {
                     <span>경고: 즉시 청산 확인</span>
                   </div>
                   <p className="text-[11px] text-rose-600 dark:text-rose-300">
-                    실제 계좌의 모든 보유 수량이 매도 주문 처리됩니다. 실행하시려면 아래에 <strong>전량청산</strong>을 입력하세요.
+                    실제 계좌의 모든 보유 수량이 매도 주문 처리됩니다. 실행하시려면 아래에{' '}
+                    <strong>전량청산</strong>을 입력하세요.
                   </p>
                   <input
                     type="text"

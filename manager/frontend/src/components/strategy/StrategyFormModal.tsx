@@ -16,6 +16,7 @@ import { ApiError } from '../../api/client'
 import { fetchStockCache, type StockCacheRow } from '../../api/stockCache'
 import { createTemplate, updateTemplate, type Template } from '../../api/templates'
 import AdvancedSection from '../ui/AdvancedSection'
+import TimePickerInput from '../ui/TimePickerInput'
 import { useToast } from '../../contexts/ToastContext'
 import { krwFmt, formatWithCommas, stripCommas } from '../../utils/formatters'
 import {
@@ -23,6 +24,8 @@ import {
   DEFAULT_SINGLE_FORM,
   buildPayload,
   templateToForm,
+  normalizeTimeInput,
+  isValidTimeInput,
   type TemplateFormState,
 } from './strategyTypes'
 
@@ -63,6 +66,11 @@ export default function StrategyFormModal({
   const isStockExchange = form.exchange === 'kis' || form.exchange === 'toss'
   const isCrypto = form.exchange === 'upbit' || form.exchange === 'bithumb'
   const isDcaForm = form.strategyType === 'dca' || form.strategyType === 'sdca'
+  const isTimeInvalid = useMemo(() => {
+    if (!isTopDcaForm && !isDcaForm) return false
+    if (!form.dcaExecTime || !form.dcaExecTime.trim()) return true
+    return !isValidTimeInput(normalizeTimeInput(form.dcaExecTime))
+  }, [isTopDcaForm, isDcaForm, form.dcaExecTime])
   const isSellGridForm = form.strategyType === 'sgrid'
 
   useEffect(() => {
@@ -246,7 +254,18 @@ export default function StrategyFormModal({
       }
     }
 
+
     let submitForm = form
+    if (isTopDcaForm || isDcaForm) {
+      const normTime = normalizeTimeInput(form.dcaExecTime)
+      if (!isValidTimeInput(normTime)) {
+        setFormError('실행 시각은 올바른 시간 형식(00:00 ~ 23:59, 예: 14:30)으로 입력해 주세요.')
+        return
+      }
+      submitForm = { ...submitForm, dcaExecTime: normTime }
+    }
+
+
     if (!isTopDcaForm && isStockExchange) {
       const q = form.ticker.trim().toLowerCase()
       const exactCode = stockList.find((s) => s.code.toLowerCase() === q)
@@ -957,15 +976,22 @@ export default function StrategyFormModal({
                         <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
                           매일 실행 시각 (KST)
                         </label>
-                        <input
-                          type="text"
-                          aria-label="매일 실행 시각"
-                          placeholder="09:10"
-                          value={form.dcaExecTime}
-                          onChange={(e) => setForm({ ...form, dcaExecTime: e.target.value })}
-                          className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                          required
-                        />
+                        <div className="mt-1">
+                          <TimePickerInput
+                            aria-label="매일 실행 시각"
+                            placeholder="09:10"
+                            value={form.dcaExecTime}
+                            onChange={(val) => setForm({ ...form, dcaExecTime: val })}
+                            required
+                            presets={[
+                              { label: '09:05 (장개장 직후)', time: '09:05' },
+                              { label: '09:10 (추천)', time: '09:10' },
+                              { label: '09:30', time: '09:30' },
+                              { label: '14:30 (오후 매수)', time: '14:30' },
+                              { label: '15:00 (장마감 전)', time: '15:00' },
+                            ]}
+                          />
+                        </div>
                       </div>
                     </div>
 
@@ -1430,14 +1456,15 @@ export default function StrategyFormModal({
                       <div className="grid grid-cols-2 gap-3 pt-1">
                         <div>
                           <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">실행 시각 (KST)</label>
-                          <input
-                            type="text"
-                            placeholder="09:05"
-                            value={form.dcaExecTime}
-                            onChange={(e) => setForm({ ...form, dcaExecTime: e.target.value })}
-                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                            required
-                          />
+                          <div className="mt-1">
+                            <TimePickerInput
+                              aria-label="실행 시각"
+                              placeholder="09:05"
+                              value={form.dcaExecTime}
+                              onChange={(val) => setForm({ ...form, dcaExecTime: val })}
+                              required
+                            />
+                          </div>
                         </div>
                         <div>
                           <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">주기 직접 입력 (선택)</label>
@@ -1758,7 +1785,7 @@ export default function StrategyFormModal({
                   ) : (
                     <button
                       type="button"
-                      disabled={saving}
+                      disabled={saving || (isTopDcaForm ? (topDcaStep === 4 && isTimeInvalid) : isTimeInvalid)}
                       onClick={onClose}
                       className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
                     >
@@ -1782,7 +1809,7 @@ export default function StrategyFormModal({
                     <button
                       key="top-dca-submit-btn"
                       type="submit"
-                      disabled={saving}
+                      disabled={saving || (isTopDcaForm ? (topDcaStep === 4 && isTimeInvalid) : isTimeInvalid)}
                       className="flex items-center gap-1.5 rounded-xl bg-violet-600 px-5 py-2 text-xs font-semibold text-white shadow-xs hover:bg-violet-700 disabled:opacity-50 transition-colors"
                     >
                       {saving && <Loader2 size={14} className="animate-spin" />}
@@ -1801,7 +1828,7 @@ export default function StrategyFormModal({
               <div className="flex w-full items-center justify-end gap-2.5">
                 <button
                   type="button"
-                  disabled={saving}
+                  disabled={saving || (isTopDcaForm ? (topDcaStep === 4 && isTimeInvalid) : isTimeInvalid)}
                   onClick={onClose}
                   className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
                 >
@@ -1809,7 +1836,7 @@ export default function StrategyFormModal({
                 </button>
                 <button
                   type="submit"
-                  disabled={saving}
+                  disabled={saving || (isTopDcaForm ? (topDcaStep === 4 && isTimeInvalid) : isTimeInvalid)}
                   className="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-indigo-700 disabled:opacity-50 transition-colors"
                 >
                   {saving && <Loader2 size={14} className="animate-spin" />}

@@ -59,6 +59,23 @@ const mockTemplates = [
       is_archived: true,
     },
   },
+  {
+    id: 5,
+    name: '한투 코스피 TOP 10 순환매',
+    exchange: 'kis',
+    ticker: 'TOP10',
+    strategy_type: 'dca',
+    budget: 100000,
+    interval_minutes: 1440,
+    params: {
+      strategy_status: 'active',
+      schedule_enabled: true,
+      universe_type: 'market_top_n',
+      progression_mode: 'top_n_rotation',
+      top_n: 10,
+      current_rank_index: 2,
+    },
+  },
 ]
 
 vi.mock('../api/templates', () => ({
@@ -78,7 +95,88 @@ vi.mock('../api/stockCache', () => ({
 }))
 
 vi.mock('../api/reports', () => ({
-  fetchTopRotationReport: vi.fn().mockResolvedValue(null),
+  fetchTopRotationReport: vi.fn().mockResolvedValue({
+    template: {
+      id: 5,
+      name: '한투 코스피 TOP 10 순환매',
+      exchange: 'kis',
+      budget: 100000,
+      interval_minutes: 1440,
+      params: {
+        strategy_status: 'active',
+        schedule_enabled: true,
+        top_n: 10,
+        current_rank_index: 2,
+        carryover_budget: 15000,
+      },
+    },
+    holdings_status: [],
+    batch_budget_logs: [],
+    orders: [],
+    trades: [],
+    master_top: [],
+    cycle_pipeline: {
+      cycle_no: 1,
+      rank_start: 1,
+      rank_end: 10,
+      total_targets: 10,
+      bought_count: 1,
+      progress_pct: 10,
+      pipeline: [
+        {
+          rank: 1,
+          code: '005930',
+          name: '삼성전자',
+          price: 75000,
+          target_qty: 1,
+          cost: 75000,
+          status: 'bought',
+          is_affordable: true,
+        },
+        {
+          rank: 2,
+          code: '000660',
+          name: 'SK하이닉스',
+          price: 180000,
+          target_qty: 1,
+          cost: 180000,
+          status: 'next',
+          is_affordable: false,
+        },
+      ],
+      next_target: null,
+      affordable_targets: [],
+    },
+    daily_execution_flow: [],
+    daily_snapshots: [
+      {
+        date: '2026-10-15',
+        group_no: 101,
+        cycle_no: 1,
+        total_price: 255000,
+        avg_price: 127500,
+        spent_krw: 75000,
+        carryover_budget: 25000,
+        items: [
+          { rank: 1, code: '005930', name: '삼성전자', price: 75000, is_bought: true },
+          { rank: 2, code: '000660', name: 'SK하이닉스', price: 180000, is_bought: false },
+        ],
+      },
+      {
+        date: '2026-11-10',
+        group_no: 102,
+        cycle_no: 1,
+        total_price: 262000,
+        avg_price: 131000,
+        spent_krw: 80000,
+        carryover_budget: 20000,
+        items: [
+          { rank: 1, code: '005930', name: '삼성전자', price: 78000, is_bought: true },
+          { rank: 2, code: '000660', name: 'SK하이닉스', price: 184000, is_bought: false },
+        ],
+      },
+    ],
+  }),
   fetchBudgetPlanSummary: vi.fn().mockResolvedValue(null),
   fetchBudgetAuditLedger: vi.fn().mockResolvedValue([]),
   fetchBatchTimeline: vi.fn().mockResolvedValue([]),
@@ -234,5 +332,37 @@ describe('Operations strategy filtering & localStorage persistence', () => {
 
     expect(JSON.parse(window.localStorage.getItem('sbm_operations_exchange_filter') || '""')).toBe('all')
     expect(JSON.parse(window.localStorage.getItem('sbm_operations_status_filter') || '""')).toBe('all')
+  })
+
+  it('opens strategy detail view on card click without duplicate batches tab and shows daily snapshot bar charts', async () => {
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter>
+        <ToastProvider>
+          <Operations />
+        </ToastProvider>
+      </MemoryRouter>,
+    )
+
+    const topCardTitle = await screen.findByText('한투 코스피 TOP 10 순환매')
+    await user.click(topCardTitle)
+
+    // Duplicate '전략 배치 주문 묶음' tab is removed; instead there is a quick link button to Orders batches
+    expect(screen.queryByRole('tab', { name: '전략 배치 주문 묶음' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /배치 주문 묶음/ })).toBeInTheDocument()
+
+    // Switch to '일단위 스냅샷 (차트)' tab (ResponsiveTabs renders mobile + desktop tabs)
+    const snapshotTabs = await screen.findAllByRole('tab', { name: '일단위 스냅샷 (차트)' })
+    await user.click(snapshotTabs[0])
+
+    // Verify period buttons (30일, 3개월, 6개월, 1년) and recording start date
+    expect(await screen.findByText(/기록 시작일:\s*2026-10-15/)).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '30일' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '3개월' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '6개월' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '1년' })).toBeInTheDocument()
+
+    // Verify 1~10 rank bar chart section renders
+    expect(screen.getByText(/순위별 종목 금액 Bar 차트/)).toBeInTheDocument()
   })
 })

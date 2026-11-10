@@ -138,8 +138,8 @@ export default function Sidebar() {
             <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
 
             {/* 테마 셀렉터 */}
-            <div className="flex items-center justify-between px-3 py-1.5">
-              <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">테마</span>
+            <div className="flex items-center justify-between px-3 py-2">
+              <span className="text-slate-700 dark:text-slate-200 whitespace-nowrap">테마</span>
               <div className="flex items-center gap-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 p-0.5">
                 <button
                   type="button"
@@ -151,7 +151,7 @@ export default function Sidebar() {
                   }`}
                   title="라이트 모드"
                 >
-                  <Sun size={13} />
+                  <Sun size={14} />
                 </button>
                 <button
                   type="button"
@@ -163,7 +163,7 @@ export default function Sidebar() {
                   }`}
                   title="다크 모드"
                 >
-                  <Moon size={13} />
+                  <Moon size={14} />
                 </button>
                 <button
                   type="button"
@@ -175,7 +175,7 @@ export default function Sidebar() {
                   }`}
                   title="시스템 모드"
                 >
-                  <Monitor size={13} />
+                  <Monitor size={14} />
                 </button>
               </div>
             </div>
@@ -183,25 +183,24 @@ export default function Sidebar() {
             <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
 
             {/* 피드백 보내기 버튼 */}
-            <div
+            <button
+              type="button"
               onClick={() => {
                 setMenuOpen(false)
                 setFeedbackOpen(true)
               }}
-              className="flex items-center justify-between px-3 py-1.5 rounded-xl cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors group"
+              className="w-full flex items-center justify-between px-3 py-2 rounded-xl cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors group text-left"
             >
-              <span className="text-xs text-slate-500 dark:text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-200 whitespace-nowrap">피드백</span>
+              <span className="text-slate-700 dark:text-slate-200 whitespace-nowrap">피드백</span>
               <div className="flex items-center rounded-lg bg-slate-100 dark:bg-slate-800 p-0.5">
-                <button
-                  type="button"
-                  tabIndex={-1}
-                  className="rounded-md p-1 text-slate-400 group-hover:text-primary-600 dark:text-slate-400 dark:group-hover:text-primary-400 group-hover:bg-white dark:group-hover:bg-slate-700 group-hover:shadow-sm transition-colors"
+                <span
+                  className="rounded-md p-1 text-slate-400 group-hover:text-primary-600 dark:text-slate-400 dark:group-hover:text-primary-400 group-hover:bg-white dark:group-hover:bg-slate-700 group-hover:shadow-sm transition-colors flex items-center justify-center"
                   title="피드백 보내기"
                 >
-                  <MessageSquarePlus size={13} />
-                </button>
+                  <MessageSquarePlus size={14} />
+                </span>
               </div>
-            </div>
+            </button>
 
             <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
 

@@ -63,6 +63,19 @@ export default function Orders() {
     tabParam === 'batches' ? 'batches' : 'open'
   )
 
+  // URL 쿼리 파라미터(tab, group_no, template_id) 변경 시 뷰 모드와 필터 동기화
+  useEffect(() => {
+    if (tabParam === 'batches' || tabParam === 'open' || tabParam === 'history') {
+      setViewMode(tabParam)
+    }
+    if (groupNoParam) {
+      setGroupNoFilter(Number(groupNoParam))
+    }
+    if (templateIdParam) {
+      setTemplateIdFilter(Number(templateIdParam))
+    }
+  }, [tabParam, groupNoParam, templateIdParam, setViewMode])
+
   // 데이터 상태
   const [data, setData] = useState<OrdersData | null>(null)
   const [loading, setLoading] = useState(true)

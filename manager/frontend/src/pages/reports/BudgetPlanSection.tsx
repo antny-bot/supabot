@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  DollarSign, RotateCcw, Edit3, Layers
+  DollarSign, RotateCcw, Edit3, Layers, ChevronDown, ChevronUp
 } from 'lucide-react'
 import {
   fetchTemplates, type Template,
@@ -35,9 +35,10 @@ export default function BudgetPlanSection({ templateId }: BudgetPlanSectionProps
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // 모달 상태
+  // 모달 및 아코디언 상태
   const [showEditModal, setShowEditModal] = useState(false)
   const [showResetModal, setShowResetModal] = useState(false)
+  const [showHealthCard, setShowHealthCard] = useState(false)
 
   // 플랜 수정 폼
   const [editMode, setEditMode] = useState<'total' | 'monthly' | 'daily'>('monthly')
@@ -188,42 +189,59 @@ export default function BudgetPlanSection({ templateId }: BudgetPlanSectionProps
   const currentParams = selectedTemplate?.params || {}
   return (
     <div className="space-y-4">
-      {/* 1. 상단 거래소별 통합 예수금 Health Check 카드 */}
-      <BudgetHealthCard healthData={healthData} />
+      {/* 1. Budget Plan 컨트롤 바 (단독 실행 시 전략 선택 노출, 전략 운용 내부에서는 액션 버튼만 간결하게 표시) */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-800 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs">
+        {!templateId ? (
+          <div className="flex items-center gap-2">
+            <Layers size={18} className="text-indigo-600 dark:text-indigo-400" />
+            <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">플랜 대상 전략:</span>
+            <select
+              value={selectedTemplateId || ''}
+              onChange={(e) => handleSelectTemplate(Number(e.target.value))}
+              className="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-1.5 text-sm font-medium text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  #{t.id} {t.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 text-xs">
+            <DollarSign size={16} className="text-indigo-600 dark:text-indigo-400" />
+            <span className="font-bold text-slate-800 dark:text-slate-100">
+              예산 플랜 & 통장식 감사 원장
+            </span>
+          </div>
+        )}
 
-      {/* 2. 템플릿 선택 및 Budget Plan 컨트롤 보드 */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
-        <div className="flex items-center gap-2">
-          <Layers size={18} className="text-indigo-600 dark:text-indigo-400" />
-          <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">플랜 대상 전략:</span>
-          <select
-            value={selectedTemplateId || ''}
-            onChange={(e) => handleSelectTemplate(Number(e.target.value))}
-            className="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-1.5 text-sm font-medium text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowHealthCard((v) => !v)}
+            className="flex items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2.5 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 transition-colors"
           >
-            {templates.map((t) => (
-              <option key={t.id} value={t.id}>
-                #{t.id} {t.name}
-              </option>
-            ))}
-          </select>
-        </div>
+            <span>계좌 예수금 점검</span>
+            {showHealthCard ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+          </button>
 
-        <div className="flex items-center gap-2">
-          {currentParams.strategy_status === 'active' ? (
-            <button
-              onClick={() => handleHoldingToggle(true)}
-              className="rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/40 px-3 py-1.5 text-xs font-semibold text-amber-800 dark:text-amber-200"
-            >
-              ⏸️ Holding (일시보류) 전환
-            </button>
-          ) : (
-            <button
-              onClick={() => handleHoldingToggle(false)}
-              className="rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950/40 px-3 py-1.5 text-xs font-semibold text-emerald-800 dark:text-emerald-200"
-            >
-              🟢 Active (재가동) 전환
-            </button>
+          {!templateId && (
+            currentParams.strategy_status === 'active' ? (
+              <button
+                onClick={() => handleHoldingToggle(true)}
+                className="rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/40 px-3 py-1.5 text-xs font-semibold text-amber-800 dark:text-amber-200"
+              >
+                ⏸️ Holding 전환
+              </button>
+            ) : (
+              <button
+                onClick={() => handleHoldingToggle(false)}
+                className="rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950/40 px-3 py-1.5 text-xs font-semibold text-emerald-800 dark:text-emerald-200"
+              >
+                🟢 Active 전환
+              </button>
+            )
           )}
 
           <button
@@ -254,6 +272,9 @@ export default function BudgetPlanSection({ templateId }: BudgetPlanSectionProps
           </button>
         </div>
       </div>
+
+      {/* 접이식: 거래소별 통합 예수금 Health Check 카드 */}
+      {showHealthCard && <BudgetHealthCard healthData={healthData} />}
 
       {/* 3. Budget Plan 세부 현황 KPI 카드 */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">

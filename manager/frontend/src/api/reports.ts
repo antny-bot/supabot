@@ -194,6 +194,26 @@ export interface DailyExecutionFlowItem {
   waiting_next?: any
 }
 
+export interface DailySnapshotRankItem {
+  rank: number
+  code: string
+  name: string
+  price: number
+  market_cap?: number
+  is_bought?: boolean
+}
+
+export interface DailySnapshotEntry {
+  date: string
+  group_no?: number | null
+  cycle_no?: number | null
+  total_price: number
+  avg_price: number
+  spent_krw: number
+  carryover_budget: number
+  items: DailySnapshotRankItem[]
+}
+
 export interface TopRotationReport {
   template: any
   holdings_status: any[]
@@ -203,6 +223,7 @@ export interface TopRotationReport {
   master_top: any[]
   cycle_pipeline?: CyclePipelineInfo
   daily_execution_flow?: DailyExecutionFlowItem[]
+  daily_snapshots?: DailySnapshotEntry[]
 }
 
 export const fetchTopRotationReport = (templateId: number, groupNo?: number | null) => {

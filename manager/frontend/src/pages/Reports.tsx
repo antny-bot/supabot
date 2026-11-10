@@ -59,7 +59,7 @@ export default function Reports() {
     } else if (tabFromUrl === 'budget_plan') {
       navigate('/operations?tab=ledger', { replace: true })
     } else if (tabFromUrl === 'batches') {
-      navigate('/operations?tab=batches', { replace: true })
+      navigate('/orders?tab=batches', { replace: true })
     }
   }, [tabFromUrl, navigate])
 

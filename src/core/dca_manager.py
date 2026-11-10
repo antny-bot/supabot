@@ -245,6 +245,24 @@ def parse_dca_time(raw: str) -> str:
             return f"{h:02d}:{m:02d}"
         raise ValueError("시간은 00:00 ~ 23:59 범위여야 합니다.")
 
+    # 3~4자리 연속 숫자 (예: "1430" -> 14:30, "905" -> 09:05, "0930" -> 09:30)
+    m_digits = re.match(r"^(\d{3,4})$", text)
+    if m_digits:
+        digits = m_digits.group(1)
+        h = int(digits[:-2])
+        m = int(digits[-2:])
+        if 0 <= h <= 23 and 0 <= m <= 59:
+            return f"{h:02d}:{m:02d}"
+        raise ValueError("시간은 00:00 ~ 23:59 범위여야 합니다.")
+
+    # 1~2자리 시(hour) 단위 숫자 (예: "14" -> 14:00, "9" -> 09:00)
+    m_hour_only = re.match(r"^(\d{1,2})$", text)
+    if m_hour_only:
+        h = int(m_hour_only.group(1))
+        if 0 <= h <= 23:
+            return f"{h:02d}:00"
+        raise ValueError("시간은 00:00 ~ 23:59 범위여야 합니다.")
+
     raise ValueError("실행 시각은 HH:MM (예: 09:05, 14:00) 형식으로 입력해 주세요.")
 
 

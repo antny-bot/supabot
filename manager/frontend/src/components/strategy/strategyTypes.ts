@@ -1,6 +1,68 @@
 import type { Template, TemplateParams } from '../../api/templates'
 import { formatWithCommas, stripCommas } from '../../utils/formatters'
 
+/**
+ * 사용자 입력 시간 문자열을 HH:MM (00:00 ~ 23:59) 형식으로 정규화한다.
+ * - '1430' -> '14:30'
+ * - '905' -> '09:05'
+ * - '14:30' -> '14:30'
+ * - '14시 30분' -> '14:30'
+ * - '14' -> '14:00'
+ */
+export function normalizeTimeInput(input: string): string {
+  const clean = String(input || '').trim()
+  if (!clean) return ''
+
+  // 1) 14:30, 9:05 등 콜론 형태
+  const colonMatch = clean.match(/^(\d{1,2}):(\d{1,2})$/)
+  if (colonMatch) {
+    const h = parseInt(colonMatch[1], 10)
+    const m = parseInt(colonMatch[2], 10)
+    if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+    }
+  }
+
+  // 2) 1430, 905 등 3~4자리 연속 숫자
+  const numMatch = clean.match(/^(\d{3,4})$/)
+  if (numMatch) {
+    const digits = numMatch[1]
+    const h = parseInt(digits.slice(0, digits.length - 2), 10)
+    const m = parseInt(digits.slice(-2), 10)
+    if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+    }
+  }
+
+  // 3) 14시 30분, 14시 등 한글 형태
+  const koMatch = clean.match(/^(\d{1,2})시(?:\s*(\d{1,2})분?)?$/)
+  if (koMatch) {
+    const h = parseInt(koMatch[1], 10)
+    const m = parseInt(koMatch[2] || '0', 10)
+    if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+    }
+  }
+
+  // 4) 1~2자리 숫자 (시 단위: 14 -> 14:00, 9 -> 09:00)
+  const hourMatch = clean.match(/^(\d{1,2})$/)
+  if (hourMatch) {
+    const h = parseInt(hourMatch[1], 10)
+    if (h >= 0 && h <= 23) {
+      return `${String(h).padStart(2, '0')}:00`
+    }
+  }
+
+  return clean
+}
+
+export function isValidTimeInput(timeStr: string): boolean {
+  if (!timeStr) return false
+  const match = timeStr.trim().match(/^([01]\d|2[0-3]):([0-5]\d)$/)
+  return Boolean(match)
+}
+
+
 export interface TemplateFormState {
   name: string
   exchange: string
@@ -179,7 +241,7 @@ export function buildPayload(form: TemplateFormState) {
     const isUnlimited = form.budgetMode === 'unlimited'
     payload.params = {
       schedule: form.dcaSchedule.trim() || '매일',
-      exec_time: form.dcaExecTime.trim() || '09:05',
+      exec_time: normalizeTimeInput(form.dcaExecTime) || '09:05',
       amount_type: form.dcaAmountType,
       max_runs: maxRuns,
       side: stype === 'sdca' ? 'ask' : 'bid',
@@ -232,7 +294,7 @@ export function buildPayload(form: TemplateFormState) {
       schedule_enabled: form.scheduleEnabled,
       is_dry_run: form.isDryRun,
       strategy_status: form.scheduleEnabled ? 'active' : 'paused',
-      schedule_time: form.dcaExecTime.trim() || '09:10',
+      schedule_time: normalizeTimeInput(form.dcaExecTime) || '09:10',
     } as any
   }
 
