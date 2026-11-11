@@ -143,6 +143,7 @@ services:
 | **관리자 전용** | `/halt` / `/resume` | 전역 거래 킬스위치 즉시 중지 / 재개 |
 | | `/dbsync` | Supabase DB 주문 상태를 메모리에 강제 재동기화 |
 | | `/resetuser <id>` | 특정 유저의 주문 추적 및 실적 완전 초기화 |
+| | `/backup [status\|now]` | Supabase 전체 백업 상태 조회 및 즉시 수동 백업 실행 |
 
 > 📖 핸들러 세부 구조 및 파라미터 명세: [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md)
 
@@ -177,7 +178,7 @@ supabot/
 │   │   ├── status_handlers.py     # /status 전략 대시보드 핸들러
 │   │   ├── config_handlers.py     # /config, /whoami 설정 핸들러
 │   │   ├── watch_handlers.py      # /watch, /unwatch 시그널 감시 핸들러
-│   │   ├── system_handlers.py     # /start, /halt, /resume, /dbsync, /resetuser 시스템 핸들러
+│   │   ├── system_handlers.py     # /start, /halt, /resume, /dbsync, /resetuser, /backup 시스템 핸들러
 │   │   └── nl_intent_handlers.py  # Gemini 자연어 인텐트 실행 및 콜백 핸들러
 │   └── core/                      # 핵심 비즈니스 로직 및 엔진
 │       ├── order_sync.py          # 거래소 실시간 주문 동기화 및 만료/체결 처리 엔진
@@ -190,8 +191,12 @@ supabot/
 │       ├── user_manager.py        # 멀티유저 권한/설정 관리
 │       ├── secret_crypto.py       # 사용자 키 Fernet 대칭키 암복호화
 │       ├── trading_gate.py        # 킬스위치 및 총 노출 한도 검증 게이트
-│       ├── db.py & db_sync.py     # Supabase REST 클라이언트 및 데이터 동기화
-│       └── natural_language.py    # Gemini 자연어 전처리 및 로깅
+│       ├── db.py & db_sync.py     # Supabase REST 클라이언트, SQLite 읽기 폴백 및 데이터 동기화
+│       ├── backup_manager.py      # Supabase 정기 백업, SQLite/ZIP 스냅샷 및 로컬/Drive 보존 관리
+│       ├── gdrive_client.py       # Google Drive REST API v3 업로드 및 OAuth 토큰 갱신
+│       ├── budget_ledger.py       # 전략 예산 원장(budget_ledger) 감사 기록 및 정산
+│       ├── natural_language.py    # Gemini 자연어 전처리 및 로깅
+│       └── nl_agent.py            # Gemini Function Calling 멀티턴 에이전트 루프
 ├── manager/                       # supabot-manager 웹 대시보드 (FastAPI + React/TS)
 ├── shared/schema.sql              # Supabase PostgreSQL 공유 스키마 (orders, users, logs 등)
 └── docs/                          # 체계적인 개발 문서 및 운영 가이드

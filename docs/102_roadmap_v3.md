@@ -36,6 +36,8 @@ V3 지향점: **① 전략/지표 다양화, ② 운영 안정성, ③ 자산 �
 - [x] **KOSPI/KOSDAQ 시총 TOP N 순환매매**: 마스터 스냅샷 일별 프리징, 일단위 진행 상태(Progression) 및 배치 대사(Reconciliation) 구현.
 - [x] **봇 코어 엔진 모듈화**: `order_sync.py`(주문 동기화/수명주기), `dca_manager.py`(DCA 스케줄러), `order_execution.py`(주문 실행) 완전 분리.
 - [x] **관리 UI 고도화 & MFA 탑재**: 전략 운용 및 템플릿 통합 메뉴 일원화, 필터링 영속화, Google Authenticator MFA 2차 인증 탑재.
+- [x] **Supabase 정기 백업 · Google Drive 연동 · 로컬 SQLite 폴백**: `backup_manager.py` 기반 14개 테이블 정기 SQLite/ZIP 덤프, `gdrive_client.py` · 웹 OAuth 클라우드 업로드, `data/fallback_latest.sqlite3` 읽기 전용 폴백 및 대시보드 백업 Health Card 도입.
+- [x] **텔레그램 Gemini Function Calling 멀티턴 에이전트**: `nl_agent.py` 기반 읽기 도구 18종(시세/잔고/지표 + Manager 리포트 10종)·변경 제안 7종 도구 체인 및 관리자 NL 로그 도구 추적 뷰 구축.
 
 ---
 

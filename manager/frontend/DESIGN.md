@@ -162,9 +162,9 @@ Prefer these app tokens over page-local `text-*` sizing:
 - **Orders** (`/orders`): `활성 주문(Open)`과 `주문 이력(History)` 듀얼 뷰 탭 분리.
 - **Trades** (`/trades`): 체결 거래 목록과 함께 실시간 매수/매도 비율 게이지 바 및 날짜 필터 제공.
 - **Templates** (`/templates`): 전략 템플릿 카드 라이브러리 및 폼 모달 제공 (그리드, 스마트그리드, RSI).
-- **Reports** (`/reports`): 이중 카테고리 그룹핑을 제거하고, 관리자 방식의 1차원 `ResponsiveTabs` 시트 메뉴(15개 탭)로 일원화. 기간 민감 탭 선택 시 하단 우측에 `DateRangePicker` 연동.
-- **Admin** (`/admin`, admin-only): `ResponsiveTabs` 시트 탭 기반. 대시보드(DB헬스 4 + 이벤트 8 벤토 그리드), 사용 분석(KPI + 명령 추이 7 + 빈도 5 벤토 그리드), 종목 캐시(단건 추가 5 + CSV/KRX 갱신 7 + 목록 12 벤토 그리드), 이벤트, 모니터링, NL 로그 등 관리.
-- **Config** (`/config`): `ResponsiveTabs` 시트 탭 기반 화면 표시, 보안(MFA) 설정.
+- **Reports** (`/reports`): 이중 카테고리 그룹핑을 제거하고, 관리자 방식의 1차원 `ResponsiveTabs` 시트 메뉴(12개 탭)로 일원화. 기간 민감 탭 선택 시 하단 우측에 `DateRangePicker` 연동.
+- **Admin** (`/admin`, admin-only): `ResponsiveTabs` 시트 탭 기반. 대시보드(DB헬스 4 + 이벤트 8 벤토 그리드, 백업 Health Card), 사용 분석(KPI + 명령 추이 7 + 빈도 5 벤토 그리드), 유저관리, 피드백, 이벤트, 주문 및 신호 주기, 종목 캐시(단건 추가 5 + CSV/KRX 갱신 7 + 목록 12 벤토 그리드), NL 로그(멀티턴 도구 체인 분석), 데이터 백업 관리.
+- **Config** (`/config`): `ResponsiveTabs` 시트 탭 기반 화면 표시, 프로필(닉네임·표시 시간대), 보안(MFA) 설정.
 
 ## Accordion / Collapsible Animation
 

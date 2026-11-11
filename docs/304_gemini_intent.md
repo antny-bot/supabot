@@ -83,6 +83,7 @@ flowchart TD
 
 ## 5. 미처리 자연어 로그 및 감사 추적
 
-Gemini 호출 문장은 `append_natural_language_log()`를 통해 기록되며, Function Calling 도구 호출 trace(`llm_action: "get_open_orders, propose_cancel_orders"`)가 함께 저장됩니다.
+Gemini 호출 문장은 `append_natural_language_log()`를 통해 기록되며, Function Calling 도구 호출 trace(`llm_action: "get_open_orders, propose_cancel_orders"`, `tool_trace`, `proposed_actions`)가 함께 저장됩니다.
 - 마스킹 규칙 준수: 개인정보 및 보안 토큰은 `<TOKEN>`, `<STOCK>`, `<NUMBER>`로 마스킹.
 - `nl_logs.confirm_status`: `auto`(조회), `pending`(승인 대기), `confirmed`(실행 완료), `rejected`(취소됨).
+- **Manager 리포트 연동 (`GET /api/reports/nl-logs`, `NlLogsSection.tsx`)**: 도구 체인(`tool_chain`, `is_multi_turn`) 자동 파싱, 도구 사용율·멀티턴 건수·승인율 KPI 및 도구 랭킹, 단계별 실행 Trace 아코디언 뷰 제공 (DB 장애 시 `data/nl_unmatched.jsonl` 폴백).

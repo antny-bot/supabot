@@ -9,7 +9,7 @@ supabot 봇 백엔드·관리 UI 모듈 구성, 핵심 데이터 스키마(Postg
 | 파일 | 책임 | 관련 개발 문서 |
 |------|------|-----------------|
 | `src/main.py` | 텔레그램 핸들러 등록, 스케줄러 등록 및 봇 실행 루프 진입점 | [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md) |
-| `src/internal_api.py` | 매니저 백엔드 연동 webhook API (HMAC 인증, `/internal/notify`, `/internal/order-events`) | — |
+| `src/internal_api.py` | 매니저 백엔드 연동 webhook API (HMAC 인증, `/internal/notify`, `/internal/execute_dca`, `/internal/order-events`, `/internal/backup/{trigger,status,download}` 등) | — |
 | `src/handlers/strategy_handlers.py` | 자동매매 전략 명령 처리 (`/rsitrade`, `/grid`, `/sgrid`, `/sgridrsi`) | [301_rsi_algorithm.md](file:///E:/apps/supabot/docs/301_rsi_algorithm.md) |
 | `src/handlers/dca_handlers.py` | 분할 적립식 매수 명령 처리 (`/dca`) | [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md) |
 | `src/handlers/manual_order_handlers.py` | 수동 주문 명령 처리 (`/buy`, `/sell`, `/cancel`) | [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md) |
@@ -18,13 +18,13 @@ supabot 봇 백엔드·관리 UI 모듈 구성, 핵심 데이터 스키마(Postg
 | `src/handlers/status_handlers.py` | 통합 전략 대시보드 명령 처리 (`/status`) | [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md) |
 | `src/handlers/config_handlers.py` | API 키 및 환경설정 핸들러 (`/config`, `/whoami`) | [103_exchange_api_setup.md](file:///E:/apps/supabot/docs/103_exchange_api_setup.md) |
 | `src/handlers/watch_handlers.py` | 실시간 시그널 감시 핸들러 (`/watch`, `/unwatch`) | [204_signal_engine.md](file:///E:/apps/supabot/docs/204_signal_engine.md) |
-| `src/handlers/system_handlers.py` | 시스템 관리 명령 처리 (`/start`, `/halt`, `/resume`, `/dbsync`, `/resetuser`) | [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md) |
+| `src/handlers/system_handlers.py` | 시스템 관리 명령 처리 (`/start`, `/halt`, `/resume`, `/dbsync`, `/resetuser`, `/backup`) | [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md) |
 | `src/handlers/nl_intent_handlers.py` | Gemini 자연어 인텐트 실행 및 콜백 핸들러 | [304_gemini_intent.md](file:///E:/apps/supabot/docs/304_gemini_intent.md) |
 | `src/core/order_sync.py` | 거래소 실시간 주문 동기화 엔진 (체결/취소/만료 감지, 사후 액션 유발, KIS 재주문 및 예약주문 정규장 처리) | [202_order_manager.md](file:///E:/apps/supabot/docs/202_order_manager.md) |
 | `src/core/order_execution.py` | 주문 생성 및 체결 사후 연동 처리 | [202_order_manager.md](file:///E:/apps/supabot/docs/202_order_manager.md) |
 | `src/core/order_manager.py` | 주문 상태 관리 (DB 우선 + 파일 폴백) | [202_order_manager.md](file:///E:/apps/supabot/docs/202_order_manager.md) |
 | `src/core/dca_manager.py` | DCA 적립식/분할 매매 스케줄러 (시장가/지정가 주문, 휴장일/서킷브레이커 이월 관리) | [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md) |
-| `src/core/budget_ledger.py` | 전략 예산 원장(budget_ledger) 감사 기록 및 carryover_budget 차감/정산 | [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md) |
+| `src/core/budget_ledger.py` | 전략 예산 원장(`budget_ledger`) 감사 기록(`BUY_ORDER_SPEND`, `BUY_ORDER_ADJUST`, `ORDER_CANCEL_REFUND`) 및 `carryover_budget` 차감/정산 | [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md) |
 | `src/core/exchange_adapter.py` | 거래소 레지스트리/파사드 | [201_exchange_adapter.md](file:///E:/apps/supabot/docs/201_exchange_adapter.md) |
 | `src/core/exchanges/base.py` | `BaseExchange` — 거래소 capability 기본값 정의 | [201_exchange_adapter.md](file:///E:/apps/supabot/docs/201_exchange_adapter.md) |
 | `src/core/exchanges/{upbit,bithumb,kis,toss}.py` | 거래소별 HTTP/인증 구현 및 capability 오버라이드 | [201_exchange_adapter.md](file:///E:/apps/supabot/docs/201_exchange_adapter.md) |
@@ -33,9 +33,12 @@ supabot 봇 백엔드·관리 UI 모듈 구성, 핵심 데이터 스키마(Postg
 | `src/core/indicators.py` | RSI/MACD/볼린저/스토캐스틱 계산 (`ta`) | — |
 | `src/core/user_manager.py` | 유저 설정·권한 (DB 우선 + 파일 폴백) | [203_user_manager.md](file:///E:/apps/supabot/docs/203_user_manager.md) |
 | `src/core/trading_gate.py` | 글로벌 거래 중지(kill-switch) + 총 노출 한도 게이트 | [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md) |
-| `src/core/db.py` & `db_sync.py` | Supabase REST 클라이언트 (requests 기반, ALPN 회피) 및 동기화 | — |
+| `src/core/db.py` & `db_sync.py` | Supabase REST 클라이언트 (`requests` 기반, ALPN 회피, 다중 컬럼 `.order()`), SQLite 읽기 폴백(`query_fallback`) 및 동기화 | — |
+| `src/core/backup_manager.py` | Supabase 14개 테이블 정기 백업, SQLite 스냅샷(`fallback_latest.sqlite3`), ZIP 패키징 및 로컬/Drive 보존 정책 | [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md) |
+| `src/core/gdrive_client.py` | Google Drive REST API v3 연동 및 OAuth 토큰 관리 (표준 `urllib`) | — |
 | `src/core/secret_crypto.py` | 사용자 키 Fernet 암복호화 (`enc:v1:`) | [205b_security_logging.md](file:///E:/apps/supabot/docs/205b_security_logging.md) |
-| `src/core/natural_language.py` | NL 전처리 + Gemini 인텐트 처리 + `nl_logs` 기록 | [304_gemini_intent.md](file:///E:/apps/supabot/docs/304_gemini_intent.md) |
+| `src/core/natural_language.py` | NL 전처리 + Gemini 인텐트 처리 + `nl_logs` 기록 (도구 trace/제안 액션 보존) | [304_gemini_intent.md](file:///E:/apps/supabot/docs/304_gemini_intent.md) |
+| `src/core/nl_agent.py` | Gemini Function Calling 멀티턴 에이전트 루프 (읽기 18종 / 변경 제안 7종 도구) | [304_gemini_intent.md](file:///E:/apps/supabot/docs/304_gemini_intent.md) |
 | `src/core/formatters.py` | Telegram 메시지 포매팅 | — |
 | `src/core/parsers.py` | 거래소명·숫자(억/만)·RSI 파싱, KIS 세션 판정 | [205c_utility_parsers.md](file:///E:/apps/supabot/docs/205c_utility_parsers.md) |
 | `src/core/stock_resolver.py` | 한국 주식 종목명→코드 해석 (DB 캐시 연동) | — |
@@ -45,6 +48,7 @@ supabot 봇 백엔드·관리 UI 모듈 구성, 핵심 데이터 스키마(Postg
 | `src/core/operational_events.py` | 운영 이벤트 (DB + 파일 이중기록, 마스킹) | [205b_security_logging.md](file:///E:/apps/supabot/docs/205b_security_logging.md) |
 | `src/core/bot_logger.py` | 구조화 JSON 로깅 (stdout) | — |
 | `data/orders.json` · `users.json` | DB 폴백/로컬 캐시 (0600) | — |
+| `data/fallback_latest.sqlite3` · `data/backups/` | Supabase 정기 백업 SQLite 읽기 폴백 스냅샷 및 로컬 백업 ZIP 보관 | — |
 | `config/.env` | BOT_TOKEN, ADMIN_CHAT_ID, SUPABASE_*, MANAGER_API_KEY | — |
 
 ---
@@ -55,11 +59,12 @@ FastAPI 백엔드 + React/TypeScript(Vite+Tailwind) SPA. Synology Docker 배포 
 
 | 파일 | 책임 |
 |------|------|
-| `manager/backend/main.py` | FastAPI 앱, 세션, 로그인/로그아웃 |
-| `manager/backend/db.py` | Supabase REST 클라이언트 (= `src/core/db.py`) |
+| `manager/backend/main.py` | FastAPI 앱, 세션, 로그인/Google OAuth/로그아웃, TOP N 단일 워커 스케줄러(`_acquire_scheduler_lock`) |
+| `manager/backend/db.py` | Supabase REST 클라이언트 (= `src/core/db.py`, `nl_logs` 조회 시 `data/nl_unmatched.jsonl` 폴백 포함) |
 | `manager/backend/auth.py` | Supabase Auth 이메일/비번 로그인 |
-| `manager/backend/bot_client.py` | 봇 `/internal/notify`, `/internal/execute_dca`, `/internal/order-events` 연동 |
-| `manager/backend/routers/` | dashboard, users, orders, trades, events, sysconfig, reports, templates, mfa, analytics, stock_cache (11개 라우터) |
+| `manager/backend/gdrive.py` | Manager 전용 Google OAuth 토큰 교환, Fernet 암호화(`enc:v1:`) 및 사용자 이메일 조회 |
+| `manager/backend/bot_client.py` | 봇 `/internal/notify`, `/internal/execute_dca`, `/internal/order-events`, `/internal/backup/*` 연동 |
+| `manager/backend/routers/` | dashboard, users, orders, trades, events, sysconfig, reports, templates, mfa, analytics, stock_cache, feedbacks, backup (13개 라우터) |
 | `manager/backend/services/budget_manager.py` | 예산 플랜 관리, 감사 원장(budget_ledger) 및 예수금 Health Check 전담 엔진 |
 | `manager/backend/services/progression_manager.py` | 전략 일단위 실행 흐름, 진행 상태 및 대사(Reconciliation), 주문 취소/이월 처리 |
 | `manager/backend/services/order_planner.py` | 목표 비중/수량 기반 주문 생성 및 슬리피지/호가 플래너 |
@@ -92,6 +97,7 @@ FastAPI 백엔드 + React/TypeScript(Vite+Tailwind) SPA. Synology Docker 배포 
   "next_check_at": 0.0,
   "reorder_of": null,          // 재주문 시 이전 uuid
   "stop_price": null,          // rsitrade_sell 전용: 손절 기준가 (stop_loss_pct로 계산)
+  "order_type": null,          // "limit" | "market" | null (DCA 등 주문 유형 구분)
   "template_id": null          // 전략 템플릿 ID (예산 플랜 및 감사 추적 연결)
 }
 ```
@@ -120,7 +126,8 @@ FastAPI 백엔드 + React/TypeScript(Vite+Tailwind) SPA. Synology Docker 배포 
       "llm_model": "gemini-2.5-flash",
       "poll_active_interval": 60,
       "poll_no_order_interval": 300,
-      "signal_analysis_interval": 300
+      "signal_analysis_interval": 300,
+      "timezone": "Asia/Seoul"     // Manager UI 표시 시간대 (/api/me/profile 연동)
     },
     "exchanges": {
       "upbit":   { "access_key": "", "secret_key": "", "watchlist": [] },
@@ -147,7 +154,7 @@ FastAPI 백엔드 + React/TypeScript(Vite+Tailwind) SPA. Synology Docker 배포 
 | `command_log_daily` | 명령어 사용 일별 요약 (Analytics 분석용) |
 | `kr_stock_cache` | 한국 주식 종목명→코드 DB 캐시 (TTL 90일) |
 | `strategy_templates` | 사용자별 전략 템플릿 (매개변수 params JSONB, 예산 플랜, 실행 설정) |
-| `dca_schedules` | 정기 분할/적립식 매매 스케줄러 (주기, 요일, 실행시각, 주문방식(market/limit), 이월모드) |
+| `dca_schedules` | 정기 분할/적립식 매매 스케줄러 (주기, 요일, 실행시각, 주문방식 `order_type`, 이월모드 `carryover_mode`, `template_id`) |
 | `budget_ledger` | 전략별 예산 감사 원장 (5대 불변식 보장, 일일충전/주문차감/환원/수수료정산 내역) |
 | `market_top_snapshots` | KOSPI/KOSDAQ/코인 시장별 마스터 시가총액 TOP 50 프리징 일별 스냅샷 |
 | `feedbacks` | 사용자 피드백 및 오류 보고 접수 |

@@ -48,7 +48,7 @@ valid    = await adapter.validate_api_keys(user_id, exchange)
 | **Upbit** | CLI subprocess | `asyncio.create_subprocess_exec("upbit", ..., "--access-key", "--secret-key")`. Node.js 바이너리, 세션 없음. |
 | **Bithumb** | REST + JWT (HS256) | `_bithumb_session` (aiohttp) 재사용. `_get_bithumb_jwt()` 요청마다 JWT 생성, write endpoint SHA512 query hash 포함. |
 | **KIS** | OAuth2 client_credentials | `_kis_session` (aiohttp) 재사용. 토큰 `_kis_tokens["{user_id}:{env}:{app_key}"]` 캐시 (만료 60초 전 갱신). `env="paper"` → `openapivts.koreainvestment.com:29443`, `env="real"` → `openapi.koreainvestment.com:9443`. TR_ID는 paper/real별 상이. |
-| **Toss** | OAuth2 Bearer | `_toss_session` (aiohttp) 재사용. 토큰 `_toss_tokens["{user_id}:{client_id}"]` 캐시. 인증: `POST /api/v1/oauth2/token` (client_credentials). 주문·잔고 요청 `X-Tossinvest-Account: {account_seq}` 헤더 첨부. `account_seq` 최초 validate 시 `_get_toss_account_seq()` 자동 조회·저장. 엔드포인트: `openapi.tossinvest.com`. **국내(005930)·해외(AAPL) 동일 엔드포인트, symbol로 시장 자동판별** — 해외주식 세부 `docs/303_toss_overseas_stock.md`. |
+| **Toss** | OAuth2 Bearer | `_toss_session` (aiohttp) 재사용. 토큰 `_toss_tokens["{user_id}:{client_id}"]` 캐시 및 이벤트 루프별 `asyncio.Lock`(`_get_toss_token_lock`)으로 동시 재발급 충돌 방지. 인증: `POST /oauth2/token` (client_credentials). `token-revoked` 응답 시 캐시 무효화 후 1회 자동 재시도(`_invalidate_toss_token`). 주문·잔고 요청 `X-Tossinvest-Account: {account_seq}` 헤더 첨부. `account_seq` 최초 validate 시 `_get_toss_account_seq()` 자동 조회·저장. 엔드포인트: `openapi.tossinvest.com`. **국내(005930)·해외(AAPL) 동일 엔드포인트, symbol로 시장 자동판별** — 해외주식 세부 `docs/303_toss_overseas_stock.md`. |
 
 ## 정규화 캔들 형식
 

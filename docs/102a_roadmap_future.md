@@ -30,7 +30,7 @@ supabot V3 미래 페이즈 및 기술 로드맵 명세.
 - [ ] **세션 보안**: 웹 UI 로그인 세션 강제 검증, HTTPS 강제 미들웨어, 쿠키 보안 설정 (`secure`/`httponly`/`samesite`).
 - [x] **구조화 로깅**: `src/core/bot_logger.py` 활용한 JSON 형식 stdout 로그 수집.
 - [x] **헬스체크 & 기동 검증**: docker-compose healthcheck 연동 (`data/health.json`), 기동 시 `.env` 주요 환경 변수 강제 검증.
-- [x] **백업 및 복구**: `scripts/backup.sh` 자동 백업 쉘 스크립트 작성.
+- [x] **백업 및 복구**: `scripts/backup.sh` 자동 백업 스크립트 + `src/core/backup_manager.py` 기반 Supabase 14개 테이블 정기 SQLite/ZIP 덤프, Google Drive OAuth 클라우드 업로드(`gdrive_client.py`), 로컬 SQLite 읽기 폴백(`data/fallback_latest.sqlite3`) 및 대시보드 백업 Health Card 연동.
 - [x] **DB 장애 복구 동기화**: DB 다운 시 로컬 JSON 임시 누적 후 DB 복구 시점 재시도 동기화 트랜잭션 구축.
 - [x] **Webhook 검증**: `/internal/notify` 엔드포인트 호출 시 HMAC 서명 검증 및 IP 필터 적용.
 
@@ -48,7 +48,7 @@ supabot V3 미래 페이즈 및 기술 로드맵 명세.
 - [x] **Upbit API 포팅**: Node.js subprocess 호출 방식을 `aiohttp`/`pyupbit` 기반 순수 비동기 파이썬 코드로 이관.
 
 ### 중기 계획
-- [ ] **KIS 시장가**: KIS 주문에 시장가(`ORD_DVSN`) 전송 옵션 구현.
+- [x] **KIS 시장가**: KIS 주문에 시장가(`ORD_DVSN="01"`) 전송 옵션 구현 (`src/core/exchanges/kis.py`).
 - [x] **KIS 분할 매매 & 주식 주문 지원**: 주식(KIS/Toss) 정수/소수점 수량, 정규장 시장가/지정가, 장외 예약 주문(`reserved`) 및 익일 재주문 지원.
 - [ ] **신규 거래소 연동**: 바이낸스 등 글로벌 거래소 어댑터 추가.
 - [x] **실시간 시세 엔진**: Upbit/Bithumb/KIS WebSocket 연동 실시간 시세 수집 및 캔들 업데이트 구조 구축.

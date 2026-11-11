@@ -50,7 +50,8 @@ manager.add_order(
     target_rsi=None,      # float, rsitrade/gridrsi/sgridrsi 레그 전용
     linked_to=None,       # rsitrade/gridrsi 매수 레그: 매도 목표 RSI(float). sgridrsi는 None
     template_id=None,     # int | None, 전략 템플릿 연결 (매도 주문 시 매수 템플릿 ID 승계)
-    status="wait"
+    status="wait",
+    order_type=None       # "limit" | "market" | None
 )
 
 manager.update_order_fill(uuid, filled_volume, status)  # 부분/전체 체결 업데이트
@@ -75,11 +76,12 @@ manager.clear_user_orders(user_id)  # 해당 유저의 모든 주문을 DB+메�
 | `reorder_of` | `replace_order_uuid` 이전 uuid 저장 (감사 체인) |
 | `next_check_at` | Unix timestamp. sync 루프 건너뜀 시각 |
 | `template_id` | 전략 템플릿 ID (RSI 연결 매도 주문, 부분 체결, 예산 감사 원장 연동 시 승계) |
+| `order_type` | 주문 유형 (`"limit"` \| `"market"` \| `None`). DCA 지정가 취소 환원(`ORDER_CANCEL_REFUND`) 및 시장가 차액 정산(`BUY_ORDER_ADJUST`) 분기 기준 |
 
 전체 스키마 `CLAUDE.md` 참조.
 
 ## 영속화 세부 사항
-- DB-우선: `is_db_available()` 시 `orders` 테이블 사용. 쓰기 `_db_upsert`/`_db_delete`, `uuid` PK.
+- DB-우선: `is_db_available()` 시 `orders` 테이블 사용. 쓰기 `_db_upsert`/`_db_delete`, `uuid` PK. DB 리로드/upsert/delete 실패 시 `operational_events`에 오류 기록 후 파일 폴백 및 `db_sync` 재시도 큐 적재.
 - 컬럼 매핑: `created_at` / `next_check_at` Unix timestamp (`DOUBLE PRECISION`) 저장 — 변환 없음.
 - 파일 폴백: DB 미사용/실패 시 `data/orders.json` (인자 변경 가능), 쓰기 후 `chmod 0600` 적용.
 - asyncio 단일 이벤트 루프 → 잠금 불필요.

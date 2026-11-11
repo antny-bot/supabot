@@ -12,7 +12,8 @@
   - `USER_SECRET_KEY` 미설정/부적합 시 평문 읽기만 지원, 새 secret 저장 불가.
   - 키 불일치 시 `get_user()` secret 필드 빈 값 반환 + `_secret_error` 표시하여 오작동 예방.
 - **검증 캐시**: 저장 직후 API 키 유효성 검증 결과를 캐시하여 `/config -v` 에서 마지막 성공/실패 시각 표시 (매번 라이브 호출 차단).
-- **모듈**: `core.secret_crypto` 분리 (`encrypt_secret`/`decrypt_secret`).
+- **모듈**: `core.secret_crypto` 분리 (`encrypt_secret`/`decrypt_secret`, `can_decrypt_secrets()`로 `USER_SECRET_KEY` Fernet 형식 사전 검증).
+- **Google Drive 백업 토큰 암호화**: `manager/backend/gdrive.py`가 웹 OAuth 연동 시 발급받은 Refresh Token을 `enc:v1:` 포맷(`USER_SECRET_KEY` 우선, 미설정 시 `MANAGER_API_KEY`/`SESSION_SECRET` 파생 키)으로 `system_config.backup_gdrive_refresh_token`에 암호화 저장하고, `src/core/backup_manager.py`가 `decrypt_secret()`으로 복호화 사용.
 
 ## 이벤트 로그 및 일회용 토큰
 

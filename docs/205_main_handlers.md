@@ -47,6 +47,7 @@ KST = timezone(timedelta(hours=9))
 | `/cancelno` | `cancelno_command` | 배치 번호(#N) 기준 주문 묶음 취소 |
 | `/watch` | `watch_command` | RSI 감시 대상 종목 추가 |
 | `/unwatch` | `unwatch_command` | RSI 감시 대상 종목 제거 |
+| `/backup` | `backup_command` | (관리자 전용) 정기 백업 상태 조회(`status`) 및 즉시 수동 백업(`now`) |
 | `(일반 텍스트)` | `natural_language_command` | Gemini 자연어 분석 처리 |
 
 *(※ `/me`, `/p`, `/ind`, `/cfg`, `/rsigrid` 등 단축/비밀 alias는 텔레그램 공식 메뉴에 미노출, CommandHandler로 작동)*
@@ -101,7 +102,7 @@ stateDiagram-v2
 - 주기적 주문 및 스케줄 통합 실행 루프:
   1. `order_manager` / `dca_manager` / `user_manager` DB 비동기 리로드.
   2. `execute_due_dca_schedules(...)`: 실행 시각 도래한 정기 매수/매도(DCA/SDCA) 스케줄 주문 제출:
-     - **주문 방식**: 지정가(`limit`, 호가 버퍼 반영) 및 시장가(`market`, 즉시 체결, 코인 거래소는 총액 매수) 지원. 시장가 매수 체결 완료 시 실제 체결 수량으로 `orders`의 `volume`을 자동 보정하며, 실제 소요 금액과 당초 주문 추정액의 차액을 `budget_ledger`(`BUY_ORDER_ADJUST`)에 정산(지정가 주문은 수량 보정 제외).
+     - **주문 방식**: 지정가(`limit`, 호가 버퍼 반영) 및 시장가(`market`, 즉시 체결, 코인 거래소는 총액 매수) 지원. 시장가 매수 체결 완료 시 실제 체결 수량으로 `orders`의 `volume`을 자동 보정하며, 실제 소요 금액과 당초 주문 추정액의 차액을 `budget_ledger`(`BUY_ORDER_ADJUST`)에 정산(지정가 주문은 수량 보정 제외). 실행 시각 파서(`parse_dca_time`)는 `HH:MM` 외에도 `1430`/`905` 등 3~4자리 숫자 및 `14`/`9` 등 시(hour) 단위 숫자 입력 지원.
      - **예산 한도 및 원장 연동**: 템플릿 연동 KRW 매수 시 주문 접수 직후 `budget_ledger`(`BUY_ORDER_SPEND`)에 불변 감사 원장을 기록하고 최신 `params`의 잔액만 원자적으로 차감. volume형 매수는 시장가/지정가 기준 평가 가격(`eval_price`)으로 1주 가격 및 최대 매수 수량을 사전 검사하여 잔액 초과 방지. DB 쿼리 실패 시 5분 안전 보류.
      - **이월 정책 및 상태 관리**: 거래소 휴장 또는 사이드카/서킷브레이커 감지 시 이월 모드(`next_day`, `delay_20m`, `skip`) 적용. 사이드카 지속 시 최대 12회(4시간) 상한 초과 후 일반 실패로 전환하며, 휴장 이월(`delay_20m`/`next_day`) 및 성공·일반 실패 시 `carryover_count`는 `_clear_carryover`/`_set_carryover` 헬퍼를 통해 스케줄과 원본 양쪽에서 즉시 초기화. 알림은 최초 1회만 발송하며 실제 재시도 시점에 맞게 문구 분기(+20분 이월 vs 다음 개장 이월).
      - **안전 게이트**: 비활성 유저 최우선 검사 및 글로벌 킬스위치 활성화 시 알림 없는 5분 무음 지연.
@@ -115,6 +116,11 @@ stateDiagram-v2
 ### signal_analysis_loop
 - `signal_engine.analyze_watchlist(application)` 주기적 실행.
 - 간격: `signal_analysis_interval` (300초). `system_config` 테이블 값 우선 사용.
+
+### backup_loop (`src/core/backup_manager.py`)
+- `post_init`에서 `start_backup_loop()` 기동 (기본 체크 주기 600초).
+- `system_config`의 백업 주기(`interval` 또는 `weekly`, 실행 시각 `time_of_day` KST)에 도달하면 Supabase 14개 테이블을 덤프하여 SQLite 스냅샷(`data/fallback_latest.sqlite3`) 및 ZIP(`data/backups/supabot-backup-*.zip`) 생성.
+- Google Drive OAuth가 연동되어 있으면 클라우드 업로드(`gdrive_client.py`) 후 로컬/원격 보존 개수(`local_max_keep`, `gdrive_max_keep`)에 따라 오래된 백업 정리.
 
 ### sync_orders 핵심 처리 흐름 (`src/core/order_sync.py`)
 1. **취소 요청 주문 우선 처리 (`status == "cancel_requested"`, `_handle_cancel_requested`)**:
@@ -134,8 +140,9 @@ stateDiagram-v2
 6. **연동 주문 익절 매도**:
    - rsitrade/gridrsi 매수 체결 완료 및 `linked_to` 존재 시 목표 익절가 계산 후 즉시 매도 주문 전송 (`rsitrade_sell`).
    - 이때 매수 주문의 `template_id`를 그대로 승계하여 등록함으로써 체결 및 매도 대금의 예산 원장(Ledger) 환원·재투자 감사 추적성을 일관되게 보장.
-7. **종료 판정**:
+7. **종료 판정 및 예산 환원**:
    - `done`/`cancel` 도달 시 추적 리스트에서 제외 (KIS 전략 등은 제외).
+   - 지정가 DCA 매수 주문이 취소·외부개입 만료로 종료되면 `_refund_unfilled_budget()`이 미체결 잔량 몫을 계산해 `budget_ledger`(`ORDER_CANCEL_REFUND`, 주문 UUID 기준 중복 차단)에 환원.
 
 ## KIS 시간 헬퍼
 - `is_kis_regular_session(now=None)` -> bool (평일 09:00–15:35 KST 판정).

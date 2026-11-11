@@ -14,13 +14,14 @@ Synology Docker에 배포한다. 봇과 직접 의존하지 않으며, Telegram 
 
 | 디렉터리 | 내용 |
 |---|---|
-| `pages/` | 공개 페이지(Home, Terms, Privacy, Login) 및 대시보드 페이지(Dashboard, Operations, Orders, Trades, Templates, Reports, Admin, Config) |
+| `pages/` | 공개 페이지(Home, Terms, Privacy, Login) 및 대시보드 페이지(Dashboard, Operations, Orders, Trades, Templates, Reports, Admin, Config) + `admin/`(`AdminBackupTab`, `AdminFeedbacksTab`), `reports/`(`DailySnapshotSection`, `TopRotationSection`, `BudgetPlanSection`, `NlLogsSection` 등) |
 | `components/layout/` | AppLayout(인증), PublicLayout(공개 헤더/푸터), Sidebar, TopBar, BottomNav, AllMenuDrawer — 공개/인증 및 데스크톱/모바일 레이아웃 전환 |
-| `components/settings/` | DisplaySettingsCard, MfaSettingsCard, ProfileSettingsCard |
-| `components/ui/` | 공통 UI 빌딩블록: Button, Badge, Spinner, StatCard, PageHeader, ErrorBanner, FilterBar 등 |
+| `components/backup/` | BackupHealthCard — 대시보드 및 관리자 화면용 백업 스케줄러 상태 카드 |
+| `components/settings/` | DisplaySettingsCard, MfaSettingsCard, ProfileSettingsCard (닉네임·표시 시간대 설정) |
+| `components/ui/` | 공통 UI 빌딩블록: Button, Badge, Spinner, StatCard, PageHeader, ErrorBanner, FilterBar, FormattedNumberInput, TimePickerInput 등 |
 | `api/` | 라우터별 REST 클라이언트 — 아래 백엔드 라우터 표와 1:1 대응 (예: `api/orders.ts` ↔ `routers/orders.py`) |
 | `hooks/`, `contexts/` | useAuth, useTheme, usePersistedState, useRealtime / AuthContext |
-| `lib/`, `config/` | displayPreferences·navPreferences (localStorage 동기화), `pageMeta.ts` (네비게이션·아이콘 단일 소스) |
+| `lib/`, `config/` | displayPreferences·navPreferences (localStorage 동기화), `dateUtils.ts` (전역 타임존 포맷팅), `pageMeta.ts` (네비게이션·아이콘 단일 소스) |
 | `types/`, `utils/` | 공유 TypeScript 타입, 포매터 |
 
 ### 프론트엔드 라우트 구성
@@ -34,32 +35,34 @@ Synology Docker에 배포한다. 봇과 직접 의존하지 않으며, Telegram 
 
 #### 보호된 페이지 (Protected Pages — `AppLayout`)
 로그인 인증(Supabase Auth)이 필요한 대시보드 및 운영 페이지:
-- `/dashboard`: 종합 자산 및 포트폴리오 요약
-- `/operations`: 운용 현황 및 전략 실시간 모니터링 (`/strategy-monitor` 리다이렉트 지원)
-- `/orders`: 주문 목록 조회 및 취소/동기화 관리
+- `/dashboard`: 종합 자산 및 포트폴리오 요약 (백업 스케줄러 Health Card 포함)
+- `/operations`: 운용 현황 및 전략 실시간 모니터링 (TOP N 순환 운용 현황, 일단위 스냅샷 차트 `DailySnapshotSection`, 예산·감사원장, 체결 타임라인; `/strategy-monitor` 리다이렉트 지원)
+- `/orders`: 주문 목록 조회 및 취소/동기화/배치 묶음 관리
 - `/trades`: 체결 내역 조회 및 통계
 - `/templates`: 매매 전략 템플릿 관리(생성/복제/실행)
-- `/reports`: 손익(PnL), 승률, 보유 자산 등 정밀 분석 보고서
-- `/admin`: 관리자 전용 대시보드 (사용자 관리, 시스템 이벤트 로그, 명령어 사용 통계/Analytics 통합)
-- `/config`: 사용자 설정(프로필, 화면 모드, 네비게이션 커스텀, MFA 설정 등)
+- `/reports`: 손익(PnL), 승률, 보유 자산 등 정밀 분석 보고서 (12개 시트 탭)
+- `/admin`: 관리자 전용 대시보드 (대시보드, 사용 분석/Analytics, 유저관리, 피드백, 이벤트, 주문 및 신호 주기, 종목 캐시, NL 로그, 데이터 백업/Google Drive OAuth)
+- `/config`: 사용자 설정(화면 표시, 프로필[닉네임·표시 시간대], 보안[MFA])
 
 ## 라우터 / 라우트
 
-`manager/backend/routers/` 11개 라우터로 구성된다.
+`manager/backend/routers/` 13개 라우터로 구성된다.
 
 | 라우터 | 주요 라우트 | 비고 |
 |--------|------------|------|
-| `dashboard` | `GET /api/dashboard`, `GET /admin/dashboard` | admin: 전체 통계 / user: 개인 통계 |
+| `dashboard` | `GET /api/dashboard`, `GET /admin/dashboard` | admin: 전체 통계 / user: 개인 통계 + 백업 헬스 지표(`backup_health`) |
 | `users` | `GET /api/users`, approve/deactivate/activate/block/DELETE, `PATCH .../email`, `POST .../invite-auth-account`, `POST .../reset-auth-password` | admin only |
 | `orders` | `GET /api/orders`, `POST .../{uuid}/cancel`·`/sync`·`/force-update` | status·exchange 필터, 페이지네이션. cancel은 거래소 취소(실거래) |
 | `trades` | `GET /api/trades` | 기간 필터, 거래소·전략별 집계 |
 | `events` | `GET /api/events`, PATCH `read`/`unread`/`archive`/`unarchive` | admin only |
 | `sysconfig` | `GET /api/sysconfig`, `POST /api/sysconfig` | admin only |
-| `reports` | `GET /api/reports/{pnl,daily,monthly,strategy,exchange,roi-ranking,holdings,pairs,win-stats,nl-logs}`, `GET /api/nl-logs` | PnL·보유자산·승률 분석. nl-logs는 admin only |
-| `templates` | `GET/POST/PATCH/DELETE /api/templates`, `duplicate`, `execute` | 전략 템플릿 CRUD·복제·실행 |
+| `reports` | `GET /api/reports/{pnl,daily,monthly,strategy,exchange,roi-ranking,holdings,pairs,win-stats,drawdown,allocation,batches,top-rotation,strategy-detail,nl-logs}`, `POST /api/reports/top-rotation/backtest-compare`, `GET /api/nl-logs` | PnL·보유자산·승률·TOP N 일단위 스냅샷·NL 로그 멀티턴 도구 체인 분석. nl-logs는 admin only |
+| `templates` | `GET/POST/PATCH/DELETE /api/templates`, `duplicate`, `execute`, `holding`, `stop`, `topup`, `budget-plan`, `budget-reset`, `budget-ledger` | 전략 템플릿 CRUD·복제·실행·예산 플랜/원장 |
 | `mfa` | `POST /api/login/mfa`, `/api/mfa/{setup,enable,disable}` | MFA 설정·검증 |
 | `analytics` | `GET /api/analytics/{overview,activity,commands,users,heatmap}` | admin only, 사용 분석 |
 | `stock_cache` | `GET/POST /api/stock-cache`, `DELETE .../{name}`, `POST .../upload`·`/refresh`, `GET .../export` | admin only. KRX 종목명↔코드 캐시(`kr_stock_cache`) CRUD·CSV 입출력·FinanceDataReader 일괄 갱신 |
+| `feedbacks` | `POST /api/feedbacks`, `GET/PATCH/DELETE /api/feedbacks/my`, `GET/PATCH/DELETE /api/admin/feedbacks` | 사용자 피드백/오류 보고 및 관리자 처리 |
+| `backup` | `GET/POST /api/backup/{config,status,trigger,health}`, `GET /api/backup/download/{filename}`, `GET/POST /api/backup/gdrive/{status,connect,disconnect,settings}` | 백업 스케줄·보존 설정, 즉시 백업, 로컬/원격 ZIP 다운로드, Google Drive 웹 OAuth 연동 (`health` 외 admin only) |
 
 ### Analytics 엔드포인트 상세
 

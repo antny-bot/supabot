@@ -34,6 +34,6 @@
 ## 로그 및 감사 추적
 
 - **전처리 적중**: `data/nl_preprocess_hits.json`에 액션별 카운트 기록
-- **에이전트 호출 기록**: `append_natural_language_log()` 호출 → `data/nl_unmatched.jsonl` 및 Supabase `nl_logs` 테이블 기록
-- **도구 추적**: 에이전트가 호출한 도구 이력이 `llm_action` 필드에 요약 기록 (예: `get_open_orders, propose_cancel_orders`)
+- **에이전트 호출 기록**: `append_natural_language_log()` 호출 → `data/nl_unmatched.jsonl` 및 Supabase `nl_logs` 테이블 기록 (`tool_trace` 및 `proposed_actions` 상세 내역 보존)
+- **도구 추적 및 관리자 분석**: 에이전트가 호출한 도구 이력이 `llm_action` 필드에 요약 기록 (예: `get_open_orders, propose_cancel_orders`)되며, Manager `/api/reports/nl-logs`에서 도구 체인(`tool_chain`, `tool_count`, `is_multi_turn`), 도구별 사용 빈도, 승인율 통계를 산출 (`nl_logs` 장애 시 `data/nl_unmatched.jsonl` 폴백)
 - **보안 마스킹**: 개인정보 및 보안 토큰은 `<TOKEN>`, `<STOCK>`, `<NUMBER>`로 마스킹
