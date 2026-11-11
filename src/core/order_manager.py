@@ -5,6 +5,7 @@ import time
 
 from core.bot_logger import get_logger
 from core.db import get_db, is_db_available
+from core.operational_events import append_operational_event
 
 _log = get_logger("order_manager")
 
@@ -153,6 +154,7 @@ class OrderManager:
             return True
         except Exception as e:
             _log.error("Failed to reload orders from DB (async)", exc_info=e, extra={"event": "db_orders_reload_error_async"})
+            append_operational_event("error", "order_manager", "Failed to reload orders from DB (async)", str(e))
             return False
 
     def save_orders(self):
@@ -186,6 +188,7 @@ class OrderManager:
                 await get_db().table("orders").upsert(order).execute_async()
             except Exception as e:
                 _log.error("Failed to upsert order (async)", exc_info=e, extra={"event": "db_order_upsert_error", "uuid": order.get("uuid")})
+                append_operational_event("error", "order_manager", "Failed to upsert order (async)", f"{order.get('uuid')}: {e}")
                 self._save_orders_to_file()
                 from core.db_sync import enqueue_task
                 try:
@@ -213,6 +216,7 @@ class OrderManager:
                 await get_db().table("orders").delete().eq("uuid", uuid).execute_async()
             except Exception as e:
                 _log.error("Failed to delete order (async)", exc_info=e, extra={"event": "db_order_delete_error", "uuid": uuid})
+                append_operational_event("error", "order_manager", "Failed to delete order (async)", f"{uuid}: {e}")
                 self._save_orders_to_file()
                 from core.db_sync import enqueue_task
                 try:

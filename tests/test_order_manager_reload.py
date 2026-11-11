@@ -51,3 +51,31 @@ async def test_reload_flushes_pending_writes_before_fetch(tmp_path, monkeypatch)
 
     assert ok is True
     assert calls == ["flush", "fetch"]
+
+
+async def test_reload_from_db_async_logs_operational_event_on_error(tmp_path, monkeypatch):
+    om = OrderManager(str(tmp_path / "orders.json"))
+    om.orders = [{"uuid": "existing-1"}]
+    events = []
+
+    monkeypatch.setattr(om_mod, "is_db_available", lambda: True)
+
+    async def fake_flush():
+        pass
+
+    async def broken_fetch():
+        raise RuntimeError("supabase timeout")
+
+    monkeypatch.setattr(OrderManager, "flush_pending_writes", staticmethod(fake_flush))
+    monkeypatch.setattr(om, "_fetch_all_orders_async", broken_fetch)
+    monkeypatch.setattr(
+        om_mod,
+        "append_operational_event",
+        lambda level, source, msg, details=None: events.append((level, source, msg, details)),
+    )
+
+    ok = await om.reload_from_db_async()
+
+    assert ok is False
+    assert om.orders == [{"uuid": "existing-1"}]
+    assert events == [("error", "order_manager", "Failed to reload orders from DB (async)", "supabase timeout")]

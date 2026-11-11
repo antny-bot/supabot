@@ -30,37 +30,66 @@ class TossMixin:
             self._toss_session = aiohttp.ClientSession(timeout=timeout)
         return self._toss_session
 
+    @staticmethod
+    def _toss_token_cache_key(user_id, keys) -> str:
+        return f"{user_id}:{keys.get('client_id')}"
+
+    def _get_toss_token_lock(self, cache_key: str) -> asyncio.Lock:
+        # 이벤트 루프별로 락을 분리해 테스트 등에서 새 루프가 생성되어도 cross-loop 에러를 방지한다.
+        locks = getattr(self, "_toss_token_locks", None)
+        if locks is None:
+            locks = {}
+            self._toss_token_locks = locks
+        key = (cache_key, id(asyncio.get_running_loop()))
+        lock = locks.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            locks[key] = lock
+        return lock
+
+    def _invalidate_toss_token(self, user_id, keys, failed_token: str | None = None) -> None:
+        cache_key = self._toss_token_cache_key(user_id, keys)
+        cached = self._toss_tokens.get(cache_key)
+        if cached and (failed_token is None or cached.get("token") == failed_token):
+            self._toss_tokens.pop(cache_key, None)
+
     async def _get_toss_token(self, user_id, keys):
-        cache_key = f"{user_id}:{keys.get('client_id')}"
+        cache_key = self._toss_token_cache_key(user_id, keys)
         cached = self._toss_tokens.get(cache_key)
         if cached and cached["expires_at"] > time.time() + 60:
             return cached["token"]
 
-        data = {
-            "grant_type": "client_credentials",
-            "client_id": keys.get("client_id"),
-            "client_secret": keys.get("client_secret"),
-        }
-        try:
-            session = await self._get_toss_session()
-            async with session.post(
-                f"{self._TOSS_BASE_URL}/oauth2/token",
-                data=data,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-            ) as resp:
-                res = await resp.json()
-        except Exception as e:
-            _log.error("Toss token exception", exc_info=e, extra={"event": "toss_token_exception"})
-            return None
+        async with self._get_toss_token_lock(cache_key):
+            # 락 대기 중 다른 코루틴이 이미 새 토큰을 발급했다면 중복 발급(기존 토큰 폐기)을 막는다.
+            cached = self._toss_tokens.get(cache_key)
+            if cached and cached["expires_at"] > time.time() + 60:
+                return cached["token"]
 
-        token = res.get("access_token") if isinstance(res, dict) else None
-        if not token:
-            _log.error("Toss token error: no access_token", extra={"event": "toss_token_error"})
-            return None
+            data = {
+                "grant_type": "client_credentials",
+                "client_id": keys.get("client_id"),
+                "client_secret": keys.get("client_secret"),
+            }
+            try:
+                session = await self._get_toss_session()
+                async with session.post(
+                    f"{self._TOSS_BASE_URL}/oauth2/token",
+                    data=data,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                ) as resp:
+                    res = await resp.json()
+            except Exception as e:
+                _log.error("Toss token exception", exc_info=e, extra={"event": "toss_token_exception"})
+                return None
 
-        expires_in = int(res.get("expires_in", 86400))
-        self._toss_tokens[cache_key] = {"token": token, "expires_at": time.time() + expires_in}
-        return token
+            token = res.get("access_token") if isinstance(res, dict) else None
+            if not token:
+                _log.error("Toss token error: no access_token", extra={"event": "toss_token_error"})
+                return None
+
+            expires_in = int(res.get("expires_in", 86400))
+            self._toss_tokens[cache_key] = {"token": token, "expires_at": time.time() + expires_in}
+            return token
 
     async def _request_toss(self, user_id, method, path, params=None, body=None, need_account=True):
         keys = self._get_client(user_id, "toss")
@@ -68,14 +97,7 @@ class TossMixin:
             _log.error("Toss request skipped: no valid client keys", extra={"event": "toss_request_no_keys", "path": path})
             return None
 
-        token = await self._get_toss_token(user_id, keys)
-        if not token:
-            return None
-
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {token}",
-        }
+        account_seq = None
         if need_account:
             account_seq = keys.get("account_seq")
             if not account_seq:
@@ -88,43 +110,62 @@ class TossMixin:
                         extra={"event": "toss_request_no_account_seq", "path": path},
                     )
                     return None
-            headers["X-Tossinvest-Account"] = str(account_seq)
 
         try:
             session = await self._get_toss_session()
-            _t0 = time.monotonic()
             url = f"{self._TOSS_BASE_URL}{path}"
-            if method.upper() == "POST":
-                async with session.post(url, json=body, headers=headers) as resp:
-                    status = getattr(resp, "status", None)
-                    result = await resp.json()
-            else:
-                async with session.get(url, params=params, headers=headers) as resp:
-                    status = getattr(resp, "status", None)
-                    result = await resp.json()
-            metrics.record_latency("toss", (time.monotonic() - _t0) * 1000)
-            if isinstance(result, dict) and result.get("error"):
-                err = result["error"]
-                _log.error(
-                    "Toss API error response",
-                    extra={
-                        "event": "toss_api_error",
-                        "path": path,
-                        "code": err.get("code"),
-                        "error_message": err.get("message"),
-                    },
-                )
-            elif not isinstance(result, dict) or "result" not in result:
-                _log.error(
-                    "Toss API unexpected response shape",
-                    extra={
-                        "event": "toss_unexpected_response",
-                        "path": path,
-                        "status": status,
-                        "body": str(result)[:500],
-                    },
-                )
-            return result
+            for attempt in range(2):
+                token = await self._get_toss_token(user_id, keys)
+                if not token:
+                    return None
+
+                headers = {
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {token}",
+                }
+                if need_account:
+                    headers["X-Tossinvest-Account"] = str(account_seq)
+
+                _t0 = time.monotonic()
+                if method.upper() == "POST":
+                    async with session.post(url, json=body, headers=headers) as resp:
+                        status = getattr(resp, "status", None)
+                        result = await resp.json()
+                else:
+                    async with session.get(url, params=params, headers=headers) as resp:
+                        status = getattr(resp, "status", None)
+                        result = await resp.json()
+                metrics.record_latency("toss", (time.monotonic() - _t0) * 1000)
+
+                if isinstance(result, dict) and result.get("error"):
+                    err = result["error"]
+                    if attempt == 0 and err.get("code") == "token-revoked":
+                        _log.warning(
+                            "Toss access token revoked; invalidating cache and retrying once",
+                            extra={"event": "toss_token_revoked_retry", "path": path},
+                        )
+                        self._invalidate_toss_token(user_id, keys, failed_token=token)
+                        continue
+                    _log.error(
+                        "Toss API error response",
+                        extra={
+                            "event": "toss_api_error",
+                            "path": path,
+                            "code": err.get("code"),
+                            "error_message": err.get("message"),
+                        },
+                    )
+                elif not isinstance(result, dict) or "result" not in result:
+                    _log.error(
+                        "Toss API unexpected response shape",
+                        extra={
+                            "event": "toss_unexpected_response",
+                            "path": path,
+                            "status": status,
+                            "body": str(result)[:500],
+                        },
+                    )
+                return result
         except Exception as e:
             _log.error("Toss API exception", exc_info=e, extra={"event": "toss_api_exception", "path": path})
             return None

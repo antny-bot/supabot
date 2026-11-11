@@ -70,6 +70,134 @@ def test_toss_token_cached():
     assert calls == 1
 
 
+class _AsyncCtxResp:
+    def __init__(self, json_fn, status=200):
+        self._json_fn = json_fn
+        self.status = status
+
+    async def json(self):
+        return await self._json_fn()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        pass
+
+
+def test_toss_token_concurrent_requests_single_issue():
+    adapter = make_adapter()
+    call_count = [0]
+
+    async def token_json():
+        await asyncio.sleep(0.02)
+        call_count[0] += 1
+        return {"access_token": f"tok{call_count[0]}", "token_type": "Bearer", "expires_in": 86400}
+
+    async def run():
+        session = await adapter._get_toss_session()
+        keys = {"client_id": "c_test", "client_secret": "s_test", "account_seq": 1}
+        try:
+            with patch.object(session, "post", side_effect=lambda *a, **kw: _AsyncCtxResp(token_json)):
+                return await asyncio.gather(*[adapter._get_toss_token("u1", keys) for _ in range(5)])
+        finally:
+            await adapter.close()
+
+    tokens = asyncio.run(run())
+    assert tokens == ["tok1"] * 5
+    assert call_count[0] == 1
+
+
+def _make_revoked_toss_post(always_revoked=False, delay=0.0):
+    token_calls = [0]
+    api_calls = []
+
+    async def token_json():
+        if delay:
+            await asyncio.sleep(delay)
+        token_calls[0] += 1
+        return {"access_token": f"tok{token_calls[0] + 1}", "token_type": "Bearer", "expires_in": 86400}
+
+    def fake_post(url, *args, **kwargs):
+        if "/oauth2/token" in url:
+            return _AsyncCtxResp(token_json)
+        auth = (kwargs.get("headers") or {}).get("Authorization")
+        api_calls.append(auth)
+
+        async def api_json():
+            if delay:
+                await asyncio.sleep(delay / 2)
+            if always_revoked or auth == "Bearer tok1":
+                return {"error": {"code": "token-revoked", "message": "revoked"}}
+            return {"result": {"ok": True}}
+
+        return _AsyncCtxResp(api_json, status=401 if always_revoked else 200)
+
+    return fake_post, token_calls, api_calls
+
+
+def test_toss_request_retries_once_on_token_revoked():
+    adapter = make_adapter()
+    fake_post, token_calls, api_calls = _make_revoked_toss_post()
+
+    async def run():
+        session = await adapter._get_toss_session()
+        adapter._toss_tokens["u1:c_test_client_id"] = {"token": "tok1", "expires_at": 9999999999}
+        try:
+            with patch.object(session, "post", side_effect=fake_post):
+                return await adapter._request_toss("u1", "POST", "/api/v1/orders", body={"symbol": "005930"})
+        finally:
+            await adapter.close()
+
+    res = asyncio.run(run())
+    assert res == {"result": {"ok": True}}
+    assert token_calls[0] == 1
+    assert api_calls == ["Bearer tok1", "Bearer tok2"]
+
+
+def test_toss_concurrent_token_revoked_refreshes_once():
+    adapter = make_adapter()
+    fake_post, token_calls, api_calls = _make_revoked_toss_post(delay=0.02)
+
+    async def run():
+        session = await adapter._get_toss_session()
+        adapter._toss_tokens["u1:c_test_client_id"] = {"token": "tok1", "expires_at": 9999999999}
+        try:
+            with patch.object(session, "post", side_effect=fake_post):
+                return await asyncio.gather(
+                    adapter._request_toss("u1", "POST", "/api/v1/orders", body={"symbol": "005930"}),
+                    adapter._request_toss("u1", "POST", "/api/v1/orders", body={"symbol": "000660"}),
+                )
+        finally:
+            await adapter.close()
+
+    r1, r2 = asyncio.run(run())
+    assert r1 == {"result": {"ok": True}}
+    assert r2 == {"result": {"ok": True}}
+    assert token_calls[0] == 1
+    assert api_calls == ["Bearer tok1", "Bearer tok1", "Bearer tok2", "Bearer tok2"]
+
+
+def test_toss_token_revoked_does_not_loop_more_than_once():
+    adapter = make_adapter()
+    fake_post, token_calls, api_calls = _make_revoked_toss_post(always_revoked=True)
+
+    async def run():
+        session = await adapter._get_toss_session()
+        adapter._toss_tokens["u1:c_test_client_id"] = {"token": "tok1", "expires_at": 9999999999}
+        try:
+            with patch.object(session, "post", side_effect=fake_post):
+                return await adapter._request_toss("u1", "POST", "/api/v1/orders", body={"symbol": "005930"})
+        finally:
+            await adapter.close()
+
+    res = asyncio.run(run())
+    assert res["error"]["code"] == "token-revoked"
+    assert token_calls[0] == 1
+    assert api_calls == ["Bearer tok1", "Bearer tok2"]
+
+
+
 # ── get_ticker ─────────────────────────────────────────────────────────────────
 
 def test_toss_get_ticker():
