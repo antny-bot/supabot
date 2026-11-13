@@ -145,6 +145,21 @@ async def _internal_notify_handler(request: _web.Request) -> _web.Response:
     return _web.Response(text="ok")
 
 
+async def _internal_wake_orders_handler(request: _web.Request) -> _web.Response:
+    """매니저가 새 주문 등록/스케줄 실행 후 봇의 order_sync 루프를 즉시 깨우는 webhook."""
+    if not await _verify_webhook_request(request):
+        return _web.Response(status=401)
+    try:
+        import main
+        if getattr(main, "_order_wake_event", None):
+            main._order_wake_event.set()
+            _log.info("Order sync loop woken by internal webhook", extra={"event": "order_sync_woken"})
+        return _web.Response(text=_json.dumps({"ok": True}), content_type="application/json")
+    except Exception as e:
+        _log.error("Failed to wake order sync loop: %s", e, exc_info=e)
+        return _web.Response(status=500, text=str(e))
+
+
 async def trigger_realtime_sync():
     """매니저의 /api/realtime/trigger를 호출하여 프론트엔드 실시간 갱신을 트리거합니다."""
     manager_url = os.environ.get("MANAGER_BACKEND_URL", "http://localhost:8000")

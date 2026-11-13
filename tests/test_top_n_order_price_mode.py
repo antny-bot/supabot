@@ -42,7 +42,7 @@ def test_plan_no_current_price_falls_back_to_stored_limit():
     assert compute_top_n_order_plan("market", "bid", 0, 90000) == ("limit", 90000.0)
 
 
-def _run_submit(monkeypatch, mode, ticker_price):
+async def _run_submit(monkeypatch, mode, ticker_price):
     om = MagicMock()
     ex_adapter = MagicMock()
     ex_adapter.get_open_orders = AsyncMock(return_value=[])
@@ -72,12 +72,12 @@ def _run_submit(monkeypatch, mode, ticker_price):
         "side": "bid", "price": 90000.0, "volume": 1.0, "filled_volume": 0.0,
         "status": "reserved", "strategy": "kospi_top_dca", "template_id": 8,
     }
-    ok = asyncio.run(order_sync._submit_reserved_or_reorder(app, ord_, ex_obj, ticker_cache={}))
+    ok = await order_sync._submit_reserved_or_reorder(app, ord_, ex_obj, ticker_cache={})
     return ok, ex_adapter, om, ord_
 
 
-def test_submit_reserved_market_mode_sends_market_order(monkeypatch):
-    ok, ex, om, ord_ = _run_submit(monkeypatch, "market", 100000)
+async def test_submit_reserved_market_mode_sends_market_order(monkeypatch):
+    ok, ex, om, ord_ = await _run_submit(monkeypatch, "market", 100000)
     assert ok
     args, kwargs = ex.create_order.call_args
     assert kwargs.get("ord_type") == "market"
@@ -85,8 +85,8 @@ def test_submit_reserved_market_mode_sends_market_order(monkeypatch):
     assert ord_["order_type"] == "market"
 
 
-def test_submit_reserved_aggressive_uses_live_price(monkeypatch):
-    ok, ex, om, ord_ = _run_submit(monkeypatch, "limit_aggressive", 100000)
+async def test_submit_reserved_aggressive_uses_live_price(monkeypatch):
+    ok, ex, om, ord_ = await _run_submit(monkeypatch, "limit_aggressive", 100000)
     assert ok
     args, kwargs = ex.create_order.call_args
     assert args[4] == 100200.0           # price (낡은 90000이 아님)

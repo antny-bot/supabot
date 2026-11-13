@@ -714,6 +714,13 @@ async def run_strategy_progression(
         ]
         await notify(user_id, "\n".join(msg_lines))
 
+        # 11. 새 예약 주문이 있으면 봇의 order_sync 루프를 즉시 깨워 정규장 시 즉시 제출하도록 트리거
+        if created_orders and not is_dry_run and not params.get("is_dry_run", False):
+            try:
+                await bot_client.wake_order_sync()
+            except Exception as e:
+                logger.warning(f"Failed to trigger bot wake_order_sync: {e}")
+
         return {
             "template_id": template_id,
             "group_no": group_no,

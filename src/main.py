@@ -605,6 +605,7 @@ async def post_init(application):
         notify_app.router.add_post("/internal/execute_dca", internal_api._internal_execute_dca_handler)
         notify_app.router.add_post("/internal/cancel_order", internal_api._internal_cancel_order_handler)
         notify_app.router.add_post("/internal/sync_order", internal_api._internal_sync_order_handler)
+        notify_app.router.add_post("/internal/wake_orders", internal_api._internal_wake_orders_handler)
         notify_app.router.add_post("/internal/force_update_order", internal_api._internal_force_update_order_handler)
         notify_app.router.add_post("/internal/get_prices", internal_api._internal_get_prices_handler)
         notify_app.router.add_post("/internal/get_balances", internal_api._internal_get_balances_handler)

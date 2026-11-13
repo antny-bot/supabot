@@ -135,6 +135,20 @@ async def sync_order(user_id: str, exchange: str, uuid: str, ticker: str) -> tup
     except Exception as e:
         return False, str(e), None
 
+async def wake_order_sync() -> tuple[bool, str]:
+    """봇의 order_sync 루프 인터럽트 슬립을 즉시 깨워 새 주문 동기화를 유도하는 webhook."""
+    try:
+        resp = await _send_signed_request_async(
+            "/internal/wake_orders",
+            {},
+        )
+        if resp.is_success:
+            return True, ""
+        return False, resp.text or f"HTTP 에러 {resp.status_code}"
+    except Exception as e:
+        return False, str(e)
+
+
 async def force_update_order(uuid: str, state: str, filled_volume: float) -> tuple[bool, str]:
     """Force update a single order's status and filled volume via the bot's /internal/force_update_order endpoint."""
     try:
