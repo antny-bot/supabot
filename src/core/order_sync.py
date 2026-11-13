@@ -100,6 +100,65 @@ async def _find_duplicate_open_order(exchange_adapter, user_id, exchange, ticker
     return None
 
 
+_TOP_N_AGGRESSIVE_TICKS = 2
+
+
+def _shift_krx_ticks(price: float, ticks: int) -> float:
+    """KRX 호가 단위로 price를 ticks만큼 이동(양수=위, 음수=아래). 호가 구간 경계를 단계마다 재계산한다."""
+    from core.exchanges.common import CommonMixin
+    p = float(CommonMixin.adjust_krx_price_to_tick(price))
+    step = 1 if ticks > 0 else -1
+    for _ in range(abs(ticks)):
+        if step > 0:
+            p += CommonMixin.get_krx_tick_size(p)
+        else:
+            # 하향 시에는 직전 호가 구간의 틱 크기를 사용 (경계값에서 내려갈 때)
+            p -= CommonMixin.get_krx_tick_size(p - 1) if p > 1 else 0
+    return float(p)
+
+
+async def _get_template_order_price_mode(template_id) -> str:
+    """전략 템플릿의 order_price_mode 조회. 실패/미설정 시 'limit_current'."""
+    if template_id is None:
+        return "limit_current"
+    try:
+        from core.db import get_db, is_db_available
+        if not is_db_available():
+            return "limit_current"
+        res = await get_db().table("strategy_templates").select("params").eq("id", int(template_id)).execute_async()
+        if res.data:
+            mode = str((res.data[0].get("params") or {}).get("order_price_mode") or "").strip().lower()
+            if mode in ("limit_current", "limit_aggressive", "market"):
+                return mode
+    except Exception as e:
+        _log.warning(f"Failed to load order_price_mode for template {template_id}: {e}")
+    return "limit_current"
+
+
+def compute_top_n_order_plan(mode: str, side: str, current_price: float, stored_price: float,
+                             upper_limit=None, lower_limit=None) -> tuple[str, float]:
+    """TOP N 예약주문 제출 시점의 (ord_type, price) 산출.
+
+    배치 시점 가격(전일 종가 스냅샷)은 낡았으므로 제출 시점 현재가를 기준으로 재산정한다.
+    현재가를 알 수 없으면 저장된 가격으로 지정가 제출(기존 동작)한다.
+    """
+    if not current_price or current_price <= 0:
+        return "limit", float(stored_price or 0)
+    if mode == "market":
+        return "market", float(current_price)
+    if mode == "limit_aggressive":
+        ticks = _TOP_N_AGGRESSIVE_TICKS if side == "bid" else -_TOP_N_AGGRESSIVE_TICKS
+        price = _shift_krx_ticks(current_price, ticks)
+    else:
+        from core.exchanges.common import CommonMixin
+        price = float(CommonMixin.adjust_krx_price_to_tick(current_price))
+    if upper_limit is not None and price > float(upper_limit):
+        price = float(upper_limit)
+    if lower_limit is not None and price < float(lower_limit):
+        price = float(lower_limit)
+    return "limit", price
+
+
 def _extract_order_submit_failure_reason(res):
     """거래소 주문 발행 실패 응답에서 사용자/운영자가 볼 수 있는 최소 원인을 뽑아낸다."""
     if not isinstance(res, dict):
@@ -385,6 +444,7 @@ async def _submit_reserved_or_reorder(application, ord: dict, ex_obj, ticker_cac
     vol = int(remaining) if ex_obj.requires_integer_volume() else remaining
     side = ord.get("side", "bid")
     price = ord.get("price")
+    submit_ord_type = "limit"
 
     is_kr_stock = (exchange == "kis") or (exchange == "toss" and not getattr(ex_obj, "is_us_stock", lambda t: False)(ticker))
     if is_kr_stock:
@@ -398,6 +458,22 @@ async def _submit_reserved_or_reorder(application, ord: dict, ex_obj, ticker_cac
             if ticker_info:
                 upper_limit = ticker_info.get("upper_limit_price")
                 lower_limit = ticker_info.get("lower_limit_price")
+
+                # TOP N 전략: 배치 시점의 낡은 가격 대신 제출 시점 현재가 + 템플릿 order_price_mode로 재산정
+                if str(ord.get("strategy", "")).startswith("kospi_top") and ord.get("status") == "reserved":
+                    mode = await _get_template_order_price_mode(ord.get("template_id"))
+                    try:
+                        cur_px = float(ticker_info.get("trade_price") or 0)
+                    except (TypeError, ValueError):
+                        cur_px = 0.0
+                    submit_ord_type, price = compute_top_n_order_plan(
+                        mode, side, cur_px, float(price or 0), upper_limit, lower_limit,
+                    )
+                    _log.info(
+                        f"TOP N order plan {ticker}: mode={mode} type={submit_ord_type} "
+                        f"stored={ord.get('price')} cur={cur_px} -> price={price}"
+                    )
+
                 price_val = float(price) if price is not None else 0.0
 
                 is_limit_exceeded = False
@@ -432,8 +508,15 @@ async def _submit_reserved_or_reorder(application, ord: dict, ex_obj, ticker_cac
 
     lwo = _get_limit_warned_orders()
     rf = _get_reorder_failures()
-    dup = await _find_duplicate_open_order(exchange_adapter, user_id, exchange, ticker, side, price, vol)
-    res = dup if dup else await exchange_adapter.create_order(user_id, exchange, ticker, side, price, vol)
+    dup = None
+    if submit_ord_type != "market":
+        dup = await _find_duplicate_open_order(exchange_adapter, user_id, exchange, ticker, side, price, vol)
+    if dup:
+        res = dup
+    elif submit_ord_type == "market":
+        res = await exchange_adapter.create_order(user_id, exchange, ticker, side, price, vol, ord_type="market")
+    else:
+        res = await exchange_adapter.create_order(user_id, exchange, ticker, side, price, vol)
     action = "재주문" if ord.get("status") == "pending_reorder" else "예약주문 실행"
     order_kind = "전략" if is_strategy_order(ord) else "자동 재주문 설정"
     label = exchange_display_name(exchange)
@@ -441,11 +524,16 @@ async def _submit_reserved_or_reorder(application, ord: dict, ex_obj, ticker_cac
         old_uuid = ord["uuid"]
         rf.pop(old_uuid, None)
         lwo.pop(old_uuid, None)
+        if not dup:
+            # 제출에 실제 사용된 가격/주문유형을 기록 (체결 로그가 낡은 스냅샷 가격이 아닌 제출가를 쓰도록)
+            ord["price"] = float(price) if price is not None else ord.get("price")
+            if submit_ord_type == "market":
+                ord["order_type"] = "market"
         order_manager.replace_order_uuid(old_uuid, res["uuid"])
         await application.bot.send_message(
             chat_id=user_id,
             text=f"✅ [{label}] {ticker} {order_kind} 주문 {action} 완료\n"
-                 f"• 가격: {float(ord.get('price', 0)):,.0f}원\n"
+                 f"• 가격: {'시장가' if submit_ord_type == 'market' else format(float(ord.get('price', 0)), ',.0f') + '원'}\n"
                  f"• 잔량: {remaining:,.0f}주\n"
                  f"• 새 주문ID: {res['uuid']}",
         )

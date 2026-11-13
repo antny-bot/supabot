@@ -334,7 +334,7 @@ describe('Operations strategy filtering & localStorage persistence', () => {
     expect(JSON.parse(window.localStorage.getItem('sbm_operations_status_filter') || '""')).toBe('all')
   })
 
-  it('opens strategy detail view on card click without duplicate batches tab and shows daily snapshot bar charts', async () => {
+  it('opens strategy detail view on card click without duplicate batches tab and shows daily snapshot line charts', async () => {
     const user = userEvent.setup()
     render(
       <MemoryRouter>
@@ -363,6 +363,6 @@ describe('Operations strategy filtering & localStorage persistence', () => {
     expect(screen.getByRole('tab', { name: '1년' })).toBeInTheDocument()
 
     // Verify 1~10 rank bar chart section renders
-    expect(screen.getByText(/순위별 종목 금액 Bar 차트/)).toBeInTheDocument()
+    expect(screen.getByText(/순위별 종목 단가 라인 차트/)).toBeInTheDocument()
   })
 })

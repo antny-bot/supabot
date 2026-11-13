@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  BarChart,
-  Bar,
+  LineChart,
+  Line,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Cell,
   Legend,
 } from 'recharts'
 import {
-  BarChart3,
+  TrendingUp,
   Calendar,
   ChevronDown,
   ChevronLeft,
@@ -19,6 +20,8 @@ import {
   ChevronUp,
   RotateCw,
   CheckCircle2,
+  Activity,
+  Layers,
 } from 'lucide-react'
 import {
   fetchTopRotationReport,
@@ -65,7 +68,7 @@ export default function DailySnapshotSection({
   const [error, setError] = useState<string | null>(null)
   const [period, setPeriod] = useState<SnapshotPeriodMode>('30d')
   const [selectedDate, setSelectedDate] = useState<string>('')
-  const [seriesView, setSeriesView] = useState<'stacked' | 'total'>('stacked')
+  const [seriesView, setSeriesView] = useState<'total' | 'ranks' | 'area'>('total')
   const [isTableOpen, setIsTableOpen] = useState(false)
 
   const loadSnapshotData = async (tplId: number) => {
@@ -92,7 +95,7 @@ export default function DailySnapshotSection({
     }
   }, [templateId, initialReport])
 
-  // 백엔드 daily_snapshots 또는 daily_execution_flow 폴백에서 기록된 스냅샷 추출 (오름차순: 기록 시작일부터)
+  // 백엔드 daily_snapshots 또는 daily_execution_flow 폴백에서 기록된 스냅샷 추출 (오름차순)
   const allSnapshots: DailySnapshotEntry[] = useMemo(() => {
     if (!report) return []
     if (report.daily_snapshots && report.daily_snapshots.length > 0) {
@@ -155,7 +158,7 @@ export default function DailySnapshotSection({
   const latestRecordedDate =
     allSnapshots.length > 0 ? allSnapshots[allSnapshots.length - 1].date : null
 
-  // 기간 필터(30일, 3개월, 6개월, 1년) 적용 — 기록 시작일 이후 데이터만 표시
+  // 기간 필터(30일, 3개월, 6개월, 1년) 적용
   const filteredSnapshots = useMemo(() => {
     if (allSnapshots.length === 0) return []
     const opt = PERIOD_OPTIONS.find((o) => o.id === period) || PERIOD_OPTIONS[0]
@@ -193,8 +196,8 @@ export default function DailySnapshotSection({
     return filteredSnapshots.findIndex((s) => s.date === activeSnapshot.date)
   }, [filteredSnapshots, activeSnapshot])
 
-  // 1) 선택 일자 1~10순위 Bar 차트 데이터
-  const rankBarData = useMemo(() => {
+  // 1) 선택 일자 1~10순위 라인/영역 차트 데이터
+  const rankLineData = useMemo(() => {
     if (!activeSnapshot) return []
     return activeSnapshot.items.slice(0, 10).map((it) => ({
       rankLabel: `${it.rank}위 ${it.name}`,
@@ -207,7 +210,7 @@ export default function DailySnapshotSection({
     }))
   }, [activeSnapshot])
 
-  // 2) 시계열 Bar 차트 데이터 (기록 시작일부터 선택 기간 내 일자별 1~10순위 금액)
+  // 2) 시계열 라인 차트 데이터 (기록 시작일부터 기간 내 일자별 추이)
   const timeSeriesData = useMemo(() => {
     return filteredSnapshots.map((snap) => {
       const row: Record<string, any> = {
@@ -254,16 +257,16 @@ export default function DailySnapshotSection({
       <div className={`${CARD} p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3`}>
         <div className="flex items-center gap-2.5 flex-wrap">
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400">
-            <BarChart3 size={16} />
+            <TrendingUp size={16} />
           </div>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                일단위 TOP {rankStart}~{rankEnd}순위 스냅샷 & 시계열 차트
+                일단위 TOP {rankStart}~{rankEnd}순위 스냅샷 시계열 라인 차트
               </h3>
               {firstRecordedDate && (
                 <span className="rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600 dark:text-slate-300">
-                  기록 시작일: {firstRecordedDate} ({filteredSnapshots.length}일 표시)
+                  기록 시작일: {firstRecordedDate} ({filteredSnapshots.length}일 시계열)
                 </span>
               )}
             </div>
@@ -286,7 +289,7 @@ export default function DailySnapshotSection({
                   role="tab"
                   aria-selected={active}
                   onClick={() => setPeriod(opt.id)}
-                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-all whitespace-nowrap break-keep ${
+                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-all whitespace-nowrap break-keep cursor-pointer ${
                     active
                       ? 'bg-white text-indigo-600 shadow-2xs dark:bg-slate-900 dark:text-indigo-400'
                       : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
@@ -301,7 +304,7 @@ export default function DailySnapshotSection({
           <button
             type="button"
             onClick={() => loadSnapshotData(templateId)}
-            className="flex items-center gap-1 rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
+            className="flex items-center gap-1 rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors cursor-pointer"
             title="스냅샷 새로고침"
           >
             <RotateCw size={13} className={loading ? 'animate-spin' : ''} />
@@ -311,87 +314,86 @@ export default function DailySnapshotSection({
 
       {filteredSnapshots.length === 0 ? (
         <div className={`${CARD} p-12 text-center text-xs text-slate-400`}>
-          기록된 일단위 스냅샷 데이터가 없습니다. 첫 배치가 실행되면 기록 시작일부터 차트가 표시됩니다.
+          기록된 일단위 스냅샷 데이터가 없습니다. 첫 배치가 실행되면 기록 시작일부터 시계열 라인 차트가 표시됩니다.
         </div>
       ) : (
         <>
           {/* ===================================================================
-              [차트 1] 선택 일자 1~10순위 종목별 금액(단가) Bar 차트
+              [차트 1] 메인 시계열 스냅샷 라인 차트 (기록 시작일부터 ~ 선택 기간 추이)
               =================================================================== */}
-          {activeSnapshot && (
-            <div className={`${CARD} p-4 sm:p-5 space-y-4`}>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
-                    📊 순위별 종목 금액 Bar 차트 (1~10순위)
-                  </span>
-                  <span className="rounded-md bg-indigo-50 px-2 py-0.5 text-[11px] font-bold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
-                    1주 합산: {krwFmt(activeSnapshot.total_price)}원 · 평균: {krwFmt(activeSnapshot.avg_price)}원
-                  </span>
-                </div>
-
-                {/* 일자 탐색 컨트롤 (< 이전일 | 날짜 선택 | 다음일 >) */}
-                <div className="flex items-center gap-1.5 self-end sm:self-auto">
-                  <button
-                    type="button"
-                    disabled={activeIndex <= 0}
-                    onClick={() => {
-                      if (activeIndex > 0) {
-                        setSelectedDate(filteredSnapshots[activeIndex - 1].date)
-                      }
-                    }}
-                    className="rounded-lg border border-slate-200 p-1 text-slate-600 hover:bg-slate-50 disabled:opacity-30 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                    title="이전 기록 일자"
-                  >
-                    <ChevronLeft size={14} />
-                  </button>
-
-                  <select
-                    aria-label="스냅샷 기준 일자 선택"
-                    value={activeSnapshot.date}
-                    onChange={(e) => setSelectedDate(e.target.value)}
-                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-bold text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-                  >
-                    {[...filteredSnapshots].reverse().map((s) => (
-                      <option key={s.date} value={s.date}>
-                        {s.date}
-                        {s.group_no ? ` (Batch #${s.group_no})` : ''}
-                      </option>
-                    ))}
-                  </select>
-
-                  <button
-                    type="button"
-                    disabled={activeIndex < 0 || activeIndex >= filteredSnapshots.length - 1}
-                    onClick={() => {
-                      if (activeIndex >= 0 && activeIndex < filteredSnapshots.length - 1) {
-                        setSelectedDate(filteredSnapshots[activeIndex + 1].date)
-                      }
-                    }}
-                    className="rounded-lg border border-slate-200 p-1 text-slate-600 hover:bg-slate-50 disabled:opacity-30 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                    title="다음 기록 일자"
-                  >
-                    <ChevronRight size={14} />
-                  </button>
+          <div className={`${CARD} p-4 sm:p-5 space-y-4`}>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Calendar size={16} className="text-indigo-600 dark:text-indigo-400" />
+                <div>
+                  <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                    일단위 시계열 추세 라인 차트 ({filteredSnapshots[0]?.date} ~{' '}
+                    {filteredSnapshots[filteredSnapshots.length - 1]?.date})
+                  </h4>
                 </div>
               </div>
 
-              <div className="h-72 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={rankBarData}
-                    margin={{ top: 10, right: 16, left: 10, bottom: 20 }}
+              {/* 시계열 뷰 전환 모드 (합산/매수액 라인 | 1~10위 개별 라인 | 누적 영역) */}
+              <div className="inline-flex items-center rounded-lg bg-slate-100 p-0.5 text-[11px] dark:bg-slate-800 self-end sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => setSeriesView('total')}
+                  className={`flex items-center gap-1 rounded-md px-2.5 py-1 font-semibold transition-colors cursor-pointer ${
+                    seriesView === 'total'
+                      ? 'bg-white text-indigo-600 shadow-2xs dark:bg-slate-900 dark:text-indigo-400'
+                      : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+                  }`}
+                >
+                  <TrendingUp size={11} />
+                  합산 금액 · 매수 집행액
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSeriesView('ranks')}
+                  className={`flex items-center gap-1 rounded-md px-2.5 py-1 font-semibold transition-colors cursor-pointer ${
+                    seriesView === 'ranks'
+                      ? 'bg-white text-indigo-600 shadow-2xs dark:bg-slate-900 dark:text-indigo-400'
+                      : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+                  }`}
+                >
+                  <Activity size={11} />
+                  1~10순위 개별 종목
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSeriesView('area')}
+                  className={`flex items-center gap-1 rounded-md px-2.5 py-1 font-semibold transition-colors cursor-pointer ${
+                    seriesView === 'area'
+                      ? 'bg-white text-indigo-600 shadow-2xs dark:bg-slate-900 dark:text-indigo-400'
+                      : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+                  }`}
+                >
+                  <Layers size={11} />
+                  누적 영역 추이
+                </button>
+              </div>
+            </div>
+
+            <div className="h-72 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                {seriesView === 'total' ? (
+                  <LineChart
+                    data={timeSeriesData}
+                    margin={{ top: 12, right: 16, left: 10, bottom: 5 }}
+                    onClick={(state: any) => {
+                      if (state?.activePayload?.[0]?.payload?.date) {
+                        setSelectedDate(state.activePayload[0].payload.date)
+                      }
+                    }}
                   >
+                    <defs>
+                      <linearGradient id="totalGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2} />
+                        <stop offset="95%" stopColor="#6366f1" stopOpacity={0.0} />
+                      </linearGradient>
+                    </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.12} />
-                    <XAxis
-                      dataKey="rankLabel"
-                      stroke="#64748b"
-                      fontSize={11}
-                      interval={0}
-                      angle={-15}
-                      textAnchor="end"
-                      height={48}
-                    />
+                    <XAxis dataKey="shortDate" stroke="#64748b" fontSize={11} />
                     <YAxis
                       stroke="#64748b"
                       fontSize={11}
@@ -405,87 +407,97 @@ export default function DailySnapshotSection({
                         color: '#fff',
                         fontSize: '12px',
                       }}
-                      formatter={(value: any, _name: any, props: any) => {
-                        const p = props?.payload
-                        const statusTxt = p?.isBought ? ' (당일 매수)' : ''
-                        return [`${krwFmt(Number(value))}원${statusTxt}`, `${p?.rank}위 ${p?.name} (${p?.code})`]
+                      labelFormatter={(_label, payload) => {
+                        const row = payload?.[0]?.payload
+                        return row
+                          ? `${row.date}${row.group_no ? ` (Batch #${row.group_no})` : ''}`
+                          : ''
+                      }}
+                      formatter={(value: any, name: any) => [`${krwFmt(Number(value))}원`, name]}
+                    />
+                    <Legend wrapperStyle={{ fontSize: '11px' }} />
+                    <Line
+                      type="monotone"
+                      dataKey="total_price"
+                      name="1~10순위 합산 금액"
+                      stroke="#6366f1"
+                      strokeWidth={2.5}
+                      dot={{ r: 3, fill: '#6366f1' }}
+                      activeDot={{ r: 6, stroke: '#818cf8', strokeWidth: 2 }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="spent_krw"
+                      name="당일 매수 집행 금액"
+                      stroke="#10b981"
+                      strokeWidth={2}
+                      dot={{ r: 3, fill: '#10b981' }}
+                      activeDot={{ r: 5 }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="avg_price"
+                      name="평균 단가"
+                      stroke="#06b6d4"
+                      strokeWidth={1.5}
+                      strokeDasharray="4 4"
+                      dot={false}
+                    />
+                  </LineChart>
+                ) : seriesView === 'ranks' ? (
+                  <LineChart
+                    data={timeSeriesData}
+                    margin={{ top: 12, right: 16, left: 10, bottom: 5 }}
+                    onClick={(state: any) => {
+                      if (state?.activePayload?.[0]?.payload?.date) {
+                        setSelectedDate(state.activePayload[0].payload.date)
+                      }
+                    }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.12} />
+                    <XAxis dataKey="shortDate" stroke="#64748b" fontSize={11} />
+                    <YAxis
+                      stroke="#64748b"
+                      fontSize={11}
+                      tickFormatter={(v) => krwFmt(Number(v))}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#0f172a',
+                        border: 'none',
+                        borderRadius: '10px',
+                        color: '#fff',
+                        fontSize: '11px',
+                      }}
+                      labelFormatter={(_label, payload) => {
+                        const row = payload?.[0]?.payload
+                        return row
+                          ? `${row.date}${row.group_no ? ` (Batch #${row.group_no})` : ''} — 합산 ${krwFmt(row.total_price)}원`
+                          : ''
+                      }}
+                      formatter={(value: any, name: any, props: any) => {
+                        const customName = props?.payload?.[`${name}_name`] || name
+                        return [`${krwFmt(Number(value))}원`, customName]
                       }}
                     />
-                    <Bar dataKey="price" name="종목 금액(단가)" radius={[6, 6, 0, 0]}>
-                      {rankBarData.map((entry, idx) => (
-                        <Cell
-                          key={entry.code}
-                          fill={entry.isBought ? '#10b981' : RANK_COLORS[idx % RANK_COLORS.length]}
-                        />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400 pt-1">
-                <div className="flex items-center gap-3">
-                  <span className="inline-flex items-center gap-1">
-                    <span className="h-2.5 w-2.5 rounded-xs bg-indigo-600 inline-block" />
-                    <span>순위별 기준 단가</span>
-                  </span>
-                  <span className="inline-flex items-center gap-1">
-                    <span className="h-2.5 w-2.5 rounded-xs bg-emerald-500 inline-block" />
-                    <span>해당일 매수 체결·발주 종목</span>
-                  </span>
-                </div>
-                <span>하단 시계열 차트의 막대를 클릭하면 해당 일자의 1~10순위 차트로 즉시 전환됩니다.</span>
-              </div>
-            </div>
-          )}
-
-          {/* ===================================================================
-              [차트 2] 시계열 스냅샷 추이 Bar 차트 (기록 시작일부터 ~ 선택 기간)
-              =================================================================== */}
-          <div className={`${CARD} p-4 sm:p-5 space-y-4`}>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
-              <div className="flex items-center gap-2">
-                <Calendar size={16} className="text-indigo-600 dark:text-indigo-400" />
-                <div>
-                  <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100">
-                    일단위 스냅샷 시계열 추이 ({filteredSnapshots[0]?.date} ~{' '}
-                    {filteredSnapshots[filteredSnapshots.length - 1]?.date})
-                  </h4>
-                </div>
-              </div>
-
-              <div className="inline-flex items-center rounded-lg bg-slate-100 p-0.5 text-[11px] dark:bg-slate-800 self-end sm:self-auto">
-                <button
-                  type="button"
-                  onClick={() => setSeriesView('stacked')}
-                  className={`rounded-md px-2.5 py-1 font-semibold transition-colors ${
-                    seriesView === 'stacked'
-                      ? 'bg-white text-indigo-600 shadow-2xs dark:bg-slate-900 dark:text-indigo-400'
-                      : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
-                  }`}
-                >
-                  1~10순위 종목 누적 Bar
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSeriesView('total')}
-                  className={`rounded-md px-2.5 py-1 font-semibold transition-colors ${
-                    seriesView === 'total'
-                      ? 'bg-white text-indigo-600 shadow-2xs dark:bg-slate-900 dark:text-indigo-400'
-                      : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
-                  }`}
-                >
-                  합산 금액 · 당일 매수액
-                </button>
-              </div>
-            </div>
-
-            <div className="h-72 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                {seriesView === 'stacked' ? (
-                  <BarChart
+                    <Legend wrapperStyle={{ fontSize: '10px' }} />
+                    {Array.from({ length: 10 }).map((_, idx) => (
+                      <Line
+                        key={`rank_${idx + 1}`}
+                        type="monotone"
+                        dataKey={`rank_${idx + 1}`}
+                        name={`${idx + 1}위`}
+                        stroke={RANK_COLORS[idx % RANK_COLORS.length]}
+                        strokeWidth={1.8}
+                        dot={{ r: 2 }}
+                        activeDot={{ r: 5 }}
+                      />
+                    ))}
+                  </LineChart>
+                ) : (
+                  <AreaChart
                     data={timeSeriesData}
-                    margin={{ top: 10, right: 16, left: 10, bottom: 5 }}
+                    margin={{ top: 12, right: 16, left: 10, bottom: 5 }}
                     onClick={(state: any) => {
                       if (state?.activePayload?.[0]?.payload?.date) {
                         setSelectedDate(state.activePayload[0].payload.date)
@@ -519,28 +531,114 @@ export default function DailySnapshotSection({
                       }}
                     />
                     {Array.from({ length: 10 }).map((_, idx) => (
-                      <Bar
-                        key={`rank_${idx + 1}`}
+                      <Area
+                        key={`rank_area_${idx + 1}`}
+                        type="monotone"
                         dataKey={`rank_${idx + 1}`}
                         name={`${idx + 1}위`}
-                        stackId="ranks"
+                        stackId="1"
+                        stroke={RANK_COLORS[idx % RANK_COLORS.length]}
                         fill={RANK_COLORS[idx % RANK_COLORS.length]}
-                        cursor="pointer"
+                        fillOpacity={0.5}
                       />
                     ))}
-                  </BarChart>
-                ) : (
-                  <BarChart
-                    data={timeSeriesData}
-                    margin={{ top: 10, right: 16, left: 10, bottom: 5 }}
-                    onClick={(state: any) => {
-                      if (state?.activePayload?.[0]?.payload?.date) {
-                        setSelectedDate(state.activePayload[0].payload.date)
+                  </AreaChart>
+                )}
+              </ResponsiveContainer>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400 pt-1">
+              <span>💡 시계열 라인의 날짜 지점을 클릭하면 아래 해당 일자의 순위별 상세 스냅샷으로 즉시 전환됩니다.</span>
+              <span className="font-semibold text-indigo-600 dark:text-indigo-400">
+                선택 일자: {activeSnapshot ? activeSnapshot.date : '-'}
+              </span>
+            </div>
+          </div>
+
+          {/* ===================================================================
+              [차트 2] 선택 일자 1~10순위 종목 단가 라인 프로파일 차트
+              =================================================================== */}
+          {activeSnapshot && (
+            <div className={`${CARD} p-4 sm:p-5 space-y-4`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                    📈 순위별 종목 단가 라인 차트 (1~10순위)
+                  </span>
+                  <span className="rounded-md bg-indigo-50 px-2 py-0.5 text-[11px] font-bold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+                    1주 합산: {krwFmt(activeSnapshot.total_price)}원 · 평균: {krwFmt(activeSnapshot.avg_price)}원
+                  </span>
+                </div>
+
+                {/* 일자 탐색 컨트롤 (< 이전일 | 날짜 선택 | 다음일 >) */}
+                <div className="flex items-center gap-1.5 self-end sm:self-auto">
+                  <button
+                    type="button"
+                    disabled={activeIndex <= 0}
+                    onClick={() => {
+                      if (activeIndex > 0) {
+                        setSelectedDate(filteredSnapshots[activeIndex - 1].date)
                       }
                     }}
+                    className="rounded-lg border border-slate-200 p-1 text-slate-600 hover:bg-slate-50 disabled:opacity-30 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer disabled:cursor-not-allowed"
+                    title="이전 기록 일자"
                   >
+                    <ChevronLeft size={14} />
+                  </button>
+
+                  <select
+                    aria-label="스냅샷 기준 일자 선택"
+                    value={activeSnapshot.date}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-bold text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 cursor-pointer"
+                  >
+                    {[...filteredSnapshots].reverse().map((s) => (
+                      <option key={s.date} value={s.date}>
+                        {s.date}
+                        {s.group_no ? ` (Batch #${s.group_no})` : ''}
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    type="button"
+                    disabled={activeIndex < 0 || activeIndex >= filteredSnapshots.length - 1}
+                    onClick={() => {
+                      if (activeIndex >= 0 && activeIndex < filteredSnapshots.length - 1) {
+                        setSelectedDate(filteredSnapshots[activeIndex + 1].date)
+                      }
+                    }}
+                    className="rounded-lg border border-slate-200 p-1 text-slate-600 hover:bg-slate-50 disabled:opacity-30 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer disabled:cursor-not-allowed"
+                    title="다음 기록 일자"
+                  >
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
+              </div>
+
+              {/* 1~10위 단가 라인 프로파일 (Area 그라디언트 + 마커 포인트) */}
+              <div className="h-72 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart
+                    data={rankLineData}
+                    margin={{ top: 12, right: 16, left: 10, bottom: 20 }}
+                  >
+                    <defs>
+                      <linearGradient id="rankLineGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25} />
+                        <stop offset="95%" stopColor="#6366f1" stopOpacity={0.0} />
+                      </linearGradient>
+                    </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.12} />
-                    <XAxis dataKey="shortDate" stroke="#64748b" fontSize={11} />
+                    <XAxis
+                      dataKey="rankLabel"
+                      stroke="#64748b"
+                      fontSize={11}
+                      interval={0}
+                      angle={-15}
+                      textAnchor="end"
+                      height={48}
+                    />
                     <YAxis
                       stroke="#64748b"
                       fontSize={11}
@@ -554,91 +652,121 @@ export default function DailySnapshotSection({
                         color: '#fff',
                         fontSize: '12px',
                       }}
-                      formatter={(value: any, name: any) => [`${krwFmt(Number(value))}원`, name]}
+                      formatter={(value: any, _name: any, props: any) => {
+                        const p = props?.payload
+                        const statusTxt = p?.isBought ? ' (당일 매수 집행)' : ''
+                        return [
+                          `${krwFmt(Number(value))}원${statusTxt}`,
+                          `${p?.rank}위 ${p?.name} (${p?.code})`,
+                        ]
+                      }}
                     />
-                    <Legend wrapperStyle={{ fontSize: '11px' }} />
-                    <Bar
-                      dataKey="total_price"
-                      name="1~10순위 1주 합산 금액"
-                      fill="#6366f1"
-                      radius={[4, 4, 0, 0]}
-                      cursor="pointer"
+                    <Area
+                      type="monotone"
+                      dataKey="price"
+                      name="기준 단가"
+                      stroke="#6366f1"
+                      strokeWidth={2.5}
+                      fill="url(#rankLineGrad)"
+                      dot={(props: any) => {
+                        const { cx, cy, payload } = props
+                        const isBought = payload?.isBought
+                        return (
+                          <circle
+                            key={`dot-${payload?.code}-${cx}`}
+                            cx={cx}
+                            cy={cy}
+                            r={isBought ? 5 : 3.5}
+                            fill={isBought ? '#10b981' : '#6366f1'}
+                            stroke="#fff"
+                            strokeWidth={1.5}
+                          />
+                        )
+                      }}
+                      activeDot={{ r: 6, stroke: '#818cf8', strokeWidth: 2 }}
                     />
-                    <Bar
-                      dataKey="spent_krw"
-                      name="당일 매수 집행 금액"
-                      fill="#10b981"
-                      radius={[4, 4, 0, 0]}
-                      cursor="pointer"
-                    />
-                  </BarChart>
-                )}
-              </ResponsiveContainer>
-            </div>
-
-            {/* 아코디언: 선택 일자 스냅샷 상세 수치 표 (기본 접힘) */}
-            {activeSnapshot && (
-              <div className="border-t border-slate-100 dark:border-slate-800 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setIsTableOpen((v) => !v)}
-                  className="flex w-full items-center justify-between rounded-xl bg-slate-50 px-3.5 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-800 transition-colors"
-                >
-                  <span>
-                    📋 {activeSnapshot.date} 스냅샷 순위별 상세 수치 표 ({activeSnapshot.items.length}개 종목)
-                  </span>
-                  <span className="inline-flex items-center gap-1 text-slate-400">
-                    <span>{isTableOpen ? '접기' : '펼치기'}</span>
-                    {isTableOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                  </span>
-                </button>
-
-                {isTableOpen && (
-                  <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
-                    <table className="w-full text-left text-xs">
-                      <thead>
-                        <tr className="border-b border-slate-200 bg-slate-50/80 text-slate-500 dark:border-slate-800 dark:bg-slate-800/60">
-                          <th className={TH}>순위</th>
-                          <th className={TH}>종목명 (코드)</th>
-                          <th className={`${TH} text-right`}>기준 단가 (1주 금액)</th>
-                          <th className={TH}>당일 매수 여부</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                        {activeSnapshot.items.map((it) => (
-                          <tr
-                            key={it.code}
-                            className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40"
-                          >
-                            <td className={`${TD} font-bold text-indigo-600 dark:text-indigo-400`}>
-                              {it.rank}위
-                            </td>
-                            <td className={`${TD} font-semibold text-slate-800 dark:text-slate-200`}>
-                              {it.name}{' '}
-                              <span className="font-normal text-slate-400">({it.code})</span>
-                            </td>
-                            <td className={`${TD} text-right font-semibold text-slate-800 dark:text-slate-100`}>
-                              {krwFmt(it.price)}원
-                            </td>
-                            <td className={TD}>
-                              {it.is_bought ? (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400">
-                                  <CheckCircle2 size={11} />
-                                  매수 집행
-                                </span>
-                              ) : (
-                                <span className="text-slate-400 text-[11px]">—</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                  </AreaChart>
+                </ResponsiveContainer>
               </div>
-            )}
-          </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400 pt-1">
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex items-center gap-1">
+                    <span className="h-2.5 w-2.5 rounded-full bg-indigo-600 inline-block" />
+                    <span>순위별 기준 단가 추세선</span>
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 inline-block" />
+                    <span>해당일 매수 체결·발주 종목</span>
+                  </span>
+                </div>
+                <span>상단 시계열 라인 차트의 날짜를 클릭하면 해당 일자의 순위별 라인 프로파일로 갱신됩니다.</span>
+              </div>
+            </div>
+          )}
+
+          {/* 아코디언: 선택 일자 스냅샷 상세 수치 표 (기본 접힘) */}
+          {activeSnapshot && (
+            <div className={`${CARD} p-4 sm:p-5 space-y-3`}>
+              <button
+                type="button"
+                onClick={() => setIsTableOpen((v) => !v)}
+                className="flex w-full items-center justify-between rounded-xl bg-slate-50 px-3.5 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <span>
+                  📋 {activeSnapshot.date} 스냅샷 순위별 상세 수치 표 ({activeSnapshot.items.length}개 종목)
+                </span>
+                <span className="inline-flex items-center gap-1 text-slate-400">
+                  <span>{isTableOpen ? '접기' : '펼치기'}</span>
+                  {isTableOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </span>
+              </button>
+
+              {isTableOpen && (
+                <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-200 bg-slate-50/80 text-slate-500 dark:border-slate-800 dark:bg-slate-800/60">
+                        <th className={TH}>순위</th>
+                        <th className={TH}>종목명 (코드)</th>
+                        <th className={`${TH} text-right`}>기준 단가 (1주 금액)</th>
+                        <th className={TH}>당일 매수 여부</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {activeSnapshot.items.map((it) => (
+                        <tr
+                          key={it.code}
+                          className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40"
+                        >
+                          <td className={`${TD} font-bold text-indigo-600 dark:text-indigo-400`}>
+                            {it.rank}위
+                          </td>
+                          <td className={`${TD} font-semibold text-slate-800 dark:text-slate-200`}>
+                            {it.name}{' '}
+                            <span className="font-normal text-slate-400">({it.code})</span>
+                          </td>
+                          <td className={`${TD} text-right font-semibold text-slate-800 dark:text-slate-100`}>
+                            {krwFmt(it.price)}원
+                          </td>
+                          <td className={TD}>
+                            {it.is_bought ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400">
+                                <CheckCircle2 size={11} />
+                                매수 집행
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 text-[11px]">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
     </div>

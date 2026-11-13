@@ -979,17 +979,12 @@ export default function StrategyFormModal({
                         <div className="mt-1">
                           <TimePickerInput
                             aria-label="매일 실행 시각"
-                            placeholder="09:10"
+                            placeholder="15:10"
                             value={form.dcaExecTime}
                             onChange={(val) => setForm({ ...form, dcaExecTime: val })}
                             required
-                            presets={[
-                              { label: '09:05 (장개장 직후)', time: '09:05' },
-                              { label: '09:10 (추천)', time: '09:10' },
-                              { label: '09:30', time: '09:30' },
-                              { label: '14:30 (오후 매수)', time: '14:30' },
-                              { label: '15:00 (장마감 전)', time: '15:00' },
-                            ]}
+                            presetCategory="buy"
+                            showTabSelector={true}
                           />
                         </div>
                       </div>
@@ -1459,10 +1454,12 @@ export default function StrategyFormModal({
                           <div className="mt-1">
                             <TimePickerInput
                               aria-label="실행 시각"
-                              placeholder="09:05"
+                              placeholder="15:10"
                               value={form.dcaExecTime}
                               onChange={(val) => setForm({ ...form, dcaExecTime: val })}
                               required
+                              presetCategory="buy"
+                              showTabSelector={true}
                             />
                           </div>
                         </div>
