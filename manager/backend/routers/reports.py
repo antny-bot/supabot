@@ -191,14 +191,16 @@ def _build_pnl_rows(realized_events):
         "bid_krw": 0.0,
         "ask_krw": 0.0,
         "fee_amount": 0.0,
-        "trade_count": 0,
+        "bid_count": 0,
+        "ask_count": 0,
     })
     for event in realized_events:
         key = (event["exchange"], event["ticker"])
         agg[key]["bid_krw"] += event["bid_krw"]
         agg[key]["ask_krw"] += event["ask_krw"]
         agg[key]["fee_amount"] += event["fee_amount"]
-        agg[key]["trade_count"] += 1
+        agg[key]["bid_count"] += 1
+        agg[key]["ask_count"] += 1
 
     rows = []
     for (exchange, ticker), value in agg.items():
@@ -215,7 +217,8 @@ def _build_pnl_rows(realized_events):
             "fee_amount": _round_money(fee_amount),
             "pnl": _round_money(pnl),
             "roi_pct": roi_pct,
-            "trade_count": value["trade_count"],
+            "bid_count": value["bid_count"],
+            "ask_count": value["ask_count"],
         })
     return rows
 
