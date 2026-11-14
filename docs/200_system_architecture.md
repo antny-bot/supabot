@@ -29,7 +29,8 @@ supabot 봇 백엔드·관리 UI 모듈 구성, 핵심 데이터 스키마(Postg
 | `src/core/exchange_adapter.py` | 거래소 레지스트리/파사드 | [201_exchange_adapter.md](file:///E:/apps/supabot/docs/201_exchange_adapter.md) |
 | `src/core/exchanges/base.py` | `BaseExchange` — 거래소 capability 기본값 정의 | [201_exchange_adapter.md](file:///E:/apps/supabot/docs/201_exchange_adapter.md) |
 | `src/core/exchanges/{upbit,bithumb,kis,toss}.py` | 거래소별 HTTP/인증 구현 및 capability 오버라이드 | [201_exchange_adapter.md](file:///E:/apps/supabot/docs/201_exchange_adapter.md) |
-| `src/core/exchanges/common.py` | `CommonMixin` — 틱사이즈 static 유틸 | — |
+| `shared/supabot_common/` | 순수 파이썬 공통 패키지 (`ticks`: KRX/코인 틱사이즈, `crypto`: Fernet 대칭키 암복호화) | [207_bot_manager_api_contract.md](file:///E:/apps/supabot/docs/207_bot_manager_api_contract.md) |
+| `src/core/exchanges/common.py` | `CommonMixin` — `supabot_common.ticks` 위임 래퍼 및 주문 상태 정규화 | — |
 | `src/core/signal_engine.py` | RSI 계산 + 목표가 역산 알고리즘 | [204_signal_engine.md](file:///E:/apps/supabot/docs/204_signal_engine.md) |
 | `src/core/indicators.py` | RSI/MACD/볼린저/스토캐스틱 계산 (`ta`) | — |
 | `src/core/user_manager.py` | 유저 설정·권한 (DB 우선 + 파일 폴백) | [203_user_manager.md](file:///E:/apps/supabot/docs/203_user_manager.md) |
@@ -37,7 +38,7 @@ supabot 봇 백엔드·관리 UI 모듈 구성, 핵심 데이터 스키마(Postg
 | `src/core/db.py` & `db_sync.py` | Supabase REST 클라이언트 (`requests` 기반, ALPN 회피, 다중 컬럼 `.order()`), SQLite 읽기 폴백(`query_fallback`) 및 동기화 | — |
 | `src/core/backup_manager.py` | Supabase 14개 테이블 정기 백업, SQLite 스냅샷(`fallback_latest.sqlite3`), ZIP 패키징 및 로컬/Drive 보존 정책 | [205_main_handlers.md](file:///E:/apps/supabot/docs/205_main_handlers.md) |
 | `src/core/gdrive_client.py` | Google Drive REST API v3 연동 및 OAuth 토큰 관리 (표준 `urllib`) | — |
-| `src/core/secret_crypto.py` | 사용자 키 Fernet 암복호화 (`enc:v1:`) | [205b_security_logging.md](file:///E:/apps/supabot/docs/205b_security_logging.md) |
+| `src/core/secret_crypto.py` | 사용자 키 Fernet 암복호화 (`enc:v1:`, `supabot_common.crypto` 위임) | [205b_security_logging.md](file:///E:/apps/supabot/docs/205b_security_logging.md) |
 | `src/core/natural_language.py` | NL 전처리 + Gemini 인텐트 처리 + `nl_logs` 기록 (도구 trace/제안 액션 보존) | [304_gemini_intent.md](file:///E:/apps/supabot/docs/304_gemini_intent.md) |
 | `src/core/nl_agent.py` | Gemini Function Calling 멀티턴 에이전트 루프 (읽기 18종 / 변경 제안 7종 도구) | [304_gemini_intent.md](file:///E:/apps/supabot/docs/304_gemini_intent.md) |
 | `src/core/formatters.py` | Telegram 메시지 포매팅 | — |
