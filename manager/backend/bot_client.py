@@ -163,17 +163,50 @@ async def force_update_order(uuid: str, state: str, filled_volume: float) -> tup
     except Exception as e:
         return False, str(e)
 
+from .services.price_cache import price_cache
+
 async def get_prices_async(requests_: list[dict]) -> list[dict]:
-    """봇 프로세스에 있는 거래소 자격증명을 통해 실시간 현재가를 비동기로 조회한다."""
+    """매니저 가격 캐시를 우선 조회한 뒤, 필요시 봇에 요청한다.
+
+    봇은 주문 전 1회 실시간 호가를 조회하고,
+    매니저는 리포트용으로 캐시를 사용한다.
+    """
     if not requests_:
         return []
-    try:
-        resp = await _send_signed_request_async("/internal/get_prices", {"requests": requests_})
-        if resp.is_success:
-            return resp.json().get("prices", [])
-        return []
-    except Exception:
-        return []
+
+    results: list[dict] = []
+    remaining: list[dict] = []
+
+    for item in requests_:
+        cached = await price_cache.get(
+            str(item.get("user_id", "")),
+            item.get("exchange", ""),
+            item.get("ticker", ""),
+        )
+        if cached is not None:
+            results.append({**item, "price": cached, "from_cache": True})
+        else:
+            remaining.append(item)
+
+    if remaining:
+        try:
+            resp = await _send_signed_request_async("/internal/get_prices", {"requests": remaining})
+            if resp.is_success:
+                for p in resp.json().get("prices", []):
+                    try:
+                        await price_cache.set(
+                            str(p.get("user_id", "")),
+                            p.get("exchange", ""),
+                            p.get("ticker", ""),
+                            float(p.get("price", 0)),
+                        )
+                    except Exception:
+                        pass
+                results.extend(resp.json().get("prices", []))
+        except Exception:
+            pass
+
+    return results
 
 def get_prices(requests_: list[dict]) -> list[dict]:
     """동기 버전 get_prices (기존 동기 호출자 호환)."""

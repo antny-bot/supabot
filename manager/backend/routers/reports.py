@@ -505,10 +505,14 @@ async def _fetch_current_prices(position_rows, bot_user_id):
     stock_keys_with_price: set[tuple[str, str]] = set()
     if stock_requests:
         try:
-            results = await asyncio.wait_for(
-                asyncio.get_event_loop().run_in_executor(None, bot_client.get_prices, stock_requests),
-                timeout=15,
-            )
+            stock_requests = [
+                {
+                    "user_id": u_id,
+                    "exchange": ex,
+                    "ticker": ticker,
+                } for (u_id, ex, ticker) in stock_keys
+            ]
+            results = await bot_client.get_prices_async(stock_requests)
             for item in results:
                 price = _safe_float(item.get("price"))
                 if price > 0:
