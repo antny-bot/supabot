@@ -421,33 +421,57 @@ async def run_strategy_progression(
                 except Exception as e:
                     logger.debug(f"reorder_of lookup fallback: {e}")
 
-                # orders 테이블에서 삭제된 주문의 체결 여부를 확인하기 위해 trade_logs 조회
+                # orders 테이블에서 삭제된 주문의 체결 여부를 확인하기 위해 trade_logs 조회 (group_no 및 uuid 병행 매칭)
                 trade_vol_by_group_ticker: dict[tuple, float] = {}
+                trade_vol_by_uuid: dict[str, float] = {}
                 buy_groups = list({int(pb["group_no"]) for pb in pending_buys if pb.get("group_no") is not None})
+                lookup_uuids = list(set(order_uuids + [
+                    str(s["uuid"]) for s in status_map.values() if isinstance(s, dict) and s.get("uuid")
+                ]))
                 try:
-                    if not buy_groups:
-                        raise LookupError("no group_no")
-                    t_res = (
-                        await db.table("trade_logs")
-                        .select("uuid,ticker,side,volume,group_no")
-                        .eq("template_id", template_id)
-                        .eq("side", "bid")
-                        .in_("group_no", buy_groups)
-                        .execute()
-                    )
-                    for tr in (t_res.data or []):
-                        key = (tr.get("group_no"), tr.get("ticker"))
-                        trade_vol_by_group_ticker[key] = trade_vol_by_group_ticker.get(key, 0.0) + float(tr.get("volume") or 0.0)
-                except LookupError:
-                    pass
+                    if buy_groups:
+                        t_res = (
+                            await db.table("trade_logs")
+                            .select("uuid,ticker,side,volume,group_no")
+                            .eq("template_id", template_id)
+                            .eq("side", "bid")
+                            .in_("group_no", buy_groups)
+                            .execute()
+                        )
+                        for tr in (t_res.data or []):
+                            vol = float(tr.get("volume") or 0.0)
+                            key = (tr.get("group_no"), tr.get("ticker"))
+                            trade_vol_by_group_ticker[key] = trade_vol_by_group_ticker.get(key, 0.0) + vol
+                            if tr.get("uuid"):
+                                u_key = str(tr["uuid"])
+                                trade_vol_by_uuid[u_key] = trade_vol_by_uuid.get(u_key, 0.0) + vol
                 except Exception as e:
-                    logger.warning(f"Failed to query trade_logs for reconciliation: {e}")
+                    logger.warning(f"Failed to query trade_logs by group_no for reconciliation: {e}")
+
+                if lookup_uuids:
+                    try:
+                        u_res = (
+                            await db.table("trade_logs")
+                            .select("uuid,ticker,side,volume")
+                            .eq("side", "bid")
+                            .in_("uuid", lookup_uuids)
+                            .execute()
+                        )
+                        for tr in (u_res.data or []):
+                            if tr.get("uuid"):
+                                u_key = str(tr["uuid"])
+                                vol = float(tr.get("volume") or 0.0)
+                                if u_key not in trade_vol_by_uuid:
+                                    trade_vol_by_uuid[u_key] = vol
+                    except Exception as e:
+                        logger.debug(f"Fallback trade_logs uuid lookup skipped: {e}")
 
                 cancelled = []
                 for pb in pending_buys:
                     s_info = status_map.get(pb["uuid"])
                     c_code = pb.get("code") or pb.get("ticker")
                     pb_vol = float(pb.get("volume", 0.0))
+                    effective_uuid = str(s_info.get("uuid") if s_info and s_info.get("uuid") else pb.get("uuid") or "")
                     if s_info:
                         st = s_info.get("status")
                         if st == "cancel_requested":
@@ -456,7 +480,11 @@ async def run_strategy_progression(
                             continue
                         # cancel, failed, rejected, market_closed(장마감 실효), pending_reorder/reserved(전일 미체결 잔류), expired 등 미체결 상태
                         if st in ("cancel", "failed", "rejected", "market_closed", "pending_reorder", "reserved", "expired"):
-                            pb["filled_volume"] = float(s_info.get("filled_volume", 0.0))
+                            pb["filled_volume"] = max(
+                                float(s_info.get("filled_volume", 0.0)),
+                                trade_vol_by_uuid.get(effective_uuid, 0.0),
+                                trade_vol_by_uuid.get(str(pb.get("uuid") or ""), 0.0),
+                            )
                             cancelled.append(pb)
                             if st in ("market_closed", "pending_reorder", "reserved", "expired"):
                                 try:
@@ -467,7 +495,12 @@ async def run_strategy_progression(
                             # 장 마감 후 익일 새 배치가 시작되었음에도 이전 배치의 주문이 wait/open/partial 상태로 남아있는 경우
                             # (국내 주식 정규장 지정가 주문은 15:30 정규장 마감 시 자동 실효됨)
                             key = (pb.get("group_no"), c_code)
-                            exec_vol = trade_vol_by_group_ticker.get(key, float(s_info.get("filled_volume", 0.0)))
+                            exec_vol = max(
+                                trade_vol_by_group_ticker.get(key, 0.0),
+                                trade_vol_by_uuid.get(effective_uuid, 0.0),
+                                trade_vol_by_uuid.get(str(pb.get("uuid") or ""), 0.0),
+                                float(s_info.get("filled_volume", 0.0)),
+                            )
                             if exec_vol < pb_vol:
                                 pb["filled_volume"] = exec_vol
                                 cancelled.append(pb)
@@ -476,9 +509,13 @@ async def run_strategy_progression(
                                 except Exception as e:
                                     logger.warning(f"Failed to clean up stale open order ({st}): {e}")
                     else:
-                        # orders 테이블에 행이 없는 경우: trade_logs에 체결 내역이 있는지 대조
+                        # orders 테이블에 행이 없는 경우: trade_logs에 체결 내역이 있는지 대조 (group_no 및 uuid 모두 확인)
                         key = (pb.get("group_no"), c_code)
-                        exec_vol = trade_vol_by_group_ticker.get(key, 0.0)
+                        exec_vol = max(
+                            trade_vol_by_group_ticker.get(key, 0.0),
+                            trade_vol_by_uuid.get(effective_uuid, 0.0),
+                            trade_vol_by_uuid.get(str(pb.get("uuid") or ""), 0.0),
+                        )
                         if exec_vol < pb_vol:
                             pb["filled_volume"] = exec_vol
                             cancelled.append(pb)
@@ -830,6 +867,7 @@ async def stop_strategy(template_id: int, mode: str) -> dict:
         now_ts = time.time()
         live_prices = await _fetch_current_prices(template, [t for t, h in holdings.items() if h.get("qty", 0.0) > 0])
         no_price = []
+        created_liq = False
         for ticker, h in holdings.items():
             qty = h.get("qty", 0.0)
             if qty > 0:
@@ -851,6 +889,12 @@ async def stop_strategy(template_id: int, mode: str) -> dict:
                     "created_at": now_ts,
                 }
                 await db.table("orders").upsert(liq_ord).execute()
+                created_liq = True
+        if created_liq:
+            try:
+                await bot_client.wake_order_sync()
+            except Exception as e:
+                logger.warning(f"Failed to trigger bot wake_order_sync on liquidate: {e}")
         if no_price:
             # 현재가 조회 실패 종목은 청산 주문을 내지 않고 알린다 (재시도 필요)
             logger.warning(f"Template #{template_id}: 현재가 조회 실패로 청산 보류: {no_price}")

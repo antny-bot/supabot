@@ -98,7 +98,14 @@ async def _process_queue():
                         chk = await db.table(table).select("id").eq("uuid", data["uuid"]).execute_async()
                         already_exists = bool(chk.data)
                     if not already_exists:
-                        await db.table(table).insert(data).execute_async()
+                        try:
+                            await db.table(table).insert(data).execute_async()
+                        except Exception as ins_err:
+                            if table == "trade_logs" and isinstance(data, dict) and ("template_id" in data or "group_no" in data):
+                                fallback_data = {k: v for k, v in data.items() if k not in ("template_id", "group_no")}
+                                await db.table(table).insert(fallback_data).execute_async()
+                            else:
+                                raise ins_err
                 elif action == "delete":
                     await db.table(table).delete().eq(key_col, key_val).execute_async()
                 _log.info(f"Successfully synced task: {action} on {table} ({key_val})")

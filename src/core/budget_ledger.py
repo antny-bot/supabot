@@ -52,6 +52,10 @@ async def record_budget_spend(
         carryover = float(params.get("carryover_budget", 0.0))
         monthly_spent = float(params.get("monthly_spent", 0.0))
 
+        accounted_list = list(params.get("accounted_buy_order_uuids", []))
+        if order_uuid and str(order_uuid) in accounted_list:
+            return {"carryover_budget": carryover, "monthly_spent": monthly_spent}
+
         new_carryover = max(0.0, carryover - cost_krw)
         new_monthly_spent = monthly_spent + cost_krw
         monthly_rem = max(0.0, monthly_budget - new_monthly_spent)
@@ -81,9 +85,28 @@ async def record_budget_spend(
         except Exception as le:
             _log.error("Failed to insert budget_ledger entry (BUY_ORDER_SPEND) for template %s: %s", template_id, le)
 
-        # 차감 대상 키만 갱신
+        # 차감 대상 키 및 멱등 추적 키 갱신
         params["carryover_budget"] = new_carryover
         params["monthly_spent"] = new_monthly_spent
+        if order_uuid:
+            u_str = str(order_uuid)
+            if u_str not in accounted_list:
+                accounted_list.append(u_str)
+            params["accounted_buy_order_uuids"] = accounted_list
+            pending_buys = list(params.get("pending_buy_orders", []))
+            if not any(str(pb.get("uuid")) == u_str for pb in pending_buys):
+                unit_px = (cost_krw / float(qty)) if float(qty or 0) > 0 else cost_krw
+                pending_buys.append({
+                    "uuid": u_str,
+                    "ticker": ticker,
+                    "price": float(unit_px),
+                    "volume": float(qty or 0.0),
+                    "group_no": int(group_no) if group_no is not None else int(params.get("last_group_no") or 1),
+                    "budget_epoch": budget_epoch,
+                })
+                params["pending_buy_orders"] = pending_buys
+        if group_no is not None and int(group_no) > int(params.get("last_group_no") or 0):
+            params["last_group_no"] = int(group_no)
         await db.table("strategy_templates").update({"params": params}).eq("id", int(template_id)).execute_async()
 
         return {"carryover_budget": new_carryover, "monthly_spent": new_monthly_spent}
@@ -171,6 +194,12 @@ async def record_budget_adjust(
 
         params["carryover_budget"] = new_carryover
         params["monthly_spent"] = new_monthly_spent
+        if entry_type == "ORDER_CANCEL_REFUND" and order_uuid and "pending_buy_orders" in params:
+            u_str = str(order_uuid)
+            params["pending_buy_orders"] = [
+                pb for pb in (params.get("pending_buy_orders") or [])
+                if str(pb.get("uuid")) != u_str
+            ]
         await db.table("strategy_templates").update({"params": params}).eq("id", int(template_id)).execute_async()
 
         return {"carryover_budget": new_carryover, "monthly_spent": new_monthly_spent}

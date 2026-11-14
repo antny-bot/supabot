@@ -67,9 +67,13 @@ export default function TimePickerInput({
   const isInvalid = hasValue && !isValidTimeInput(normalized)
   const timeDesc = formatKoreanTime(value)
 
-  // 매수/매도 추천 시각 정보 매칭
-  const matchedBuy = BUY_RECOMMENDED_TIME_PRESETS.find((p) => p.time === normalized)
-  const matchedSell = SELL_RECOMMENDED_TIME_PRESETS.find((p) => p.time === normalized)
+  // 매수/매도 추천 시각 정보 매칭 (선택된 카테고리/탭 우선 적용)
+  const isSellMode = presetCategory === 'sell' || (presetCategory === 'all' && activeTab === 'sell')
+  const isBuyMode = presetCategory === 'buy' || (presetCategory === 'all' && activeTab === 'buy')
+  const rawMatchedBuy = BUY_RECOMMENDED_TIME_PRESETS.find((p) => p.time === normalized)
+  const rawMatchedSell = SELL_RECOMMENDED_TIME_PRESETS.find((p) => p.time === normalized)
+  const matchedBuy = presetCategory === 'sell' ? undefined : isSellMode && rawMatchedSell ? undefined : rawMatchedBuy
+  const matchedSell = presetCategory === 'buy' ? undefined : isBuyMode && rawMatchedBuy ? undefined : rawMatchedSell
 
   const handleBlur = () => {
     if (!value) return
