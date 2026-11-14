@@ -6,16 +6,14 @@
 """
 import uuid
 import math
-from supabot_common.ticks import get_tick_size
+from supabot_common.ticks import get_tick_size, adjust_krx_price_to_tick, adjust_crypto_price_to_tick
 
 
 def adjust_price_to_tick(price: float, exchange: str = "base") -> float:
-    """호가 단위(Tick Size)에 맞게 내림 보정."""
-    tick = get_tick_size(price, exchange)
-    adjusted = price - (price % tick)
-    if tick >= 1:
-        return float(int(adjusted))
-    return round(adjusted, 4)
+    """호가 단위(Tick Size)에 맞게 내림 보정 (supabot_common 위임)."""
+    if exchange.lower() in ("kis", "toss"):
+        return float(adjust_krx_price_to_tick(price))
+    return float(adjust_crypto_price_to_tick(price))
 
 
 def round_volume(raw_vol: float, exchange: str = "base") -> float:

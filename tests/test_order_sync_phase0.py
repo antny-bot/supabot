@@ -216,3 +216,119 @@ async def test_linked_sell_retry_limit(mock_app):
         await order_sync._process_order_fill(mock_app, ord_item, res, ex_obj)
         assert not om.has_order("rsi_buy_fail")
         assert "연동 익절 매도 생성 5회 실패" in mock_app.bot.send_message.call_args[1]["text"]
+
+
+@pytest.mark.asyncio
+async def test_sync_orders_isolates_per_order_exceptions_and_fetch_errors(mock_app):
+    """(a) sync_orders 메인 루프 주문 단위 예외 격리 및 _fetch_status return_exceptions 검증."""
+    om = OrderManager("data/test_orders_p0.json")
+    ord_err = {
+        "uuid": "ord_err_1",
+        "user_id": "u1",
+        "exchange": "upbit",
+        "ticker": "KRW-BTC",
+        "side": "bid",
+        "strategy": "manual",
+        "price": 1000.0,
+        "volume": 1.0,
+        "filled_volume": 0.0,
+        "status": "wait",
+    }
+    ord_ok = {
+        "uuid": "ord_ok_2",
+        "user_id": "u1",
+        "exchange": "upbit",
+        "ticker": "KRW-ETH",
+        "side": "bid",
+        "strategy": "manual",
+        "price": 2000.0,
+        "volume": 1.0,
+        "filled_volume": 0.0,
+        "status": "wait",
+    }
+    om.orders = [ord_err, ord_ok]
+    om._orders_by_uuid = {ord_err["uuid"]: ord_err, ord_ok["uuid"]: ord_ok}
+    om._uuid_set = {"ord_err_1", "ord_ok_2"}
+
+    mock_ex = MagicMock()
+    mock_ex.is_market_open = MagicMock(return_value=True)
+    mock_ex.supports_reserved_orders = False
+
+    async def fake_get_order_status(uid, ex, uuid, ticker):
+        if uuid == "ord_err_1":
+            raise RuntimeError("API timeout")
+        return {"state": "done", "executed_volume": 1.0}
+
+    mock_ex_adapter = MagicMock()
+    mock_ex_adapter.get_exchange = MagicMock(return_value=mock_ex)
+    mock_ex_adapter.get_order_status = AsyncMock(side_effect=fake_get_order_status)
+
+    with patch("core.order_sync._get_app_context", return_value=(om, None, mock_ex_adapter, None)), \
+         patch("core.order_sync._call_append_trade"), \
+         patch("main._spawn_bg"):
+        await order_sync.sync_orders(mock_app)
+
+    # ord_err_1이 예외를 던져도 ord_ok_2는 정상 체결 완료 처리되어야 함
+    assert om.has_order("ord_err_1")
+    assert not om.has_order("ord_ok_2")
+
+
+@pytest.mark.asyncio
+async def test_stop_loss_retry_succeeds_without_status_lookup(mock_app):
+    """(b-2) _apply_stop_loss 실패 후 stoploss_retry 상태에서 다음 사이클이 get_order_status 없이 손절 재시도를 성공하는지 검증."""
+    om = OrderManager("data/test_orders_p0.json")
+    test_ord = {
+        "uuid": "rsitrade_sell_retry",
+        "user_id": "u1",
+        "exchange": "upbit",
+        "ticker": "KRW-BTC",
+        "strategy": "rsitrade_sell",
+        "stop_price": 50000.0,
+        "volume": 1.0,
+        "filled_volume": 0.0,
+        "status": "wait",
+        "next_check_at": 0.0,
+    }
+    om.orders = [test_ord]
+    om._orders_by_uuid = {test_ord["uuid"]: test_ord}
+    om._uuid_set = {test_ord["uuid"]}
+
+    mock_ex = MagicMock()
+    mock_ex.is_market_open = MagicMock(return_value=True)
+    mock_ex.supports_reserved_orders = False
+    mock_ex.round_volume = MagicMock(side_effect=lambda v: v)
+    mock_ex.adjust_price_to_tick = MagicMock(side_effect=lambda p, t: p)
+
+    mock_ex_adapter = MagicMock()
+    mock_ex_adapter.get_exchange = MagicMock(return_value=mock_ex)
+    mock_ex_adapter.cancel_order = AsyncMock(return_value=True)
+    mock_ex_adapter.get_ticker = AsyncMock(return_value={"trade_price": 48000.0})
+    mock_ex_adapter.get_order_status = AsyncMock(return_value={"state": "wait", "executed_volume": 0.0})
+    # 1차 사이클: 3회 실패 -> 2차 사이클: 성공
+    mock_ex_adapter.create_order = AsyncMock(
+        side_effect=[
+            None, None, None,
+            {"uuid": "sl_new_uuid"},
+        ]
+    )
+
+    with patch("core.order_sync._get_app_context", return_value=(om, None, mock_ex_adapter, None)), \
+         patch("core.order_sync._call_append_operational_event"), \
+         patch("core.order_sync.asyncio.sleep", new=AsyncMock()), \
+         patch("main._spawn_bg"):
+        # 1차 사이클: 손절 발동 후 create_order 실패 -> stoploss_retry 전환
+        await order_sync.sync_orders(mock_app)
+        assert test_ord["status"] == "stoploss_retry"
+        assert om.has_order("rsitrade_sell_retry")
+
+        # next_check_at 도래 시뮬레이션 후 2차 사이클 실행
+        test_ord["next_check_at"] = 0.0
+        mock_ex_adapter.get_order_status.reset_mock()
+        await order_sync.sync_orders(mock_app)
+
+        # stoploss_retry는 get_order_status를 거치지 않고 바로 손절 재시도해야 함
+        mock_ex_adapter.get_order_status.assert_not_called()
+        assert not om.has_order("rsitrade_sell_retry")
+        assert om.has_order("sl_new_uuid")
+        sl_ord = om.get_order("sl_new_uuid")
+        assert sl_ord["strategy"] == "stoploss"

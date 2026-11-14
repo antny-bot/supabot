@@ -619,6 +619,92 @@ async def _submit_reserved_or_reorder(application, ord: dict, ex_obj, ticker_cac
     return True
 
 
+async def _get_cached_current_price(exchange: str, ticker: str, user_id: str, price_cache: dict) -> float:
+    """웹소켓 또는 거래소 시세 API를 통해 현재가를 조회하고 사이클 내 캐시한다."""
+    _, _, exchange_adapter, _ = _get_app_context()
+    cache_key = (exchange, ticker)
+    if cache_key not in price_cache:
+        from core.websocket_client import ticker_engine
+        ws_price = ticker_engine.get_price(exchange, ticker) if ticker_engine else None
+        if ws_price and ws_price > 0:
+            price_cache[cache_key] = float(ws_price)
+        else:
+            tkr = await exchange_adapter.get_ticker(exchange, ticker, user_id)
+            price_cache[cache_key] = float(tkr.get("trade_price", 0)) if tkr else 0.0
+    return price_cache.get(cache_key, 0.0)
+
+
+async def _place_stop_loss_order(application, ord: dict, current_price: float) -> None:
+    """손절 매도 주문을 발행하고, 실패 시 stoploss_retry 상태로 전환해 추적을 유지한다."""
+    order_manager, _, exchange_adapter, _ = _get_app_context()
+    exchange = ord["exchange"]
+    ticker = ord["ticker"]
+    user_id = ord["user_id"]
+
+    ex = exchange_adapter.get_exchange(exchange)
+    remaining_raw = float(ord["volume"]) - float(ord["filled_volume"])
+    remaining = ex.round_volume(remaining_raw)
+    if remaining <= 0:
+        order_manager.remove_order(ord["uuid"])
+        return
+
+    sl_price = ex.adjust_price_to_tick(current_price * 0.999, ticker)
+    sl_res = None
+    for _sl_attempt in range(_STOPLOSS_PLACE_RETRIES):
+        try:
+            sl_res = await exchange_adapter.create_order(
+                user_id, exchange, ticker, "ask", sl_price, remaining
+            )
+        except Exception as sl_err:
+            _log.warning(f"Stop-loss create_order attempt {_sl_attempt+1} failed: {sl_err}")
+            sl_res = None
+        if sl_res and "uuid" in sl_res:
+            break
+        await asyncio.sleep(0.3)
+
+    if sl_res and "uuid" in sl_res:
+        order_manager.remove_order(ord["uuid"])
+        order_manager.add_order(
+            user_id, exchange, ticker, sl_res["uuid"],
+            sl_price, remaining, side="ask", strategy="stoploss",
+        )
+        await application.bot.send_message(
+            chat_id=user_id,
+            text=f"🛑 [{ticker}] 손절 실행\n"
+                 f"• 현재가: {current_price:,.0f}원\n"
+                 f"• 손절 기준가: {float(ord['stop_price']):,.0f}원\n"
+                 f"• 손절 주문이 제출되었습니다.",
+        )
+    else:
+        was_retry = ord.get("status") == "stoploss_retry"
+        # 기존 익절 주문이 이미 취소된 상태이므로 다음 사이클에서 get_order_status를 타지 않도록 stoploss_retry로 전환
+        order_manager.update_order(ord["uuid"], status="stoploss_retry", next_check_at=time.time() + 10.0)
+        _call_append_operational_event(
+            "error", "sync_orders",
+            f"{exchange} stop-loss order placement failed after retries (keeping order as stoploss_retry)",
+            ticker,
+        )
+        if not was_retry:
+            await application.bot.send_message(
+                chat_id=user_id,
+                text=f"🚨 [{ticker}] 손절 주문 발행 실패\n"
+                     f"• 현재가: {current_price:,.0f}원\n"
+                     f"• 손절 기준가: {float(ord['stop_price']):,.0f}원\n"
+                     f"• 기존 익절 주문은 취소되었으나 손절 매도가 접수되지 않아 잠시 후 재시도합니다.\n"
+                     f"• ⚠️ 지속 실패 시 즉시 수동으로 매도해 주세요.",
+            )
+
+
+async def _retry_stop_loss(application, ord: dict, price_cache: dict) -> None:
+    """stoploss_retry 상태 주문의 손절 매도를 재시도한다."""
+    order_manager, _, _, _ = _get_app_context()
+    current_price = await _get_cached_current_price(ord["exchange"], ord["ticker"], ord["user_id"], price_cache)
+    if not current_price or current_price <= 0:
+        order_manager.update_next_check_at(ord["uuid"], time.time() + 10.0)
+        return
+    await _place_stop_loss_order(application, ord, current_price)
+
+
 async def _apply_stop_loss(application, ord: dict, state: str, price_cache: dict) -> bool:
     """손절(Stop-Loss) 조건 평가 및 실행. 손절 주문이 발행된 경우 True 반환."""
     if not (ord.get("strategy") == "rsitrade_sell" and ord.get("stop_price") and state == "wait"):
@@ -629,16 +715,7 @@ async def _apply_stop_loss(application, ord: dict, state: str, price_cache: dict
     ticker = ord["ticker"]
     user_id = ord["user_id"]
 
-    cache_key = (exchange, ticker)
-    if cache_key not in price_cache:
-        from core.websocket_client import ticker_engine
-        ws_price = ticker_engine.get_price(exchange, ticker) if ticker_engine else None
-        if ws_price and ws_price > 0:
-            price_cache[cache_key] = float(ws_price)
-        else:
-            tkr = await exchange_adapter.get_ticker(exchange, ticker, user_id)
-            price_cache[cache_key] = float(tkr.get("trade_price", 0)) if tkr else 0.0
-    current_price = price_cache.get(cache_key, 0.0)
+    current_price = await _get_cached_current_price(exchange, ticker, user_id, price_cache)
 
     if ord.get("trailing_stop_pct") is not None and current_price > 0:
         trailing_pct = float(ord["trailing_stop_pct"])
@@ -652,51 +729,7 @@ async def _apply_stop_loss(application, ord: dict, state: str, price_cache: dict
     if current_price and current_price < float(ord["stop_price"]):
         cancel_ok = await exchange_adapter.cancel_order(user_id, exchange, ord["uuid"], ticker)
         if cancel_ok:
-            ex = exchange_adapter.get_exchange(exchange)
-            remaining_raw = float(ord["volume"]) - float(ord["filled_volume"])
-            remaining = ex.round_volume(remaining_raw)
-            sl_price = ex.adjust_price_to_tick(current_price * 0.999, ticker)
-            sl_res = None
-            for _sl_attempt in range(_STOPLOSS_PLACE_RETRIES):
-                try:
-                    sl_res = await exchange_adapter.create_order(
-                        user_id, exchange, ticker, "ask", sl_price, remaining
-                    )
-                except Exception as sl_err:
-                    _log.warning(f"Stop-loss create_order attempt {_sl_attempt+1} failed: {sl_err}")
-                    sl_res = None
-                if sl_res and "uuid" in sl_res:
-                    break
-                await asyncio.sleep(0.3)
-            if sl_res and "uuid" in sl_res:
-                order_manager.remove_order(ord["uuid"])
-                order_manager.add_order(
-                    user_id, exchange, ticker, sl_res["uuid"],
-                    sl_price, remaining, side="ask", strategy="stoploss",
-                )
-                await application.bot.send_message(
-                    chat_id=user_id,
-                    text=f"🛑 [{ticker}] 손절 실행\n"
-                         f"• 현재가: {current_price:,.0f}원\n"
-                         f"• 손절 기준가: {float(ord['stop_price']):,.0f}원\n"
-                         f"• 손절 주문이 제출되었습니다.",
-                )
-            else:
-                # 손절 주문 발행 실패 시 포지션 추적 유실 방지를 위해 remove_order 하지 않고 재시도 대기 설정
-                order_manager.update_next_check_at(ord["uuid"], time.time() + 10.0)
-                _call_append_operational_event(
-                    "error", "sync_orders",
-                    f"{exchange} stop-loss order placement failed after retries (keeping order for retry)",
-                    ticker,
-                )
-                await application.bot.send_message(
-                    chat_id=user_id,
-                    text=f"🚨 [{ticker}] 손절 주문 발행 실패\n"
-                         f"• 현재가: {current_price:,.0f}원\n"
-                         f"• 손절 기준가: {float(ord['stop_price']):,.0f}원\n"
-                         f"• 기존 익절 주문은 취소되었으나 손절 매도가 접수되지 않아 잠시 후 재시도합니다.\n"
-                         f"• ⚠️ 지속 실패 시 즉시 수동으로 매도해 주세요.",
-                )
+            await _place_stop_loss_order(application, ord, current_price)
         return True
 
     return False
@@ -957,6 +990,10 @@ async def sync_orders(application):
                 await exchange_adapter.ensure_toss_kr_calendar(user_id)
 
             if await _handle_market_closed(ord, ex_obj):
+                continue
+
+            if ord.get("status") == "stoploss_retry":
+                await _retry_stop_loss(application, ord, price_cache)
                 continue
 
             if await _submit_reserved_or_reorder(application, ord, ex_obj, ticker_cache=ticker_cache):

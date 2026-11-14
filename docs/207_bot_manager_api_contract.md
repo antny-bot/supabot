@@ -38,7 +38,7 @@
 
 ## 3. Manager → Bot 엔드포인트 목록 (`bot_client.py`)
 
-기본 주소: `BOT_NOTIFY_URL` (예: `http://localhost:8080`)
+기본 주소: `BOT_NOTIFY_URL` (예: `http://localhost:8765`)
 
 | 엔드포인트 | 메서드 | 주요 파라미터 / 페이로드 | 목적 및 설명 | 멱등성 보장 |
 |---|---|---|---|---|
@@ -49,10 +49,10 @@
 | `/internal/execute_dca` | POST | `user_id, exchange, ticker, budget, order_type, template_id, group_no, schedule_id, run_at` | DCA 1회 발주 실행 | **Yes (`schedule_id`+`run_at` 멱등키)** |
 | `/internal/cancel_order` | POST | `user_id, exchange, uuid, ticker` | 거래소 미체결 주문 취소 | Yes (중복 취소 안전) |
 | `/internal/sync_order` | POST | `user_id, exchange, uuid, ticker` | 주문 상태 즉시 동기화 | Yes |
-| `/internal/orders/wake` | POST | `{}` | `order_sync` 즉시 기상 알림 | Yes |
+| `/internal/wake_orders` | POST | `{}` | `order_sync` 즉시 기상 알림 | Yes |
 | `/internal/force_update_order` | POST | `uuid, updates` | 봇 인메모리 주문 강제 갱신 | Yes |
-| `/internal/prices` | POST | `requests: [{exchange, ticker}]` | 실시간 시세 일괄 조회 | Yes (Read Only) |
-| `/internal/balances` | POST | `user_id, exchange` | 거래소 잔고 조회 | Yes (Read Only) |
+| `/internal/get_prices` | POST | `requests: [{exchange, ticker}]` | 실시간 시세 일괄 조회 | Yes (Read Only) |
+| `/internal/get_balances` | POST | `user_id, exchange` | 거래소 잔고 조회 | Yes (Read Only) |
 | `/internal/backup/status` | GET | - | 봇 로컬 백업 상태 | Yes (Read Only) |
 | `/internal/backup/trigger` | POST | - | 봇 로컬 백업 강제 실행 | Yes |
 | `/internal/backup/download` | GET | `filename` | 봇 로컬 백업 파일 다운로드 | Yes (Read Only) |
