@@ -2,7 +2,7 @@
 
 봇과 Supabase DB를 공유하는 관리 웹 대시보드 (FastAPI + React/TypeScript).
 Synology Docker에 배포한다. 봇과 직접 의존하지 않으며, Telegram 알림이 필요할 때만
-봇의 `/internal/notify`(포트 8765)를 단방향 호출한다.
+봇의 `/internal/notify`(포트 8765)를 호출하거나, 배치 주문 등록/청산 시 `/internal/orders/wake`를 호출하여 봇의 주문 동기화 루프를 즉시 깨운다.
 
 프론트엔드는 `manager/frontend/`의 React SPA(Vite + Tailwind + Recharts)이며,
 `npm run build`로 빌드한 `dist/`를 FastAPI가 정적 파일로 서빙한다.
@@ -36,7 +36,7 @@ Synology Docker에 배포한다. 봇과 직접 의존하지 않으며, Telegram 
 #### 보호된 페이지 (Protected Pages — `AppLayout`)
 로그인 인증(Supabase Auth)이 필요한 대시보드 및 운영 페이지:
 - `/dashboard`: 종합 자산 및 포트폴리오 요약 (백업 스케줄러 Health Card 포함)
-- `/operations`: 운용 현황 및 전략 실시간 모니터링 (TOP N 순환 운용 현황, 일단위 스냅샷 차트 `DailySnapshotSection`, 예산·감사원장, 체결 타임라인; `/strategy-monitor` 리다이렉트 지원)
+- `/operations`: 운용 현황 및 전략 실시간 모니터링 (TOP N 순환 운용 현황, 일단위 시계열 인터랙티브 라인차트 `DailySnapshotSection`, 예산·감사원장, 체결 타임라인; `/strategy-monitor` 리다이렉트 지원)
 - `/orders`: 주문 목록 조회 및 취소/동기화/배치 묶음 관리
 - `/trades`: 체결 내역 조회 및 통계
 - `/templates`: 매매 전략 템플릿 관리(생성/복제/실행)

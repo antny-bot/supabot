@@ -46,7 +46,7 @@ valid    = await adapter.validate_api_keys(user_id, exchange)
 | 거래소 | 방식 | 세부 |
 |--------|------|------|
 | **Upbit** | CLI subprocess | `asyncio.create_subprocess_exec("upbit", ..., "--access-key", "--secret-key")`. Node.js 바이너리, 세션 없음. |
-| **Bithumb** | REST + JWT (HS256) | `_bithumb_session` (aiohttp) 재사용. `_get_bithumb_jwt()` 요청마다 JWT 생성, write endpoint SHA512 query hash 포함. |
+| **Bithumb** | REST + JWT (HS256) | `_bithumb_session` (aiohttp) 재사용. `_get_bithumb_jwt()` 요청마다 JWT 생성, write endpoint SHA512 query hash 포함. `get_order_status` 시 `_is_error_response` 검증 및 `state`/`status`와 `executed_volume` 기반 주문 상태 정규화(`_normalize_order_state`). |
 | **KIS** | OAuth2 client_credentials | `_kis_session` (aiohttp) 재사용. 토큰 `_kis_tokens["{user_id}:{env}:{app_key}"]` 캐시 (만료 60초 전 갱신). `env="paper"` → `openapivts.koreainvestment.com:29443`, `env="real"` → `openapi.koreainvestment.com:9443`. TR_ID는 paper/real별 상이. |
 | **Toss** | OAuth2 Bearer | `_toss_session` (aiohttp) 재사용. 토큰 `_toss_tokens["{user_id}:{client_id}"]` 캐시 및 이벤트 루프별 `asyncio.Lock`(`_get_toss_token_lock`)으로 동시 재발급 충돌 방지. 인증: `POST /oauth2/token` (client_credentials). `token-revoked` 응답 시 캐시 무효화 후 1회 자동 재시도(`_invalidate_toss_token`). 주문·잔고 요청 `X-Tossinvest-Account: {account_seq}` 헤더 첨부. `account_seq` 최초 validate 시 `_get_toss_account_seq()` 자동 조회·저장. 엔드포인트: `openapi.tossinvest.com`. **국내(005930)·해외(AAPL) 동일 엔드포인트, symbol로 시장 자동판별** — 해외주식 세부 `docs/303_toss_overseas_stock.md`. |
 
@@ -84,6 +84,7 @@ KIS는 `_get_kis_daily_candles()` 정규화, Upbit/Bithumb는 원본 그대로.
 
 - **`CommonMixin`의 static 유틸** (`exchanges/common.py`, `ExchangeAdapter.<메서드>(price)` 직접 호출): `get_tick_size(price)`/`adjust_price_to_tick(price)`(코인), `get_krx_tick_size(price)`/`adjust_krx_price_to_tick(price)`(KIS/Toss 국내), `adjust_us_price_to_tick(price)`(Toss 해외, 센트 단위). 거래소 직접 판단하는 구 호출부(`formatters.py`) 사용.
 - **`BaseExchange.adjust_price_to_tick(self, price, ticker=None)`** (인스턴스 capability, `exchange_adapter.get_exchange(exchange).adjust_price_to_tick(price, ticker)` 호출): 거래소 몰라도 되는 신규 호출부(`main.py`/`signal_engine.py`/`order_execution.py`) 사용. `KisExchange`/`TossExchange` 내부 static 유틸(`adjust_krx_price_to_tick`/`adjust_us_price_to_tick`) 호출 오버라이드 — `TossExchange`는 `ticker`로 `is_us_stock_ticker()` 판단해 국내/해외 자동 분기(`docs/303_toss_overseas_stock.md`).
+- **호가 단위 틱 이동 유틸 (`_shift_krx_ticks(price, ticks)`)**: KRX 호가 단위를 기준으로 호가 경계 구간을 동적으로 재계산하며 price를 ticks만큼 이동(양수: 상향, 음수: 하향). TOP N 전략의 공격적 지정가 발주(`limit_aggressive`, ±2틱) 등에 사용.
 
 ## 참조
 - KIS 장외/재주문: `docs/302_kis_market_policy.md`

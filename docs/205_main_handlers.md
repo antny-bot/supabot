@@ -109,7 +109,7 @@ stateDiagram-v2
   3. `sync_orders(application)` (`src/core/order_sync.py`): 주문 상태 폴링, 부분/전체 체결 감지, 연동 익절 매도 생성, KIS 장외 재주문 등 처리.
   4. `check_daily_cash_alerts(...)`: DCA 당일 매수 예수금 부족 사전 감지 및 알림.
 - 간격: 주문 존재 시 `poll_active_interval` (60초) / 주문 미존재 시 `poll_no_order_interval` (300초) 기준, 가장 가까운 DCA 실행 예정 시각(`nearest_next_run_delay()`)과 비교하여 최소값으로 동적 슬립.
-- `_order_wake_event` 발생 시 대기 루프 즉시 기상.
+- `_order_wake_event` 발생 시 대기 루프 즉시 기상 (새 주문 추가 `on_order_added` 및 매니저 백엔드 웹훅 `/internal/orders/wake` 수신 시 트리거).
 - 백그라운드 태스크: `_spawn_bg(coro)`를 통해 Strong Reference를 유지하여 GC 조기 수거 방지.
 - 성공 시 `metrics.record_poll_ok()` 타임스탬프 기록.
 
@@ -127,10 +127,11 @@ stateDiagram-v2
    - **미제출 가상 주문 (`reserved:`)**: 거래소에 주문이 나가지 않은 상태이므로 `order_manager.remove_order(uuid)`로 즉시 메모리/DB에서 삭제.
    - **거래소 제출 주문 선조회**: 실거래소 취소 호출 전 `exchange_adapter.get_order_status`를 호출하여 현재 체결 상태를 조회.
      - **이미 전량 체결 (`state == "done"`)**: `_process_order_fill`로 전환하여 즉시 정상 체결 처리(체결 알림, trade_logs 기록, linked_to 매도 생성 등).
-     - **부분 체결 감지 (`executed_volume > 0`)**: 실거래소 취소 성공(`cancel_and_remove_order`) 후 `append_trade`를 호출하여 부분 체결된 수량과 수수료(`fee_amount`), `group_no`, `template_id`를 `trade_logs`에 기록. 이를 통해 매니저 백엔드의 예산 대사(Reconciliation) 시 체결분이 정확히 인식되도록 보장.
+     - **부분 체결 감지 (`executed_volume > 0`)**: 실거래소 취소 성공(`cancel_and_remove_order`) 후 `append_trade`를 호출하여 부분 체결된 수량과 수수료(`fee_amount`), `group_no`, `template_id`를 `trade_logs`에 기록하고, 잔여 미체결량에 대해서만 `_refund_unfilled_budget`으로 `ORDER_CANCEL_REFUND` 원장 환원. 이를 통해 매니저 백엔드의 예산 대사(Reconciliation) 시 체결분이 정확히 인식되도록 보장.
      - **거래소 취소 실패 시**: 주문을 삭제하지 않고 `cancel_requested` 상태를 그대로 유지하여 다음 sync 주기에서 재시도.
 2. **장외 예약 주문 정규장 제출 (`status == "reserved"`)**:
    - `supports_reserved_orders=True` 거래소(KIS/Toss) 주문이 정규장에 도달하면 실제 거래소에 주문 제출 후 `replace_order_uuid(old_uuid, new_uuid)`로 실 UUID 교체.
+   - **TOP N 주문 발주 가격 모드 (`compute_top_n_order_plan`)**: 전일 종가 기준 예약 단가가 아닌 발주 시점 현재가를 조회하여 `limit_current`(현재가 지정가), `limit_aggressive`(±2틱 호가 공격적 지정가), `market`(시장가) 방식으로 주문 산출 및 제출. 단가 변동에 따른 차액은 `record_budget_adjust`(`BUY_ORDER_ADJUST`)로 예산 원장에 즉시 정산.
 3. **KIS 장외 세션 판정**:
    - `market_closed` / `pending_reorder` 판정 시 `next_check_at` 대기 시각 설정.
 4. **KIS 재주문 (`pending_reorder`)**:
@@ -148,6 +149,19 @@ stateDiagram-v2
 - `is_kis_regular_session(now=None)` -> bool (평일 09:00–15:35 KST 판정).
 - `next_kis_regular_session(now=None)` -> datetime (다음 정규장 시작일시).
 - `kis_next_check_timestamp(now=None)` -> float (다음 체크 Unix timestamp).
+
+## 매수/매도 권장 실행 시각 프리셋 (`src/core/trading_presets.py`)
+국내 주식 및 가상자산 시장의 일중 유동성·변동성 패턴을 반영하여 스케줄 및 템플릿 생성 시 활용되는 권장 시각 프리셋:
+- **매수 권장 시각**:
+  - `1순위 [15:10]` (15:00~15:20): 종가 추세 형성 (당일 종가 방향성 확인 및 오버나잇 리스크 최소화 진입)
+  - `2순위 [09:40]` (09:30~10:00): 시초가 변동성 진정 (장초반 갭/휩소 회피 및 당일 지지선 확인 진입)
+  - `3순위 [10:30]` (10:30 전후): 아시아 장 개장 (중화권 등 아시아 주요 증시 개장 방향성 반영)
+- **매도 권장 시각**:
+  - `1순위 [09:20]` (09:10~09:30): 거래량 폭발 & 고점 형성 (장초반 수급 집중 구간 최고가 빈출 익절)
+  - `2순위 [11:15]` (11:00~11:30): 전장 반등 타이밍 (오전 눌림목 후 전장 마감 전 기술적 반등 파동 차익 실현)
+  - `3순위 [15:10]` (15:00~15:20): 당일 차익 실현 마무리 (장마감 전 당일 수익 확정 및 정리)
+- `format_recommended_time_guide()`: 텔레그램 및 봇 안내용 포맷터 제공.
+- 프론트엔드 `TimePickerInput.tsx`와 연동되어 원클릭 프리셋 배지 선택 지원.
 
 ---
 

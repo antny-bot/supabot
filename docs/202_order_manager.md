@@ -50,6 +50,7 @@ manager.add_order(
     target_rsi=None,      # float, rsitrade/gridrsi/sgridrsi 레그 전용
     linked_to=None,       # rsitrade/gridrsi 매수 레그: 매도 목표 RSI(float). sgridrsi는 None
     template_id=None,     # int | None, 전략 템플릿 연결 (매도 주문 시 매수 템플릿 ID 승계)
+    group_no=None,        # int | None, TOP N 및 배치 전략의 회차/그룹 번호
     status="wait",
     order_type=None       # "limit" | "market" | None
 )
@@ -65,7 +66,7 @@ manager.get_strategy_orders(user_id, strategy)
 manager.clear_user_orders(user_id)  # 해당 유저의 모든 주문을 DB+메모리에서 삭제(거래소 취소는 호출부 책임), 삭제 건수 반환
 ```
 
-`on_order_added` 콜백: `post_init` 설정. 새 주문 시 `_order_wake_event` 깨움 → 즉시 sync.
+`on_order_added` 콜백: `post_init` 설정. 새 주문 시 `_order_wake_event` 깨움 → 즉시 sync. 매니저에서 배치 주문(DCA / TOP N 등) 등록 또는 청산 주문 발행 시에도 웹훅(`POST /api/internal/orders/wake`)을 통해 봇의 `_order_wake_event`를 즉시 세팅하여 슬립 지연 없이 동기화를 수행합니다.
 
 ## 스키마 핵심 필드 (동기화 로직 관련)
 
@@ -76,6 +77,7 @@ manager.clear_user_orders(user_id)  # 해당 유저의 모든 주문을 DB+메�
 | `reorder_of` | `replace_order_uuid` 이전 uuid 저장 (감사 체인) |
 | `next_check_at` | Unix timestamp. sync 루프 건너뜀 시각 |
 | `template_id` | 전략 템플릿 ID (RSI 연결 매도 주문, 부분 체결, 예산 감사 원장 연동 시 승계) |
+| `group_no` | TOP N 및 배치 전략의 회차/그룹 번호 (체결 내역 및 예산 감사 원장 연동) |
 | `order_type` | 주문 유형 (`"limit"` \| `"market"` \| `None`). DCA 지정가 취소 환원(`ORDER_CANCEL_REFUND`) 및 시장가 차액 정산(`BUY_ORDER_ADJUST`) 분기 기준 |
 
 전체 스키마 `CLAUDE.md` 참조.
@@ -99,6 +101,27 @@ manager.clear_user_orders(user_id)  # 해당 유저의 모든 주문을 DB+메�
   - `_STATUS_LABELS`: `"cancel_requested": "취소중"` (프론트엔드 Badge 컴포넌트: `cancel_requested` 로즈 배지 매핑).
 - **전략 정산(Reconciliation)과의 연동**:
   - `progression_manager.py`는 `cancel_requested` 상태인 주문을 즉시 환불하지 않고 `deferred_pending_buys`로 보류하여 다음 배치의 `pending_buy_orders`로 이월합니다. 봇이 거래소 취소를 확정(또는 체결 완료)한 이후 주기에서 안전하게 정산 및 환불을 진행합니다.
+
+## TOP N 발주 가격 정책 및 단가 변동 정산 (`order_price_mode`)
+
+장외 배치 생성 시점의 가격(전일 종가 등)은 장 개시 시점에 낡은 가격이 되므로, `sync_orders`가 `reserved` 주문을 실제 거래소에 제출할 때 `compute_top_n_order_plan()`을 통해 실시간 현재가 기준으로 주문 유형과 가격을 재산정합니다:
+- **`limit_current` (기본값)**: 현재가 기준 호가 틱(`adjust_krx_price_to_tick`)으로 지정가 제출.
+- **`limit_aggressive`**: 체결 확률을 높이기 위해 현재가 대비 KRX 호가 2틱 유리하게(매수 +2틱, 매도 -2틱) 계산하여 지정가 제출 (`_shift_krx_ticks` 호가 단위 경계 재계산).
+- **`market`**: 시장가 주문으로 제출.
+- **단가 변동 정산 (`BUY_ORDER_ADJUST`)**: 실제 발주된 가격이 당초 예약된 가격과 달라져 총 소요 금액에 차이가 발생하면, `record_budget_adjust`를 통해 차액(양수: 추가 차감, 음수: 잔여 환원)을 `budget_ledger`에 불변 원장으로 즉시 기록하고 `carryover_budget`에 반영합니다.
+
+## 부분 체결 취소 정산 및 미체결 잔여 예산 환원
+
+- 거래소에서 주문이 취소되거나 사용자가 매니저에서 주문 취소를 실행할 때, 해당 주문의 체결량(`filled_volume` 또는 거래소 `executed_volume` > 0)이 존재하면:
+  1. 기체결 수량에 대해서는 `append_trade()`를 호출하여 `trade_logs`에 체결 내역을 정상적으로 기록·보존합니다.
+  2. 잔여 미체결 수량(`max(0, volume - filled_volume)`)에 대해서만 `_refund_unfilled_budget(ord, exec_vol)`을 호출하여 `ORDER_CANCEL_REFUND`로 원장에 환원합니다.
+  3. 이를 통해 부분 체결 후 주문 취소 시 전액 환불이나 체결 누락으로 인해 예산과 보유 자산이 왜곡되는 문제를 원천 차단합니다.
+  4. 빗썸 등 가상자산 거래소의 취소/상태 조회 시 에러 응답(`_is_error_response`) 및 부분 체결 상태(`_normalize_order_state`)도 정규화하여 방어합니다.
+
+## 체결 로그(`trade_logs`) 영속화 안정화 및 병합
+
+- **DB 삽입 실패 방어**: `append_trade()` 호출 시 DB에 `template_id`, `group_no` 컬럼이 없는 구버전 스키마이거나 일시적 오류가 발생하면, 해당 필드를 제거한 fallback 데이터로 2차 시도하고, 여전히 실패할 경우 `db_sync` 비동기 큐(`enqueue_task`)에 적재하여 작업 손실(Silent Drop)을 방지합니다.
+- **중복 제거 조회 병합 (`read_trades`)**: 컨테이너 재시작 등으로 로컬 JSON 파일에 최신 체결 내역만 있더라도, Supabase DB의 과거 체결 내역을 함께 조회하여 주문 UUID 또는 복합키(`user_id`, `exchange`, `ticker`, `side`, `ts`, `volume`) 기준으로 중복 없이 병합(dedup) 정렬하여 반환합니다.
 
 ## 참조
 - KIS pending_reorder 상세 흐름: `docs/302_kis_market_policy.md`

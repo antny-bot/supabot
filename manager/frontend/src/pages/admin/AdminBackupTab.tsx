@@ -240,7 +240,7 @@ export default function AdminBackupTab() {
     <div className="space-y-6 break-keep">
       {error && <ErrorBanner message={error} />}
       {successMsg && (
-        <div className="flex items-center gap-2 p-3 bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 rounded-lg text-sm whitespace-nowrap break-keep">
+        <div className="flex items-center gap-2 p-3 bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 rounded-lg text-sm break-keep">
           <CheckCircle className="w-4 h-4 shrink-0" />
           <span>{successMsg}</span>
         </div>
@@ -351,7 +351,7 @@ export default function AdminBackupTab() {
               <h3 className="text-sm font-semibold text-slate-900 dark:text-white whitespace-nowrap break-keep">
                 Google Drive 클라우드 백업 연동
               </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap break-keep">
+              <p className="text-xs text-slate-500 dark:text-slate-400 break-keep">
                 웹에서 Google 계정을 1회 인증하면, 백업 생성 시 지정된 구글 드라이브 폴더에 암호화 보관됩니다.
               </p>
             </div>
@@ -522,10 +522,10 @@ export default function AdminBackupTab() {
         <div className="flex items-center gap-2">
           <ShieldCheck className="w-5 h-5 text-primary-500" />
           <div>
-            <div className="text-sm font-semibold text-slate-900 dark:text-white whitespace-nowrap break-keep">
+            <div className="text-sm font-semibold text-slate-900 dark:text-white break-keep">
               Supabase 14개 전체 테이블 덤프 및 Fallback SQLite 동기화
             </div>
-            <div className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap break-keep">
+            <div className="text-xs text-slate-500 dark:text-slate-400 break-keep">
               클릭 시 즉시 스냅샷을 생성하고 ZIP 패키징 및 Google Drive로 전송합니다.
             </div>
           </div>
@@ -695,7 +695,7 @@ export default function AdminBackupTab() {
                 </div>
               </div>
 
-              <div className="p-3 bg-blue-50/70 dark:bg-blue-950/30 rounded-lg text-xs text-blue-800 dark:text-blue-300 flex items-start gap-2 whitespace-nowrap break-keep">
+              <div className="p-3 bg-blue-50/70 dark:bg-blue-950/30 rounded-lg text-xs text-blue-800 dark:text-blue-300 flex items-start gap-2 break-keep leading-relaxed">
                 <Cloud className="w-4 h-4 shrink-0 mt-0.5 text-blue-500" />
                 <span>
                   Google Drive 연동 시 상단의 <strong>[Google 계정으로 연동하기]</strong> 버튼을 통해 브라우저에서 원클릭으로 간편하게 인증하거나, 서버 <code>.env</code> 파일의 토큰을 사용할 수 있습니다.

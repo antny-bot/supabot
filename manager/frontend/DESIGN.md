@@ -70,6 +70,12 @@ Every new page and every page-level redesign must follow these rules unless ther
 - **줄글 나열 지양, 키워드·차트 중심 단순화**: 복잡한 설명성 문장 나열을 배제하고, 차트(진행률 바, 도넛, 히스토리 타임라인)와 핵심 상태 키워드(상태 칩, 뱃지, KPI 수치) 중심으로 레이아웃을 콤팩트하게 구성한다.
 - **보조 설명은 `i` (Info) 아이콘 및 모달/툴팁 활용**: 전략 세부 운용 조건(휩쏘 방지, 분할 매도 일수, 예산 재할당 규칙 등)이나 상세 정책 가이드는 본문 상단에 길게 늘어놓지 않고, `i` (Info) 아이콘 툴팁 또는 설명 모달창(`HelpModal`)으로 분리하여 사용자가 필요할 때만 열어볼 수 있도록 정리한다.
 
+### 10. 시간 선택 및 매수/매도 권장 프리셋 표준 (`TimePickerInput`)
+- 전략 스케줄 등록 및 시간 설정 인풋(`TimePickerInput`)은 HH:MM 직접 입력 외에 일중 시장 유동성 패턴을 고려한 **원클릭 권장 프리셋 칩**을 함께 제공한다.
+- **매수 권장 프리셋**: `15:10` (1순위: 종가추세), `09:40` (2순위: 변동성진정), `10:30` (3순위: 아시아장).
+- **매도 권장 프리셋**: `09:20` (1순위: 고점형성), `11:15` (2순위: 전장반등), `15:10` (3순위: 당일마감).
+- 모달 내 인풋 배치 시 칩 버튼의 줄바꿈 및 가로 스크롤을 안정적으로 처리하여 모바일 및 협소 화면에서도 UI가 깨지지 않도록 구성한다.
+
 ---
 
 ## Icon Rule
@@ -87,7 +93,7 @@ Use vertical flex/grid with `gap-4`/`gap-5`/`gap-6` and keep one clear vertical 
 ## Core Components
 
 Prefer these shared building blocks before inventing new page-specific UI:
-`PageHeader`, `ResponsiveTabs`, `DonutChart`, `StatCard`, `FilterBar`, `ErrorBanner`, `Spinner`, `Skeleton`, `Badge`, `Button`, `ProgressBar`, `SegmentedControl`, `BottomSheet`, `MfaSettingsCard`, `DisplaySettingsCard`.
+`PageHeader`, `ResponsiveTabs`, `DonutChart`, `StatCard`, `FilterBar`, `ErrorBanner`, `Spinner`, `Skeleton`, `Badge`, `Button`, `ProgressBar`, `SegmentedControl`, `BottomSheet`, `MfaSettingsCard`, `DisplaySettingsCard`, `FormattedNumberInput`, `TimePickerInput`.
 
 If a pattern repeats on 2+ pages, extract it into `src/components/ui` (or another shared folder) instead of duplicating markup.
 

@@ -38,6 +38,9 @@ V3 지향점: **① 전략/지표 다양화, ② 운영 안정성, ③ 자산 �
 - [x] **관리 UI 고도화 & MFA 탑재**: 전략 운용 및 템플릿 통합 메뉴 일원화, 필터링 영속화, Google Authenticator MFA 2차 인증 탑재.
 - [x] **Supabase 정기 백업 · Google Drive 연동 · 로컬 SQLite 폴백**: `backup_manager.py` 기반 14개 테이블 정기 SQLite/ZIP 덤프, `gdrive_client.py` · 웹 OAuth 클라우드 업로드, `data/fallback_latest.sqlite3` 읽기 전용 폴백 및 대시보드 백업 Health Card 도입.
 - [x] **텔레그램 Gemini Function Calling 멀티턴 에이전트**: `nl_agent.py` 기반 읽기 도구 18종(시세/잔고/지표 + Manager 리포트 10종)·변경 제안 7종 도구 체인 및 관리자 NL 로그 도구 추적 뷰 구축.
+- [x] **매수·매도 권장 실행 시각 프리셋 및 UI 연동**: `trading_presets.py` 기반 일중 변동성/유동성 맞춤 추천 시각(종가추세 15:10, 시초가변동성진정 09:40, 거래량폭발 09:20 등) 및 `TimePickerInput` 프리셋 칩 제공.
+- [x] **일단위 스냅샷 시계열 라인차트 전면 개편**: `DailySnapshotSection.tsx` 기반 반응형 인터랙티브 시계열 라인차트(기간 필터 7D~ALL, 총자산/현금/누적손익/수익률 토글, 툴팁) 구축.
+- [x] **배치 주문 즉시 동기화(`wake_orders`) & 정합성 강화**: 매니저 배치 주문 등록 시 봇 즉시 기상 웹훅 연동, TOP N 발주 가격 모드(`order_price_mode`: 현재가/공격적 2틱/시장가) 및 단가 변동 차액 원장 정산, 부분 체결 취소 시 체결분 보존 및 잔여 미체결 예산 환원.
 
 ---
 
