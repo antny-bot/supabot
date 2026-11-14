@@ -325,7 +325,7 @@ def test_api_reports_daily_books_pnl_per_day_with_cumulative(monkeypatch):
         assert r["cumulative_pnl"] == running
 
 
-def test_fetch_current_prices_uses_bot_webhook_for_toss_and_kis(monkeypatch):
+async def test_fetch_current_prices_uses_bot_webhook_for_toss_and_kis(monkeypatch):
     """KIS/Toss 보유분은 봇의 /internal/get_prices webhook(bot_client.get_prices)으로
     실시간가를 조회해야 한다 (해외주식 알파벳 티커 포함, 숫자 종목코드로 제한되지 않음)."""
     captured = {}
@@ -351,7 +351,7 @@ def test_fetch_current_prices_uses_bot_webhook_for_toss_and_kis(monkeypatch):
         {"user_id": "user-1", "exchange": "kis", "ticker": "005930"},
     ]
 
-    prices = asyncio.run(reports_router._fetch_current_prices(position_rows, "user-1"))
+    prices = await reports_router._fetch_current_prices(position_rows, "user-1")
 
     assert {"user_id": "user-1", "exchange": "toss", "ticker": "005930"} in captured["requests"]
     assert {"user_id": "user-1", "exchange": "toss", "ticker": "AAPL"} in captured["requests"]

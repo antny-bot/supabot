@@ -505,8 +505,9 @@ async def _fetch_current_prices(position_rows, bot_user_id):
     stock_keys_with_price: set[tuple[str, str]] = set()
     if stock_requests:
         try:
+            loop = asyncio.get_running_loop()
             results = await asyncio.wait_for(
-                asyncio.get_event_loop().run_in_executor(None, bot_client.get_prices, stock_requests),
+                loop.run_in_executor(None, bot_client.get_prices, stock_requests),
                 timeout=15,
             )
             for item in results:
@@ -527,8 +528,9 @@ async def _fetch_current_prices(position_rows, bot_user_id):
 
     if missing_exchanges_by_code:
         try:
+            loop = asyncio.get_running_loop()
             kr_prices = await asyncio.wait_for(
-                asyncio.get_event_loop().run_in_executor(None, _fetch_kr_stock_prices_sync, set(missing_exchanges_by_code)),
+                loop.run_in_executor(None, _fetch_kr_stock_prices_sync, set(missing_exchanges_by_code)),
                 timeout=15,
             )
             for code, price in kr_prices.items():

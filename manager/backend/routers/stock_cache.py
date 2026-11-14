@@ -146,7 +146,8 @@ def _fetch_krx_listing():
 async def refresh_from_krx(_=Depends(get_admin_user)):
     """FinanceDataReader로 KRX(코스피+코스닥+코넥스) 전체 종목명/코드를 받아 일괄 upsert."""
     try:
-        records = await asyncio.get_event_loop().run_in_executor(None, _fetch_krx_listing)
+        loop = asyncio.get_running_loop()
+        records = await loop.run_in_executor(None, _fetch_krx_listing)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"KRX 종목 목록 조회 실패: {e}")
 

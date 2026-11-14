@@ -922,9 +922,9 @@ async def test_order_sync_market_vs_limit_adjustment_and_adjust_ledger(tmp_path,
 async def test_dca_volume_unlimited_strategy_initialized():
     """항목 3 & R5, R6: budget_mode 없는 volume DCA는 unlimited로 간주되어 임의 한도가 생기지 않음."""
     import sys
-    sys.path.insert(0, "manager")
-    from backend.services import budget_manager
-    from backend.services.budget_manager import is_budget_managed_strategy, ensure_budget_plan_initialized
+
+    from manager.backend.services import budget_manager
+    from manager.backend.services.budget_manager import is_budget_managed_strategy, ensure_budget_plan_initialized
     assert not hasattr(budget_manager, "DEFAULT_DCA_PLAN_BUDGET")
 
     # 기본 예산 하드코딩 금지
