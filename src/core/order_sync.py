@@ -732,6 +732,24 @@ async def _process_order_fill(application, ord: dict, res: dict, ex_obj) -> None
                     text=f"⏳ [{exchange_display_name(exchange)}] {ticker} {order_kind} 주문이 만료/취소되어 다음 정규장 재주문 예정입니다.",
                 )
                 return
+            if exec_vol > 0:
+                extra_kw = {}
+                if ord.get("group_no") is not None:
+                    extra_kw["group_no"] = ord["group_no"]
+                if ord.get("template_id") is not None:
+                    extra_kw["template_id"] = ord["template_id"]
+                _call_append_trade(
+                    user_id=user_id,
+                    exchange=exchange,
+                    ticker=ticker,
+                    side=ord["side"],
+                    price=ord["price"],
+                    volume=float(exec_vol),
+                    strategy=ord.get("strategy", "manual"),
+                    uuid=ord["uuid"],
+                    fee_amount=float(res.get("fee_amount") or 0),
+                    **extra_kw,
+                )
             await _refund_unfilled_budget(ord, max(current_filled, exec_vol))
             await application.bot.send_message(
                 chat_id=user_id,

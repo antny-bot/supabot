@@ -92,9 +92,14 @@ def append_trade(
             db_row["group_no"] = normalized_group_no
         if normalized_template_id is not None:
             db_row["template_id"] = normalized_template_id
+        full_db_row = dict(db_row)
+        inserted = False
+        last_err = None
         try:
             get_db().table("trade_logs").insert(db_row).execute()
-        except Exception:
+            inserted = True
+        except Exception as e:
+            last_err = e
             popped = False
             if "template_id" in db_row:
                 db_row.pop("template_id", None)
@@ -105,8 +110,25 @@ def append_trade(
             if popped:
                 try:
                     get_db().table("trade_logs").insert(db_row).execute()
-                except Exception:
-                    pass
+                    inserted = True
+                except Exception as e2:
+                    last_err = e2
+
+        if not inserted:
+            _log.error(
+                "Failed to insert trade_log into DB (uuid=%s, exchange=%s, ticker=%s): %s",
+                uuid, exchange, ticker, last_err,
+            )
+            try:
+                import asyncio
+                from core.db_sync import enqueue_task
+                loop = asyncio.get_running_loop()
+                key_val = str(uuid) if uuid else f"{user_id}:{ts}"
+                loop.create_task(enqueue_task("insert", "trade_logs", "uuid", key_val, full_db_row))
+            except RuntimeError:
+                pass
+            except Exception as q_err:
+                _log.warning("Failed to enqueue trade_log retry: %s", q_err)
     try:
         dir_name = os.path.dirname(path)
         if dir_name:

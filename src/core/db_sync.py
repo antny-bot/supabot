@@ -92,6 +92,13 @@ async def _process_queue():
                 db = get_db()
                 if action == "upsert":
                     await db.table(table).upsert(data).execute_async()
+                elif action == "insert":
+                    already_exists = False
+                    if table == "trade_logs" and isinstance(data, dict) and data.get("uuid"):
+                        chk = await db.table(table).select("id").eq("uuid", data["uuid"]).execute_async()
+                        already_exists = bool(chk.data)
+                    if not already_exists:
+                        await db.table(table).insert(data).execute_async()
                 elif action == "delete":
                     await db.table(table).delete().eq(key_col, key_val).execute_async()
                 _log.info(f"Successfully synced task: {action} on {table} ({key_val})")

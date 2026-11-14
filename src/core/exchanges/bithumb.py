@@ -120,11 +120,11 @@ class BithumbExchange(BaseExchange):
     async def get_order_status(self, user_id, client, order_id, ticker=None):
         params = {"uuid": order_id}
         res = await self.adapter._request_bithumb("GET", "/v1/order", keys=client, params=params)
-        if res:
-            state = res.get('state', '').lower()
-            status = res.get('status', '').lower()
-            exec_vol = float(res.get('executed_volume', 0))
-            total_vol = float(res.get('volume', 0))
+        if res and not self.adapter._is_error_response(res):
+            state = (res.get('state') or '').lower()
+            status = (res.get('status') or '').lower()
+            exec_vol = float(res.get('executed_volume') or 0)
+            total_vol = float(res.get('volume') or 0)
             norm_state = self.adapter._normalize_order_state(state or status, exec_vol)
             return {
                 "state": norm_state,
