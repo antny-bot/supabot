@@ -6,49 +6,7 @@
 """
 import uuid
 import math
-
-
-def get_tick_size(price: float, exchange: str = "base") -> float:
-    """가격 및 거래소에 따른 호가 단위(Tick Size) 산출."""
-    ex = exchange.lower()
-    if ex in ("kis", "toss"):
-        # 한국거래소(KRX) 주식 호가 단위
-        if price >= 500000:
-            return 1000
-        if price >= 200000:
-            return 500
-        if price >= 50000:
-            return 100
-        if price >= 20000:
-            return 50
-        if price >= 5000:
-            return 10
-        if price >= 2000:
-            return 5
-        return 1
-    else:
-        # 가상자산(Upbit/Bithumb 기본 호가 단위)
-        if price >= 2000000:
-            return 1000
-        if price >= 1000000:
-            return 500
-        if price >= 500000:
-            return 100
-        if price >= 100000:
-            return 50
-        if price >= 10000:
-            return 10
-        if price >= 1000:
-            return 5
-        if price >= 100:
-            return 1
-        if price >= 10:
-            return 0.1
-        if price >= 1:
-            return 0.01
-        if price >= 0.1:
-            return 0.001
-        return 0.0001
+from supabot_common.ticks import get_tick_size
 
 
 def adjust_price_to_tick(price: float, exchange: str = "base") -> float:

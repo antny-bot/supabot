@@ -14,6 +14,10 @@ RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
 
 WORKDIR /app
 
+# 공통 패키지 설치
+COPY shared/supabot_common/ ./shared/supabot_common/
+RUN pip install --no-cache-dir ./shared/supabot_common
+
 # 라이브러리 설치 (캐시 최적화)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
