@@ -6,21 +6,28 @@ import Badge from '../../components/ui/Badge'
 import { StatCardSkeleton, TableRowSkeleton } from '../../components/ui/Skeleton'
 import ErrorBanner from '../../components/ui/ErrorBanner'
 import { staggerDelay } from '../../utils/animation'
-import { krwFmt, pctFmt, pctColor, CARD, TH, TD } from './ReportsShared'
+import { krwFmt, formatKrw, pctFmt, pctColor, CARD, TH, TD } from './ReportsShared'
 import { usePersistedState } from '../../hooks/usePersistedState'
 
 const HOLDINGS_EXCHANGE_FILTER_KEY = 'sbm_reports_holdings_exchange_filter'
 
-export default function HoldingsSection() {
+interface Props {
+  exchange?: string
+}
+
+export default function HoldingsSection({ exchange }: Props) {
   const [data, setData] = useState<HoldingsReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   // 거래소 필터링 상태 (localStorage 영속화)
-  const [exchangeFilter, setExchangeFilter] = usePersistedState<string>(
+  const [localExchangeFilter, setLocalExchangeFilter] = usePersistedState<string>(
     HOLDINGS_EXCHANGE_FILTER_KEY,
     'all',
   )
+
+  const exchangeFilter = exchange ?? localExchangeFilter
+  const setExchangeFilter = setLocalExchangeFilter
 
   useEffect(() => {
     setLoading(true)
@@ -267,19 +274,25 @@ export default function HoldingsSection() {
                         {row.oversold && <Badge value="warning" label="oversell" />}
                       </div>
                     </td>
-                    <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400`}>{row.quantity.toFixed(4)}</td>
-                    <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(row.avg_price)}</td>
-                    <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(row.cost_krw)}</td>
-                    <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400`}>
-                      {row.current_price > 0 ? krwFmt(row.current_price) : '—'}
+                    <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400 font-mono`}>
+                      {row.quantity.toLocaleString(undefined, { maximumFractionDigits: 4 })}
                     </td>
-                    <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400`}>
-                      {row.current_price > 0 ? krwFmt(row.value_krw) : '—'}
+                    <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400 font-mono`}>
+                      {formatKrw(row.avg_price)}
                     </td>
-                    <td className={`${TD} text-right text-xs font-medium ${pctColor(row.pnl)}`}>
-                      {row.current_price > 0 ? `${row.pnl >= 0 ? '+' : '-'}${krwFmt(Math.abs(row.pnl))}` : '—'}
+                    <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400 font-mono`}>
+                      {formatKrw(row.cost_krw)}
                     </td>
-                    <td className={`${TD} text-right text-xs font-medium ${pctColor(row.roi_pct)}`}>
+                    <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400 font-mono`}>
+                      {row.current_price > 0 ? formatKrw(row.current_price) : '—'}
+                    </td>
+                    <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400 font-mono`}>
+                      {row.current_price > 0 ? formatKrw(row.value_krw) : '—'}
+                    </td>
+                    <td className={`${TD} text-right text-xs font-semibold font-mono ${pctColor(row.pnl)}`}>
+                      {row.current_price > 0 ? `${row.pnl >= 0 ? '+' : '-'}${formatKrw(Math.abs(row.pnl))}` : '—'}
+                    </td>
+                    <td className={`${TD} text-right text-xs font-bold font-mono ${pctColor(row.roi_pct)}`}>
                       {row.current_price > 0 ? pctFmt(row.roi_pct) : '—'}
                     </td>
                   </tr>

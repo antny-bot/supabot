@@ -10,9 +10,14 @@ import { ChartSkeleton, TableRowSkeleton } from '../../components/ui/Skeleton'
 import ErrorBanner from '../../components/ui/ErrorBanner'
 import Pagination from '../../components/ui/Pagination'
 import { staggerDelay, staggerDelayMs } from '../../utils/animation'
-import { krwFmt, pctColor, PNL_UP_HEX, PNL_DOWN_HEX, CARD, TH, TD } from './ReportsShared'
+import { krwFmt, formatKrw, pctColor, PNL_UP_HEX, PNL_DOWN_HEX, CARD, TH, TD } from './ReportsShared'
 
-export default function DailySection({ dateRange }: { dateRange: DateRangeValue }) {
+interface Props {
+  dateRange: DateRangeValue
+  exchange?: string
+}
+
+export default function DailySection({ dateRange, exchange }: Props) {
   const [data, setData] = useState<DailyReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -23,11 +28,11 @@ export default function DailySection({ dateRange }: { dateRange: DateRangeValue 
     setLoading(true)
     setError(null)
     setPage(1)
-    fetchReportDaily(dateRange)
+    fetchReportDaily(dateRange, exchange)
       .then(setData)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류 발생'))
       .finally(() => setLoading(false))
-  }, [dateRange])
+  }, [dateRange, exchange])
 
   if (loading) {
     return (
@@ -40,16 +45,18 @@ export default function DailySection({ dateRange }: { dateRange: DateRangeValue 
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
-                <th className={TH}>날짜</th>
-                <th className={`${TH} text-right`}>매수수량</th>
-                <th className={`${TH} text-right`}>매도수량</th>
-                <th className={`${TH} text-right`}>실현손익</th>
+                <th className={`${TH} text-left`}>날짜</th>
+                <th className={`${TH} text-right`}>실현원가</th>
+                <th className={`${TH} text-right`}>매도금액</th>
+                <th className={`${TH} text-right`}>수수료</th>
+                <th className={`${TH} text-right`}>손익</th>
                 <th className={`${TH} text-right`}>누적손익</th>
+                <th className={`${TH} text-left`} style={{ minWidth: 160 }}>막대</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {Array.from({ length: 6 }).map((_, i) => (
-                <TableRowSkeleton key={i} cols={5} />
+                <TableRowSkeleton key={i} cols={7} />
               ))}
             </tbody>
           </table>
@@ -149,15 +156,15 @@ export default function DailySection({ dateRange }: { dateRange: DateRangeValue 
                 }
                 return paged.map((r, i) => (
                 <tr key={r.date} className="animate-fade-in hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors" style={staggerDelay(i)}>
-                  <td className={`${TD} text-xs font-medium text-slate-700 dark:text-slate-300`}>{r.date}</td>
-                  <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(r.bid_krw)}</td>
-                  <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400`}>{krwFmt(r.ask_krw)}</td>
-                  <td className={`${TD} text-right text-xs text-slate-500`}>{krwFmt(r.fee_amount)}</td>
-                  <td className={`${TD} text-right text-xs font-medium ${pctColor(r.pnl)}`}>
-                    {r.pnl >= 0 ? '+' : '-'}{krwFmt(Math.abs(r.pnl))}
+                  <td className={`${TD} text-xs font-medium text-slate-700 dark:text-slate-300 font-mono`}>{r.date}</td>
+                  <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400 font-mono`}>{formatKrw(r.bid_krw)}</td>
+                  <td className={`${TD} text-right text-xs text-slate-600 dark:text-slate-400 font-mono`}>{formatKrw(r.ask_krw)}</td>
+                  <td className={`${TD} text-right text-xs text-slate-500 font-mono`}>{formatKrw(r.fee_amount)}</td>
+                  <td className={`${TD} text-right text-xs font-semibold font-mono ${pctColor(r.pnl)}`}>
+                    {r.pnl >= 0 ? '+' : '-'}{formatKrw(Math.abs(r.pnl))}
                   </td>
-                  <td className={`${TD} text-right text-xs font-medium ${pctColor(r.cumulative_pnl)}`}>
-                    {r.cumulative_pnl >= 0 ? '+' : '-'}{krwFmt(Math.abs(r.cumulative_pnl))}
+                  <td className={`${TD} text-right text-xs font-semibold font-mono ${pctColor(r.cumulative_pnl)}`}>
+                    {r.cumulative_pnl >= 0 ? '+' : '-'}{formatKrw(Math.abs(r.cumulative_pnl))}
                   </td>
                   <td className={TD}>
                     <div className="flex items-center gap-2">

@@ -26,23 +26,24 @@ import { staggerDelay } from '../../utils/animation'
 
 interface Props {
   dateRange: DateRangeValue
+  exchange?: string
 }
 
-export default function DrawdownSection({ dateRange }: Props) {
+export default function DrawdownSection({ dateRange, exchange }: Props) {
   const [data, setData] = useState<DrawdownReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(() => {
     setLoading(true)
-    fetchReportDrawdown(dateRange)
+    fetchReportDrawdown(dateRange, exchange)
       .then((res) => {
         setData(res)
         setError(null)
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'MDD 분석 조회 실패'))
       .finally(() => setLoading(false))
-  }, [dateRange])
+  }, [dateRange, exchange])
 
   useEffect(() => {
     load()

@@ -11,7 +11,12 @@ import ErrorBanner from '../../components/ui/ErrorBanner'
 import { staggerDelay, staggerDelayMs } from '../../utils/animation'
 import { pctFmt, pctColor, PNL_UP_HEX, PNL_DOWN_HEX, CARD } from './ReportsShared'
 
-export default function WinStatsSection({ dateRange }: { dateRange: DateRangeValue }) {
+interface Props {
+  dateRange: DateRangeValue
+  exchange?: string
+}
+
+export default function WinStatsSection({ dateRange, exchange }: Props) {
   const [data, setData] = useState<WinStatsReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -19,11 +24,11 @@ export default function WinStatsSection({ dateRange }: { dateRange: DateRangeVal
   useEffect(() => {
     setLoading(true)
     setError(null)
-    fetchReportWinStats(dateRange)
+    fetchReportWinStats(dateRange, exchange)
       .then(setData)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류 발생'))
       .finally(() => setLoading(false))
-  }, [dateRange])
+  }, [dateRange, exchange])
 
   if (loading) {
     return (
@@ -74,8 +79,8 @@ export default function WinStatsSection({ dateRange }: { dateRange: DateRangeVal
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {countCards.map(({ label, value, bg }, index) => (
           <div key={label} className={`${CARD} animate-fade-in-up p-4`} style={staggerDelay(index)}>
-            <p className={`text-xs font-medium text-white ${bg} w-fit px-2 py-0.5 rounded-md mb-2`}>{label}</p>
-            <p className="text-2xl font-bold text-slate-900 dark:text-white">{value}</p>
+            <p className={`text-xs font-medium text-white ${bg} w-fit px-2 py-0.5 rounded-md mb-2 break-keep`}>{label}</p>
+            <p className="text-2xl font-bold text-slate-900 dark:text-white font-mono">{value}</p>
           </div>
         ))}
       </div>
@@ -87,9 +92,9 @@ export default function WinStatsSection({ dateRange }: { dateRange: DateRangeVal
           { label: 'RR 비율', value: `${stats.rr_ratio}`, color: stats.rr_ratio >= 1 ? 'text-up-600 dark:text-up-400' : 'text-down-600 dark:text-down-400', desc: '평균수익 / 평균손실' },
         ].map(({ label, value, color, desc }, index) => (
           <div key={label} className={`${CARD} animate-fade-in-up p-4`} style={staggerDelay(4 + index)}>
-            <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
-            <p className={`text-3xl font-bold mt-1 ${color}`}>{value}</p>
-            <p className="text-xs text-slate-400 mt-1">{desc}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 break-keep">{label}</p>
+            <p className={`text-3xl font-bold mt-1 font-mono ${color}`}>{value}</p>
+            <p className="text-xs text-slate-400 mt-1 break-keep">{desc}</p>
           </div>
         ))}
       </div>

@@ -15,28 +15,33 @@ import type {
 } from '../types'
 import type { DateRangeValue } from '../components/ui/DateRangePicker'
 
-function buildPeriodParams(range: DateRangeValue): string {
+function buildPeriodParams(range?: DateRangeValue, exchange?: string): string {
   const params = new URLSearchParams()
-  if (range.mode === 'custom') {
-    if (range.from) params.set('date_from', range.from)
-    if (range.to) params.set('date_to', range.to)
-  } else {
-    params.set('period', range.mode)
+  if (range) {
+    if (range.mode === 'custom') {
+      if (range.from) params.set('date_from', range.from)
+      if (range.to) params.set('date_to', range.to)
+    } else {
+      params.set('period', range.mode)
+    }
+  }
+  if (exchange && exchange !== 'all') {
+    params.set('exchange', exchange)
   }
   return params.toString()
 }
 
-export const fetchReportPnl        = (range: DateRangeValue) => api.get<PnlReport>(`/api/reports/pnl?${buildPeriodParams(range)}`)
-export const fetchReportStrategy   = (range: DateRangeValue) => api.get<StrategyReport>(`/api/reports/strategy?${buildPeriodParams(range)}`)
-export const fetchReportExchange   = (range: DateRangeValue) => api.get<ExchangeReport>(`/api/reports/exchange?${buildPeriodParams(range)}`)
-export const fetchReportDaily      = (range: DateRangeValue) => api.get<DailyReport>(`/api/reports/daily?${buildPeriodParams(range)}`)
-export const fetchReportRoiRanking = (range: DateRangeValue) => api.get<RoiRankingReport>(`/api/reports/roi-ranking?${buildPeriodParams(range)}`)
-export const fetchReportMonthly    = ()                      => api.get<MonthlyReport>('/api/reports/monthly')
+export const fetchReportPnl        = (range: DateRangeValue, exchange?: string) => api.get<PnlReport>(`/api/reports/pnl?${buildPeriodParams(range, exchange)}`)
+export const fetchReportStrategy   = (range: DateRangeValue, exchange?: string) => api.get<StrategyReport>(`/api/reports/strategy?${buildPeriodParams(range, exchange)}`)
+export const fetchReportExchange   = (range: DateRangeValue, exchange?: string) => api.get<ExchangeReport>(`/api/reports/exchange?${buildPeriodParams(range, exchange)}`)
+export const fetchReportDaily      = (range: DateRangeValue, exchange?: string) => api.get<DailyReport>(`/api/reports/daily?${buildPeriodParams(range, exchange)}`)
+export const fetchReportRoiRanking = (range: DateRangeValue, exchange?: string) => api.get<RoiRankingReport>(`/api/reports/roi-ranking?${buildPeriodParams(range, exchange)}`)
+export const fetchReportMonthly    = (range?: DateRangeValue, exchange?: string) => api.get<MonthlyReport>(`/api/reports/monthly?${buildPeriodParams(range, exchange)}`)
 export const fetchReportHoldings   = ()                      => api.get<HoldingsReport>('/api/reports/holdings')
-export const fetchReportPairs      = (range: DateRangeValue) => api.get<PairsReport>(`/api/reports/pairs?${buildPeriodParams(range)}`)
-export const fetchReportWinStats   = (range: DateRangeValue) => api.get<WinStatsReport>(`/api/reports/win-stats?${buildPeriodParams(range)}`)
+export const fetchReportPairs      = (range: DateRangeValue, exchange?: string) => api.get<PairsReport>(`/api/reports/pairs?${buildPeriodParams(range, exchange)}`)
+export const fetchReportWinStats   = (range: DateRangeValue, exchange?: string) => api.get<WinStatsReport>(`/api/reports/win-stats?${buildPeriodParams(range, exchange)}`)
 export const fetchReportNlLogs     = (limit = 100, offset = 0) => api.get<NlLogsReport>(`/api/reports/nl-logs?limit=${limit}&offset=${offset}`)
-export const fetchReportDrawdown   = (range: DateRangeValue) => api.get<DrawdownReport>(`/api/reports/drawdown?${buildPeriodParams(range)}`)
+export const fetchReportDrawdown   = (range: DateRangeValue, exchange?: string) => api.get<DrawdownReport>(`/api/reports/drawdown?${buildPeriodParams(range, exchange)}`)
 export const fetchReportAllocation = ()                      => api.get<AllocationReport>('/api/reports/allocation')
 
 

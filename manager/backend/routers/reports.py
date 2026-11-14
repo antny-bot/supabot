@@ -105,7 +105,7 @@ def _iter_trades_asc(trades):
     )
 
 
-def _build_report_state(trades, window_start=None, window_end=None):
+def _build_report_state(trades, window_start=None, window_end=None, exchange=None):
     positions: dict[tuple[str, str], dict] = defaultdict(_new_position)
     realized_events: list[dict] = []
 
@@ -160,6 +160,8 @@ def _build_report_state(trades, window_start=None, window_end=None):
             continue
         if window_end is not None and executed_at >= window_end:
             continue
+        if exchange and exchange.lower() != "all" and str(key[1]).lower() != exchange.lower():
+            continue
 
         realized_events.append({
             "exchange": key[1],
@@ -189,16 +191,14 @@ def _build_pnl_rows(realized_events):
         "bid_krw": 0.0,
         "ask_krw": 0.0,
         "fee_amount": 0.0,
-        "bid_count": 0,
-        "ask_count": 0,
+        "trade_count": 0,
     })
     for event in realized_events:
         key = (event["exchange"], event["ticker"])
         agg[key]["bid_krw"] += event["bid_krw"]
         agg[key]["ask_krw"] += event["ask_krw"]
         agg[key]["fee_amount"] += event["fee_amount"]
-        agg[key]["bid_count"] += 1
-        agg[key]["ask_count"] += 1
+        agg[key]["trade_count"] += 1
 
     rows = []
     for (exchange, ticker), value in agg.items():
@@ -215,8 +215,7 @@ def _build_pnl_rows(realized_events):
             "fee_amount": _round_money(fee_amount),
             "pnl": _round_money(pnl),
             "roi_pct": roi_pct,
-            "bid_count": value["bid_count"],
-            "ask_count": value["ask_count"],
+            "trade_count": value["trade_count"],
         })
     return rows
 
@@ -557,7 +556,8 @@ def _auth_guard(request: Request):
 
 @router.get("/api/reports/pnl")
 async def api_reports_pnl(request: Request, period: str = "30d",
-                          date_from: str | None = None, date_to: str | None = None):
+                          date_from: str | None = None, date_to: str | None = None,
+                          exchange: str | None = None):
     ctx, err = _auth_guard(request)
     if err:
         return err
@@ -568,7 +568,7 @@ async def api_reports_pnl(request: Request, period: str = "30d",
         db = get_db()
         trades = await _fetch_trades(db, is_admin, bot_user_id, None)
         window_start, window_end = _resolve_window(period, date_from, date_to)
-        _, realized_events = _build_report_state(trades, window_start=window_start, window_end=window_end)
+        _, realized_events = _build_report_state(trades, window_start=window_start, window_end=window_end, exchange=exchange)
         rows = _build_pnl_rows(realized_events)
         rows.sort(key=lambda row: row["pnl"], reverse=True)
         stock_map = await get_stock_name_map()
@@ -594,7 +594,8 @@ async def api_reports_pnl(request: Request, period: str = "30d",
 
 @router.get("/api/reports/strategy")
 async def api_reports_strategy(request: Request, period: str = "30d",
-                               date_from: str | None = None, date_to: str | None = None):
+                               date_from: str | None = None, date_to: str | None = None,
+                               exchange: str | None = None):
     ctx, err = _auth_guard(request)
     if err:
         return err
@@ -605,7 +606,7 @@ async def api_reports_strategy(request: Request, period: str = "30d",
         db = get_db()
         trades = await _fetch_trades(db, is_admin, bot_user_id, None)
         window_start, window_end = _resolve_window(period, date_from, date_to)
-        _, realized_events = _build_report_state(trades, window_start=window_start, window_end=window_end)
+        _, realized_events = _build_report_state(trades, window_start=window_start, window_end=window_end, exchange=exchange)
         rows = _build_strategy_rows(realized_events)
         rows.sort(key=lambda row: row["pnl"], reverse=True)
         return JSONResponse({"rows": rows})
@@ -615,7 +616,8 @@ async def api_reports_strategy(request: Request, period: str = "30d",
 
 @router.get("/api/reports/exchange")
 async def api_reports_exchange(request: Request, period: str = "30d",
-                              date_from: str | None = None, date_to: str | None = None):
+                              date_from: str | None = None, date_to: str | None = None,
+                              exchange: str | None = None):
     ctx, err = _auth_guard(request)
     if err:
         return err
@@ -626,7 +628,7 @@ async def api_reports_exchange(request: Request, period: str = "30d",
         db = get_db()
         trades = await _fetch_trades(db, is_admin, bot_user_id, None)
         window_start, window_end = _resolve_window(period, date_from, date_to)
-        _, realized_events = _build_report_state(trades, window_start=window_start, window_end=window_end)
+        _, realized_events = _build_report_state(trades, window_start=window_start, window_end=window_end, exchange=exchange)
         rows = _build_exchange_rows(realized_events)
         rows.sort(key=lambda row: row["pnl"], reverse=True)
         return JSONResponse({"rows": rows})
@@ -636,7 +638,8 @@ async def api_reports_exchange(request: Request, period: str = "30d",
 
 @router.get("/api/reports/daily")
 async def api_reports_daily(request: Request, period: str = "30d",
-                            date_from: str | None = None, date_to: str | None = None):
+                            date_from: str | None = None, date_to: str | None = None,
+                            exchange: str | None = None):
     ctx, err = _auth_guard(request)
     if err:
         return err
@@ -647,7 +650,7 @@ async def api_reports_daily(request: Request, period: str = "30d",
         db = get_db()
         trades = await _fetch_trades(db, is_admin, bot_user_id, None)
         window_start, window_end = _resolve_window(period, date_from, date_to)
-        _, realized_events = _build_report_state(trades, window_start=window_start, window_end=window_end)
+        _, realized_events = _build_report_state(trades, window_start=window_start, window_end=window_end, exchange=exchange)
         return JSONResponse({"rows": _build_daily_rows(realized_events)})
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
@@ -655,7 +658,8 @@ async def api_reports_daily(request: Request, period: str = "30d",
 
 @router.get("/api/reports/roi-ranking")
 async def api_reports_roi_ranking(request: Request, period: str = "30d",
-                                  date_from: str | None = None, date_to: str | None = None):
+                                  date_from: str | None = None, date_to: str | None = None,
+                                  exchange: str | None = None):
     ctx, err = _auth_guard(request)
     if err:
         return err
@@ -666,7 +670,7 @@ async def api_reports_roi_ranking(request: Request, period: str = "30d",
         db = get_db()
         trades = await _fetch_trades(db, is_admin, bot_user_id, None)
         window_start, window_end = _resolve_window(period, date_from, date_to)
-        _, realized_events = _build_report_state(trades, window_start=window_start, window_end=window_end)
+        _, realized_events = _build_report_state(trades, window_start=window_start, window_end=window_end, exchange=exchange)
         rows = _build_pnl_rows(realized_events)
         rows.sort(key=lambda row: row["roi_pct"], reverse=True)
         stock_map = await get_stock_name_map()
@@ -680,7 +684,9 @@ async def api_reports_roi_ranking(request: Request, period: str = "30d",
 
 
 @router.get("/api/reports/monthly")
-async def api_reports_monthly(request: Request):
+async def api_reports_monthly(request: Request, period: str = "all",
+                              date_from: str | None = None, date_to: str | None = None,
+                              exchange: str | None = None):
     ctx, err = _auth_guard(request)
     if err:
         return err
@@ -688,7 +694,8 @@ async def api_reports_monthly(request: Request):
     try:
         db = get_db()
         trades = await _fetch_trades(db, is_admin, bot_user_id, None)
-        _, realized_events = _build_report_state(trades)
+        window_start, window_end = _resolve_window(period, date_from, date_to)
+        _, realized_events = _build_report_state(trades, window_start=window_start, window_end=window_end, exchange=exchange)
         return JSONResponse({"rows": _build_monthly_rows(realized_events)})
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
@@ -737,7 +744,8 @@ async def api_reports_holdings(request: Request):
 
 @router.get("/api/reports/pairs")
 async def api_reports_pairs(request: Request, period: str = "30d",
-                            date_from: str | None = None, date_to: str | None = None):
+                            date_from: str | None = None, date_to: str | None = None,
+                            exchange: str | None = None):
     ctx, err = _auth_guard(request)
     if err:
         return err
@@ -748,7 +756,7 @@ async def api_reports_pairs(request: Request, period: str = "30d",
         db = get_db()
         trades = await _fetch_trades(db, is_admin, bot_user_id, None)
         window_start, window_end = _resolve_window(period, date_from, date_to)
-        _, realized_events = _build_report_state(trades, window_start=window_start, window_end=window_end)
+        _, realized_events = _build_report_state(trades, window_start=window_start, window_end=window_end, exchange=exchange)
         pairs = _build_pair_rows(realized_events)
         stock_map = await get_stock_name_map()
         for p in pairs:
@@ -812,7 +820,8 @@ async def api_nl_logs(request: Request, period: str = "7d", limit: int = 200):
 
 @router.get("/api/reports/win-stats")
 async def api_reports_win_stats(request: Request, period: str = "30d",
-                                date_from: str | None = None, date_to: str | None = None):
+                                date_from: str | None = None, date_to: str | None = None,
+                                exchange: str | None = None):
     ctx, err = _auth_guard(request)
     if err:
         return err
@@ -823,7 +832,7 @@ async def api_reports_win_stats(request: Request, period: str = "30d",
         db = get_db()
         trades = await _fetch_trades(db, is_admin, bot_user_id, None)
         window_start, window_end = _resolve_window(period, date_from, date_to)
-        _, realized_events = _build_report_state(trades, window_start=window_start, window_end=window_end)
+        _, realized_events = _build_report_state(trades, window_start=window_start, window_end=window_end, exchange=exchange)
         pairs = _build_pair_rows(realized_events)
 
         if not pairs:
@@ -1090,6 +1099,7 @@ async def api_reports_drawdown(
     period: str = "30d",
     date_from: str | None = None,
     date_to: str | None = None,
+    exchange: str | None = None,
 ):
     ctx, err = _auth_guard(request)
     if err:
@@ -1102,7 +1112,7 @@ async def api_reports_drawdown(
         db = get_db()
         trades = await _fetch_trades(db, is_admin, bot_user_id, None)
         window_start, window_end = _resolve_window(period, date_from, date_to)
-        _, realized_events = _build_report_state(trades, window_start=window_start, window_end=window_end)
+        _, realized_events = _build_report_state(trades, window_start=window_start, window_end=window_end, exchange=exchange)
         res = _build_drawdown_stats(realized_events)
         return JSONResponse(res)
     except Exception as exc:

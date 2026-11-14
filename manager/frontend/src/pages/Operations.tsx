@@ -472,20 +472,10 @@ export default function Operations() {
     <div className="space-y-5 pb-12 break-keep animate-fade-in-up">
       {/* 최상단 페이지 헤더 */}
       <PageHeader
-        title="전략 운용"
+        title={viewMode === 'workbench' ? '전략 상세 관제' : '전략 운용'}
         Icon={Activity}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            {viewMode === 'workbench' && (
-              <button
-                type="button"
-                onClick={() => setViewMode('management')}
-                className="flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50/70 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-300 transition-colors"
-              >
-                <ArrowLeft size={13} />
-                <span>전체 전략 목록</span>
-              </button>
-            )}
             <button
               onClick={() => loadTemplates()}
               className="flex items-center gap-1.5 rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
@@ -938,11 +928,11 @@ export default function Operations() {
               <button
                 type="button"
                 onClick={() => setViewMode('management')}
-                className="inline-flex items-center gap-1 rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
-                title="전체 전략 카드 목록으로 돌아가기"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50/70 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-300 transition-colors shadow-xs"
+                title="전체 전략 목록으로 돌아가기"
               >
-                <ArrowLeft size={13} />
-                <span>목록</span>
+                <ArrowLeft size={13} className="shrink-0" />
+                <span className="whitespace-nowrap break-keep">전체 전략 목록</span>
               </button>
 
               <select

@@ -2,7 +2,13 @@ export function krwFmt(n: number | null | undefined) {
   if (typeof n !== 'number' || Number.isNaN(n)) return '0'
   if (n >= 100_000_000) return `${(n / 100_000_000).toFixed(1)}억`
   if (n >= 10_000) return `${(n / 10_000).toFixed(0)}만`
-  return n.toLocaleString()
+  return Math.round(n).toLocaleString()
+}
+
+export function formatKrw(n: number | null | undefined, withUnit = true) {
+  if (typeof n !== 'number' || Number.isNaN(n)) return withUnit ? '0원' : '0'
+  const formatted = Math.round(n).toLocaleString()
+  return withUnit ? `${formatted}원` : formatted
 }
 
 export function pctFmt(v: number) {
