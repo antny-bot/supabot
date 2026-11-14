@@ -209,11 +209,27 @@ def _match_ticker_filter(record_ticker: str, filter_ticker: str | None) -> bool:
 
 
 def read_trades(user_id, period="all", path=None, group_no=None, ticker=None):
+    explicit_custom_path = path is not None and path != TRADE_LOG_PATH
     if path is None:
         path = TRADE_LOG_PATH
     cutoff = _period_cutoff_ts(period)
     target_group = int(group_no) if group_no is not None else None
     result = []
+    seen_keys = set()
+
+    def _rec_dedup_key(rec_dict: dict):
+        u = rec_dict.get("uuid")
+        if u:
+            return ("uuid", str(u))
+        return (
+            "comp",
+            str(rec_dict.get("user_id") or ""),
+            str(rec_dict.get("exchange") or ""),
+            str(rec_dict.get("ticker") or ""),
+            str(rec_dict.get("side") or ""),
+            round(float(rec_dict.get("ts") or 0), 1),
+            round(float(rec_dict.get("volume") or 0), 8),
+        )
 
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
@@ -232,11 +248,15 @@ def read_trades(user_id, period="all", path=None, group_no=None, ticker=None):
                         continue
                 if ticker and not _match_ticker_filter(rec.get("ticker", ""), ticker):
                     continue
-                result.append(rec)
-        return result
+                dk = _rec_dedup_key(rec)
+                if dk not in seen_keys:
+                    seen_keys.add(dk)
+                    result.append(rec)
+        if explicit_custom_path or not is_db_available():
+            return result
 
-    # 로컬 파일이 없을 때 DB 폴백 조회
-    if is_db_available():
+    # DB 조회 및 병합 (컨테이너 재시작 등으로 로컬 파일에 일부만 있을 때도 과거 DB 이력 보존)
+    if is_db_available() and not explicit_custom_path:
         try:
             q = get_db().table("trade_logs").select("*").eq("user_id", str(user_id)).order("executed_at", desc=False)
             if cutoff > 0:
@@ -247,7 +267,7 @@ def read_trades(user_id, period="all", path=None, group_no=None, ticker=None):
             for r in rows:
                 if ticker and not _match_ticker_filter(r.get("ticker", ""), ticker):
                     continue
-                result.append({
+                rec = {
                     "ts": float(r.get("executed_at") or 0),
                     "user_id": str(r.get("user_id") or ""),
                     "exchange": r.get("exchange", ""),
@@ -259,7 +279,14 @@ def read_trades(user_id, period="all", path=None, group_no=None, ticker=None):
                     "uuid": r.get("uuid"),
                     "fee_amount": float(r.get("fee_amount") or 0),
                     "group_no": r.get("group_no"),
-                })
+                }
+                if r.get("template_id") is not None:
+                    rec["template_id"] = r.get("template_id")
+                dk = _rec_dedup_key(rec)
+                if dk not in seen_keys:
+                    seen_keys.add(dk)
+                    result.append(rec)
+            result.sort(key=lambda x: float(x.get("ts") or 0))
         except Exception as e:
             _log.debug("Failed to read trades from DB fallback: %s", e)
 

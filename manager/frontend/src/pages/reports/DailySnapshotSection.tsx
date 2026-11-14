@@ -196,10 +196,10 @@ export default function DailySnapshotSection({
     return filteredSnapshots.findIndex((s) => s.date === activeSnapshot.date)
   }, [filteredSnapshots, activeSnapshot])
 
-  // 1) 선택 일자 1~10순위 라인/영역 차트 데이터
+  // 1) 선택 일자 순위별 라인/영역 차트 데이터
   const rankLineData = useMemo(() => {
     if (!activeSnapshot) return []
-    return activeSnapshot.items.slice(0, 10).map((it) => ({
+    return activeSnapshot.items.map((it) => ({
       rankLabel: `${it.rank}위 ${it.name}`,
       shortLabel: `${it.rank}위`,
       rank: it.rank,
@@ -209,6 +209,23 @@ export default function DailySnapshotSection({
       isBought: Boolean(it.is_bought),
     }))
   }, [activeSnapshot])
+
+  const trackedRanks = useMemo(() => {
+    const rankSet = new Set<number>()
+    filteredSnapshots.forEach((snap) => {
+      snap.items.forEach((it) => {
+        if (typeof it.rank === 'number' && !Number.isNaN(it.rank)) {
+          rankSet.add(it.rank)
+        }
+      })
+    })
+    if (rankSet.size === 0) {
+      const rStart = report?.cycle_pipeline?.rank_start ?? 1
+      const rEnd = report?.cycle_pipeline?.rank_end ?? 10
+      for (let r = rStart; r <= rEnd; r += 1) rankSet.add(r)
+    }
+    return Array.from(rankSet).sort((a, b) => a - b)
+  }, [filteredSnapshots, report])
 
   // 2) 시계열 라인 차트 데이터 (기록 시작일부터 기간 내 일자별 추이)
   const timeSeriesData = useMemo(() => {
@@ -221,8 +238,8 @@ export default function DailySnapshotSection({
         avg_price: snap.avg_price,
         spent_krw: snap.spent_krw,
       }
-      snap.items.slice(0, 10).forEach((it, idx) => {
-        const rKey = `rank_${idx + 1}`
+      snap.items.forEach((it) => {
+        const rKey = `rank_${it.rank}`
         row[rKey] = it.price
         row[`${rKey}_name`] = `${it.rank}위 ${it.name}`
       })
@@ -481,12 +498,12 @@ export default function DailySnapshotSection({
                       }}
                     />
                     <Legend wrapperStyle={{ fontSize: '10px' }} />
-                    {Array.from({ length: 10 }).map((_, idx) => (
+                    {trackedRanks.map((rankNum, idx) => (
                       <Line
-                        key={`rank_${idx + 1}`}
+                        key={`rank_${rankNum}`}
                         type="monotone"
-                        dataKey={`rank_${idx + 1}`}
-                        name={`${idx + 1}위`}
+                        dataKey={`rank_${rankNum}`}
+                        name={`${rankNum}위`}
                         stroke={RANK_COLORS[idx % RANK_COLORS.length]}
                         strokeWidth={1.8}
                         dot={{ r: 2 }}
@@ -530,12 +547,12 @@ export default function DailySnapshotSection({
                         return [`${krwFmt(Number(value))}원`, customName]
                       }}
                     />
-                    {Array.from({ length: 10 }).map((_, idx) => (
+                    {trackedRanks.map((rankNum, idx) => (
                       <Area
-                        key={`rank_area_${idx + 1}`}
+                        key={`rank_area_${rankNum}`}
                         type="monotone"
-                        dataKey={`rank_${idx + 1}`}
-                        name={`${idx + 1}위`}
+                        dataKey={`rank_${rankNum}`}
+                        name={`${rankNum}위`}
                         stackId="1"
                         stroke={RANK_COLORS[idx % RANK_COLORS.length]}
                         fill={RANK_COLORS[idx % RANK_COLORS.length]}

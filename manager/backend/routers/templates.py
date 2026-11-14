@@ -206,13 +206,18 @@ async def api_create_template(payload: TemplateCreate, user: dict = Depends(get_
             created_tpl = created_rows[0]
             c_params = created_tpl.get("params") or {}
             if c_params.get("budget_mode") == "total" and float(c_params.get("carryover_budget", 0.0) or 0.0) > 0:
+                init_carry = float(c_params["carryover_budget"])
                 await budget_manager.record_ledger_entry(
+                    user_id=str(created_tpl.get("user_id") or target_user_id),
                     template_id=int(created_tpl["id"]),
                     budget_epoch=int(c_params.get("budget_epoch", 1)),
-                    event_type="INITIAL_CREDIT",
-                    amount_delta_krw=float(c_params["carryover_budget"]),
-                    balance_after_krw=float(c_params["carryover_budget"]),
-                    memo=f"전략 초기 총예산 배정 ({float(c_params['carryover_budget']):,.0f}원)",
+                    plan_revision_no=int(c_params.get("plan_revision_no", 1)),
+                    entry_type="INITIAL_CREDIT",
+                    delta_krw=init_carry,
+                    balance_after_krw=init_carry,
+                    monthly_spent_after_krw=0.0,
+                    monthly_remaining_after_krw=init_carry,
+                    description=f"전략 초기 총예산 배정 ({init_carry:,.0f}원)",
                 )
         return JSONResponse({"ok": True, "data": res.data})
     except Exception as e:
@@ -600,7 +605,7 @@ async def api_execute_template(template_id: int, user: dict = Depends(get_curren
             await budget_manager.sync_single_strategy_budget_events(tpl, persist=True)
             params = dict(tpl.get("params") or {})
             if params.get("budget_mode") in ("monthly", "daily"):
-                params = await budget_manager.credit_daily_allowance(tpl)
+                _, params = await budget_manager.credit_daily_allowance(tpl)
                 tpl["params"] = params
                 await get_db().table("strategy_templates").update({"params": params}).eq("id", template_id).execute()
             avail_budget = float(params.get("carryover_budget", tpl.get("budget", 0.0)) or 0.0)
@@ -638,7 +643,7 @@ async def api_execute_template(template_id: int, user: dict = Depends(get_curren
             await budget_manager.sync_single_strategy_budget_events(tpl, persist=True)
             params = dict(tpl.get("params") or {})
             if params.get("budget_mode") in ("monthly", "daily"):
-                params = await budget_manager.credit_daily_allowance(tpl)
+                _, params = await budget_manager.credit_daily_allowance(tpl)
                 tpl["params"] = params
                 await get_db().table("strategy_templates").update({"params": params}).eq("id", template_id).execute()
             avail_budget = float(params.get("carryover_budget", tpl.get("budget", 0.0)) or 0.0)

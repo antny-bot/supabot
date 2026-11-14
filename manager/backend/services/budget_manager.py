@@ -265,9 +265,28 @@ async def refund_cancelled_orders(
     carryover = float(params.get("carryover_budget", 0.0))
     monthly_spent = float(params.get("monthly_spent", 0.0))
 
+    already_refunded_uuids: set[str] = set()
+    try:
+        r_res = (
+            await get_db()
+            .table("budget_ledger")
+            .select("order_uuid")
+            .eq("template_id", int(template["id"]))
+            .eq("budget_epoch", cur_epoch)
+            .eq("entry_type", "ORDER_CANCEL_REFUND")
+            .execute()
+        )
+        for row in (r_res.data or []):
+            if row.get("order_uuid"):
+                already_refunded_uuids.add(str(row["order_uuid"]))
+    except Exception as e:
+        logger.debug(f"refund_cancelled_orders existing check skipped: {e}")
+
     for ord in cancelled_orders:
         ord_epoch = int(ord.get("budget_epoch", 1))
         uuid = ord.get("uuid", "")
+        if uuid and str(uuid) in already_refunded_uuids:
+            continue
         ticker = ord.get("ticker") or ord.get("code")
         price = float(ord.get("price", 0.0))
         vol = float(ord.get("volume", 0.0))
@@ -318,6 +337,8 @@ async def refund_cancelled_orders(
             order_uuid=uuid,
             description=desc,
         )
+        if uuid:
+            already_refunded_uuids.add(str(uuid))
 
     params["carryover_budget"] = carryover
     params["monthly_spent"] = monthly_spent
@@ -792,6 +813,29 @@ async def sync_single_strategy_budget_events(
     pending_buys = list(params.get("pending_buy_orders", []))
     pending_by_uuid = {str(pb.get("uuid")): pb for pb in pending_buys if pb.get("uuid")}
 
+    # 0. budget_ledger 테이블에서 이미 기록된 BUY_ORDER_SPEND / ORDER_CANCEL_REFUND 주문 UUID 동기화 (봇 직접 차감/환불과 중복 방지)
+    refunded_uuids_in_ledger: set[str] = set()
+    try:
+        l_res = (
+            await db.table("budget_ledger")
+            .select("order_uuid,entry_type")
+            .eq("template_id", template_id)
+            .execute()
+        )
+        for l_row in (l_res.data or []):
+            lu = str(l_row.get("order_uuid") or "")
+            if not lu:
+                continue
+            et = str(l_row.get("entry_type") or "")
+            if et == "BUY_ORDER_SPEND" and lu not in accounted_buys:
+                accounted_buys.add(lu)
+                accounted_buys_list.append(lu)
+                dirty = True
+            elif et == "ORDER_CANCEL_REFUND":
+                refunded_uuids_in_ledger.add(lu)
+    except Exception as e:
+        logger.debug(f"sync_single_strategy_budget_events ledger precheck skipped: {e}")
+
     # 1. 현재 orders 및 trade_logs 조회
     open_orders = []
     try:
@@ -907,6 +951,9 @@ async def sync_single_strategy_budget_events(
     next_pending_buys = []
     cancelled_to_refund = []
     for u, pb in list(pending_by_uuid.items()):
+        if u in refunded_uuids_in_ledger:
+            dirty = True
+            continue
         o_info = orders_by_uuid.get(u)
         pb_vol = float(pb.get("volume") or 0.0)
         if o_info:

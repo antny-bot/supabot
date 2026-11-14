@@ -336,6 +336,28 @@ async def _internal_cancel_order_handler(request: _web.Request) -> _web.Response
 
         if target_order:
             ok = await main.cancel_and_remove_order(user_id, target_order)
+            if ok:
+                filled_vol = float(target_order.get("filled_volume") or 0.0)
+                if filled_vol > 0:
+                    from core.trade_log import is_trade_logged
+                    if not is_trade_logged(uuid):
+                        extra_kw = {}
+                        if target_order.get("group_no") is not None:
+                            extra_kw["group_no"] = target_order["group_no"]
+                        if target_order.get("template_id") is not None:
+                            extra_kw["template_id"] = target_order["template_id"]
+                        append_trade(
+                            user_id=user_id,
+                            exchange=exchange,
+                            ticker=ticker,
+                            side=target_order.get("side", "bid"),
+                            price=target_order.get("price", 0.0),
+                            volume=filled_vol,
+                            strategy=target_order.get("strategy", "manual"),
+                            uuid=uuid,
+                            fee_amount=0.0,
+                            **extra_kw,
+                        )
         else:
             ok = await _exchange_adapter.cancel_order(user_id, exchange, uuid, ticker)
         return _web.Response(text=_json.dumps({"ok": bool(ok)}), content_type="application/json")
@@ -392,33 +414,40 @@ async def _internal_sync_order_handler(request: _web.Request) -> _web.Response:
             executed = float(status_info["executed_volume"])
             
             if state in ("done", "cancel"):
-                if state == "done":
+                if not ord_obj:
+                    for o in _order_manager.orders:
+                        if o["uuid"] == uuid:
+                            ord_obj = o
+                            break
+                eff_vol = executed if executed > 0 else (
+                    float(ord_obj.get("filled_volume") or 0.0) if ord_obj else 0.0
+                )
+                if state == "done" and eff_vol <= 0 and ord_obj:
+                    eff_vol = float(ord_obj.get("volume") or 0.0)
+                if ord_obj and eff_vol > 0:
                     from core.trade_log import is_trade_logged
                     if not is_trade_logged(uuid):
-                        if not ord_obj:
-                            for o in _order_manager.orders:
-                                if o["uuid"] == uuid:
-                                    ord_obj = o
-                                    break
-                        if ord_obj:
-                            fee_amount = float(status_info.get("fee_amount") or 0.0)
-                            extra_kw = {}
-                            if ord_obj.get("group_no") is not None:
-                                extra_kw["group_no"] = ord_obj["group_no"]
-                            if ord_obj.get("template_id") is not None:
-                                extra_kw["template_id"] = ord_obj["template_id"]
-                            append_trade(
-                                user_id=user_id,
-                                exchange=exchange,
-                                ticker=ticker,
-                                side=ord_obj["side"],
-                                price=ord_obj["price"],
-                                volume=executed if executed else float(ord_obj.get("filled_volume") or ord_obj["volume"]),
-                                strategy=ord_obj.get("strategy", "manual"),
-                                uuid=uuid,
-                                fee_amount=fee_amount,
-                                **extra_kw,
-                            )
+                        fee_amount = float(status_info.get("fee_amount") or 0.0)
+                        extra_kw = {}
+                        if ord_obj.get("group_no") is not None:
+                            extra_kw["group_no"] = ord_obj["group_no"]
+                        if ord_obj.get("template_id") is not None:
+                            extra_kw["template_id"] = ord_obj["template_id"]
+                        append_trade(
+                            user_id=user_id,
+                            exchange=exchange,
+                            ticker=ticker,
+                            side=ord_obj["side"],
+                            price=ord_obj["price"],
+                            volume=eff_vol,
+                            strategy=ord_obj.get("strategy", "manual"),
+                            uuid=uuid,
+                            fee_amount=fee_amount,
+                            **extra_kw,
+                        )
+                if state == "cancel" and ord_obj:
+                    from core.order_sync import _refund_unfilled_budget
+                    await _refund_unfilled_budget(ord_obj, eff_vol)
                 _order_manager.remove_order(uuid)
             else:
                 _order_manager.update_order_fill(uuid, executed, state)
@@ -455,26 +484,33 @@ async def _internal_force_update_order_handler(request: _web.Request) -> _web.Re
                 break
                 
         if state in ("done", "cancel"):
-            if state == "done" and ord_obj:
-                from core.trade_log import is_trade_logged
-                if not is_trade_logged(uuid):
-                    extra_kw = {}
-                    if ord_obj.get("group_no") is not None:
-                        extra_kw["group_no"] = ord_obj["group_no"]
-                    if ord_obj.get("template_id") is not None:
-                        extra_kw["template_id"] = ord_obj["template_id"]
-                    append_trade(
-                        user_id=ord_obj["user_id"],
-                        exchange=ord_obj["exchange"],
-                        ticker=ord_obj["ticker"],
-                        side=ord_obj["side"],
-                        price=ord_obj["price"],
-                        volume=executed if executed else float(ord_obj.get("filled_volume") or ord_obj["volume"]),
-                        strategy=ord_obj.get("strategy", "manual"),
-                        uuid=uuid,
-                        fee_amount=0.0,
-                        **extra_kw,
-                    )
+            if ord_obj:
+                eff_vol = executed if executed > 0 else float(ord_obj.get("filled_volume") or 0.0)
+                if state == "done" and eff_vol <= 0:
+                    eff_vol = float(ord_obj.get("volume") or 0.0)
+                if eff_vol > 0:
+                    from core.trade_log import is_trade_logged
+                    if not is_trade_logged(uuid):
+                        extra_kw = {}
+                        if ord_obj.get("group_no") is not None:
+                            extra_kw["group_no"] = ord_obj["group_no"]
+                        if ord_obj.get("template_id") is not None:
+                            extra_kw["template_id"] = ord_obj["template_id"]
+                        append_trade(
+                            user_id=ord_obj["user_id"],
+                            exchange=ord_obj["exchange"],
+                            ticker=ord_obj["ticker"],
+                            side=ord_obj["side"],
+                            price=ord_obj["price"],
+                            volume=eff_vol,
+                            strategy=ord_obj.get("strategy", "manual"),
+                            uuid=uuid,
+                            fee_amount=0.0,
+                            **extra_kw,
+                        )
+                if state == "cancel":
+                    from core.order_sync import _refund_unfilled_budget
+                    await _refund_unfilled_budget(ord_obj, eff_vol)
             _order_manager.remove_order(uuid)
         else:
             _order_manager.update_order_fill(uuid, executed, state)

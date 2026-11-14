@@ -368,8 +368,9 @@ async def cancel_and_remove_order(user_id: str, ord_dict: dict) -> bool:
     try:
         cancel_ok = await exchange_adapter.cancel_order(user_id, exchange, uuid, ticker)
         if cancel_ok:
+            filled_so_far = float(ord_dict.get("filled_volume") or 0.0)
             order_manager.remove_order(uuid)
-            await _refund_unfilled_budget(ord_dict)
+            await _refund_unfilled_budget(ord_dict, filled_so_far)
             return True
     except Exception as e:
         _log.warning(f"Exception during cancel_order for {uuid}", exc_info=e)
@@ -377,11 +378,13 @@ async def cancel_and_remove_order(user_id: str, ord_dict: dict) -> bool:
     try:
         status_res = await exchange_adapter.get_order_status(user_id, exchange, uuid, ticker)
         if status_res is not None and status_res.get("state") in ("done", "cancel"):
+            exec_vol = max(
+                float(ord_dict.get("filled_volume") or 0.0),
+                float(status_res.get("executed_volume") or 0.0),
+            )
             order_manager.remove_order(uuid)
             if status_res.get("state") == "cancel":
-                await _refund_unfilled_budget(
-                    ord_dict, max(float(ord_dict.get("filled_volume") or 0.0), float(status_res.get("executed_volume") or 0.0))
-                )
+                await _refund_unfilled_budget(ord_dict, exec_vol)
             return True
     except Exception as e:
         _log.warning(f"Failed to check order status after cancel failure for {uuid}", exc_info=e)
@@ -525,10 +528,38 @@ async def _submit_reserved_or_reorder(application, ord: dict, ex_obj, ticker_cac
         rf.pop(old_uuid, None)
         lwo.pop(old_uuid, None)
         if not dup:
+            old_price = float(ord.get("price") or 0.0)
+            new_price = float(price) if price is not None else old_price
             # 제출에 실제 사용된 가격/주문유형을 기록 (체결 로그가 낡은 스냅샷 가격이 아닌 제출가를 쓰도록)
-            ord["price"] = float(price) if price is not None else ord.get("price")
+            ord["price"] = new_price
             if submit_ord_type == "market":
                 ord["order_type"] = "market"
+            elif (
+                str(ord.get("strategy", "")).startswith("kospi_top")
+                and side == "bid"
+                and ord.get("template_id") is not None
+                and old_price > 0
+                and new_price > 0
+            ):
+                diff_krw = (new_price - old_price) * float(vol or 0.0)
+                if round(diff_krw) != 0:
+                    try:
+                        from core.budget_ledger import record_budget_adjust
+                        await record_budget_adjust(
+                            user_id=user_id,
+                            template_id=int(ord["template_id"]),
+                            diff_krw=diff_krw,
+                            ticker=ticker,
+                            qty=float(vol or 0.0),
+                            group_no=ord.get("group_no"),
+                            order_uuid=res["uuid"],
+                            description=(
+                                f"TOP N 예약주문 장개시 발주가 정산: {ticker} {float(vol or 0.0):g}주 "
+                                f"({old_price:,.0f}원 → {new_price:,.0f}원)"
+                            ),
+                        )
+                    except Exception as adj_err:
+                        _log.error("Failed to record TOP N reserve submit budget adjust: %s", adj_err)
         order_manager.replace_order_uuid(old_uuid, res["uuid"])
         await application.bot.send_message(
             chat_id=user_id,
@@ -683,16 +714,19 @@ async def _process_order_fill(application, ord: dict, res: dict, ex_obj) -> None
                 is_market_order = ord_type == "market" or ord_vol <= 0
             else:
                 is_market_order = ord_vol <= 0 or ord.get("strategy") in ("dca", "sdca")
-            if state == "done" and exec_vol > 0 and is_market_order and ord.get("strategy") in ("dca", "sdca"):
+            is_top_n = str(ord.get("strategy", "")).startswith("kospi_top")
+            if state == "done" and exec_vol > 0 and is_market_order and (ord.get("strategy") in ("dca", "sdca") or is_top_n):
+                est_ord_price = float(ord.get("price") or 0.0)
+                exec_funds = float(res.get("executed_funds") or res.get("total_amount") or 0.0)
+                if exec_funds <= 0 and float(res.get("price") or 0.0) > 0:
+                    exec_funds = float(res["price"]) * exec_vol
+                if is_top_n and exec_funds > 0 and exec_vol > 0:
+                    ord["price"] = round(exec_funds / exec_vol, 4)
                 order_manager.update_order(ord['uuid'], volume=exec_vol, filled_volume=exec_vol, status=state)
-                # 시장가 DCA 체결 완료 시 실제 소요 금액과 당초 주문 차감액 차이 정산 (BUY_ORDER_ADJUST)
-                if ord.get("strategy") == "dca" and ord.get("side") == "bid" and ord.get("template_id") is not None:
+                # 시장가 매수(DCA / TOP N) 체결 완료 시 실제 소요 금액과 당초 주문 차감액 차이 정산 (BUY_ORDER_ADJUST)
+                if (ord.get("strategy") == "dca" or is_top_n) and ord.get("side") == "bid" and ord.get("template_id") is not None:
                     try:
-                        exec_funds = float(res.get("executed_funds") or res.get("total_amount") or 0.0)
-                        if exec_funds <= 0 and float(res.get("price") or 0.0) > 0:
-                            exec_funds = float(res["price"]) * exec_vol
-                        ord_price = float(ord.get("price") or 0.0)
-                        est_cost = float(round(ord_price * ord_vol)) if ord_vol > 0 else ord_price
+                        est_cost = float(round(est_ord_price * ord_vol)) if ord_vol > 0 else est_ord_price
                         diff_krw = exec_funds - est_cost if exec_funds > 0 and est_cost > 0 else 0.0
                         if round(diff_krw) != 0:
                             from core.budget_ledger import record_budget_adjust
