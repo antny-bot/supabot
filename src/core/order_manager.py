@@ -145,8 +145,15 @@ class OrderManager:
         # 인메모리 변경이 DB에 모두 반영된 뒤 읽어야 stale read로 인한 중복 처리(중복 주문)를 막는다.
         await self.flush_pending_writes()
         try:
+            pre_reload_uuids = set(self._uuid_set)
+            new_orders = await self._fetch_all_orders_async()
             async with self.lock:
-                new_orders = await self._fetch_all_orders_async()
+                fetched_uuid_set = {o["uuid"] for o in new_orders if "uuid" in o}
+                current_orders_map = {o["uuid"]: o for o in self.orders if "uuid" in o}
+                for uuid, ord_item in current_orders_map.items():
+                    if uuid not in fetched_uuid_set and uuid not in pre_reload_uuids:
+                        new_orders.append(ord_item)
+
                 self.orders = new_orders
                 self._orders_by_uuid = {o["uuid"]: o for o in self.orders}
                 self._uuid_set = set(self._orders_by_uuid.keys())

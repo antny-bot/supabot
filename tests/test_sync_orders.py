@@ -293,8 +293,8 @@ async def test_stoploss_placement_failure_alerts_without_false_success(tmp_path,
     app = _make_app()
     await main.sync_orders(app)
 
-    # 취소된 익절매도는 추적에서 제거되고, stoploss 주문은 생성되지 않아야 한다
-    assert not any(o["uuid"] == "sell-uuid-fail" for o in om.orders)
+    # 손절 발행 실패 시 포지션 추적 유실 방지를 위해 주문을 유지하고, stoploss 주문은 생성되지 않아야 한다
+    assert any(o["uuid"] == "sell-uuid-fail" for o in om.orders)
     assert not any(o["strategy"] == "stoploss" for o in om.orders)
     # 발행을 재시도했는지
     assert mock_adapter.create_order.await_count == main._STOPLOSS_PLACE_RETRIES

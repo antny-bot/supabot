@@ -34,6 +34,9 @@ _STOPLOSS_PLACE_RETRIES = 3
 _STATUS_CHECK_FAIL_LIMIT = 5
 _status_check_failures: dict = {}
 
+_LINKED_SELL_FAIL_LIMIT = 5
+_linked_sell_failures: dict = {}
+
 _exchange_status_semaphores: dict[str, asyncio.Semaphore] = defaultdict(lambda: asyncio.Semaphore(4))
 _exchange_user_semaphores: dict[str, asyncio.Semaphore] = defaultdict(lambda: asyncio.Semaphore(1))
 
@@ -253,9 +256,13 @@ async def _create_linked_sell_order(application, ord, exec_vol, state):
             balances = await exchange_adapter.get_balances(user_id, exchange)
             avail_vol = 0.0
             if balances:
+                target_sym = ticker.split("-")[-1].upper() if "-" in ticker else ticker.upper()
                 for b in balances:
-                    b_ticker = b.get("currency") or b.get("ticker") or ""
-                    if b_ticker.upper() == ticker.upper() or ticker.endswith(b_ticker) or b_ticker.endswith(ticker):
+                    raw_b = (b.get("currency") or b.get("ticker") or "").strip()
+                    if not raw_b:
+                        continue
+                    b_sym = raw_b.split("-")[-1].upper() if "-" in raw_b else raw_b.upper()
+                    if b_sym == target_sym or raw_b.upper() == ticker.upper():
                         avail_vol = float(b.get("balance", 0.0) or 0.0)
                         break
             if avail_vol < sell_volume:
@@ -406,6 +413,9 @@ def _cleanup_stale_caches(active_uuids: set):
     for uid in list(scf.keys()):
         if uid not in active_uuids:
             scf.pop(uid, None)
+    for uid in list(_linked_sell_failures.keys()):
+        if uid not in active_uuids:
+            _linked_sell_failures.pop(uid, None)
 
 
 async def _handle_market_closed(ord: dict, ex_obj) -> bool:
@@ -642,18 +652,24 @@ async def _apply_stop_loss(application, ord: dict, state: str, price_cache: dict
     if current_price and current_price < float(ord["stop_price"]):
         cancel_ok = await exchange_adapter.cancel_order(user_id, exchange, ord["uuid"], ticker)
         if cancel_ok:
-            remaining = float(ord["volume"]) - float(ord["filled_volume"])
-            sl_price = exchange_adapter.get_exchange(exchange).adjust_price_to_tick(current_price * 0.999, ticker)
+            ex = exchange_adapter.get_exchange(exchange)
+            remaining_raw = float(ord["volume"]) - float(ord["filled_volume"])
+            remaining = ex.round_volume(remaining_raw)
+            sl_price = ex.adjust_price_to_tick(current_price * 0.999, ticker)
             sl_res = None
             for _sl_attempt in range(_STOPLOSS_PLACE_RETRIES):
-                sl_res = await exchange_adapter.create_order(
-                    user_id, exchange, ticker, "ask", sl_price, remaining
-                )
+                try:
+                    sl_res = await exchange_adapter.create_order(
+                        user_id, exchange, ticker, "ask", sl_price, remaining
+                    )
+                except Exception as sl_err:
+                    _log.warning(f"Stop-loss create_order attempt {_sl_attempt+1} failed: {sl_err}")
+                    sl_res = None
                 if sl_res and "uuid" in sl_res:
                     break
                 await asyncio.sleep(0.3)
-            order_manager.remove_order(ord["uuid"])
             if sl_res and "uuid" in sl_res:
+                order_manager.remove_order(ord["uuid"])
                 order_manager.add_order(
                     user_id, exchange, ticker, sl_res["uuid"],
                     sl_price, remaining, side="ask", strategy="stoploss",
@@ -666,9 +682,11 @@ async def _apply_stop_loss(application, ord: dict, state: str, price_cache: dict
                          f"• 손절 주문이 제출되었습니다.",
                 )
             else:
+                # 손절 주문 발행 실패 시 포지션 추적 유실 방지를 위해 remove_order 하지 않고 재시도 대기 설정
+                order_manager.update_next_check_at(ord["uuid"], time.time() + 10.0)
                 _call_append_operational_event(
                     "error", "sync_orders",
-                    f"{exchange} stop-loss order placement failed after retries (position unprotected)",
+                    f"{exchange} stop-loss order placement failed after retries (keeping order for retry)",
                     ticker,
                 )
                 await application.bot.send_message(
@@ -676,8 +694,8 @@ async def _apply_stop_loss(application, ord: dict, state: str, price_cache: dict
                     text=f"🚨 [{ticker}] 손절 주문 발행 실패\n"
                          f"• 현재가: {current_price:,.0f}원\n"
                          f"• 손절 기준가: {float(ord['stop_price']):,.0f}원\n"
-                         f"• 기존 익절 주문은 취소되었으나 손절 매도가 접수되지 않았습니다.\n"
-                         f"• ⚠️ 잔량이 무방비 상태입니다. 즉시 수동으로 매도해 주세요.",
+                         f"• 기존 익절 주문은 취소되었으나 손절 매도가 접수되지 않아 잠시 후 재시도합니다.\n"
+                         f"• ⚠️ 지속 실패 시 즉시 수동으로 매도해 주세요.",
                 )
         return True
 
@@ -702,9 +720,28 @@ async def _process_order_fill(application, ord: dict, res: dict, ex_obj) -> None
                 keep_order_for_retry = True
                 return
             if outcome in ("no_price", "failed"):
-                keep_order_for_retry = True
-            elif outcome == "external_sold":
-                keep_order_for_retry = False
+                fails = _linked_sell_failures.get(ord["uuid"], 0) + 1
+                _linked_sell_failures[ord["uuid"]] = fails
+                if fails >= _LINKED_SELL_FAIL_LIMIT:
+                    _linked_sell_failures.pop(ord["uuid"], None)
+                    keep_order_for_retry = False
+                    _call_append_operational_event(
+                        "error", "sync_orders",
+                        f"{exchange} linked sell order creation failed {fails}x ({outcome}), giving up",
+                        ticker,
+                    )
+                    await application.bot.send_message(
+                        chat_id=user_id,
+                        text=f"🛑 [{exchange.upper()}] {ticker} 연동 익절 매도 생성 {fails}회 실패로 자동 생성을 중단합니다.\n"
+                             f"• 사유: {outcome}\n"
+                             f"체결된 잔고를 확인하고 수동으로 매도해 주세요.",
+                    )
+                else:
+                    keep_order_for_retry = True
+            else:
+                _linked_sell_failures.pop(ord["uuid"], None)
+                if outcome == "external_sold":
+                    keep_order_for_retry = False
         else:
             # 시장가 매수(DCA/SDCA 등)로 인해 발주 시점 추정 수량(volume)과 실제 거래소 체결 수량(exec_vol)이
             # 다를 수 있으므로, 시장가 주문에 한해 완료(done) 시점에 실제 체결 수량으로 주문 volume을 보정하여 일치시킨다.
@@ -758,6 +795,26 @@ async def _process_order_fill(application, ord: dict, res: dict, ex_obj) -> None
                 and (is_strategy_order(ord) or ord.get("auto_reorder"))
                 and not strategy_name.startswith("kospi_top")
             ):
+                # 만료/취소로 재주문 대기 전환 전, 신규 부분 체결분이 있다면 체결 로그 기록
+                new_fill_vol = exec_vol - current_filled
+                if new_fill_vol > 0:
+                    extra_kw = {}
+                    if ord.get("group_no") is not None:
+                        extra_kw["group_no"] = ord["group_no"]
+                    if ord.get("template_id") is not None:
+                        extra_kw["template_id"] = ord["template_id"]
+                    _call_append_trade(
+                        user_id=user_id,
+                        exchange=exchange,
+                        ticker=ticker,
+                        side=ord["side"],
+                        price=ord["price"],
+                        volume=float(new_fill_vol),
+                        strategy=ord.get("strategy", "manual"),
+                        uuid=ord["uuid"],
+                        fee_amount=float(res.get("fee_amount") or 0),
+                        **extra_kw,
+                    )
                 next_check = ex_obj.next_check_timestamp(ticker)
                 order_manager.mark_reorder_pending(ord['uuid'], next_check)
                 order_kind = "전략" if is_strategy_order(ord) else "자동 재주문 설정"
@@ -881,30 +938,33 @@ async def sync_orders(application):
 
     orders_to_query = []
     for ord in all_orders:
-        if not order_manager.has_order(ord["uuid"]):
-            continue
-        if float(ord.get("next_check_at") or 0) > now_ts:
-            continue
+        try:
+            if not order_manager.has_order(ord["uuid"]):
+                continue
+            if float(ord.get("next_check_at") or 0) > now_ts:
+                continue
 
-        user_id = ord['user_id']
-        exchange = ord['exchange']
-        ticker = ord['ticker']
-        ex_obj = exchange_adapter.get_exchange(exchange)
+            user_id = ord['user_id']
+            exchange = ord['exchange']
+            ticker = ord['ticker']
+            ex_obj = exchange_adapter.get_exchange(exchange)
 
-        if ord.get("status") == "cancel_requested":
-            await _handle_cancel_requested(application, ord, ex_obj)
-            continue
+            if ord.get("status") == "cancel_requested":
+                await _handle_cancel_requested(application, ord, ex_obj)
+                continue
 
-        if exchange == "toss" and str(ticker).isdigit():
-            await exchange_adapter.ensure_toss_kr_calendar(user_id)
+            if exchange == "toss" and str(ticker).isdigit():
+                await exchange_adapter.ensure_toss_kr_calendar(user_id)
 
-        if await _handle_market_closed(ord, ex_obj):
-            continue
+            if await _handle_market_closed(ord, ex_obj):
+                continue
 
-        if await _submit_reserved_or_reorder(application, ord, ex_obj, ticker_cache=ticker_cache):
-            continue
+            if await _submit_reserved_or_reorder(application, ord, ex_obj, ticker_cache=ticker_cache):
+                continue
 
-        orders_to_query.append((ord, ex_obj))
+            orders_to_query.append((ord, ex_obj))
+        except Exception as ord_err:
+            _log.error(f"Error processing order {ord.get('uuid')} in pre-query phase: {ord_err}", exc_info=ord_err)
 
     async def _fetch_status(item):
         o, ex = item
@@ -919,11 +979,17 @@ async def sync_orders(application):
 
     status_results = []
     if orders_to_query:
-        status_results = await asyncio.gather(*[_fetch_status(item) for item in orders_to_query])
+        raw_results = await asyncio.gather(*[_fetch_status(item) for item in orders_to_query], return_exceptions=True)
+        for idx, res_item in enumerate(raw_results):
+            if isinstance(res_item, Exception):
+                target_ord = orders_to_query[idx][0]
+                _log.error(f"Failed to fetch status for {target_ord.get('uuid')}: {res_item}")
+            elif res_item:
+                status_results.append(res_item)
 
-    for ord, ex_obj, res in status_results:
+    async def _handle_single_status_result(ord, ex_obj, res):
         if not order_manager.has_order(ord["uuid"]):
-            continue
+            return
 
         user_id = ord['user_id']
         exchange = ord['exchange']
@@ -958,15 +1024,21 @@ async def sync_orders(application):
                         )
             else:
                 _call_append_operational_event("warning", "sync_orders", f"{exchange} get_order_status returned no result", ticker)
-            continue
+            return
 
         _get_status_check_failures().pop(ord["uuid"], None)
         state = res['state']
 
         if await _apply_stop_loss(application, ord, state, price_cache):
-            continue
+            return
 
         await _process_order_fill(application, ord, res, ex_obj)
+
+    for ord, ex_obj, res in status_results:
+        try:
+            await _handle_single_status_result(ord, ex_obj, res)
+        except Exception as post_err:
+            _log.error(f"Error handling status result for order {ord.get('uuid')}: {post_err}", exc_info=post_err)
 
     final_state = [(o['uuid'], o.get('status'), o.get('filled_volume'), o.get('stop_price')) for o in order_manager.orders]
     if initial_state != final_state:
